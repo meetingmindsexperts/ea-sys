@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### External streams, step 4: a webinar's video source (November 12)
+
+The first visible part. A partner's key still cannot be issued from the console (step 5), and not at all until the owner's steps in `docs/LIVE_STREAMING.md` §11b are done.
+
+- **New event form: "Video source"**, shown when the type is Webinar: "Our Zoom webinar" (as before) or "A partner streams from their own platform". It is chosen at creation because the Zoom webinar is made within seconds of the event
+- **A partner-produced webinar gets no Zoom webinar**, even with Zoom connected: the session and the five emails are made as usual, the viewing mode is the custom stream, and "Run provisioner" leaves it alone. It uses no Zoom licence, so it can run alongside a Zoom webinar
+- **One source of video per session** (`src/lib/webinar/video-source.ts`): the session's Zoom form, "Run provisioner" and the agent's `create_zoom_meeting` refuse a Zoom meeting on a partner-produced webinar or on a session that holds a partner's key, before Zoom is asked. The row is written under a per-session lock that issuing a partner's key takes too, so the two cannot land together; the loser's Zoom meeting is torn down
+- **The attendee page works with no Zoom webinar**: the join call answers with the stream alone (no signature, link or passcode), so the player, chat and Q&A appear. It used to answer "No Zoom meeting for this session"
+- **A partner-produced webinar cannot be switched to the Zoom embed**
+- **Deleting a session or an event** with a partner still streaming cuts that stream once the key is gone
+
 ### A confirmed speaker's Faculty registration is confirmed and complimentary (November 12)
 
 Owner: "once a speaker is confirmed ... it should auto change reg status to confirmed and payment status to complimentary". On the 4th GCC Hematology Hub 19 confirmed speakers held a registration that read Pending and Unpaid: the rows had been imported onto an ordinary type, took the database defaults, and nothing tied them to the speaker's status.

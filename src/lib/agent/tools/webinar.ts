@@ -6,6 +6,12 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { safeFetchHtml, safeFetchImage } from "@/lib/safe-fetch";
 import { uploadMedia } from "@/lib/storage";
 import { readWebinarSettings, webinarSecondRoomViolation, type SponsorEntry } from "@/lib/webinar";
+import {
+  createZoomMeetingRow,
+  isPartnerStreamExistsError,
+  ZOOM_REFUSAL_MESSAGE,
+  zoomMeetingRefusal,
+} from "@/lib/webinar/video-source";
 import { getSponsorTiers, getSponsors } from "@/lib/sponsors";
 import { saveSponsors } from "@/services/sponsor-service";
 import type { ToolExecutor } from "./_shared";
@@ -119,6 +125,18 @@ const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
       };
     }
 
+    // One source of video per session (video-source.ts): asked before Zoom is.
+    const sourceRefusal = await zoomMeetingRefusal({
+      eventId: ctx.eventId,
+      sessionId,
+      eventType: event?.eventType,
+      eventSettings: event?.settings,
+    });
+    if (sourceRefusal) {
+      apiLogger.warn({ eventId: ctx.eventId, sessionId, code: sourceRefusal.code }, "zoom:create-refused-video-source");
+      return { error: sourceRefusal.message, code: sourceRefusal.code };
+    }
+
     const duration = Math.ceil(
       (session.endTime.getTime() - session.startTime.getTime()) / 60000
     );
@@ -142,7 +160,7 @@ const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
       zoomResponse = await createZoomWebinar(ctx.organizationId, meetingParams);
     }
 
-    const zoomMeeting = await db.zoomMeeting.create({
+    const zoomMeeting = await createZoomMeetingRow({
       data: {
         sessionId,
         eventId: ctx.eventId,
@@ -155,7 +173,21 @@ const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
         duration,
         zoomResponse: JSON.parse(JSON.stringify(zoomResponse)),
       },
+    }).catch(async (err: unknown) => {
+      // A partner's stream key was issued on this session while Zoom was creating the meeting:
+      // the meeting just made has no row, so it is torn down, never left as an orphan.
+      if (!isPartnerStreamExistsError(err)) throw err;
+      const { deleteRemoteZoomMeeting } = await import("@/lib/zoom/cleanup");
+      const tornDown = await deleteRemoteZoomMeeting({
+        organizationId: ctx.organizationId,
+        meetingType: meetingType as "MEETING" | "WEBINAR" | "WEBINAR_SERIES",
+        zoomMeetingId: String(zoomResponse.id),
+        reason: "create-conflict-rollback",
+      });
+      apiLogger.warn({ eventId: ctx.eventId, sessionId, remoteTornDown: tornDown }, "zoom:create-lost-to-partner-stream");
+      return null;
     });
+    if (!zoomMeeting) return { error: ZOOM_REFUSAL_MESSAGE.PARTNER_STREAM_EXISTS, code: "PARTNER_STREAM_EXISTS" };
 
     apiLogger.info(
       { zoomMeetingId: zoomMeeting.zoomMeetingId, sessionId, meetingType, userId: ctx.userId },

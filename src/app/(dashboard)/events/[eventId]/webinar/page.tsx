@@ -248,6 +248,8 @@ export default function WebinarConsolePage() {
         toast.warning("Anchor session created. Zoom isn't configured for this organisation");
       } else if (result.zoomStatus === "failed") {
         toast.error("Anchor session created, but Zoom webinar creation failed");
+      } else if (result.zoomStatus === "external-source") {
+        toast.success("This webinar's video comes from a partner, so no Zoom webinar is created");
       } else {
         toast.success("Provisioner ran");
       }

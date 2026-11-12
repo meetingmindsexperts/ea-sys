@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { can } from "@/lib/permissions/can";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 import { sessionStream } from "@/lib/webinar/session-stream";
+import { webinarVideoSource } from "@/lib/webinar/video-source";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -155,6 +156,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
         timezone: event.timezone,
       },
       webinar,
+      // Our own Zoom webinar, or a partner streaming in ("external": then there is no Zoom webinar).
+      videoSource: webinarVideoSource(event.settings),
       // The organisation's website: the exit button when this webinar sets none.
       orgWebsite: readOrgWebsite(event.organization?.settings),
       anchorSession,
@@ -261,6 +264,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // sets the stream up itself (the same sync as Re-send) and refuses only
     // if Zoom does, with Zoom's reason. Enforced when the REQUEST sets hls;
     // the room-open POST stays the final gate.
+    // A partner-produced webinar has no Zoom to embed: its video is only ever
+    // the custom stream (video-source.ts).
+    if (validated.data.viewingMode === "zoom" && webinarVideoSource(event.settings) === "external") {
+      apiLogger.warn({ eventId, userId: session.user.id }, "webinar:zoom-mode-refused-external-source");
+      return NextResponse.json(
+        {
+          error: "This webinar's video comes from a partner's own platform, so there is no Zoom webinar to embed. It is watched as the custom stream.",
+          code: "EXTERNAL_VIDEO_SOURCE",
+        },
+        { status: 400 },
+      );
+    }
+
     if (validated.data.viewingMode === "hls") {
       const streamConfig = nextWebinar.sessionId ? await sessionStream(nextWebinar.sessionId, eventId) : null;
       if (!streamConfig) {

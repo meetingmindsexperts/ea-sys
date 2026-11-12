@@ -72,6 +72,10 @@ export type WebinarAutoRecording = "none" | "local" | "cloud";
 export type WebinarViewingMode = "zoom" | "hls";
 
 export interface WebinarSettings {
+  /** Where the video comes from (Nov 12, 2026): our own Zoom webinar (unset or "zoom"), or a
+   *  partner's own platform pushing a stream to us ("external", then no Zoom webinar exists).
+   *  Chosen when the webinar is created; read through webinarVideoSource (webinar/video-source.ts). */
+  source?: "zoom" | "external";
   autoCreated?: boolean;
   sessionId?: string;
   autoProvisionZoom?: boolean;

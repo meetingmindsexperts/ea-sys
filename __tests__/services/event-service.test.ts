@@ -198,6 +198,24 @@ describe("createEvent", () => {
     expect(mockProvision).not.toHaveBeenCalled();
   });
 
+  it("a partner-produced webinar: the source is written WITH the event, before the provisioner can read it", async () => {
+    const seen: unknown[] = [];
+    mockProvision.mockImplementation(async () => {
+      // What exists at the moment the provisioner starts.
+      seen.push(mockDb.event.create.mock.calls[0][0].data.settings);
+    });
+    await createEvent({ ...BASE, eventType: "WEBINAR", webinarSource: "external" });
+    expect(mockDb.event.create.mock.calls[0][0].data.settings).toEqual({ webinar: { source: "external" } });
+    expect(seen).toEqual([{ webinar: { source: "external" } }]);
+  });
+
+  it("our Zoom is the default and writes no settings; the source means nothing on another event type", async () => {
+    await createEvent({ ...BASE, eventType: "WEBINAR" });
+    await createEvent({ ...BASE, eventType: "WEBINAR", webinarSource: "zoom" });
+    await createEvent({ ...BASE, eventType: "CONFERENCE", webinarSource: "external" });
+    for (const call of mockDb.event.create.mock.calls) expect(call[0].data).not.toHaveProperty("settings");
+  });
+
   it("a failed seed is logged and does not undo the event", async () => {
     mockDb.ticketType.create.mockRejectedValue(new Error("db down"));
     const res = await createEvent(BASE);

@@ -9,6 +9,12 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { webinarSecondRoomViolation, readWebinarSettings } from "@/lib/webinar";
+import {
+  createZoomMeetingRow,
+  isPartnerStreamExistsError,
+  ZOOM_REFUSAL_MESSAGE,
+  zoomMeetingRefusal,
+} from "@/lib/webinar/video-source";
 import { redactZoomHostFields, withoutZoomResponse } from "@/lib/zoom-visibility";
 import {
   isZoomConfigured,
@@ -220,6 +226,21 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
+    // One source of video per session (video-source.ts): a webinar produced on
+    // a partner's platform, or a session that holds a partner's stream key,
+    // gets no Zoom meeting of ours. Asked before Zoom is, so nothing has to be
+    // torn down.
+    const sourceRefusal = await zoomMeetingRefusal({
+      eventId,
+      sessionId,
+      eventType: event.eventType,
+      eventSettings: event.settings,
+    });
+    if (sourceRefusal) {
+      apiLogger.warn({ eventId, sessionId, userId: session.user.id, code: sourceRefusal.code }, "zoom:create-refused-video-source");
+      return NextResponse.json({ error: sourceRefusal.message, code: sourceRefusal.code }, { status: 409 });
+    }
+
     // Check org has Zoom configured
     const configured = await isZoomConfigured(event.organizationId);
     if (!configured) {
@@ -279,7 +300,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // the pre-flight check intended.
     let zoomMeeting;
     try {
-      zoomMeeting = await db.zoomMeeting.create({
+      // Under the per-session lock, and refused if a partner's stream key was
+      // issued on this session meanwhile (video-source.ts).
+      zoomMeeting = await createZoomMeetingRow({
         data: {
           sessionId,
           eventId,
@@ -301,7 +324,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     } catch (err) {
       const isUniqueViolation =
         typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002";
-      if (!isUniqueViolation) throw err;
+      const lostToPartner = isPartnerStreamExistsError(err);
+      if (!isUniqueViolation && !lostToPartner) throw err;
 
       apiLogger.warn(
         { eventId, sessionId, zoomMeetingId: String(zoomResponse.id) },
@@ -320,6 +344,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           { eventId, sessionId, zoomMeetingId: String(zoomResponse.id), meetingType },
           "zoom:orphaned-remote-meeting-needs-manual-cleanup",
         );
+      }
+      if (lostToPartner) {
+        return NextResponse.json({ error: ZOOM_REFUSAL_MESSAGE.PARTNER_STREAM_EXISTS, code: "PARTNER_STREAM_EXISTS" }, { status: 409 });
       }
       return NextResponse.json(
         { error: "Session already has a Zoom meeting", code: "ZOOM_MEETING_EXISTS" },

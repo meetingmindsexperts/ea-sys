@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,8 @@ const eventSchema = z.object({
   name: z.string().min(2, "Event name must be at least 2 characters"),
   description: z.string().optional(),
   eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).optional(),
+  // A webinar's video source: our own Zoom webinar, or a partner streaming in from their platform.
+  webinarSource: z.enum(["zoom", "external"]).optional(),
   tag: z.string().optional(),
   specialty: z.string().optional(),
   startDate: z.string().min(1, "Start date is required"),
@@ -69,6 +71,7 @@ export default function NewEventPage() {
       name: "",
       description: "",
       eventType: undefined,
+      webinarSource: "zoom",
       tag: "",
       specialty: "",
       startDate: "",
@@ -80,6 +83,8 @@ export default function NewEventPage() {
     },
   });
 
+  const isWebinar = useWatch({ control: form.control, name: "eventType" }) === "WEBINAR";
+
   async function onSubmit(data: EventForm) {
     setIsLoading(true);
 
@@ -89,6 +94,9 @@ export default function NewEventPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...data,
+          // Only a webinar has a video source. It is sent WITH the create: the Zoom webinar is made
+          // within seconds of the event, so this cannot be chosen afterwards.
+          webinarSource: data.eventType === "WEBINAR" ? data.webinarSource : undefined,
           startDate: fromDatetimeLocal(data.startDate),
           endDate: fromDatetimeLocal(data.endDate),
         }),
@@ -216,6 +224,35 @@ export default function NewEventPage() {
                   )}
                 />
               </div>
+
+              {isWebinar && (
+                <FormField
+                  control={form.control}
+                  name="webinarSource"
+                  render={({ field }) => (
+                    <FormItem className="max-w-md">
+                      <FormLabel>Video source</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="webinar-source">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="zoom">Our Zoom webinar</SelectItem>
+                          <SelectItem value="external">A partner streams from their own platform</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        {field.value === "external"
+                          ? "No Zoom webinar is created. The partner is given a stream key and their video plays on the attendee page. This is chosen now and cannot be changed after the webinar is created."
+                          : "A Zoom webinar is created for this event, hosted by us."}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <FormField

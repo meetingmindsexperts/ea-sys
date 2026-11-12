@@ -207,6 +207,19 @@ describe("PUT /webinar — hls mode requires a configured live stream", () => {
     expect(mockControlLiveStream).not.toHaveBeenCalled();
   });
 
+  it("a partner-produced webinar cannot be switched to the Zoom embed: there is no Zoom to embed", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1",
+      settings: { webinar: { sessionId: "anchor1", viewingMode: "hls", source: "external" } },
+    });
+    const res = await callPut({ viewingMode: "zoom" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("EXTERNAL_VIDEO_SOURCE");
+    expect(mockUpdateEventSettings).not.toHaveBeenCalled();
+    // Other settings of the same webinar still save.
+    expect((await callPut({ lobbyMessage: "Starting soon" })).status).toBe(200);
+  });
+
   it("switching to zoom mode never checks the stream", async () => {
     mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     const res = await callPut({ viewingMode: "zoom" });

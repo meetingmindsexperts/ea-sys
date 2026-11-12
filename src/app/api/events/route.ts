@@ -17,6 +17,8 @@ const createEventSchema = z.object({
   name: z.string().min(2).max(255),
   description: z.string().max(2000).optional(),
   eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).optional(),
+  // A webinar's video source: our Zoom (default) or a partner's own platform (no Zoom webinar is made).
+  webinarSource: z.enum(["zoom", "external"]).optional(),
   tag: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
   code: z.string().max(20).optional(),
@@ -144,7 +146,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name, description, eventType, tag, specialty, code, startDate, endDate, venue, address, city, country } =
+    const { name, description, eventType, webinarSource, tag, specialty, code, startDate, endDate, venue, address, city, country } =
       validated.data;
 
     // The resulting-object rule (custom roles plan §3.2): a create under a
@@ -160,6 +162,7 @@ export async function POST(req: Request) {
       name,
       description,
       eventType: eventType ?? null,
+      webinarSource: webinarSource ?? null,
       tag,
       specialty,
       code,

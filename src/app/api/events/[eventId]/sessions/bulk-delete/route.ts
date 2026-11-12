@@ -16,6 +16,7 @@
  * ids) come back per row rather than as a failed request.
  */
 import { NextResponse } from "next/server";
+import { capturePartnerStreamsBeforeDelete } from "@/services/external-stream-service";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -136,9 +137,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       const deletedIds = deletable.map((r) => r.id);
       let deletedCount = 0;
       if (deletedIds.length > 0) {
+        // A partner's stream on a deleted session is ended once its key is gone
+        // with the row: read before the delete, cut after it.
+        const endPartnerStreams = await capturePartnerStreamsBeforeDelete({ eventId, sessionIds: deletedIds });
         const result = await db.eventSession.deleteMany({
           where: { id: { in: deletedIds }, eventId },
         });
+        await endPartnerStreams();
         deletedCount = result.count;
         refreshEventStats(eventId);
       }

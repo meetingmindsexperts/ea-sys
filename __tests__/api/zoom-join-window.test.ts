@@ -264,3 +264,81 @@ describe("zoom-join on a webinar: entitlement and the waiting room", () => {
     expect((await (await call()).json()).mode).toBe("url");
   });
 });
+
+describe("zoom-join: a partner-produced webinar has no Zoom meeting and is watched as the stream alone (Nov 12, 2026)", () => {
+  const KEY = "0123456789abcdef0123456789abcdef";
+  const liveSession = (extra: Record<string, unknown> = {}) => ({
+    id: "sess1",
+    name: "Partner webinar",
+    startTime: new Date(Date.now() - 600_000),
+    endTime: new Date(Date.now() + 3600_000),
+    status: "LIVE",
+    zoomMeeting: null,
+    externalStream: { streamKey: KEY, streamStatus: "ACTIVE" },
+    ...extra,
+  });
+  const attendee = () => {
+    mockAuth.mockResolvedValue({ user: { id: "u-att", role: "REGISTRANT", organizationId: null, email: "a@x.com" } });
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r1", attendee: { firstName: "Ada", lastName: "Lee", email: "a@x.com" } });
+  };
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://events.example.com";
+    delete process.env.HLS_CDN_BASE;
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1",
+      organizationId: ORG,
+      status: "PUBLISHED",
+      eventType: "WEBINAR",
+      settings: { webinar: { sessionId: "sess1", source: "external", viewingMode: "hls" } },
+    });
+  });
+
+  it("with the room open: the player's address and nothing of Zoom's, and no signature is ever asked for", async () => {
+    attendee();
+    mockDb.eventSession.findFirst.mockResolvedValue(liveSession());
+    const res = await call();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      mode: "stream",
+      joinUrl: "",
+      meetingType: "WEBINAR",
+      liveStreamEnabled: true,
+      hlsPlaybackUrl: `https://events.example.com/stream/live/${KEY}/index.m3u8`,
+      userName: "Ada Lee",
+    });
+    expect(body).not.toHaveProperty("signature");
+    expect(body).not.toHaveProperty("passcode");
+    expect(body).not.toHaveProperty("streamKey");
+    expect(mockSignature).not.toHaveBeenCalled();
+  });
+
+  it("with the room closed: the waiting answer, which says a stream exists but gives no address", async () => {
+    attendee();
+    // The anchor read (room check) and the session read both see a SCHEDULED session starting in ten minutes.
+    mockDb.eventSession.findFirst.mockResolvedValue(
+      liveSession({ status: "SCHEDULED", startTime: new Date(Date.now() + 600_000) }),
+    );
+    const body = await (await call()).json();
+    expect(body).toMatchObject({ mode: "waiting", liveStreamEnabled: true, meetingType: "WEBINAR" });
+    expect(body).not.toHaveProperty("hlsPlaybackUrl");
+  });
+
+  it("a session with neither a Zoom meeting nor a partner's stream still has nothing to join (404)", async () => {
+    attendee();
+    mockDb.eventSession.findFirst.mockResolvedValue(liveSession({ externalStream: null }));
+    const res = await call();
+    expect(res.status).toBe(404);
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(expect.anything(), "zoom:join-no-meeting");
+  });
+
+  it("someone not registered is refused before anything about the stream is read", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u-none", role: "REGISTRANT", organizationId: null } });
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    mockDb.eventSession.findFirst.mockResolvedValue(liveSession());
+    const res = await call();
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("NOT_REGISTERED");
+  });
+});

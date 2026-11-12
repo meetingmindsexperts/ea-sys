@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { capturePartnerStreamsBeforeDelete } from "@/services/external-stream-service";
 import { can } from "@/lib/permissions/can";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -1148,9 +1149,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       });
     }
 
+    // A partner's stream into this event is ended once its key is gone with
+    // the event (external-stream-service.ts): read before the delete, cut after it.
+    const endPartnerStreams = await capturePartnerStreamsBeforeDelete({ eventId });
     await db.event.delete({
       where: { id: eventId },
     });
+    await endPartnerStreams();
 
     apiLogger.info({ msg: "Event deleted", eventId, name: existingEvent.name, userId: session.user.id });
     // Webinar handout files live outside the database; remove them too.

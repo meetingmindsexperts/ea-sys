@@ -13,7 +13,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, mockAuth, mockApiLogger, mockZoom } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
-    eventSession: { findFirst: vi.fn() },
+    $queryRaw: vi.fn(), externalStream: { findFirst: vi.fn() },
+        eventSession: { findFirst: vi.fn() },
     zoomMeeting: { findUnique: vi.fn(), create: vi.fn() },
     auditLog: { create: vi.fn() },
   },
@@ -28,7 +29,9 @@ const { mockDb, mockAuth, mockApiLogger, mockZoom } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenantTransaction runs its callback on the same stand-in, so a write made under the
+// per-session lock (video-source.ts) is asserted on mockDb like any other.
+vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/security", () => ({
   checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
@@ -71,6 +74,9 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN", organizationId: "org1" } });
   mockDb.eventSession.findFirst.mockResolvedValue(SESSION);
   mockDb.zoomMeeting.findUnique.mockResolvedValue(null);
+  // No partner's stream key unless a test adds one (clearAllMocks keeps a mocked value).
+  mockDb.externalStream.findFirst.mockReset();
+  mockDb.externalStream.findFirst.mockResolvedValue(null);
   mockDb.auditLog.create.mockResolvedValue({});
   mockZoom.isZoomConfigured.mockResolvedValue(true);
 });
@@ -172,5 +178,47 @@ describe("POST sessions/[sessionId]/zoom — WEBINAR anchor-only guard", () => {
     const res = await POST(req({ meetingType: "MEETING" }), params("s2"));
     expect(res.status).not.toBe(409);
     expect(mockZoom.createZoomMeeting).toHaveBeenCalled();
+  });
+});
+
+describe("POST sessions/[sessionId]/zoom: one source of video per session (Nov 12, 2026)", () => {
+  const zoomWebinar = { id: 555, join_url: "j", start_url: "s", password: "p" };
+
+  it("refuses a Zoom webinar on a partner-produced webinar, before Zoom is asked (409)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      ...webinarEvent("s2"),
+      settings: { webinar: { sessionId: "s2", source: "external" } },
+    });
+    const res = await POST(req(), params("s2"));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("EXTERNAL_VIDEO_SOURCE");
+    expect(mockZoom.createZoomWebinar).not.toHaveBeenCalled();
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "EXTERNAL_VIDEO_SOURCE" }),
+      "zoom:create-refused-video-source",
+    );
+  });
+
+  it("refuses a session that holds a partner's stream key, before Zoom is asked (409)", async () => {
+    mockDb.event.findFirst.mockResolvedValue(webinarEvent("s2"));
+    mockDb.externalStream.findFirst.mockResolvedValue({ id: "x1" });
+    const res = await POST(req(), params("s2"));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("PARTNER_STREAM_EXISTS");
+    expect(mockZoom.createZoomWebinar).not.toHaveBeenCalled();
+  });
+
+  it("a key issued while Zoom was creating the webinar wins: the Zoom webinar is torn down and no row is written", async () => {
+    const { deleteRemoteZoomMeeting } = await import("@/lib/zoom/cleanup");
+    vi.mocked(deleteRemoteZoomMeeting).mockResolvedValue(true);
+    mockDb.event.findFirst.mockResolvedValue(webinarEvent("s2"));
+    mockZoom.createZoomWebinar.mockResolvedValue(zoomWebinar);
+    // Nothing at the pre-flight; the partner's row is there inside the lock.
+    mockDb.externalStream.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "x1" });
+    const res = await POST(req(), params("s2"));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("PARTNER_STREAM_EXISTS");
+    expect(mockDb.zoomMeeting.create).not.toHaveBeenCalled();
+    expect(deleteRemoteZoomMeeting).toHaveBeenCalledWith(expect.objectContaining({ zoomMeetingId: "555" }));
   });
 });

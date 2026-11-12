@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { capturePartnerStreamsBeforeDelete } from "@/services/external-stream-service";
 import { z } from "zod";
 import { SessionRole, SessionStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
@@ -275,7 +276,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       });
     }
 
+    // A partner's stream on this session is ended once its key is gone with the
+    // row (external-stream-service.ts): read before the delete, cut after it.
+    const endPartnerStreams = await capturePartnerStreamsBeforeDelete({ eventId, sessionIds: [sessionId] });
     await db.eventSession.delete({ where: { id: sessionId } });
+    await endPartnerStreams();
 
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);

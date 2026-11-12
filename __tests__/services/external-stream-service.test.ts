@@ -8,14 +8,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const { mockDb, mockLogger, control } = vi.hoisted(() => ({
   control: { isMediamtxControlConfigured: vi.fn(), disconnectPublishers: vi.fn() },
   mockDb: {
+    $queryRaw: vi.fn(),
     eventSession: { findFirst: vi.fn() },
-    externalStream: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
+    externalStream: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
     zoomMeeting: { findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenantTransaction runs its callback on the same stand-in (the locked issue, video-source.ts).
+vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/webinar/mediamtx-control", () => control);
 
@@ -23,6 +25,7 @@ process.env.STREAM_PUBLISH_SECRET = "test-stream-publish-secret";
 process.env.RTMP_INGEST_URL = "rtmp://box:1935/live/";
 
 import {
+  capturePartnerStreamsBeforeDelete,
   cutExternalStream,
   getExternalStream,
   issueExternalStream,
@@ -65,6 +68,8 @@ beforeEach(() => {
   mockDb.auditLog.create.mockResolvedValue({});
   control.isMediamtxControlConfigured.mockReturnValue(true);
   control.disconnectPublishers.mockResolvedValue({ ok: true, disconnected: 0 });
+  mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+  mockDb.$queryRaw.mockResolvedValue([]);
 });
 
 const actions = () => mockDb.auditLog.create.mock.calls.map((c) => c[0].data.action);
@@ -198,6 +203,21 @@ describe("issueExternalStream", () => {
 
   it("refuses a session that has our Zoom webinar: one source or the other", async () => {
     mockDb.eventSession.findFirst.mockResolvedValue({ id: "s1", zoomMeeting: { id: "zm1" }, externalStream: null });
+    expect(await issueExternalStream({ ...caller, now: NOW })).toMatchObject({ ok: false, code: "ZOOM_WEBINAR_EXISTS" });
+    expect(mockDb.externalStream.create).not.toHaveBeenCalled();
+  });
+
+  it("writes under the per-session lock, and a Zoom meeting created in that instant wins: no key is issued", async () => {
+    const order: string[] = [];
+    mockDb.$queryRaw.mockImplementation(async () => { order.push("lock"); return []; });
+    mockDb.zoomMeeting.findFirst.mockImplementation(async () => { order.push("look"); return null; });
+    mockDb.externalStream.create.mockImplementation(async () => { order.push("write"); return row(); });
+    expect((await issueExternalStream({ ...caller, now: NOW })).ok).toBe(true);
+    expect(order).toEqual(["lock", "look", "write"]);
+
+    // The pre-flight saw no Zoom meeting; inside the lock one is there.
+    mockDb.externalStream.create.mockClear();
+    mockDb.zoomMeeting.findFirst.mockResolvedValue({ id: "zm1" });
     expect(await issueExternalStream({ ...caller, now: NOW })).toMatchObject({ ok: false, code: "ZOOM_WEBINAR_EXISTS" });
     expect(mockDb.externalStream.create).not.toHaveBeenCalled();
   });
@@ -402,5 +422,48 @@ describe("getExternalStream", () => {
     expect(mockDb.externalStream.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { sessionId: "s1", eventId: "ev1" } }));
     mockDb.externalStream.findFirst.mockResolvedValue(null);
     expect(await getExternalStream({ eventId: "ev1", sessionId: "s1" })).toBeNull();
+  });
+});
+
+describe("capturePartnerStreamsBeforeDelete (a session or event deleted with a partner still streaming)", () => {
+  beforeEach(() => {
+    mockDb.externalStream.findMany.mockResolvedValue([{ sessionId: "s1", streamKey: KEY }]);
+  });
+
+  it("reads the keys before the delete and disconnects only when the returned function is called, after it", async () => {
+    const end = await capturePartnerStreamsBeforeDelete({ eventId: "ev1", sessionIds: ["s1", "s2"] });
+    expect(mockDb.externalStream.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { eventId: "ev1", sessionId: { in: ["s1", "s2"] } } }),
+    );
+    // Nothing is cut yet: the key still exists, and an encoder cut now would reconnect straight away.
+    expect(control.disconnectPublishers).not.toHaveBeenCalled();
+    await end();
+    expect(control.disconnectPublishers).toHaveBeenCalledWith(KEY);
+  });
+
+  it("a whole event: every partner stream of the event", async () => {
+    await (await capturePartnerStreamsBeforeDelete({ eventId: "ev1" }))();
+    expect(mockDb.externalStream.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { eventId: "ev1" } }));
+  });
+
+  it("never throws: a lookup error, a refused disconnect or an unreachable stream server must not fail the delete", async () => {
+    control.disconnectPublishers.mockResolvedValue({ ok: false, code: "UNREACHABLE", message: "x" });
+    await expect((await capturePartnerStreamsBeforeDelete({ eventId: "ev1" }))()).resolves.toBeUndefined();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1", code: "UNREACHABLE" }),
+      "external-stream:disconnect-after-delete-failed",
+    );
+    control.disconnectPublishers.mockRejectedValue(new Error("boom"));
+    await expect((await capturePartnerStreamsBeforeDelete({ eventId: "ev1" }))()).resolves.toBeUndefined();
+    mockDb.externalStream.findMany.mockRejectedValue(new Error("db down"));
+    const end = await capturePartnerStreamsBeforeDelete({ eventId: "ev1" });
+    await expect(end()).resolves.toBeUndefined();
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.anything(), "external-stream:capture-before-delete-errored");
+  });
+
+  it("no log line carries the key", async () => {
+    control.disconnectPublishers.mockResolvedValue({ ok: true, disconnected: 1 });
+    await (await capturePartnerStreamsBeforeDelete({ eventId: "ev1" }))();
+    expect(JSON.stringify([mockLogger.info.mock.calls, mockLogger.warn.mock.calls])).not.toContain(KEY);
   });
 });

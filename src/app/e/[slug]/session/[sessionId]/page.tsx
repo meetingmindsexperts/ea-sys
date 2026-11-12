@@ -88,8 +88,9 @@ const ZoomWebEmbed = dynamic(
 // ── Types mirroring the detail API response ──────────────────────
 
 interface JoinInfo {
-  /** "waiting": a webinar whose room is not open yet; nothing that admits is sent (W-02). */
-  mode: "sdk" | "url" | "waiting";
+  /** "waiting": a webinar whose room is not open yet; nothing that admits is sent (W-02).
+   *  "stream": a partner-produced webinar, watched as the stream alone; there is no Zoom to join. */
+  mode: "sdk" | "url" | "waiting" | "stream";
   sdkKey?: string;
   signature?: string;
   meetingNumber?: string;
@@ -1590,7 +1591,8 @@ function StickyCta({
 
     const renderJoinAction = () => {
       // The room is not open yet: the lobby poll admits them when it opens.
-      if (playsStream || joinInfo.mode === "waiting") return null;
+      // "stream" has no Zoom behind it, so never a join button, whatever the viewing mode says.
+      if (playsStream || joinInfo.mode === "waiting" || joinInfo.mode === "stream") return null;
       if (isJoining) {
         return (
           <div className="flex items-center gap-2">

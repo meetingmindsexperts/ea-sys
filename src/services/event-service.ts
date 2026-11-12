@@ -50,6 +50,10 @@ export interface CreateEventInput {
 
   description?: string | null;
   eventType?: EventType | null;
+  /** A WEBINAR's video source (webinar/video-source.ts). "external" = a partner streams to us and no
+   *  Zoom webinar is made. Must be set at creation: the provisioner runs within seconds. Ignored for
+   *  any other event type. */
+  webinarSource?: "zoom" | "external" | null;
   status?: EventStatus;
   /** Requested slug; slugified. Defaults to the slugified name. */
   slug?: string | null;
@@ -197,6 +201,11 @@ async function insertEvent(input: CreateEventInput, baseSlug: string): Promise<C
       status: input.status ?? "DRAFT",
       registrationTermsHtml: DEFAULT_REGISTRATION_TERMS_HTML,
       speakerAgreementHtml: DEFAULT_SPEAKER_AGREEMENT_HTML,
+      // Written WITH the event, before the provisioner below reads it: a source saved a moment
+      // later would find the Zoom webinar already made.
+      ...(input.eventType === "WEBINAR" && input.webinarSource === "external"
+        ? { settings: { webinar: { source: "external" } } }
+        : {}),
     },
   });
 

@@ -140,10 +140,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Our Zoom's stream or a partner's (session-stream.ts): what the player is given below.
     const stream = pickSessionStream(session);
 
-    if (!session.zoomMeeting) {
+    // A partner-produced webinar has no Zoom meeting of ours and is watched as
+    // the stream alone (external streams step 4). Anything else without a Zoom
+    // meeting has nothing to join.
+    const zoomMeeting = session.zoomMeeting;
+    if (!zoomMeeting && stream?.source !== "external") {
       apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "zoom:join-no-meeting");
       return NextResponse.json({ error: "No Zoom meeting for this session" }, { status: 404 });
     }
+    const meetingType = zoomMeeting?.meetingType ?? "WEBINAR";
 
     // Check timing: allow join if session is LIVE, starts within 15 minutes,
     // or event is in DRAFT mode (for testing)
@@ -194,20 +199,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({
         mode: "waiting",
         joinUrl: "",
-        meetingType: session.zoomMeeting.meetingType,
+        meetingType,
         sessionName: session.name,
         userName: attendeeName,
         userEmail: attendeeEmail,
         liveStreamEnabled: Boolean(stream),
       });
     }
-
-    // Generate SDK signature using org-level credentials
-    const sdkResult = await generateZoomSignatureForOrg(
-      event.organizationId,
-      session.zoomMeeting.zoomMeetingId,
-      0, // role = attendee
-    );
 
     // Build streaming info if live stream is enabled. HLS is CDN-served at
     // scale (HLS_CDN_BASE → CloudFront); falls back to the app origin when unset.
@@ -221,14 +219,36 @@ export async function GET(req: Request, { params }: RouteParams) {
         }
       : { liveStreamEnabled: false };
 
+    // A partner's stream: the player and nothing else. No Zoom signature, join
+    // link or passcode exists to send.
+    if (!zoomMeeting) {
+      apiLogger.info({ sessionId, eventId: event.id, userId: authSession.user.id }, "zoom:join-partner-stream");
+      return NextResponse.json({
+        mode: "stream",
+        joinUrl: "",
+        meetingType,
+        sessionName: session.name,
+        userName: attendeeName,
+        userEmail: attendeeEmail,
+        ...streamingFields,
+      });
+    }
+
+    // Generate SDK signature using org-level credentials
+    const sdkResult = await generateZoomSignatureForOrg(
+      event.organizationId,
+      zoomMeeting.zoomMeetingId,
+      0, // role = attendee
+    );
+
     if (!sdkResult) {
       // SDK not configured — fall back to join URL (opens in Zoom app)
-      apiLogger.info({ sessionId, meetingType: session.zoomMeeting.meetingType }, "zoom:join-via-url");
+      apiLogger.info({ sessionId, meetingType: zoomMeeting.meetingType }, "zoom:join-via-url");
       return NextResponse.json({
         mode: "url",
-        joinUrl: session.zoomMeeting.joinUrl,
-        passcode: session.zoomMeeting.passcode,
-        meetingType: session.zoomMeeting.meetingType,
+        joinUrl: zoomMeeting.joinUrl,
+        passcode: zoomMeeting.passcode,
+        meetingType: zoomMeeting.meetingType,
         sessionName: session.name,
         userName: attendeeName,
         userEmail: attendeeEmail,
@@ -237,7 +257,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     apiLogger.info(
-      { sessionId, meetingType: session.zoomMeeting.meetingType, userId: authSession.user.id },
+      { sessionId, meetingType: zoomMeeting.meetingType, userId: authSession.user.id },
       "zoom:join-via-sdk",
     );
 
@@ -245,11 +265,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       mode: "sdk",
       sdkKey: sdkResult.sdkKey,
       signature: sdkResult.signature,
-      meetingNumber: session.zoomMeeting.zoomMeetingId,
-      passcode: session.zoomMeeting.passcode || "",
-      meetingType: session.zoomMeeting.meetingType,
+      meetingNumber: zoomMeeting.zoomMeetingId,
+      passcode: zoomMeeting.passcode || "",
+      meetingType: zoomMeeting.meetingType,
       sessionName: session.name,
-      joinUrl: session.zoomMeeting.joinUrl,
+      joinUrl: zoomMeeting.joinUrl,
       userName: attendeeName,
       userEmail: attendeeEmail,
       ...streamingFields,

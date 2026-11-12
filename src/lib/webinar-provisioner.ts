@@ -9,12 +9,20 @@ import { updateEventSettings } from "@/lib/event-settings";
 import { enqueueWebinarSequenceForEvent } from "@/lib/webinar-email-sequence";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
+import {
+  createZoomMeetingRow,
+  isPartnerStreamExistsError,
+  webinarVideoSource,
+  zoomMeetingRefusal,
+} from "@/lib/webinar/video-source";
 
 export type ZoomProvisionStatus =
   | "created"
   | "already-attached"
   | "not-configured"
-  | "failed";
+  | "failed"
+  /** The webinar's video comes from a partner's platform: no Zoom webinar is wanted, so none was made. */
+  | "external-source";
 
 export type ProvisionResult =
   | {
@@ -80,6 +88,9 @@ export async function provisionWebinar(
     // Per-row tenant context (multi-tenancy sweep): org resolved from the row itself — the candidate sweep stays org-blind (worker precondition, see MULTI_TENANCY.md §13).
     return await runWithTenant(event.organizationId, async () => {
     const existingWebinar = readWebinarSettings(event.settings) ?? {};
+    // A partner-produced webinar has no Zoom webinar of ours (video-source.ts). Every Zoom step below
+    // is skipped for it: the anchor session and the email sequence are still made.
+    const externalSource = webinarVideoSource(event.settings) === "external";
 
     // Idempotency: if sessionId already set and points to a live session, no-op.
     // Still re-runs the sequence enqueue — that helper is itself idempotent, so
@@ -115,6 +126,16 @@ export async function provisionWebinar(
             zoomStatus: "already-attached",
             durationMs,
           };
+        }
+        // A partner-produced webinar is meant to have no Zoom webinar: "Run provisioner" on it must not
+        // attach one (review of 01bb7a80: it used to, whenever Zoom was configured).
+        if (externalSource) {
+          enqueueWebinarSequenceForEvent(event.id, options?.actorUserId).catch((err) =>
+            apiLogger.error({ err, eventId: event.id }, "webinar:sequence-enqueue-failed"),
+          );
+          const durationMs = Date.now() - startedAt;
+          apiLogger.info({ eventId, sessionId: existingSession.id, durationMs }, "webinar:provision-external-source-noop");
+          return { ok: true, sessionId: existingSession.id, zoomMeetingId: null, zoomStatus: "external-source", durationMs };
         }
         // RE-ATTACH (Aug 4, 2026): the anchor session exists but has NO Zoom
         // webinar — the organizer deleted it (e.g. to recreate it with live
@@ -258,8 +279,8 @@ export async function provisionWebinar(
 
     // Create the Zoom webinar if the org has Zoom configured
     let zoomMeetingIdForReturn: string | null = null;
-    let zoomStatus: ZoomProvisionStatus = "not-configured";
-    const zoomReady = await isZoomConfigured(event.organizationId);
+    let zoomStatus: ZoomProvisionStatus = externalSource ? "external-source" : "not-configured";
+    const zoomReady = !externalSource && (await isZoomConfigured(event.organizationId));
     if (zoomReady) {
       const zoomStartedAt = Date.now();
       try {
@@ -318,8 +339,8 @@ export async function provisionWebinar(
       }
     } else {
       apiLogger.info(
-        { eventId: event.id },
-        "webinar:zoom-not-configured-skipping-auto-provision",
+        { eventId: event.id, externalSource },
+        externalSource ? "webinar:external-source-no-zoom-webinar" : "webinar:zoom-not-configured-skipping-auto-provision",
       );
     }
 
@@ -344,9 +365,12 @@ export async function provisionWebinar(
     const nextWebinar: WebinarSettings = {
       ...(defaultToStream ? { viewingMode: "hls" as const } : {}),
       ...existingWebinar,
+      // A partner's stream is only ever watched as the custom stream: chat, the stream watchdog and
+      // the overrun rule all require that mode, and there is no Zoom to embed.
+      ...(externalSource ? { viewingMode: "hls" as const } : {}),
       autoCreated: true,
       sessionId: eventSession.id,
-      autoProvisionZoom: existingWebinar.autoProvisionZoom ?? true,
+      autoProvisionZoom: externalSource ? false : (existingWebinar.autoProvisionZoom ?? true),
       waitingRoom: existingWebinar.waitingRoom ?? false,
       autoRecording: existingWebinar.autoRecording ?? "cloud",
       automationEnabled: existingWebinar.automationEnabled ?? true,
@@ -465,6 +489,17 @@ async function attachZoomWebinarToAnchor(
   webinarSettings: WebinarSettings,
   actorUserId?: string,
 ): Promise<ZoomProvisionStatus> {
+  // Asked before Zoom is: a session that holds a partner's stream key gets no Zoom webinar of ours.
+  const refused = await zoomMeetingRefusal({
+    eventId: event.id,
+    sessionId: anchor.id,
+    eventType: "WEBINAR",
+    eventSettings: { webinar: webinarSettings },
+  });
+  if (refused) {
+    apiLogger.warn({ eventId: event.id, sessionId: anchor.id, code: refused.code }, "webinar:reattach-refused");
+    return "external-source";
+  }
   const zoomReady = await isZoomConfigured(event.organizationId);
   if (!zoomReady) {
     apiLogger.info({ eventId: event.id }, "webinar:reattach-zoom-not-configured");
@@ -492,7 +527,9 @@ async function attachZoomWebinarToAnchor(
   }
 
   try {
-    await db.zoomMeeting.create({
+    // Under the per-session lock: a partner's key issued on this session in the same instant wins,
+    // and the catch below tears the just-made Zoom webinar down (video-source.ts).
+    await createZoomMeetingRow({
       data: {
         sessionId: anchor.id,
         eventId: event.id,
@@ -525,6 +562,11 @@ async function attachZoomWebinarToAnchor(
     if (isUniqueRace) {
       apiLogger.warn({ err, eventId: event.id, sessionId: anchor.id }, "webinar:reattach-lost-race");
       return "already-attached";
+    }
+    // A partner's stream key was issued on this session while Zoom was creating the webinar.
+    if (isPartnerStreamExistsError(err)) {
+      apiLogger.warn({ eventId: event.id, sessionId: anchor.id, remoteTornDown: tornDown }, "webinar:reattach-partner-stream-exists");
+      return "external-source";
     }
     apiLogger.error(
       { err, eventId: event.id, sessionId: anchor.id, remoteTornDown: tornDown },

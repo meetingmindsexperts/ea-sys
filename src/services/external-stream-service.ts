@@ -40,12 +40,13 @@
  * the route's own catch. Never imports next/server. The caller has already
  * authorised the event (webinar.manage).
  */
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { externalStreamCredentials } from "@/lib/webinar/external-stream";
 import { isPartnerPublishSecretSet, newStreamKey } from "@/lib/webinar/livestream";
 import { disconnectPublishers, isMediamtxControlConfigured, type DisconnectResult } from "@/lib/webinar/mediamtx-control";
 import { externalStreamValidUntil } from "@/lib/webinar/session-stream";
+import { lockSessionVideoSource, ZoomMeetingExistsError } from "@/lib/webinar/video-source";
 
 /** Staff in the dashboard only. A partner's key is never issued or shown to the agent or an API key. */
 export type ExternalStreamSource = "rest";
@@ -105,6 +106,9 @@ export type ExternalStreamResult =
   | { ok: false; code: ExternalStreamErrorCode; message: string };
 
 const ISSUED_TO_MAX = 200;
+const ALREADY_ISSUED_MESSAGE = "This session already has a partner stream. Replace its key instead.";
+const ZOOM_WEBINAR_EXISTS_MESSAGE =
+  "This session has a Zoom webinar. A session streams from our Zoom or from a partner, not both: remove the Zoom webinar first.";
 
 const ROW_SELECT = {
   id: true,
@@ -250,37 +254,37 @@ export async function issueExternalStream(
     select: { id: true, zoomMeeting: { select: { id: true } }, externalStream: { select: { id: true } } },
   });
   if (!session) return refuse(input, "issue", "SESSION_NOT_FOUND", "Session not found.");
-  if (session.externalStream) {
-    return refuse(input, "issue", "ALREADY_ISSUED", "This session already has a partner stream. Replace its key instead.");
-  }
-  if (session.zoomMeeting) {
-    return refuse(
-      input,
-      "issue",
-      "ZOOM_WEBINAR_EXISTS",
-      "This session has a Zoom webinar. A session streams from our Zoom or from a partner, not both: remove the Zoom webinar first.",
-    );
-  }
+  if (session.externalStream) return refuse(input, "issue", "ALREADY_ISSUED", ALREADY_ISSUED_MESSAGE);
+  if (session.zoomMeeting) return refuse(input, "issue", "ZOOM_WEBINAR_EXISTS", ZOOM_WEBINAR_EXISTS_MESSAGE);
 
   let row: Row;
   try {
-    row = await db.externalStream.create({
-      data: {
-        sessionId: input.sessionId,
-        eventId: input.eventId,
-        organizationId: input.organizationId,
-        streamKey: newStreamKey(),
-        validFrom: now,
-        validUntil: input.validUntil ?? null,
-        issuedTo: cleanIssuedTo(input.issuedTo),
-        createdByUserId: input.userId,
-      },
-      select: ROW_SELECT,
+    // The write takes the per-session lock that creating our Zoom meeting's row takes too
+    // (video-source.ts) and looks again inside it: the check above and this create are two
+    // statements, and a Zoom meeting created between them would leave the session with both.
+    row = await tenantTransaction(async (tx) => {
+      await lockSessionVideoSource(tx, input.sessionId);
+      const zoom = await tx.zoomMeeting.findFirst({ where: { sessionId: input.sessionId }, select: { id: true } });
+      if (zoom) throw new ZoomMeetingExistsError();
+      return tx.externalStream.create({
+        data: {
+          sessionId: input.sessionId,
+          eventId: input.eventId,
+          organizationId: input.organizationId,
+          streamKey: newStreamKey(),
+          validFrom: now,
+          validUntil: input.validUntil ?? null,
+          issuedTo: cleanIssuedTo(input.issuedTo),
+          createdByUserId: input.userId,
+        },
+        select: ROW_SELECT,
+      });
     });
   } catch (err) {
+    if (err instanceof ZoomMeetingExistsError) return refuse(input, "issue", "ZOOM_WEBINAR_EXISTS", ZOOM_WEBINAR_EXISTS_MESSAGE);
     // Two people issuing at once: the session's unique row already exists.
     if ((err as { code?: string }).code !== "P2002") throw err;
-    return refuse(input, "issue", "ALREADY_ISSUED", "This session already has a partner stream. Replace its key instead.");
+    return refuse(input, "issue", "ALREADY_ISSUED", ALREADY_ISSUED_MESSAGE);
   }
   apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "external-stream:issued");
   await audit(input, "EXTERNAL_STREAM_ISSUED", row.id, {
@@ -388,4 +392,50 @@ export async function updateExternalStreamDetails(
     ...(input.validUntil !== undefined ? { validUntil: row.validUntil?.toISOString() ?? "follows the session" } : {}),
   });
   return { ok: true, externalStream: toView(row) };
+}
+
+/**
+ * Around the delete of a session or a whole event: end every partner stream
+ * running on it (review of a6ec7911). The delete removes the ExternalStream
+ * row with the session, and the minute sweep never cuts a stream whose key it
+ * cannot find, so without this a partner's encoder would go on publishing to
+ * a webinar that no longer exists.
+ *
+ * Two halves, because the order matters. Call this BEFORE the delete: it reads
+ * the keys while their rows still exist. Call the function it returns AFTER
+ * the delete: by then the key is unknown, so the encoder's automatic reconnect
+ * is refused. Disconnecting first would let it straight back in.
+ *
+ * Best effort and never throws: a delete must not fail because the stream
+ * server did not answer. A failure is logged with the session it concerns.
+ */
+export async function capturePartnerStreamsBeforeDelete(at: {
+  eventId: string;
+  sessionIds?: string[];
+}): Promise<() => Promise<void>> {
+  let rows: { sessionId: string; streamKey: string }[] = [];
+  try {
+    rows = await db.externalStream.findMany({
+      where: { eventId: at.eventId, ...(at.sessionIds ? { sessionId: { in: at.sessionIds } } : {}) },
+      select: { sessionId: true, streamKey: true },
+    });
+  } catch (err) {
+    apiLogger.error({ err, eventId: at.eventId }, "external-stream:capture-before-delete-errored");
+  }
+  return async () => {
+    for (const row of rows) await endDeletedStream(at.eventId, row);
+  };
+}
+
+async function endDeletedStream(eventId: string, row: { sessionId: string; streamKey: string }): Promise<void> {
+  try {
+    const result = await disconnectPublishers(row.streamKey);
+    if (!result.ok) {
+      apiLogger.warn({ eventId, sessionId: row.sessionId, code: result.code }, "external-stream:disconnect-after-delete-failed");
+      return;
+    }
+    if (result.disconnected > 0) apiLogger.info({ eventId, sessionId: row.sessionId }, "external-stream:disconnected-after-delete");
+  } catch (err) {
+    apiLogger.error({ err, eventId, sessionId: row.sessionId }, "external-stream:disconnect-after-delete-errored");
+  }
 }

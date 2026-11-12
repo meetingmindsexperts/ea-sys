@@ -19,6 +19,7 @@ const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, m
       state,
       mockDb: {
         event: { findUnique: vi.fn() },
+        $queryRaw: vi.fn(), externalStream: { findFirst: vi.fn() },
         eventSession: { findFirst: vi.fn(), create: vi.fn() },
         zoomMeeting: { create: vi.fn(), findUnique: vi.fn() },
       },
@@ -32,7 +33,9 @@ const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, m
     };
   });
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenantTransaction runs its callback on the same stand-in, so a write made under the
+// per-session lock (video-source.ts) is asserted on mockDb like any other.
+vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/event-settings", () => ({ updateEventSettings: mockUpdateEventSettings }));
 vi.mock("@/lib/zoom", () => ({
@@ -99,6 +102,9 @@ beforeEach(() => {
   mockDb.eventSession.create.mockResolvedValue({ id: "anchor1" });
   mockDb.eventSession.findFirst.mockResolvedValue(null);
   mockDb.zoomMeeting.findUnique.mockResolvedValue(null);
+  // No partner's stream key unless a test adds one (clearAllMocks keeps a mocked value).
+  mockDb.externalStream.findFirst.mockReset();
+  mockDb.externalStream.findFirst.mockResolvedValue(null);
   mockZoom.isZoomConfigured.mockResolvedValue(false); // Zoom off ⇒ shorter happy path
   mockLiveStream.mockResolvedValue({ ok: true, action: "sync", streamKey: "k" });
 });
@@ -447,5 +453,94 @@ describe("provisionWebinar — a new webinar starts in Custom stream (Oct 6, 202
     await provisionWebinar("ev1");
     expect(mockLiveStream).not.toHaveBeenCalled();
     expect(webinarSettings()?.viewingMode).toBeUndefined();
+  });
+});
+
+describe("provisionWebinar: a partner-produced webinar (external video source, Nov 12, 2026)", () => {
+  const ZOOM_WEBINAR = { id: 999, join_url: "https://zoom.us/j/999", start_url: "https://zoom.us/s/999", password: "pw" };
+
+  beforeEach(() => {
+    mockZoom.isZoomConfigured.mockResolvedValue(true); // Zoom IS connected: the source alone must stop it.
+    mockZoom.createZoomWebinar.mockResolvedValue(ZOOM_WEBINAR);
+    mockDb.zoomMeeting.create.mockResolvedValue({ zoomMeetingId: "999" });
+  });
+
+  it("makes the anchor session and the email sequence, and NO Zoom webinar, even with Zoom connected", async () => {
+    state.settings = { webinar: { source: "external" } };
+    const res = await provisionWebinar("ev1");
+    expect(res).toMatchObject({ ok: true, sessionId: "anchor1", zoomMeetingId: null, zoomStatus: "external-source" });
+    expect(mockDb.eventSession.create).toHaveBeenCalledTimes(1);
+    expect(mockZoom.createZoomWebinar).not.toHaveBeenCalled();
+    expect(mockDb.zoomMeeting.create).not.toHaveBeenCalled();
+    expect(mockLiveStream).not.toHaveBeenCalled();
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves it as the custom stream with Zoom provisioning off, keeps the source, and alerts nobody about a missing Zoom room", async () => {
+    state.settings = { webinar: { source: "external" } };
+    await provisionWebinar("ev1");
+    expect(webinarSettings()).toMatchObject({
+      source: "external",
+      viewingMode: "hls",
+      autoProvisionZoom: false,
+      sessionId: "anchor1",
+      autoCreated: true,
+    });
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  it("'Run provisioner' on it attaches nothing: the anchor exists without Zoom on purpose", async () => {
+    state.settings = { webinar: { source: "external", sessionId: "anchor1", viewingMode: "hls" } };
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "anchor1",
+      startTime: EVENT.startDate,
+      endTime: EVENT.endDate,
+      zoomMeeting: null,
+    });
+    const res = await provisionWebinar("ev1");
+    expect(res).toMatchObject({ ok: true, sessionId: "anchor1", zoomStatus: "external-source", zoomMeetingId: null });
+    expect(mockZoom.createZoomWebinar).not.toHaveBeenCalled();
+    expect(mockDb.eventSession.create).not.toHaveBeenCalled();
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("our own Zoom stays the default: without the source a Zoom webinar is made as before", async () => {
+    const res = await provisionWebinar("ev1");
+    expect(res).toMatchObject({ ok: true, zoomStatus: "created" });
+    expect(mockZoom.createZoomWebinar).toHaveBeenCalledTimes(1);
+  });
+
+  describe("re-attach on a session that holds a partner's stream key", () => {
+    beforeEach(() => {
+      state.settings = { webinar: { sessionId: "anchor1" } };
+      mockDb.eventSession.findFirst.mockResolvedValue({
+        id: "anchor1",
+        startTime: EVENT.startDate,
+        endTime: EVENT.endDate,
+        zoomMeeting: null,
+      });
+    });
+
+    it("is refused BEFORE Zoom is asked", async () => {
+      mockDb.externalStream.findFirst.mockResolvedValue({ id: "x1" });
+      const res = await provisionWebinar("ev1");
+      expect(res).toMatchObject({ ok: true, zoomStatus: "external-source" });
+      expect(mockZoom.createZoomWebinar).not.toHaveBeenCalled();
+      expect(mockApiLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "PARTNER_STREAM_EXISTS" }),
+        "webinar:reattach-refused",
+      );
+    });
+
+    it("a key issued while Zoom was creating the webinar wins: the new Zoom webinar is torn down, no row written", async () => {
+      // Pre-flight sees nothing; inside the lock the partner's row is there.
+      mockDb.externalStream.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "x1" });
+      const res = await provisionWebinar("ev1");
+      expect(res).toMatchObject({ ok: true, zoomStatus: "external-source" });
+      expect(mockZoom.createZoomWebinar).toHaveBeenCalledTimes(1);
+      expect(mockDb.zoomMeeting.create).not.toHaveBeenCalled();
+      expect(mockDeleteRemote).toHaveBeenCalledWith(expect.objectContaining({ zoomMeetingId: "999" }));
+      expect(mockDb.$queryRaw).toHaveBeenCalled(); // the per-session lock
+    });
   });
 });
