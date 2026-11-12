@@ -79,9 +79,17 @@ nothing. The first two are HIGH and waiting on the owner.**
 built-in one.~~ DECIDED Nov 12, 2026: no "Move to Faculty" feature.** The ordinary type
 itself is made a Faculty type by a one-off script, `scripts/adopt-ordinary-faculty-type.ts`
 (dry run by default), which also settles the registrations on it and cancels those of
-speakers who declined. **Waiting on the owner: run it on production for the 4th GCC
-Hematology Hub** (`docker exec ea-sys-worker npx tsx scripts/adopt-ordinary-faculty-type.ts
---event cmr948otw0001s401fcy5wlnr`, then again with `--write`). From then on a speaker
+speakers who declined. **Waiting on the owner: run it on production**, each first
+without `--write` to read the plan:
+`docker exec ea-sys-worker npx tsx scripts/adopt-ordinary-faculty-type.ts --all-upcoming`
+(on Nov 12: the 4th GCC Hematology Hub with 34 registrations, and the empty "Faculty"
+types of HEMNET 2026 and Big Sky 2027), and for the Annual Benign Hematology League
+Summit, whose type is called "Symposium Speaker":
+`... --event cmrj3r7c7000vk4018ulb0kpl --type cmupktv7j000co801gofja1ge` (4 registrations, all
+checked in and complimentary, so only the type changes and they leave the delegate
+count). Completed events with a "Faculty" or "Speaker" type that nobody asked to change:
+Pan Hematology Summit, Emirates Hematology Best Practices Update, Multiple Myeloma
+Forum, Cold Agglutinin Disease, Best of EHA in CLL. From then on a speaker
 set to Confirmed settles their Faculty registration by itself (`settleFacultyRegistration`).
 Left for the owner by hand: three GCC Hub speakers sit on the Physician type, Unpaid at
 150 (reg 028, 043, 044); the rule does not touch a delegate type, the door will refuse

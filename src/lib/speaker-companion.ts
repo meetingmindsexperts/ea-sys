@@ -35,23 +35,42 @@ const MONEY_PAYMENT_STATUSES = ["PAID", "PENDING", "REFUNDED", "FAILED", "INCLUS
  * delegates, so it is only done when the type is free (type, virtual and every
  * tier at 0) and no registration on it carries money.
  */
+const ADOPTION_CHECK_SELECT = {
+  id: true,
+  price: true,
+  virtualPrice: true,
+  pricingTiers: { where: { price: { gt: 0 } }, select: { id: true }, take: 1 },
+  _count: { select: { registrations: { where: { paymentStatus: { in: [...MONEY_PAYMENT_STATUSES] } } } } },
+} satisfies Prisma.TicketTypeSelect;
+
+type AdoptionCheckRow = Prisma.TicketTypeGetPayload<{ select: typeof ADOPTION_CHECK_SELECT }>;
+
+/** Why an ordinary type cannot become a Faculty type, or null when it can. THE test, for every caller. */
+function adoptionBlock(type: AdoptionCheckRow): "priced" | "paid-registrations" | null {
+  const priced = Number(type.price) > 0 || Number(type.virtualPrice ?? 0) > 0 || type.pricingTiers.length > 0;
+  if (priced) return "priced";
+  return type._count.registrations > 0 ? "paid-registrations" : null;
+}
+
 export async function adoptableFacultyType(eventId: string): Promise<{ id: string } | { blocked: string } | null> {
   const leftover = await db.ticketType.findFirst({
     where: { eventId, isFaculty: false, name: { equals: "Faculty", mode: "insensitive" } },
-    select: {
-      id: true,
-      price: true,
-      virtualPrice: true,
-      pricingTiers: { where: { price: { gt: 0 } }, select: { id: true }, take: 1 },
-      _count: { select: { registrations: { where: { paymentStatus: { in: [...MONEY_PAYMENT_STATUSES] } } } } },
-    },
+    select: ADOPTION_CHECK_SELECT,
     orderBy: { createdAt: "asc" },
   });
   if (!leftover) return null;
-  const priced = Number(leftover.price) > 0 || Number(leftover.virtualPrice ?? 0) > 0 || leftover.pricingTiers.length > 0;
-  if (priced) return { blocked: "priced" };
-  if (leftover._count.registrations > 0) return { blocked: "paid-registrations" };
-  return { id: leftover.id };
+  const blocked = adoptionBlock(leftover);
+  return blocked ? { blocked } : { id: leftover.id };
+}
+
+/**
+ * The same test for a type an operator NAMES (the one-off script's --type):
+ * the name is theirs to judge ("Symposium Speaker" on one event), the money
+ * rule is not. "not-found" when the type is not an ordinary type of the event.
+ */
+export async function facultyAdoptionBlockFor(eventId: string, ticketTypeId: string): Promise<"priced" | "paid-registrations" | "not-found" | null> {
+  const type = await db.ticketType.findFirst({ where: { id: ticketTypeId, eventId, isFaculty: false }, select: ADOPTION_CHECK_SELECT });
+  return type ? adoptionBlock(type) : "not-found";
 }
 
 /**

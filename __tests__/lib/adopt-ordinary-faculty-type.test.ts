@@ -23,6 +23,13 @@ describe("planRow", () => {
     expect(planRow({ status: "PENDING", paymentStatus: "UNPAID" }, status)).toBe("cancel");
     expect(planRow({ status: "CONFIRMED", paymentStatus: "COMPLIMENTARY" }, status)).toBe("cancel");
   });
+  // An event that has ended: cancelling afterwards would rewrite who attended.
+  it("never cancels on an event that has ended, and still settles there", () => {
+    expect(planRow({ status: "PENDING", paymentStatus: "UNPAID" }, "DECLINED", true)).toBe("leave");
+    expect(planRow({ status: "CHECKED_IN", paymentStatus: "COMPLIMENTARY" }, "CANCELLED", true)).toBe("leave");
+    expect(planRow({ status: "PENDING", paymentStatus: "UNPAID" }, "CONFIRMED", true)).toBe("settle");
+  });
+
   it("leaves what is already in line, and anything already cancelled", () => {
     expect(planRow({ status: "CONFIRMED", paymentStatus: "COMPLIMENTARY" }, "CONFIRMED")).toBe("leave");
     expect(planRow({ status: "CANCELLED", paymentStatus: "UNPAID" }, "DECLINED")).toBe("leave");
