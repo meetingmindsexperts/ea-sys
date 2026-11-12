@@ -192,6 +192,36 @@ describe("executeBulkEmail — certificate audience scoping", () => {
     expect(res).toMatchObject({ successCount: 1, failureCount: 0, skippedCount: 2 });
   });
 
+  // Production, Nov 12, 2026: a certificate sent from Communications with two colleagues on CC
+  // and "send a copy to me" reached none of them. The filters were saved on the send and this
+  // branch returned before anything read them.
+  it("hands the dialog's CC, BCC and send-a-copy-to-me to the certificate send", async () => {
+    mockCertBulkSend.mockResolvedValue(CERT_RESULT);
+    await executeBulkEmail({
+      ...BASE_INPUT,
+      filters: {
+        certificateTemplateIds: ["tpl-1"],
+        cc: ["Lina@X.com", "zaid@x.com"],
+        bcc: ["watch@x.com", "zaid@x.com"],
+        bccSelf: true,
+      },
+    });
+    expect(mockCertBulkSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // An address on both lists stays CC only; the organiser is the copy-to-me.
+        observers: { manualCc: ["lina@x.com", "zaid@x.com"], bcc: ["watch@x.com", "org@x.com"] },
+      }),
+    );
+  });
+
+  it("a certificate send with no CC or BCC hands over empty lists", async () => {
+    mockCertBulkSend.mockResolvedValue(CERT_RESULT);
+    await executeBulkEmail(BASE_INPUT);
+    expect(mockCertBulkSend).toHaveBeenCalledWith(
+      expect.objectContaining({ observers: { manualCc: [], bcc: [] } }),
+    );
+  });
+
   it("excludes CANCELLED from a SURVEY invitation too (2026-07-13)", async () => {
     // The survey tile no longer pre-filters to CHECKED_IN: completing the
     // survey is what stamps `surveyCompletedAt`, which triggers certificate

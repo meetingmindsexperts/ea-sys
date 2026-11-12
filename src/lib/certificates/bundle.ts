@@ -36,6 +36,7 @@ import {
   inlineCss,
   brandingFrom,
   brandingCc,
+  observerBcc,
   getEventTemplate,
   type EmailBranding,
 } from "@/lib/email";
@@ -926,6 +927,10 @@ export async function sendCertificateBundleEmail(args: {
    *  the cover email. Leave undefined when the caller does not hold it: the
    *  sender loads it. null = the person has none. */
   recipientAdditionalEmail?: string | null;
+  /** A Communications send's manual CC and BCC observers (trimmed, lowercased). The recipient
+   *  is never copied on their own email, and nobody on the CC is also BCC'd (observerBcc). */
+  extraCc?: string[];
+  bcc?: string[];
   registrationId: string | null;
   speakerId: string | null;
   certs: BundleEmailCert[];
@@ -983,13 +988,15 @@ export async function sendCertificateBundleEmail(args: {
   const speakerAnchored =
     Boolean(args.speakerId) &&
     (args.certs.some((c) => c.type === "APPRECIATION") || !args.registrationId);
+  const cc = brandingCc(branding, [{ email: args.recipientEmail }], [additionalEmail, ...(args.extraCc ?? [])]);
   return sendEmail({
     to: [{ email: args.recipientEmail, name: args.recipientName }],
     subject,
     htmlContent: wrappedHtml,
     textContent: bodyText,
     from: brandingFrom(branding),
-    cc: brandingCc(branding, [{ email: args.recipientEmail }], [additionalEmail]),
+    cc,
+    bcc: observerBcc(args.bcc ?? [], { email: args.recipientEmail }, cc),
     stream: args.stream ?? "transactional",
     attachments: args.certs.map((c) => ({
       name: `${c.serial}.pdf`,

@@ -136,6 +136,16 @@ describe("executeCertificateBulkSend", () => {
     );
   });
 
+  it("hands the send's manual CC and BCC to the sender for every recipient (Nov 12, 2026)", async () => {
+    await executeCertificateBulkSend({
+      ...BASE,
+      observers: { manualCc: ["lina@x.com", "zaid@x.com"], bcc: ["org@x.com"] },
+    });
+    expect(mockBundleSend).toHaveBeenCalledWith(
+      expect.objectContaining({ extraCc: ["lina@x.com", "zaid@x.com"], bcc: ["org@x.com"] }),
+    );
+  });
+
   it("bundles cross-category certs into ONE email when both facets are assigned", async () => {
     mockLinkedSpeaker.mockResolvedValue({ id: "spk-1", linkedBy: "pointer" });
     const res = await executeCertificateBulkSend(BASE);

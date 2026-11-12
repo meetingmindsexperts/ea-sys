@@ -3,7 +3,7 @@ import { z } from "zod";
 import { MAX_MANUAL_CC } from "@/lib/email-address-list";
 import { db } from "./db";
 import { apiLogger } from "./logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, type EmailBranding, eventLocationVars, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, observerBcc, type EmailBranding, eventLocationVars, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
 import { readRegistrationBasePrice } from "./registration-financials";
 import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 import {
@@ -1286,6 +1286,30 @@ function bulkEntityTypeFor(recipientType: string): "SPEAKER" | "REGISTRATION" | 
 }
 
 /**
+ * A bulk send's manual CC and its BCC observers, trimmed and lowercased.
+ *
+ * BCC is `filters.bcc` plus, for "send a copy to me" (`filters.bccSelf`), the triggering
+ * organiser. That is resolved HERE, at send time, so a scheduled send rebuilds it from the saved
+ * filters alone. Manual CC (Oct 2, 2026) is merged into each email's CC with the event's CC list
+ * and the recipient's additional email. An address in both lists stays CC only.
+ *
+ * ONE reader for every kind of bulk send. The certificate send returns before the template
+ * pipeline and used to return before this was read, so its CC and BCC were accepted by the
+ * dialog, saved on the send, and never used (Nov 12, 2026).
+ */
+export function resolveBulkObservers(
+  filters: { cc?: string[]; bcc?: string[]; bccSelf?: boolean } | undefined,
+  organizerEmail: string | undefined,
+): { manualCc: string[]; bcc: string[] } {
+  const clean = (list: string[] | undefined) => (list ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const manualCc = clean(filters?.cc);
+  const bcc = new Set(clean(filters?.bcc));
+  if (filters?.bccSelf && organizerEmail) bcc.add(organizerEmail.trim().toLowerCase());
+  for (const e of manualCc) bcc.delete(e);
+  return { manualCc, bcc: [...bcc] };
+}
+
+/**
  * Resolves recipients, loads template, renders per-recipient, and dispatches in batches.
  * Used by both the immediate-send route and the cron worker for scheduled sends.
  *
@@ -1644,6 +1668,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       onBatchEmailed,
       // C5: same between-batch cancel/ownership check as the non-cert path.
       shouldContinue,
+      // The dialog's CC, BCC and "send a copy to me" (Nov 12, 2026). This branch returns before
+      // the template pipeline, and until now it returned before they were read at all: a
+      // certificate sent from Communications with Lina and Zaid on CC reached neither.
+      observers: resolveBulkObservers(filters, organizerEmail),
     });
   }
 
@@ -2410,20 +2438,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // filter). Certificate sends returned early above with the same keys passed
   // through — executeCertificateBulkSend applies the identical skip (A4).
   const alreadyEmailed = new Set(alreadyEmailedKeys ?? []);
-  // BCC observers: manual filters.bcc + "send a copy to me" (filters.bccSelf
-  // resolves to the triggering organizer HERE, at send time, so scheduled
-  // sends reconstruct it from the persisted filters JSON alone). Computed
-  // once; each recipient's own address is excluded below so nobody is
-  // BCC'd on their own email.
-  const bccSet = new Set(
-    (input.filters?.bcc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean),
-  );
-  if (input.filters?.bccSelf && organizerEmail) bccSet.add(organizerEmail.trim().toLowerCase());
-  // Manual CC (Oct 2, 2026): merged into each email's CC with the event-wide
-  // CC and the recipient's additional email (brandingCc dedupes and never CCs
-  // the recipient on their own email). An address in both lists stays CC only.
-  const manualCc = (input.filters?.cc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
-  for (const e of manualCc) bccSet.delete(e);
+  // The send's manual CC and BCC observers. Computed once; each recipient's own address is
+  // excluded per email (observerBcc), so nobody is BCC'd on their own email.
+  const { manualCc, bcc: bccObservers } = resolveBulkObservers(input.filters, organizerEmail);
 
   let toSend = alreadyEmailed.size
     ? recipients.filter((r) => !alreadyEmailed.has(r.id))
@@ -2605,13 +2622,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           }
 
           const bulkEntityType = bulkEntityTypeFor(recipientType);
-          const bccRecipients = [...bccSet]
-            .filter((e) => e !== recipient.email.trim().toLowerCase())
-            .map((email) => ({ email }));
+          const recipientCc = brandingCc(branding, [{ email: recipient.email }], [recipient.additionalEmail, ...manualCc]);
           const result = await sendEmail({
             to: [{ email: recipient.email, name: `${recipient.firstName} ${recipient.lastName}` }],
-            cc: brandingCc(branding, [{ email: recipient.email }], [recipient.additionalEmail, ...manualCc]),
-            bcc: bccRecipients.length ? bccRecipients : undefined,
+            cc: recipientCc,
+            bcc: observerBcc(bccObservers, recipient, recipientCc),
             subject: emailContent.subject,
             htmlContent: emailContent.htmlContent,
             textContent: emailContent.textContent,

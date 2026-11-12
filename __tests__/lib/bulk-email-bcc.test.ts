@@ -157,6 +157,15 @@ describe("executeBulkEmail — BCC observers", () => {
   });
 });
 
+describe("observers on a non-certificate send", () => {
+  it("an address already on an email's CC is not also BCC'd on it", async () => {
+    // brandingCc is mocked in this file: it answers with the event's CC list for both recipients.
+    vi.mocked(brandingCc).mockReturnValueOnce([{ email: "ops@x.com" }]).mockReturnValueOnce([{ email: "ops@x.com" }]);
+    await executeBulkEmail({ ...BASE_INPUT, filters: { bcc: ["ops@x.com", "watch@x.com"] } });
+    expect(bccOfCallTo("dr@x.com")).toEqual([{ email: "watch@x.com" }]);
+  });
+});
+
 describe("bulkEmailSchema — bcc validation", () => {
   const base = { recipientType: "speakers", emailType: "custom", customSubject: "s", customMessage: "m" };
 

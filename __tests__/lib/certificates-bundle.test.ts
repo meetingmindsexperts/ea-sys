@@ -45,7 +45,9 @@ const {
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/html", () => ({ escapeHtml: (s: string) => s }));
-vi.mock("@/lib/email", () => ({
+vi.mock("@/lib/email", async (importOriginal) => ({
+  // The real rule for who is BCC'd on one recipient's email.
+  observerBcc: (await importOriginal<typeof import("@/lib/email")>()).observerBcc,
   sendEmail: (args: unknown) => mockSend(args),
   wrapWithBranding: (html: string) => html,
   inlineCss: (html: string) => html,
@@ -356,6 +358,36 @@ describe("sendCertificateBundleEmail", () => {
     });
     expect(mockLoadRecipient).not.toHaveBeenCalled();
     expect(mockSend.mock.calls[1][0].htmlContent).toContain("Dear  Doe,");
+  });
+
+  it("CCs the send's manual CC beside the additional email, and BCCs its observers (Nov 12, 2026)", async () => {
+    await sendCertificateBundleEmail({
+      ...SEND_ARGS,
+      recipientAdditionalEmail: "jane.pa@x.com",
+      extraCc: ["lina@x.com", "zaid@x.com"],
+      bcc: ["org@x.com"],
+      certs: [cert("ATT-1", "ATTENDANCE")],
+    });
+    const sent = mockSend.mock.calls[0][0];
+    expect(sent.to).toEqual([{ email: "jane@x.com", name: "Dr. Jane Doe" }]);
+    expect(sent.cc).toEqual([{ email: "jane.pa@x.com" }, { email: "lina@x.com" }, { email: "zaid@x.com" }]);
+    expect(sent.bcc).toEqual([{ email: "org@x.com" }]);
+  });
+
+  it("never BCCs the recipient or anyone already on the CC", async () => {
+    await sendCertificateBundleEmail({
+      ...SEND_ARGS,
+      recipientAdditionalEmail: "jane.pa@x.com",
+      extraCc: ["lina@x.com"],
+      bcc: ["jane@x.com", "jane.pa@x.com", "lina@x.com"],
+      certs: [cert("ATT-1", "ATTENDANCE")],
+    });
+    expect(mockSend.mock.calls[0][0].bcc).toBeUndefined();
+  });
+
+  it("a send with no observers has no BCC, as before", async () => {
+    await sendCertificateBundleEmail({ ...SEND_ARGS, certs: [cert("ATT-1", "ATTENDANCE")] });
+    expect(mockSend.mock.calls[0][0].bcc).toBeUndefined();
   });
 
   it("anchors a pure-attendance bundle on the registration", async () => {

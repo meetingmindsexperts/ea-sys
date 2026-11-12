@@ -33,7 +33,9 @@ const { mockDb, mockSend, mockRender, mockUpload, mockLoadRecipient, mockLoadEve
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/html", () => ({ escapeHtml: (s: string) => s }));
-vi.mock("@/lib/email", () => ({
+vi.mock("@/lib/email", async (importOriginal) => ({
+  // The real rule for who is BCC'd on one recipient's email (the sender calls it on every send).
+  observerBcc: (await importOriginal<typeof import("@/lib/email")>()).observerBcc,
   sendEmail: (args: unknown) => mockSend(args),
   wrapWithBranding: (html: string) => html,
   inlineCss: (html: string) => html,

@@ -2398,6 +2398,25 @@ export function brandingCc(
   return cc.length > 0 ? cc : undefined;
 }
 
+/**
+ * The BCC list for ONE recipient's email, from a send's observer addresses (already trimmed and
+ * lowercased). Nobody is BCC'd on an email they already receive: the recipient themselves, or
+ * anyone on its CC (their additional email, the event's CC list, a manual CC). `undefined` when
+ * nobody is left, so the spread is a no-op.
+ *
+ * One rule for every bulk send, the certificate send included (Nov 12, 2026: it had no BCC at
+ * all, so the dialog's CC and BCC were silently dropped on a certificate send).
+ */
+export function observerBcc(
+  observers: readonly string[],
+  recipient: { email: string },
+  cc?: SendEmailParams["cc"],
+): SendEmailParams["bcc"] {
+  const skip = new Set([recipient.email, ...(cc ?? []).map((r) => r.email)].map((e) => e.trim().toLowerCase()));
+  const bcc = [...new Set(observers)].filter((e) => !skip.has(e)).map((email) => ({ email }));
+  return bcc.length > 0 ? bcc : undefined;
+}
+
 // ── Helper function to send registration confirmation ──────────────────────────
 
 export interface RegistrationConfirmationParams {

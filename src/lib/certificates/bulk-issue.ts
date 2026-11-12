@@ -86,6 +86,12 @@ export interface CertificateBulkSendInput {
    * recorded, so a retry re-attempts them; the cert row itself is reused.
    */
   alreadyEmailedKeys?: string[];
+  /**
+   * The send's manual CC and BCC observers, from resolveBulkObservers (Nov 12, 2026). Every
+   * recipient's cover email carries them, as every other bulk email does. Omitted by a caller
+   * with none.
+   */
+  observers?: { manualCc: string[]; bcc: string[] };
   /** Called after each batch with that batch's successfully-emailed ids. */
   onBatchEmailed?: (keys: string[]) => Promise<void>;
   /**
@@ -408,6 +414,8 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       recipientLastName: recipient.lastName,
       recipientTitle: recipient.title,
       recipientAdditionalEmail: recipient.additionalEmail,
+      extraCc: input.observers?.manualCc,
+      bcc: input.observers?.bcc,
       registrationId: facets.registrationId,
       speakerId: facets.speakerId,
       certs: bundled.map((b) => ({
