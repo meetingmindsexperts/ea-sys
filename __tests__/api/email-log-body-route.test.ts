@@ -78,4 +78,13 @@ describe("GET email-log body", () => {
     expect(res.status).toBe(403);
     expect(mockDb.emailLog.findFirst).not.toHaveBeenCalled();
   });
+
+  it("answers with who was copied, cc and bcc, beside To (Nov 12, 2026)", async () => {
+    mockDb.emailLog.findFirst.mockResolvedValue({
+      subject: "S", to: "a@x.com", cc: "c1@x.com, c2@x.com", bcc: "b@x.com", createdAt: new Date(), htmlBody: "<p>hi</p>",
+    });
+    const res = await GET(req, params);
+    expect(mockDb.emailLog.findFirst.mock.calls[0][0].select).toMatchObject({ cc: true, bcc: true });
+    expect(await res.json()).toMatchObject({ to: "a@x.com", cc: "c1@x.com, c2@x.com", bcc: "b@x.com" });
+  });
 });

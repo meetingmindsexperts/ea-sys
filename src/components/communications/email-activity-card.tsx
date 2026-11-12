@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
+import { EmailCopies } from "@/components/communications/email-copies";
 import { formatTemplateLabel } from "@/lib/email-template-slugs";
 
 interface SummaryRow {
@@ -45,6 +46,8 @@ interface SummaryRow {
 interface ActivityRow {
   id: string;
   to: string;
+  cc: string | null;
+  bcc: string | null;
   subject: string;
   templateSlug: string | null;
   status: "SENT" | "FAILED";
@@ -290,6 +293,7 @@ function EmailActivityCardBody({ eventId }: { eventId: string }) {
                   </TableCell>
                   <TableCell className="hidden max-w-[180px] md:table-cell">
                     <span className="block truncate text-sm text-muted-foreground">{row.to}</span>
+                    <EmailCopies cc={row.cc} bcc={row.bcc} className="truncate text-xs text-muted-foreground" />
                   </TableCell>
                   <TableCell className="hidden lg:table-cell">
                     {row.templateSlug ? (

@@ -79,4 +79,21 @@ describe("activity timeline: abstract and proposal emails need their read keys",
     const { items } = await buildRegistrationActivity("evt1", { id: "reg1", attendeeEmail: "spk@x.com" }, "org1", true, true, { abstracts: false, proposals: false });
     expect(ids(items)).toEqual(["email:e-inv"]);
   });
+
+  it("an email's entry says who was copied, and carries neither field when nobody was (Nov 12, 2026)", async () => {
+    mockEmails.mockImplementation(async (type: string) =>
+      type === "SPEAKER"
+        ? [
+            { ...email("e-copied", "speaker-invitation", "You are invited"), cc: "c1@x.com, c2@x.com", bcc: "b@x.com" },
+            { ...email("e-plain", "speaker-invitation", "Reminder"), cc: null, bcc: null },
+          ]
+        : [],
+    );
+    const { items } = await buildSpeakerActivity("evt1", speaker, "org1", true, true);
+    const copied = items.find((i) => i.id === "email:e-copied");
+    expect(copied).toMatchObject({ cc: "c1@x.com, c2@x.com", bcc: "b@x.com" });
+    const plain = items.find((i) => i.id === "email:e-plain");
+    expect(plain).not.toHaveProperty("cc");
+    expect(plain).not.toHaveProperty("bcc");
+  });
 });

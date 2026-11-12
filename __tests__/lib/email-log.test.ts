@@ -189,6 +189,11 @@ describe("logEmail — attachmentNames (Aug 3, 2026)", () => {
     await getEmailLogsFor("REGISTRATION", "reg-1", "org-1");
     expect(mockDb.emailLog.findMany.mock.calls[0][0].select.attachmentNames).toBe(true);
   });
+
+  it("getEmailLogsFor selects cc and bcc, for the lines under To (Nov 12, 2026)", async () => {
+    await getEmailLogsFor("SPEAKER", "spk-1", "org-1");
+    expect(mockDb.emailLog.findMany.mock.calls[0][0].select).toMatchObject({ to: true, cc: true, bcc: true });
+  });
 });
 
 describe("logEmail — org resolution + write-path routing (tenancy Domain #18)", () => {

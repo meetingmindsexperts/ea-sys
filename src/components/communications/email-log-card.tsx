@@ -6,6 +6,7 @@ import { format, formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import { Mail, AlertCircle, Loader2, Award, Eye, Paperclip } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
+import { EmailCopies } from "@/components/communications/email-copies";
 import { formatTemplateLabel } from "@/lib/email-template-slugs";
 
 type EmailLogEntityType = "REGISTRATION" | "SPEAKER" | "CONTACT" | "USER" | "OTHER";
@@ -14,6 +15,7 @@ interface EmailLogRow {
   id: string;
   to: string;
   cc: string | null;
+  bcc: string | null;
   subject: string;
   templateSlug: string | null;
   provider: string;
@@ -148,6 +150,7 @@ export function EmailLogCard({ entityType, entityId, title = "Email History" }: 
                         </span>
                       )}
                     </div>
+                    <EmailCopies cc={log.cc} bcc={log.bcc} className="mt-1 break-all text-xs text-muted-foreground" />
                     {(log.attachmentNames?.length ?? 0) > 0 && (
                       <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
                         <Paperclip className="mt-0.5 h-3 w-3 shrink-0" />

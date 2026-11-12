@@ -222,6 +222,7 @@ export async function getEmailLogsFor(
       id: true,
       to: true,
       cc: true,
+      bcc: true,
       subject: true,
       templateSlug: true,
       provider: true,

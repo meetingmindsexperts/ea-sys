@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Mail } from "lucide-react";
+import { EmailCopies } from "@/components/communications/email-copies";
 import {
   Dialog,
   DialogContent,
@@ -25,7 +26,7 @@ interface ViewEmailDialogProps {
  * (and can't drift) across all three.
  */
 export function ViewEmailDialog({ emailLogId, onClose }: ViewEmailDialogProps) {
-  const query = useQuery<{ subject: string; to: string; htmlBody: string }>({
+  const query = useQuery<{ subject: string; to: string; cc: string | null; bcc: string | null; htmlBody: string }>({
     queryKey: ["email-log-body", emailLogId],
     queryFn: async () => {
       const res = await fetch(`/api/email-logs/${emailLogId}/body`);
@@ -52,6 +53,7 @@ export function ViewEmailDialog({ emailLogId, onClose }: ViewEmailDialogProps) {
               ? `To ${query.data.to} — “${query.data.subject}”`
               : "The stored copy of exactly what was sent."}
           </DialogDescription>
+          {query.data && <EmailCopies cc={query.data.cc} bcc={query.data.bcc} className="break-all text-sm text-muted-foreground" />}
         </DialogHeader>
         {query.isLoading && (
           <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">

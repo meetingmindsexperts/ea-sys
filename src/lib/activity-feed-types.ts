@@ -35,6 +35,9 @@ export interface ActivityItem {
   // email
   subject?: string;
   to?: string;
+  /** Who was copied, as sent (comma-separated). Absent when nobody was. */
+  cc?: string;
+  bcc?: string;
   status?: string;
   templateSlug?: string | null;
   errorMessage?: string | null;

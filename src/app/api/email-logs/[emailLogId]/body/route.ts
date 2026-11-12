@@ -1,6 +1,6 @@
 /**
  * GET /api/email-logs/[emailLogId]/body
- *   → 200 { subject, to, createdAt, htmlBody }
+ *   → 200 { subject, to, cc, bcc, createdAt, htmlBody }
  *
  * The stored audit copy of a sent email's final rendered HTML — populated
  * only for opt-in senders (certificate deliveries; EmailLogContext.storeBody).
@@ -70,7 +70,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const row = await runWithTenant(orgId, () =>
       db.emailLog.findFirst({
         where: { id: emailLogId, ...scope },
-        select: { subject: true, to: true, createdAt: true, htmlBody: true },
+        select: { subject: true, to: true, cc: true, bcc: true, createdAt: true, htmlBody: true },
       }),
     );
     if (!row) {
@@ -87,6 +87,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return NextResponse.json({
       subject: row.subject,
       to: row.to,
+      cc: row.cc,
+      bcc: row.bcc,
       createdAt: row.createdAt,
       htmlBody: row.htmlBody,
     });

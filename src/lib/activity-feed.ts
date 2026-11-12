@@ -187,6 +187,8 @@ async function collect(
         at: r.createdAt.toISOString(),
         subject: r.subject,
         to: r.to,
+        ...(r.cc ? { cc: r.cc } : {}),
+        ...(r.bcc ? { bcc: r.bcc } : {}),
         status: r.status,
         templateSlug: r.templateSlug,
         errorMessage: r.errorMessage,

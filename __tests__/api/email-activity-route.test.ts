@@ -171,4 +171,11 @@ describe("email-activity GET — payload", () => {
     // The summary groupBy is intentionally NOT sender-filtered (stable board).
     expect(mockDb.emailLog.groupBy.mock.calls.at(-1)?.[0]?.where).toEqual({ eventId: "ev1" });
   });
+
+  it("the rows query reads who was copied, cc and bcc, for the line under To (Nov 12, 2026)", async () => {
+    mockAuth.mockResolvedValue({ user: ADMIN });
+    await GET(url(), params);
+    const call = mockDb.emailLog.findMany.mock.calls.find((c) => !c[0]?.distinct);
+    expect(call?.[0]?.select).toMatchObject({ to: true, cc: true, bcc: true });
+  });
 });

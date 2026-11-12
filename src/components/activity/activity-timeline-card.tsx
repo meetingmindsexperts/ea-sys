@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
+import { EmailCopies } from "@/components/communications/email-copies";
 import type { ActivitySource, ActivityItem, ActivityFeed } from "@/lib/activity-feed-types";
 
 interface Props {
@@ -247,6 +248,9 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
                   <p className="text-xs text-slate-500 truncate">
                     {itemSubline(item)}
                   </p>
+                  {item.kind === "email" && (
+                    <EmailCopies cc={item.cc} bcc={item.bcc} className="break-all text-xs text-slate-500" />
+                  )}
                   {item.detail && <p className="text-xs text-slate-500">{item.detail}</p>}
                   {item.kind === "audit" && item.diffs && item.diffs.length > 0 && (
                     <ul className="mt-1.5 space-y-0.5">

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Sent emails show who was copied: Cc and Bcc under To (November 12)
+
+Owner, after asking who was copied on a faculty follow-up and having to be told from the database: "can we show cc and bcc below to email."
+
+- **Every place that shows a sent email now says who was copied.** Under "To", a "Cc" line and a "Bcc" line, each only when the email had one: the Activity timeline on a speaker's page and on a registration, the **Email Activity** table on Communications, the **View email** window, and the Email History card on a contact
+- Both were already recorded on every send; Cc was read by one screen and shown by none, Bcc was read by none. No new data, no migration
+- In the Email Activity table a long list is cut to the column's width; hover shows all of it. Everywhere else it wraps
+- Who sees it: whoever already sees the email's "To" on that screen. A Bcc is hidden from the email's recipients, not from the organisation that sent it
+- How: one component, `src/components/communications/email-copies.tsx`, used by all four screens (a test lists them and fails if one drops it). The reads gained the two columns: `getEmailLogsFor`, the email-activity route, the email body route, and the activity feed (`cc` / `bcc` on an email item, absent when nobody was copied)
+- Checked in the browser on the local production copy: a speaker's timeline, View email and the Email Activity table. Not seen with real data: the contact's Email History card (no contact email on the local copy has a Cc), which uses the same component
+
 ### CRM: the product catalogue and Reports are for admins (November 12)
 
 Owner: "restrict adding products and reports to Admins in CRM." Then, asked how far: the whole catalogue, and the Reports page only.

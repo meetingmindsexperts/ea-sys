@@ -104,6 +104,8 @@ export async function GET(
         select: {
           id: true,
           to: true,
+          cc: true,
+          bcc: true,
           subject: true,
           templateSlug: true,
           status: true,
