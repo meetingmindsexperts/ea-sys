@@ -100,6 +100,16 @@ Still nothing in the console: this is the rule and the operations the console wi
 - What a partner is handed is the same two values Zoom's custom live streaming takes: the server address and `key?user=publisher&pass=...`
 - The key and its password leave the service through one function only (`revealExternalStreamCredentials`), which writes who looked to the audit log; issuing, replacing and switching answer with the stream's state. A partner's password is signed with `STREAM_PUBLISH_SECRET` and never with the sign-in secret, also when checking and showing it (review of `15f219c0`)
 
+### External streams, step 3: review of the review fix (November 12)
+
+Review of `132b7d29` (1 HIGH, 2 MED, 7 LOW). Still inert until the owner's steps in `docs/LIVE_STREAMING.md` §11b.
+
+- **"Cut the feed" could be blocked by anyone, for free** (HIGH). It found the publisher by listing every connection on the stream server, and the server counts a connection from the moment a socket opens on port 1935. About a thousand idle sockets made the list too long to read, and cutting, switching off, replacing and the minute sweep all failed for as long as they were held open. It now asks the stream's own path who feeds it (one question, whatever else is connected), and the sweep lists live paths, which exist only for a publish our webhook has already let in
+- **No more warning every minute once the control API is set up** (MED): the RTMPS connection list, which does not exist on our server, is no longer asked for
+- The replaced-key check asks when a connection began only for a key that has been replaced, says so once when the server does not tell it, and no longer reads Go's zero time as "long ago"; a publisher on a key nobody owns is logged with its connection id, which is what ending it by hand needs
+- Recorded, not fixed (ROADMAP, "Webinar streaming", 2b): nginx limits the stream server's questions as one caller, so a flood above about 100 attempts a second can still get our control calls refused. An nginx change on the box
+- §11b steps 5 and 6 now call `/v3/paths/list`
+
 ### External streams, step 3: cut the feed (November 12)
 
 Built, and inert until the owner's six steps in `docs/LIVE_STREAMING.md` §11b are done. Still nothing in the console.

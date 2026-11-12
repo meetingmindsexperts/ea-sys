@@ -357,6 +357,19 @@ the server-side waiting room, export headers, presence archive); see CHANGELOG, 
    by the publisher's address MediaMTX reports, but only when the caller is MediaMTX itself (a
    shared secret on the webhook call, or a caller-address check), since a direct caller could
    otherwise pick its own bucket. Worth doing before the first partner webinar.
+2b. **The same single bucket one layer up, at nginx** (review of 132b7d29, Nov 12, 2026).
+   MediaMTX asks the webhook at the public address (`authHTTPAddress` in `mediamtx.yml`), so
+   every question passes `location /` in `deploy/nginx.conf`: 100 a second, burst 200, counted
+   by the one address all of MediaMTX's questions come from. Since Nov 12 our own control call
+   is answered before the app's limit, but not before this one: bogus publish attempts on port
+   1935 above roughly 100 a second get a share of MediaMTX's questions answered 429, our "who is
+   publishing" and "disconnect" among them, and MediaMTX turns each into a refusal. So "cut the
+   feed" can still fail during a heavy flood (the service reports it, and the minute sweep
+   retries). Fix, on the box per `deploy/NGINX.md`: a `location = /api/webhooks/mediamtx-auth`
+   with its own `limit_req_zone` (generous, since the app's own limit and the secret check sit
+   behind it), or point `authHTTPAddress` at the app inside the container network, which needs
+   an answer for blue/green (MediaMTX would have to follow the live colour). Not verified: which
+   source address nginx sees for these calls. Do with 2a, before the first partner webinar.
 3. **Shareable HLS URLs (review W-04).** `/stream/live/{key}/index.m3u8` plays for anyone holding
    it while the stream is live. Plan: a short-lived signed HttpOnly cookie scoped to `/stream/`,
    set by zoom-join and renewed by the presence heartbeat, checked by nginx `secure_link` (no app

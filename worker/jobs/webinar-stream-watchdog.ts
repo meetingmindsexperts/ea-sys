@@ -27,8 +27,8 @@ export async function tick(): Promise<void> {
     } catch (err) {
       apiLogger.error({ err, msg: "worker:tick-uncaught", job: JOB_NAME });
     }
-    // A partner's stream still running on a key that is switched off or past its
-    // period is disconnected here (external-stream-sweep.ts). Its own try: a
+    // A partner's stream still running on a key that is switched off, outside its
+    // period or since replaced is disconnected here (external-stream-sweep.ts). Its own try: a
     // failure of either half never stops the other.
     try {
       const swept = await sweepExternalPublishers();

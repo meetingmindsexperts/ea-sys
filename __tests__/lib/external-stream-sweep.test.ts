@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, mockLogger, control, ownerSpy } = vi.hoisted(() => ({
   mockDb: { auditLog: { create: vi.fn() } },
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  control: { isMediamtxControlConfigured: vi.fn(), listPublishers: vi.fn(), kickPublisher: vi.fn() },
+  control: { isMediamtxControlConfigured: vi.fn(), listPublishers: vi.fn(), kickPublisher: vi.fn(), publisherDetails: vi.fn() },
   ownerSpy: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -23,13 +23,10 @@ import { resetExternalStreamSweep, sweepExternalPublishers } from "@/lib/webinar
 
 const KEY = "0123456789abcdef0123456789abcdef";
 const NOW = new Date("2026-12-01T12:00:00Z");
-const publisher = (path = `live/${KEY}`, id = "c1", connectedAt: Date | null = new Date("2026-12-01T11:00:00Z")) => ({
-  id,
-  family: "rtmpconns" as const,
-  path,
-  remoteAddr: "203.0.113.9:5000",
-  connectedAt,
-});
+/** A live path's publisher, as the path list gives it: no address and no start time. */
+const publisher = (path = `live/${KEY}`, id = "c1") => ({ id, family: "rtmpconns" as const, path });
+/** What MediaMTX says about one connection when asked: it began at 11:00. */
+const details = (connectedAt: Date | null = new Date("2026-12-01T11:00:00Z")) => ({ remoteAddr: "203.0.113.9:5000", connectedAt });
 const external = (extra: Record<string, unknown> = {}) => ({
   source: "external" as const,
   id: "x1",
@@ -50,6 +47,7 @@ beforeEach(() => {
   control.isMediamtxControlConfigured.mockReturnValue(true);
   control.listPublishers.mockResolvedValue({ ok: true, publishers: [publisher()] });
   control.kickPublisher.mockResolvedValue(true);
+  control.publisherDetails.mockResolvedValue(details());
   ownerSpy.mockResolvedValue(external());
   mockDb.auditLog.create.mockResolvedValue({});
 });
@@ -58,6 +56,8 @@ describe("sweepExternalPublishers", () => {
   it("leaves a partner's stream alone while its key is switched on and inside its period", async () => {
     expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 0 });
     expect(control.kickPublisher).not.toHaveBeenCalled();
+    // A key never replaced needs no start time: the connection is not asked about.
+    expect(control.publisherDetails).not.toHaveBeenCalled();
   });
 
   it("disconnects one still running after its key was switched off, with the reason logged and audited", async () => {
@@ -91,22 +91,51 @@ describe("sweepExternalPublishers", () => {
     expect(control.kickPublisher).not.toHaveBeenCalled();
     const said = mockLogger.warn.mock.calls.filter((c) => c[1] === "external-stream-sweep:publisher-on-unknown-key");
     expect(said).toHaveLength(1);
+    // The connection's id is what ending it by hand needs; the key is never logged.
+    expect(said[0][0]).toEqual({ connectionId: "c1", family: "rtmpconns" });
     expect(JSON.stringify(said)).not.toContain(KEY);
+    expect(control.publisherDetails).not.toHaveBeenCalled();
   });
 
   it("disconnects a stream that began BEFORE the key was last replaced: it can only be on an old password", async () => {
     ownerSpy.mockResolvedValue(external({ keyReplacedAt: new Date("2026-12-01T11:30:00Z") }));
     expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 1 });
+    expect(control.publisherDetails).toHaveBeenCalledWith(publisher());
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ reason: "KEY_REPLACED" }), "external-stream-sweep:disconnected");
   });
 
-  it("leaves a stream that connected AFTER the replacement (the new key), and one whose start time is not known", async () => {
+  it("the moment of replacement itself is not 'before': a connection that began at that instant stays", async () => {
+    ownerSpy.mockResolvedValue(external({ keyReplacedAt: new Date("2026-12-01T11:00:00.000Z") }));
+    expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 0 });
+    control.publisherDetails.mockResolvedValue(details(new Date("2026-12-01T10:59:59.999Z")));
+    expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 1 });
+  });
+
+  it("leaves a stream that connected AFTER the replacement (the new key)", async () => {
     ownerSpy.mockResolvedValue(external({ keyReplacedAt: new Date("2026-12-01T10:30:00Z") }));
     expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 0 });
-    control.listPublishers.mockResolvedValue({ ok: true, publishers: [publisher(`live/${KEY}`, "c1", null)] });
-    ownerSpy.mockResolvedValue(external({ keyReplacedAt: new Date("2026-12-01T11:30:00Z") }));
-    expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 0 });
     expect(control.kickPublisher).not.toHaveBeenCalled();
+  });
+
+  it("leaves one whose start time is not known, and says so once: a silent no is a check that does nothing", async () => {
+    ownerSpy.mockResolvedValue(external({ keyReplacedAt: new Date("2026-12-01T11:30:00Z") }));
+    for (const unknown of [details(null), null]) {
+      resetExternalStreamSweep();
+      mockLogger.warn.mockClear();
+      control.publisherDetails.mockResolvedValue(unknown);
+      expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 0 });
+      await sweepExternalPublishers(NOW);
+      const said = mockLogger.warn.mock.calls.filter((c) => c[1] === "external-stream-sweep:replaced-key-start-unknown");
+      expect(said).toHaveLength(1);
+      expect(said[0][0]).toEqual({ eventId: "ev1", sessionId: "s1" });
+    }
+    expect(control.kickPublisher).not.toHaveBeenCalled();
+  });
+
+  it("a key that says no is acted on without asking when the connection began", async () => {
+    ownerSpy.mockResolvedValue(external({ enabled: false, keyReplacedAt: new Date("2026-12-01T11:30:00Z") }));
+    expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 1 });
+    expect(control.publisherDetails).not.toHaveBeenCalled();
   });
 
   it("disconnects one on a key whose period has not started", async () => {

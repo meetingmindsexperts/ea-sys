@@ -382,15 +382,23 @@ session's scheduled end, or the key's own end date). Each refusal is logged as
 starts. An encoder already connected keeps its connection when its key is
 replaced, switched off or expires. With our own Zoom we tell Zoom to stop; a
 partner's platform is not ours to tell. So `mediamtx.yml` now switches on
-MediaMTX's control API, and the app uses it for two things only: listing who is
+MediaMTX's control API, and the app uses it for two things only: asking who is
 publishing, and disconnecting a publisher (`src/lib/webinar/mediamtx-control.ts`).
+
+It asks about **paths, never about connections**. A path exists only while
+someone publishes to it, and a publish is checked before its path is made, so
+the paths are the streams that are really live. MediaMTX's connection list
+counts every socket opened on port 1935, idle ones included, so anyone could
+make it too long to read and "cut the feed" would fail while they kept it up
+(review of `132b7d29`). Cutting one stream is one question about that stream's
+own path, whatever else is connected.
 
 - Replacing a key, switching it off and "cut the feed" save the change first
   and then disconnect whoever is publishing on the key.
 - Once a minute the worker's stream watchdog job also disconnects any partner's
-  stream still running on a key that is switched off or past its period
-  (`external-stream-sweep.ts`). It never touches a stream whose key it cannot
-  find, and never our own Zoom's.
+  stream still running on a key that is switched off or outside its period, or
+  that began before its key was last replaced (`external-stream-sweep.ts`). It
+  never touches a stream whose key it cannot find, and never our own Zoom's.
 
 **How the API is protected.** Port 9997 is not published on the box
 (`docker-compose.prod.yml`); only the app and worker containers reach it, by
@@ -431,8 +439,9 @@ until these are done (the app refuses, and says which is missing).
 
 2. Deploy as usual (`bash scripts/deploy.sh`), so the app and the worker read
    the new values. Until step 3 the worker logs `mediamtx-control:unreachable`
-   once a minute, which is expected: the control address is set and MediaMTX
-   has not been recreated yet.
+   and `mediamtx-control:list-failed` once a minute, which is expected: the
+   control address is set and MediaMTX has not been recreated yet. After step 3
+   both stop, and a quiet server logs nothing.
 
 3. Recreate MediaMTX so it reads the new `mediamtx.yml` (the deploy never
    restarts it):
@@ -455,19 +464,22 @@ until these are done (the app refuses, and says which is missing).
    `401`, and the app log must show `mediamtx-auth:api-refused`:
 
    ```
-   docker exec ea-sys-worker node -e "fetch('http://ea-sys-mediamtx:9997/v3/rtmpconns/list').then(r=>console.log(r.status))"
+   docker exec ea-sys-worker node -e "fetch('http://ea-sys-mediamtx:9997/v3/paths/list').then(r=>console.log(r.status))"
    ```
 
 6. Check that our own call is let in. This must print `200` and a line of JSON
    with `"items"`:
 
    ```
-   docker exec ea-sys-worker node -e "fetch('http://ea-sys-mediamtx:9997/v3/rtmpconns/list',{headers:{Authorization:'Basic '+Buffer.from('ea-sys:'+process.env.MEDIAMTX_API_SECRET).toString('base64')}}).then(async r=>console.log(r.status,await r.text()))"
+   docker exec ea-sys-worker node -e "fetch('http://ea-sys-mediamtx:9997/v3/paths/list',{headers:{Authorization:'Basic '+Buffer.from('ea-sys:'+process.env.MEDIAMTX_API_SECRET).toString('base64')}}).then(async r=>console.log(r.status,await r.text()))"
    ```
 
+With no webinar live, `"items"` is an empty list. With one live it holds one
+entry per stream, each with a `"source"` naming the connection that feeds it.
+
 **If step 6 prints 401, stop and say so.** The client was written from
-MediaMTX 1.17.1's published API description and has not been run against a
-server: step 6 is the first real test of the one assumption everything rests
+MediaMTX 1.17.1's source and published API description and has not been run
+against a server: step 6 is the first real test of the one assumption everything rests
 on, that MediaMTX passes the call's Basic credentials to the webhook. Nothing
 is broken if it fails (every piece refuses when unsure), but no partner's
 stream could be cut, so no key should be issued. Disconnecting itself is

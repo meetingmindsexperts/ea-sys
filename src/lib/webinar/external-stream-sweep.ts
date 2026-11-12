@@ -9,7 +9,9 @@
  * for: the END OF THE PERIOD, and a disconnect that failed when the button was
  * pressed. Every minute, from the worker's stream watchdog job:
  *
- *   1. ask MediaMTX who is publishing (one call);
+ *   1. ask MediaMTX which paths are live and who feeds each (one call; it
+ *      lists streams, not connections, so idle sockets held open against the
+ *      server cannot make it too long to read: review of 132b7d29);
  *   2. for each publisher on a PARTNER's key, ask whether that key may still
  *      be used now (switched on, inside its period), and whether the
  *      connection began before the key was last REPLACED (then it can only be
@@ -21,8 +23,9 @@
  *  - Judge the password. Whether MediaMTX's connection list repeats the
  *    password the encoder sent was not verified, and a wrong guess would
  *    disconnect a good stream every minute. A replaced key is recognised by
- *    WHEN the connection began, and a connection whose start time MediaMTX
- *    does not give is left alone.
+ *    WHEN the connection began (asked of MediaMTX for that one connection,
+ *    and only when its key has ever been replaced). A connection whose start
+ *    time MediaMTX does not give is left alone, and that is said once.
  *  - Touch a publisher whose key it cannot find. On the platform instance the
  *    tenant-less lookup finds nothing (ROADMAP, "Webinar streaming", item 2):
  *    "unknown" must never read as "not allowed", or every stream there would
@@ -36,40 +39,60 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { externalKeyRefusal } from "@/lib/webinar/external-stream";
-import { isMediamtxControlConfigured, kickPublisher, listPublishers, type Publisher } from "@/lib/webinar/mediamtx-control";
+import {
+  isMediamtxControlConfigured,
+  kickPublisher,
+  listPublishers,
+  publisherDetails,
+  type Publisher,
+} from "@/lib/webinar/mediamtx-control";
 import { streamKeyOwner } from "@/lib/webinar/session-stream";
 
 const LIVE_PATH = /^live\/([a-f0-9]{32})$/;
 
-/** Connections already reported as publishing on a key nobody owns, so each is said once, not every minute. */
-const reportedUnknown = new Set<string>();
-const REPORTED_UNKNOWN_MAX = 500;
+/** Connections already reported (a key nobody owns, a start time not known), so each is said once, not every minute. */
+const reported = new Set<string>();
+const REPORTED_MAX = 500;
 
 /** Test hook. */
 export function resetExternalStreamSweep(): void {
-  reportedUnknown.clear();
+  reported.clear();
+}
+
+/** True the first time this is asked about a connection for this reason. */
+function firstReport(reason: "unknown-key" | "start-unknown", publisher: Publisher): boolean {
+  const mark = `${reason}:${publisher.id}`;
+  if (reported.has(mark)) return false;
+  if (reported.size >= REPORTED_MAX) reported.clear();
+  reported.add(mark);
+  return true;
 }
 
 function reportUnknownOnce(publisher: Publisher): void {
-  if (reportedUnknown.has(publisher.id)) return;
-  if (reportedUnknown.size >= REPORTED_UNKNOWN_MAX) reportedUnknown.clear();
-  reportedUnknown.add(publisher.id);
-  apiLogger.warn({ remoteAddr: publisher.remoteAddr }, "external-stream-sweep:publisher-on-unknown-key");
+  if (!firstReport("unknown-key", publisher)) return;
+  // The connection's id is what ending it by hand needs; it is not a secret, and the key is never logged.
+  apiLogger.warn({ connectionId: publisher.id, family: publisher.family }, "external-stream-sweep:publisher-on-unknown-key");
 }
 
 type SweepReason = "SWITCHED_OFF" | "NOT_YET_VALID" | "EXPIRED" | "KEY_REPLACED";
+type ExternalOwner = Extract<NonNullable<Awaited<ReturnType<typeof streamKeyOwner>>>, { source: "external" }>;
 
 /** Why this connection must end, or null. A start time we could not read never counts as "before". */
-function sweepReason(
-  owner: Extract<NonNullable<Awaited<ReturnType<typeof streamKeyOwner>>>, { source: "external" }>,
-  publisher: Publisher,
-  now: Date,
-): SweepReason | null {
+async function sweepReason(owner: ExternalOwner, publisher: Publisher, now: Date): Promise<SweepReason | null> {
   const refusal = externalKeyRefusal(owner, now);
   if (refusal) return refusal;
   const replacedAt = owner.keyReplacedAt;
-  if (replacedAt && publisher.connectedAt && publisher.connectedAt.getTime() < replacedAt.getTime()) return "KEY_REPLACED";
-  return null;
+  if (!replacedAt) return null;
+  const connectedAt = (await publisherDetails(publisher))?.connectedAt ?? null;
+  if (!connectedAt) {
+    // Left running, but never silently: if MediaMTX stops saying when a
+    // connection began, the replaced-key check is doing nothing.
+    if (firstReport("start-unknown", publisher)) {
+      apiLogger.warn({ eventId: owner.eventId, sessionId: owner.sessionId }, "external-stream-sweep:replaced-key-start-unknown");
+    }
+    return null;
+  }
+  return connectedAt.getTime() < replacedAt.getTime() ? "KEY_REPLACED" : null;
 }
 
 export interface SweepReport {
@@ -86,7 +109,7 @@ async function sweepOne(publisher: Publisher, streamKey: string, now: Date, repo
   }
   if (owner.source !== "external") return;
   report.checked += 1;
-  const refusal = sweepReason(owner, publisher, now);
+  const refusal = await sweepReason(owner, publisher, now);
   if (!refusal) return;
 
   const done = await kickPublisher(publisher);

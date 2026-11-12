@@ -244,7 +244,10 @@ Encoder settings we ask for, because the server passes the picture through untou
 ### 4.6 Cutting the feed
 
 MediaMTX has a control API that can disconnect a publisher
-(`POST /v3/rtmpconns/kick/{id}`). It is off today. The plan:
+(`POST /v3/rtmpconns/kick/{id}`). It is off today. As built, the publisher is
+found by asking the stream's own path (`GET /v3/paths/get/live/<key>`), never
+by listing connections: that list grows with every idle socket on port 1935
+(review of `132b7d29`). The plan:
 
 - Switch it on, reachable only from the app's containers, never published on the box.
 - "Cut the feed" switches the key off and disconnects the current connection, so the
