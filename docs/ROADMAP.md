@@ -18,6 +18,28 @@ Built Nov 12, 2026 (CHANGELOG): tick boxes, Select by IDs, the theme and "No rev
 - **Search on the abstracts list** by title or author. The page has none; Select by IDs and the two filters cover the cases seen so far
 - **The sheet as the whole truth.** The sheet only adds. A mode that also removes what the sheet leaves out would need a preview of the removals and must keep assignments with a submitted review
 
+### What the Nov 12 review of `87d819ee` left (12 low, recorded Nov 12, 2026): not started
+
+The high and the four medium findings were fixed in the commit after it. Low, not fixed:
+
+- **Closing the dialog while the request runs** (Esc or a click outside) loses the result line, and the next opening clears the ticks even on Cancel. Ignore the close while busy
+- **A failed pool read looks like an empty pool.** Both dialogs say "No reviewers on this event's pool yet" on any error. Read the error and say so
+- **The sheet's choices are set once.** Someone added to the pool after "Read the sheet" still shows "Not on the pool", and the "added on the Reviewers page" link leaves the page and discards the paste. Open it in a new tab; re-match unpicked names when the pool changes
+- **Select by IDs replaces the current ticks** without saying so; the dialog says the matches "get ticked"
+- **The skip reasons are typed in three places** (the service, `use-api.ts`, `abstract-bulk-reviewer-outcome.ts`). A new server reason would compile and then be missing from the result lines. Import one type and show unknown reasons
+- **The rate-limit slot is spent before the body is checked**, so a 400 costs one of the 60; and a service failure answers code `UNKNOWN` while a thrown one answers `BULK_ASSIGN_REVIEWERS_FAILED`
+- **A review landing in the same millisecond as a bulk remove** can still lose its assignment link (the review itself is kept). Lock the rows first, or soften the comment
+- **Sheet reader leftovers:** a spreadsheet cell with a line break loses its second reviewer; only the first ignored line is shown; two reviewers in one cell ("A / B", "A and B") are one unmatched name; a name's abstract count includes unknown numbers; word order is ignored ("Hassan Ali" finds Ali Hassan); a one-character surname in Chinese, Japanese or Korean no longer counts as an initial but is otherwise untested
+- **The Remove dialog's title** flips to "Assign reviewers" during its closing animation
+- **The page now asks for up to 500 abstracts with their full text.** Fine at today's sizes; an event near the cap would be better served by resolving abstract numbers on the server
+
+Older, found by the same review, not from this work (owner to decide):
+
+- **The reviewer list needs `reviewers.pool.manage`; assigning needs `abstracts.reviewers.assign`.** A custom role holding only the second opens the per-abstract Reviewers card, and now the bulk dialogs, and can pick nobody. No built-in role is affected
+- **The single assign route** returns the raw error text on a 500 (`details: err.message`), against its own comment, and has an unlogged 400 (bad JSON) and an unlogged 404
+- **A review submitted while its assignment is being removed** (single or bulk) may hit a foreign-key error and show the reviewer a 500. Not reproduced
+- **The shared tick box** shows the same tick for "some" as for "all"
+
 ## Agenda CSV import with topics: what the Nov 12 review left (recorded Nov 12, 2026)
 
 From the review of `5029717c` (0 BLOCKER, 0 HIGH, 5 MED, 10 LOW). M1, M2, M4 and M5

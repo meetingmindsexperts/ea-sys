@@ -8,7 +8,9 @@
  *   2. Check. Each distinct NAME in the sheet is shown against the person on
  *      the event's reviewer pool it was matched to. A name with no match, or
  *      with several, is never guessed: the organiser picks the person or leaves
- *      the name out. Unknown abstract numbers are listed.
+ *      the name out. Unknown abstract numbers are listed, and so is every
+ *      abstract with who it will go to, row by row (review of 87d819ee: the
+ *      names alone did not show a wrong column being read).
  *   3. Result. What was assigned, what already was, what was skipped and why.
  *
  * Nothing is saved before step 2's button. The sheet only ADDS assignments: it
@@ -51,6 +53,7 @@ import {
   type SheetReviewerName,
 } from "@/lib/abstract-reviewer-sheet";
 import { assignHeadline, describeBulkReviewerSkips, type SkipLine } from "@/lib/abstract-bulk-reviewer-outcome";
+import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { BulkReviewerOutcome } from "./bulk-reviewer-outcome";
 import { poolPeopleFrom, type PoolPerson } from "./reviewer-pool-people";
 
@@ -70,8 +73,16 @@ function nameStatus(name: SheetReviewerName, choice: string | null): { label: st
     return { label: "Matched", className: "border-emerald-300 text-emerald-700" };
   }
   if (choice) return { label: "Picked by you", className: "border-sky-300 text-sky-700" };
+  // One word beside another one-word name: it may be half of one person's name.
+  if (name.held) return { label: "One word, beside another name: pick who", className: "border-amber-300 text-amber-700" };
   if (name.match.kind === "ambiguous") return { label: "Several fit: pick one", className: "border-amber-300 text-amber-700" };
   return { label: "Not on the pool", className: "border-red-300 text-red-600" };
+}
+
+/** Who on the pool the written name fits: one person, several, or nobody. */
+function fittingPeople(name: SheetReviewerName): string[] {
+  if (name.match.kind === "matched") return [name.match.userId];
+  return name.match.kind === "ambiguous" ? name.match.candidates : [];
 }
 
 function NameRow({
@@ -88,8 +99,8 @@ function NameRow({
   disabled: boolean;
 }) {
   const status = nameStatus(name, choice);
-  // Several fit: the people who fit come first in the list.
-  const candidates = name.match.kind === "ambiguous" ? name.match.candidates : [];
+  // The people who fit come first in the list.
+  const candidates = fittingPeople(name);
   const ordered = [...pool].sort((a, b) => Number(candidates.includes(b.userId)) - Number(candidates.includes(a.userId)));
 
   return (
@@ -148,6 +159,11 @@ function SheetWarnings({
       `Abstract numbers this event does not have: ${unknownAbstracts.slice(0, 30).join(", ")}${unknownAbstracts.length > 30 ? ` and ${unknownAbstracts.length - 30} more` : ""}.`,
     );
   }
+  if (sheet.extraNumbers.length > 0) {
+    warnings.push(
+      `A number outside the abstract number column was left out: ${sheet.extraNumbers.slice(0, 20).map((n) => `"${n.text}" on line ${n.line}`).join(", ")}.`,
+    );
+  }
   if (rowsWithoutReviewer.length > 0) {
     warnings.push(`Rows with an abstract number and no reviewer: line ${rowsWithoutReviewer.slice(0, 20).join(", ")}.`);
   }
@@ -163,6 +179,37 @@ function SheetWarnings({
         <li key={warning}>{warning}</li>
       ))}
     </ul>
+  );
+}
+
+/** Every abstract the sheet will touch and who it goes to: the check a list of names cannot give. */
+function AssignmentsByAbstract({
+  byAbstract,
+  abstracts,
+  pool,
+}: {
+  byAbstract: { abstractId: string; reviewerUserIds: string[] }[];
+  abstracts: SheetAbstract[];
+  pool: PoolPerson[];
+}) {
+  if (byAbstract.length === 0) return null;
+  const serialOf = (id: string) => abstracts.find((a) => a.id === id)?.serialId ?? null;
+  const nameOf = (id: string) => pool.find((p) => p.userId === id)?.name ?? "a reviewer";
+  const rows = [...byAbstract].sort((a, b) => (serialOf(a.abstractId) ?? 0) - (serialOf(b.abstractId) ?? 0));
+  return (
+    <details className="rounded-md border p-2.5 text-sm" open={rows.length <= 12}>
+      <summary className="cursor-pointer font-medium">
+        Abstract by abstract ({rows.length})
+      </summary>
+      <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1 text-xs">
+        {rows.map((row) => (
+          <li key={row.abstractId} className="flex gap-2">
+            <span className="w-14 shrink-0 font-mono text-muted-foreground">{formatAbstractSerial(serialOf(row.abstractId))}</span>
+            <span>{row.reviewerUserIds.map(nameOf).join(", ")}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -192,6 +239,10 @@ function ReviewerSheetBody({
 
   const readSheet = () => {
     const parsed = parseReviewerSheet(text);
+    if (parsed.problem) {
+      toast.error(parsed.problem);
+      return;
+    }
     if (parsed.rows.length === 0) {
       toast.error("No abstract numbers found. Each row needs an abstract number and a reviewer.");
       return;
@@ -259,6 +310,7 @@ function ReviewerSheetBody({
               />
             ))}
           </div>
+          <AssignmentsByAbstract byAbstract={plan.byAbstract} abstracts={abstracts} pool={pool} />
           <SheetWarnings
             sheet={sheet}
             unknownAbstracts={plan.unknownAbstracts}
@@ -302,8 +354,8 @@ function ReviewerSheetBody({
           />
           <p className="text-xs text-muted-foreground">
             Copy the abstract number column and the reviewer column from the spreadsheet and paste them here. A
-            second reviewer column works. Leave out the title and author columns. Names are matched to the
-            event&apos;s reviewer pool, and you check every match before anything is saved.
+            second reviewer column works. Leave out every other column: title, author, row numbers, scores. Names
+            are matched to the event&apos;s reviewer pool, and you check every match before anything is saved.
           </p>
         </div>
         {!isLoading && pool.length === 0 && (

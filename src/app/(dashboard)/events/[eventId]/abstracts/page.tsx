@@ -96,6 +96,14 @@ function listWording(isSubmitter: boolean, isReviewer: boolean): { heading: stri
   return { heading: "All Abstracts", empty: "No abstracts yet. Click \"Add Abstract\" to get started." };
 }
 
+/**
+ * The most abstracts the list route returns (its own ceiling). Asked for in
+ * full since the bulk reviewer tools (review of 87d819ee): at the default of
+ * 200 the oldest abstracts of a larger event were missing from Select all,
+ * Select by IDs and the pasted sheet, which then called them unknown.
+ */
+const ABSTRACT_LIST_LIMIT = 500;
+
 /** Whether the reviewer filters show this abstract: its theme, and "no reviewer yet". */
 function matchesReviewerFilters(
   abstract: { theme: { id: string } | null; assignedReviewerCount?: number },
@@ -190,7 +198,7 @@ export default function AbstractsPage() {
   const [copied, setCopied] = useState(false);
 
   // React Query hooks - data is cached and shared across navigations
-  const { data: abstractsData = [], isLoading: loading, isFetching, refetch: refetchAbstracts } = useAbstracts(eventId);
+  const { data: abstractsData = [], isLoading: loading, isFetching, refetch: refetchAbstracts } = useAbstracts(eventId, { limit: String(ABSTRACT_LIST_LIMIT) });
   const [exporting, setExporting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
@@ -1052,6 +1060,12 @@ export default function AbstractsPage() {
         <h2 className="text-lg font-semibold mb-4">
           {listWording(isSubmitter, isReviewer).heading}
         </h2>
+        {abstracts.length >= ABSTRACT_LIST_LIMIT && (
+          <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Showing the newest {ABSTRACT_LIST_LIMIT} abstracts. Older ones are not listed here, so they cannot be
+            ticked, selected by number or assigned from a pasted sheet on this page.
+          </p>
+        )}
         {canAssignReviewers && abstracts.length > 0 && (
           <>
             <AbstractReviewerToolbar

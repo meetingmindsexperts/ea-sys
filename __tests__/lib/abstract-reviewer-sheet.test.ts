@@ -50,7 +50,7 @@ describe("abstractSerialFromToken", () => {
     expect(abstractSerialFromToken(token)).toBe(serial);
   });
 
-  it.each(["Dr Rahman", "A-", "0", "A-000", "12b", "", "omar@example.test"])("reads %j as no abstract number", (token) => {
+  it.each(["Dr Rahman", "A-", "0", "A-000", "12b", "", "omar@example.test", ".5", "2.5", "12 mg", "-3"])("reads %j as no abstract number", (token) => {
     expect(abstractSerialFromToken(token)).toBeNull();
   });
 });
@@ -77,6 +77,23 @@ describe("parseReviewerSheet", () => {
       { line: 2, abstractTokens: ["015"], reviewerNames: ["Dr Rahman", "Prof Haddad"] },
     ]);
     expect(sheet.ignoredLines).toEqual([]);
+    expect(sheet.problem).toBeNull();
+  });
+
+  // Review of 87d819ee: every numeric cell used to be an abstract, so a row-number
+  // or score column silently assigned abstracts nobody had named.
+  it("a spreadsheet paste has ONE abstract number column: two numeric columns are refused, never guessed", () => {
+    const sheet = parseReviewerSheet("1\t012\tDr Rahman\n2\t015\tProf Haddad");
+    expect(sheet.rows).toEqual([]);
+    expect(sheet.problem).toMatch(/Columns 1 and 2 both hold numbers/);
+    expect(parseReviewerSheet("012\tDr Rahman\t2").problem).toMatch(/Columns 1 and 3/);
+  });
+
+  it("a stray number outside the abstract column is left out and reported, not assigned", () => {
+    const sheet = parseReviewerSheet("012\tDr Rahman\n015\tProf Haddad\n040\tDr Rahman\t7\n041\tDr Rahman\n042\tDr Rahman");
+    expect(sheet.problem).toBeNull();
+    expect(sheet.rows[2]).toEqual({ line: 3, abstractTokens: ["040"], reviewerNames: ["Dr Rahman"] });
+    expect(sheet.extraNumbers).toEqual([{ line: 3, text: "7" }]);
   });
 
   it("does not care which column the number is in", () => {
@@ -92,6 +109,26 @@ describe("parseReviewerSheet", () => {
     ["012 goes to Dr Rahman"],
   ])("reads the typed line %j", (line) => {
     expect(parseReviewerSheet(line).rows).toEqual([{ line: 1, abstractTokens: ["012"], reviewerNames: ["Dr Rahman"] }]);
+  });
+
+  it("a comma inside a typed name stays in the name: 'Last, First' is one person, not two", () => {
+    expect(parseReviewerSheet("012: Khan, Aisha").rows[0]).toEqual({ line: 1, abstractTokens: ["012"], reviewerNames: ["Khan, Aisha"] });
+    expect(parseReviewerSheet("012, Dr Rahman, MD").rows[0].reviewerNames).toEqual(["Dr Rahman, MD"]);
+  });
+
+  it("two reviewers on a typed line are separated by a semicolon", () => {
+    expect(parseReviewerSheet("012: Dr Rahman; Prof Haddad").rows[0]).toEqual({
+      line: 1,
+      abstractTokens: ["012"],
+      reviewerNames: ["Dr Rahman", "Prof Haddad"],
+    });
+  });
+
+  it("'Abstract 12 Dr Rahman' is abstract 12, and a reviewer called To Lam keeps the name", () => {
+    expect(parseReviewerSheet("Abstract 12 Dr Rahman").rows[0]).toMatchObject({ abstractTokens: ["Abstract 12"], reviewerNames: ["Dr Rahman"] });
+    expect(parseReviewerSheet("012 to Dr Rahman").rows[0].reviewerNames).toEqual(["Dr Rahman"]);
+    expect(parseReviewerSheet("012: To Lam").rows[0].reviewerNames).toEqual(["To Lam"]);
+    expect(parseReviewerSheet("012\tTo Lam").rows[0].reviewerNames).toEqual(["To Lam"]);
   });
 
   it("several numbers on one row all go to that row's reviewer", () => {
@@ -155,9 +192,29 @@ describe("matchReviewerName", () => {
     expect(matchReviewerName(written, POOL)).toEqual({ kind: "none" });
   });
 
-  it("a title or a different spelling of the same name is one name in the preview", () => {
-    expect(reviewerNameKey("Dr. Rahman")).toBe(reviewerNameKey("rahman"));
+  it("the same words in another case or punctuation are one name in the preview; a different title is not", () => {
+    expect(reviewerNameKey("Dr. Rahman")).toBe(reviewerNameKey("dr rahman"));
     expect(reviewerNameKey("Dr Rahman")).not.toBe(reviewerNameKey("Dr Haddad"));
+    // "Dr Rahman" and "Prof Rahman" may be two people: one choice must never cover both.
+    expect(reviewerNameKey("Dr Rahman")).not.toBe(reviewerNameKey("Prof Rahman"));
+  });
+
+  // Review of 87d819ee: "md" was stripped as a degree everywhere, so Md Rahman and
+  // Dr Rahman became one person.
+  it("'Md' is a given name, not a title: Md Rahman is not Aisha Rahman", () => {
+    const pool = [...POOL, { userId: "u-md", firstName: "Md", lastName: "Rahman", email: "md@example.test" }];
+    expect(matchReviewerName("Md Rahman", pool)).toEqual({ kind: "matched", userId: "u-md" });
+    expect(matchReviewerName("Md. Rahman", pool)).toEqual({ kind: "matched", userId: "u-md" });
+    expect(matchReviewerName("Dr Rahman", pool)).toEqual({ kind: "ambiguous", candidates: ["u-rahman", "u-md"] });
+    expect(reviewerNameKey("Md Rahman")).not.toBe(reviewerNameKey("Dr Rahman"));
+    // A trailing ", MD" is still a degree.
+    expect(matchReviewerName("Aisha Rahman, MD, PhD", pool)).toEqual({ kind: "matched", userId: "u-rahman" });
+  });
+
+  it("only Latin accents are folded: in other scripts the marks are the vowels", () => {
+    const pool = [{ userId: "u-ram", firstName: "राम", lastName: "शर्मा", email: "ram@example.test" }];
+    expect(matchReviewerName("रीमा", pool)).toEqual({ kind: "none" });
+    expect(matchReviewerName("राम शर्मा", pool)).toEqual({ kind: "matched", userId: "u-ram" });
   });
 });
 
@@ -168,11 +225,11 @@ describe("buildSheetPlan", () => {
 
   it("lists each distinct name once, with how it matched and how many abstracts name it", () => {
     const names = sheetReviewerNames(sheet, POOL);
-    expect(names.map((n) => [n.written, n.match.kind, n.pairCount])).toEqual([
-      ["Dr Rahman", "matched", 4],
-      ["Prof Haddad", "matched", 1],
-      ["Dr Ali", "ambiguous", 1],
-      ["Dr Nobody", "none", 1],
+    expect(names.map((n) => [n.written, n.match.kind, n.pairCount, n.held])).toEqual([
+      ["Dr Rahman", "matched", 4, false],
+      ["Prof Haddad", "matched", 1, false],
+      ["Dr Ali", "ambiguous", 1, false],
+      ["Dr Nobody", "none", 1, false],
     ]);
   });
 
@@ -186,6 +243,44 @@ describe("buildSheetPlan", () => {
     expect(plan.pairCount).toBe(3);
     expect(plan.unresolvedNames).toBe(2);
     expect(plan.unknownAbstracts).toEqual(["999"]);
+    // The same plan row by row, for the check before saving.
+    expect(plan.byAbstract).toEqual([
+      { abstractId: "ab12", reviewerUserIds: ["u-rahman", "u-haddad"] },
+      { abstractId: "ab15", reviewerUserIds: ["u-rahman"] },
+    ]);
+  });
+
+  // Review of 87d819ee: "Khan | Aisha" in two cells became two reviewers, each
+  // auto-matched on one word.
+  it("two one-word cells are tried as ONE name first", () => {
+    const pool = [...POOL, { userId: "u-ak", firstName: "Aisha", lastName: "Khan", email: "ak@example.test" }];
+    const plan = buildSheetPlan(parseReviewerSheet("012\tKhan\tAisha"), ABSTRACTS, pool);
+    expect(plan.names.map((n) => [n.written, n.match.kind, n.held])).toEqual([["Khan Aisha", "matched", false]]);
+    expect(plan.groups).toEqual([{ reviewerUserId: "u-ak", abstractIds: ["ab12"] }]);
+  });
+
+  it("otherwise one-word names sharing a row are held: matched, but assigned only once the organiser picks", () => {
+    // No Aisha Khan on this pool: "Haddad" and "Rahman" each fit one person, and neither is filled in.
+    const sheet = parseReviewerSheet("012\tHaddad\tRahman");
+    const plan = buildSheetPlan(sheet, ABSTRACTS, POOL);
+    expect(plan.names.map((n) => [n.written, n.match.kind, n.held])).toEqual([
+      ["Haddad", "matched", true],
+      ["Rahman", "matched", true],
+    ]);
+    expect(plan.groups).toEqual([]);
+    expect(plan.unresolvedNames).toBe(2);
+    const picked = buildSheetPlan(sheet, ABSTRACTS, POOL, { haddad: "u-haddad", rahman: "u-rahman" });
+    expect(picked.pairCount).toBe(2);
+  });
+
+  it("a titled name beside another is its own person and is filled in", () => {
+    const plan = buildSheetPlan(parseReviewerSheet("012\tDr Haddad\tDr Rahman"), ABSTRACTS, POOL);
+    expect(plan.pairCount).toBe(2);
+  });
+
+  it("a cell of only punctuation names nobody: the row is reported, not dropped in silence", () => {
+    const plan = buildSheetPlan(parseReviewerSheet("012\t-\n015\tDr Rahman"), ABSTRACTS, POOL);
+    expect(plan.rowsWithoutReviewer).toEqual([1]);
   });
 
   it("the organiser's pick for an unsettled name is used, and a matched name can be left out", () => {

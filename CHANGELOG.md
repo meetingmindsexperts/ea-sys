@@ -24,6 +24,18 @@ Found by the review of the parallel webinars plan (`docs/ZOOM_PARALLEL_WEBINARS_
 - **Cause**: the session Zoom endpoint returned the whole Zoom meeting row. The host details (start link, stream key, passcode) were blanked for staff without "See Zoom host details", but the row also holds Zoom's own answer to the create call, which repeats the start link and passcode under Zoom's names. Member (every event) and Onsite (assigned events) could read it. Attendees, submitters and reviewers could not reach the endpoint
 - **Fixed** (`64923b6e`): that stored response never leaves the server, for any role (`withoutZoomResponse`). No page read it. No other endpoint returned the whole row
 
+### Abstracts: bulk reviewer assignment - what the review found (November 12)
+
+Review of `87d819ee`: no blocker, 1 high, 4 medium, 12 low. The high and the four medium are fixed here; the low ones are listed in the ROADMAP.
+
+- **A pasted spreadsheet is read by column** - Every numeric cell used to count as an abstract number, so a sheet pasted with its row-number column, or a score column, assigned abstracts nobody had named, and the check step did not show it. Now one column holds the abstract number. Two numeric columns and the paste is refused with the reason; a stray number elsewhere is left out and reported
+- **The check step lists every abstract with who it goes to** - "Abstract by abstract" under the names, so a wrong column or a wrong match is visible before anything is saved
+- **"Md Rahman" is not "Dr Rahman"** - "Md" was dropped as a degree, which merged a person whose given name is Md with anyone sharing the surname. It is dropped only as a trailing ", MD". "Dr Rahman" and "Prof Rahman" are now separate lines to check, since they may be two people
+- **"Khan, Aisha" is one person** - On a typed line a comma inside the name stays in the name (two reviewers on a line are separated by a semicolon). In a spreadsheet, two one-word cells ("Khan", "Aisha") are tried as one name first; if that fits nobody, neither is filled in until the organiser picks
+- **Other scripts** - Only Latin accents are folded when comparing names. In Devanagari, Bengali, Tamil or Thai the marks are the vowels, and folding them made different names equal
+- **Events with more than 200 abstracts** - The page asked for the list's default of 200, so on a larger event the oldest abstracts were missing from Select all, Select by IDs and the sheet. It now asks for the route's full 500 and says so when an event has more
+- **Tests** - The route itself: the rate limit with its Retry-After, each verb calling its own action, every refusal's status, the logged 400 (`abstract-bulk-reviewers-route.test.ts`); and each finding above in `abstract-reviewer-sheet.test.ts`
+
 ### Downloads named after an event no longer fail on a non-English letter (November 12)
 
 Found while checking the registrations export: the certificate **Recipients** tab's Export CSV answered "failed" for the one event whose web address holds a Greek letter (`AβTC2026`).
