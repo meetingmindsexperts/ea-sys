@@ -137,6 +137,12 @@ function formFilterRecipientIds(selected: Set<string>, narrowed: boolean, listed
   return narrowed ? listed.map((r) => r.id) : [];
 }
 
+/** Nothing ticked and no form filter: the button means "everyone", which is Communications' job. */
+function emailsEveryone(selectedCount: number, narrowed: boolean): boolean {
+  return selectedCount === 0 && !narrowed;
+}
+
+/** The label when the button composes here: ticked rows, or the rows the form filter lists. */
 function emailButtonLabel(selectedCount: number, narrowed: boolean, listedCount: number): string {
   if (selectedCount > 0) return `Email (${selectedCount})`;
   return narrowed ? `Email listed (${listedCount})` : "Email All";
@@ -641,7 +647,20 @@ export default function RegistrationsPage() {
                   Select by IDs
                 </Button>
               )}
-              {canSendEmail && registrations.length > 0 && (
+              {/* "Email All" goes to Communications (owner, Nov 12, 2026):
+                  one place to email everyone, with its templates, schedule and
+                  history. Ticked rows, or rows narrowed by the form filter,
+                  still compose here, because that choice exists only on this
+                  page. */}
+              {canSendEmail && registrations.length > 0 && emailsEveryone(selectedIds.size, completionNarrowed) && (
+                <Button variant="secondary" size="sm" asChild>
+                  <Link href={`/events/${eventId}/communications`}>
+                    <Send className="mr-2 h-4 w-4" />
+                    Email All
+                  </Link>
+                </Button>
+              )}
+              {canSendEmail && registrations.length > 0 && !emailsEveryone(selectedIds.size, completionNarrowed) && (
                 <Button
                   variant="secondary"
                   size="sm"

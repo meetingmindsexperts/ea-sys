@@ -31,7 +31,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -46,12 +45,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { cn, formatDate } from "@/lib/utils";
 import { signOutCallbackUrl } from "@/lib/sign-out-target";
 import { isTeamRole, receivesEventNotifications } from "@/lib/team-roles";
 import { useEvents, useEvent } from "@/hooks/use-api";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { MobileSidebar } from "@/components/layout/sidebar";
+import { EventSwitcher } from "@/components/layout/event-switcher";
 
 // ── Role metadata ─────────────────────────────────────────────────────────────
 
@@ -266,51 +265,12 @@ export function Header() {
         <MobileSidebar />
         {isEventPage && currentEvent ? (
           <div className="flex min-w-0 items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex h-auto min-w-0 items-center gap-2 py-1">
-                  <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate font-semibold">{currentEvent.name}</span>
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-80 max-h-[500px] overflow-y-auto p-2">
-                <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground px-2">Switch Event</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {events.map((event) => (
-                  <DropdownMenuItem
-                    key={event.id}
-                    onClick={() => handleEventChange(event.id)}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer",
-                      event.id === eventId && "bg-primary/10 text-primary"
-                    )}
-                  >
-                    <div className={cn(
-                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-                      event.id === eventId ? "bg-primary text-primary-foreground" : "bg-muted"
-                    )}>
-                      <Calendar className="h-4 w-4" />
-                    </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="font-medium truncate">{event.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDate(event.startDate)}
-                      </span>
-                    </div>
-                    {event.id === eventId && (
-                      <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/events" className="flex items-center justify-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-                    View All Events
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <EventSwitcher
+              currentEventId={eventId!}
+              currentEventName={currentEvent.name}
+              events={events}
+              onSwitch={handleEventChange}
+            />
 
             {/* The trail needs a desktop's width; on a phone the event name is enough. */}
             {currentSubPage && (

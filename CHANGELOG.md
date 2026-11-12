@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Header: search in the event switcher; Registrations: Email All opens Communications (November 12)
+
+Owner: "add search in Event Switcher in the header" and "redirect email all cta in registrations to communications."
+
+- **The event switcher in the header has a search box.** Open it and type: the list narrows to events whose name, code, address, tag, specialty, city or year contain every word typed, in any order, ignoring capitals and accents ("gcc 2026", "hema hub", "hemnet"). The cursor starts in the box, the arrow keys move through the matches and Enter opens the highlighted one. The heading shows "3 of 47 events" while searching. One rule, `eventMatchesSearch` in `src/lib/event-search.ts`; the switcher is its own component, `src/components/layout/event-switcher.tsx`
+- **"Email All" on the Registrations page now opens the Communications page**, the one place to email everyone, with its templates, scheduling and history. It no longer opens the send dialog over the list
+- **What stays on the Registrations page**: with rows ticked the button reads "Email (N)" and composes there, and so does "Email listed (N)" under the registration form filter, because those choices exist only on that page
+- **Worth knowing**: a status, payment or type filter chosen on the Registrations list used to be carried into the dialog as its starting filter. It is not carried to Communications: choose the audience again under "Filter recipients" there, or tick the rows and use "Email (N)"
+
 ### "Faculty" is a reserved registration type name (November 12)
 
 Owner: "dont allow Faculty reg type and mention it is reserved."
