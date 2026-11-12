@@ -134,11 +134,11 @@ speaker is set to Confirmed) and cancels those of speakers who declined when ask
 to read the plan:
 `docker exec ea-sys-worker npx tsx scripts/adopt-ordinary-faculty-type.ts --all-upcoming`
 (on Nov 12: the 4th GCC Hematology Hub with 34 registrations, and the empty "Faculty"
-types of HEMNET 2026 and Big Sky 2027), and for the Annual Benign Hematology League
-Summit, whose type is called "Symposium Speaker":
-`... --event cmrj3r7c7000vk4018ulb0kpl --type cmupktv7j000co801gofja1ge` (4 registrations, all
-checked in and complimentary, so only the type changes and they leave the delegate
-count). Completed events with a "Faculty" or "Speaker" type that nobody asked to change:
+types of HEMNET 2026 and Big Sky 2027). **Not to be run for the Annual Benign
+Hematology League Summit** (owner, Nov 12, 2026, after reading its dry run: "Symposium
+speaker is inclusive so it can be as is"): its "Symposium Speaker" type stays an
+ordinary type, its 4 registrations keep counting as delegates, and the Registrations
+page keeps its note that the type is not the built-in Faculty type. Completed events with a "Faculty" or "Speaker" type that nobody asked to change:
 Pan Hematology Summit, Emirates Hematology Best Practices Update, Multiple Myeloma
 Forum, Cold Agglutinin Disease, Best of EHA in CLL. From then on a speaker
 set to Confirmed settles their Faculty registration by itself (`settleFacultyRegistration`).
