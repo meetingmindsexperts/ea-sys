@@ -17,10 +17,51 @@ export interface CrmSeed {
 
 let counter = 0;
 
+/** Postgres 40P01, as Prisma hands it back from a raw statement (P2010 with the driver's code in `meta`). */
+function isDeadlock(err: unknown): boolean {
+  const e = err as { meta?: { code?: unknown }; message?: unknown } | null;
+  return e?.meta?.code === "40P01" || /deadlock detected/i.test(String(e?.message ?? ""));
+}
+
+/** How many times a reset's TRUNCATE lost a deadlock and was run again (read by reset-deadlock.db.test.ts). */
+export const resetStats = { deadlockRetries: 0 };
+
+const TRUNCATE_ATTEMPTS = 6;
+
+/**
+ * TRUNCATE Organization + User CASCADE, run again when it loses a deadlock.
+ *
+ * The services write some rows AFTER they return (History lines, audit rows,
+ * notifications: fire-and-forget by design). A test that ends while one is in
+ * flight leaves a statement holding a lock on a child table and about to ask
+ * for one on Organization (its foreign-key check), while this TRUNCATE holds
+ * Organization and waits for the child: a deadlock, and Postgres aborts one of
+ * the two. When it aborted the TRUNCATE the NEXT test failed in its
+ * `beforeEach`, on a run that had nothing to do with it (a deploy was blocked
+ * by it on Nov 12, 2026, in crm-contact-score).
+ *
+ * Fixed here once, for every suite, rather than by each test waiting for its
+ * own stragglers (two files do, and the third had not): the write finishes as
+ * soon as the TRUNCATE is aborted, so the second attempt finds nothing in the
+ * way. Only 40P01 is retried; every other error is thrown as it was.
+ */
+async function truncateEverything(): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await db.$executeRawUnsafe('TRUNCATE TABLE "Organization", "User" RESTART IDENTITY CASCADE');
+      return;
+    } catch (err) {
+      if (attempt >= TRUNCATE_ATTEMPTS || !isDeadlock(err)) throw err;
+      resetStats.deadlockRetries += 1;
+      await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+    }
+  }
+}
+
 export async function resetCrm(): Promise<CrmSeed> {
   // TRUNCATE … CASCADE from Organization + User clears the whole org-scoped
   // graph (all Crm* tables cascade off Organization). Fast on a small dataset.
-  await db.$executeRawUnsafe('TRUNCATE TABLE "Organization", "User" RESTART IDENTITY CASCADE');
+  await truncateEverything();
 
   counter += 1;
   const org = await db.organization.create({

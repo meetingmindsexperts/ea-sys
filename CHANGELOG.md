@@ -20,6 +20,14 @@ Owner, after asking who was copied on a faculty follow-up and having to be told 
 - Checked in the browser on the local production copy: a speaker's timeline, View email and the Email Activity table. Not seen with real data: the contact's Email History card (no contact email on the local copy has a Cc), which uses the same component
 - Review of `68ff2173` (0 BLOCKER, 0 HIGH, 1 MED, 5 LOW), fixed here: the MED was the timeline rule above (the first version gave the copies to anyone who could open the timeline; `emailCopiesVisibleFor` in `src/lib/email-copies-visibility.ts`, passed by both activity routes, default closed in the feed). Lows fixed: the search, the wording about a second To, and the screen sweep test now ignores commented-out lines and a hard-coded null. Lows left: in the Email Activity table a cut-off list is read by mouse hover only (the To beside it is cut the same way), the sweep's list of screens is written by hand, and the lines in View email are not part of the window's spoken description
 
+### Tests: the real-database reset no longer fails a deploy on a deadlock (November 12)
+
+The deploy of the CRM change above was blocked by a test that had not failed on its own merits: `crm-contact-score` lost a Postgres deadlock (`40P01`) in its `beforeEach`.
+
+- **Why**: the per-test reset (`resetCrm()` in `tests/integration-db/helper.ts`) truncates Organization and User with CASCADE. A service that had returned with one of its fire-and-forget writes still running (a History line, an audit row) left a statement holding a child table and about to lock its parent, while the TRUNCATE held the parent and waited for the child. Postgres aborts one of the two; when it was the TRUNCATE, the next test failed
+- **Fix, once for all 22 callers**: the reset runs its TRUNCATE again when it loses a deadlock (only `40P01`, up to six attempts). Two suites already waited for their own stragglers; the third had not, and a per-file wait is the kind of rule the next file forgets
+- **Pinned on a real Postgres**: `reset-deadlock.db.test.ts` builds the same deadlock on purpose (the same two locks in the same order as the CI failure) and fails with a single attempt
+
 ### CRM: the product catalogue and Reports are for admins (November 12)
 
 Owner: "restrict adding products and reports to Admins in CRM." Then, asked how far: the whole catalogue, and the Reports page only.
