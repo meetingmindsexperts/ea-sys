@@ -256,9 +256,14 @@ export async function buildCrmReport(args: {
  * (owner: "Reports page only"), so Home reads THIS and never the report. It is
  * a PICK from `buildCrmReport` with no filters, on purpose: a second set of
  * queries would be a second answer to "how much is open", and the tile and the
- * Reports page would one day disagree. What is left out is the point of the
- * key: the stages, the won and lost values, each person's results, the
+ * Reports page would one day disagree. What is left out is what the Reports
+ * page adds: the stages, the won and lost values, the per-person table, the
  * breakdowns and every filter.
+ *
+ * The key hides the SUMMARIES, not the deals: everyone in the CRM still reads
+ * every deal, owner and value on the board (owner, Nov 12, 2026: "Reports page
+ * only"). Never describe `crm.reports.view` as keeping one person's numbers
+ * from another.
  */
 export interface CrmReportHeadline {
   pipeline: Pick<PipelineSummary, "openCount" | "openValue" | "openCurrency" | "openMixed">;

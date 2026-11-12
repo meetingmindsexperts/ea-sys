@@ -879,8 +879,8 @@ export function registerCrmMcpTools(
         // ONE report implementation (R2-M9): this tool used to compose its own
         // thinner groupBy shaping, which had already drifted from the REST
         // report (no open rollup, no win rate, no leaderboard). Both callers
-        // now consume report-service. MCP callers are admin-equivalent, so
-        // values are visible.
+        // now consume report-service. Values follow the caller's own
+        // `crm.dealValues.view` (canSeeValues above).
         await ensurePipelineStages(organizationId);
         const { pipeline, winLoss, reps, breakdown } = await buildCrmReport({
           organizationId,

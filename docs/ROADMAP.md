@@ -531,6 +531,39 @@ paid row; no speaker record means left; the built-in type is refused). Recorded:
   callout on the Registration Types section) is stale since Add Registration, Faculty
   (Nov 10).
 
+## CRM admin-only catalogue and Reports: what the Nov 12 review left (recorded Nov 12, 2026): not started
+
+Review of `3f2959f5` (the product catalogue and Reports are for admins): no BLOCKER, no HIGH,
+1 MED, 10 LOW. Fixed the same day: the role-bound API key door, the Products page's two keys and
+its loading state, the VAT-code hint, the archived-product message, the doc statements, the
+source test's gaps.
+
+- **MED, an owner decision already taken, recorded so it is not re-found.** `crm.reports.view`
+  hides the Reports page and the report tool, not the data: a salesperson still reads every deal,
+  owner, value and lost reason on the board and through `GET /api/crm/deals`. The owner was told
+  this when asked and chose "Reports page only". If the aim ever becomes "a salesperson does not
+  see a colleague's numbers", that is a different piece of work (the board, the deal list, the
+  export and the tools scoped to the person's own deals), not a tick on this key.
+- **LOW, left.** `GET /api/crm/quickbooks/items` (the QuickBooks product search used only for
+  linking) still answers anyone with `crm.write`, though linking is now admins only. It writes
+  nothing. Move it behind `crm.products.manage` when that route is next touched.
+- **LOW, left.** A CRM User tab left open across the deploy keeps asking `GET /api/crm/reports`
+  from Home on each window focus and gets a logged 403 (`auth-guard:crm-reports-denied`) until
+  reloaded. Two accounts, gone on reload.
+- **LOW, left.** `docs/ROLES_AND_PERMISSIONS.md` and the user guide are corrected; `CLAUDE.md`
+  still says CRM_USER works "notes, reports, CSV export" (the owner edits that file).
+
+Older defects the review met, not introduced by the commit:
+
+- **`list_crm_deals` and `get_crm_deal` print a deal's value without asking
+  `crm.dealValues.view`** (already recorded below). Since the role-bound key door now judges the
+  CRM tools as the key's role, `get_crm_report` hides money correctly there; these two still do
+  not, for any caller.
+- **Home's "Open pipeline" tile is up to five minutes stale after a deal is created, moved or
+  closed**: those mutations do not invalidate the reports cache prefix (only project changes do).
+- **`PATCH /api/crm/products/[productId]` with `archived` plus other fields** applies the archive
+  and silently drops the fields. Projects refuse the mix (`archiveAlone`); products should too.
+
 ## CRM corporate projects: what the Nov 12 review left (recorded Nov 12, 2026): not started
 
 Review of `dfe7cd70` (corporate projects, data and API): no BLOCKER, no HIGH. Two of the three

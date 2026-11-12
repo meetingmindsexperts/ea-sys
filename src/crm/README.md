@@ -248,11 +248,13 @@ its neighbours do.
 **Two keys only an admin holds by role (owner, Nov 12, 2026).**
 `crm.products.manage`: every change to the product catalogue (add, edit,
 archive, restore, link to QuickBooks). Each handler under `/api/crm/products`
-that changes it calls `denyCrmProductsManage(ctx)` after `requireCrmWrite`; for
-a product this key alone decides archive and restore. Reading the catalogue and
+that changes it calls `denyCrmProductsManage(ctx)` after `requireCrmWrite` (so
+`crm.write` is needed too); archive and restore of a product need this key and
+not `crm.delete`. Reading the catalogue and
 putting a product on a deal stay with everyone who works deals.
 `crm.reports.view`: the Reports page, `GET /api/crm/reports` (`denyCrmReports`)
-and the `get_crm_report` tool. CRM Home's two totals are deliberately NOT behind
+and the `get_crm_report` tool. It hides the summaries, not the deals: the board
+still shows every deal to everyone in the CRM. CRM Home's two totals are deliberately NOT behind
 it: they come from `/api/crm/reports/headline`, a pick from the same report, on
 the read gate alone. Never add a field to the headline without asking whether it
 belongs behind the key. `crm-admin-only-keys.test.ts` reads the route sources,

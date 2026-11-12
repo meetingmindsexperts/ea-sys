@@ -250,7 +250,7 @@ export async function addDealProduct(input: {
   if (!product) return reject("PRODUCT_NOT_FOUND", "Product not found", { organizationId: input.organizationId, crmProductId: input.crmProductId });
   // R2-M7: an archived catalog product is discontinued — it must not be addable
   // (at its stale list price) via a raw id or a stale picker.
-  if (product.archivedAt) return reject("PRODUCT_ARCHIVED", "That product is archived — restore it in the catalog before adding it to a deal", { organizationId: input.organizationId, crmProductId: input.crmProductId });
+  if (product.archivedAt) return reject("PRODUCT_ARCHIVED", "That product is archived. An admin can restore it in the catalog before it is added to a deal", { organizationId: input.organizationId, crmProductId: input.crmProductId });
 
   const existing = await db.crmDealProduct.findFirst({ where: { dealId: input.dealId, crmProductId: input.crmProductId }, select: { id: true } });
   if (existing) return reject("PRODUCT_ALREADY_ON_DEAL", "That product is already on this deal — edit its quantity instead", { organizationId: input.organizationId, dealId: input.dealId, crmProductId: input.crmProductId });

@@ -1108,7 +1108,12 @@ export function registerAllMcpTools(
   // ── CRM (sponsorship pipeline) ──
   // Registered from inside the CRM module (src/crm/agent-tools.ts) so the tool
   // logic stays behind the import boundary; this file is the named exemption.
-  registerCrmMcpTools(server, organizationId, SYSTEM_USER_ID, { ...actor, source: SOURCE });
+  // A key that acts with a role is judged as that role here too (Nov 12,
+  // 2026). Without it the CRM registrations saw a FULL key, and the door's
+  // gate asked only each tool's one key: a role without deal values was shown
+  // them, and the catalogue tools skipped the write key their routes ask.
+  const crmPrincipal = actor.principal ?? options?.keyPrincipal ?? undefined;
+  registerCrmMcpTools(server, organizationId, SYSTEM_USER_ID, { ...actor, principal: crmPrincipal, source: SOURCE });
 
   // ── Budget & Procurement (dark until PROCUREMENT_MODULE_ENABLED) ──
   // Same shape as the CRM: the module hands core one registration function,

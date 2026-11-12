@@ -35,7 +35,7 @@ vi.mock("@/lib/db", () => {
     user: { findMany: vi.fn() },
     event: { findMany: vi.fn() },
   };
-  return { db, tenantTransaction: (fn: (tx: typeof db) => unknown) => fn(db) };
+  return { db, dbOperator: {}, tenantTransaction: (fn: (tx: typeof db) => unknown) => fn(db) };
 });
 
 import { db } from "@/lib/db";
@@ -46,6 +46,9 @@ import type { PermissionKey } from "@/lib/permissions/catalogue";
 import { TOOL_PERMISSIONS } from "@/lib/permissions/tool-permissions";
 import { buildCrmReport, buildCrmReportHeadline } from "@/crm/services/report-service";
 import { registerCrmMcpTools } from "@/crm/agent-tools";
+import { registerAllMcpTools } from "@/lib/agent/register-mcp-tools";
+import { gateMcpServerForKey } from "@/lib/agent/mcp-key-gate";
+import { principalFromApiKey } from "@/lib/permissions/require-permission";
 
 const ORG = "org-1";
 const ctx = (role: string | null, fromApiKey = false, customGrants?: PermissionKey[]) => ({
@@ -124,11 +127,33 @@ function routeFiles(dir: string): string[] {
   return out;
 }
 
+/** Source with its comments removed, so a commented-out guard does not count as one. */
+function code(file: string): string {
+  return readFileSync(file, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 /** The body of one exported handler: from its `export async function` to the next one (or the end). */
 function handlers(file: string): Array<{ method: string; body: string }> {
-  const source = readFileSync(file, "utf8");
+  const source = code(file);
   const starts = [...source.matchAll(/export async function (GET|POST|PUT|PATCH|DELETE)\b/g)];
   return starts.map((m, i) => ({ method: m[1]!, body: source.slice(m.index!, starts[i + 1]?.index ?? source.length) }));
+}
+
+/** The guard is CALLED and its refusal RETURNED: `const denied = guard(ctx); if (denied) return denied;`. */
+const asksAndReturns = (guard: string) => new RegExp(`const denied = ${guard}\\(ctx\\);\\s*if \\(denied\\) return denied;`);
+
+/** Every .ts / .tsx file under a directory. */
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    if (entry === "node_modules" || entry.startsWith(".")) continue;
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
+    else if (/\.tsx?$/.test(entry)) out.push(full);
+  }
+  return out;
 }
 
 describe("every handler that changes the product catalogue asks crm.products.manage", () => {
@@ -146,9 +171,40 @@ describe("every handler that changes the product catalogue asks crm.products.man
 
   it.each(mutating)("%s", (_label, body) => {
     expect(body).toContain("requireCrmWrite(req)");
-    expect(body).toContain("denyCrmProductsManage(ctx)");
+    expect(body).toMatch(asksAndReturns("denyCrmProductsManage"));
     // Asked BEFORE the body is read or a service is called.
     expect(body.indexOf("denyCrmProductsManage(ctx)")).toBeLessThan(body.indexOf("runWithTenant"));
+  });
+
+  it("no product or report handler is exported in a form this test cannot see", () => {
+    for (const file of [...files, ...routeFiles(join(API, "reports"))]) {
+      expect(code(file), file).not.toMatch(/export (const|let|var) (GET|POST|PUT|PATCH|DELETE)\b/);
+      expect(code(file), file).not.toMatch(/export \{[^}]*\b(GET|POST|PUT|PATCH|DELETE)\b/);
+    }
+  });
+
+  /**
+   * The walk above sees only /api/crm/products. A catalogue write born
+   * anywhere else (an import route, a worker job, a new tool file) would be
+   * unseen, so every file that calls a catalogue write is LISTED: a new one
+   * fails here until it is added, which is the moment to give it the key.
+   */
+  it("the files that write the catalogue are exactly the gated ones", () => {
+    const WRITES = /\b(createCrmProduct|updateCrmProduct|setCrmProductArchived|linkProductToItem)\(|crmProduct\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(/;
+    const root = process.cwd();
+    const found = ["src", "worker", "scripts"]
+      .flatMap((d) => sourceFiles(join(root, d)))
+      .filter((f) => WRITES.test(code(f)))
+      .map((f) => f.slice(root.length + 1))
+      .sort();
+    expect(found).toEqual([
+      "src/app/api/crm/products/[productId]/quickbooks/route.ts", // asks the key (above)
+      "src/app/api/crm/products/[productId]/route.ts", // asks the key (above)
+      "src/app/api/crm/products/route.ts", // asks the key (above)
+      "src/crm/agent-tools.ts", // the catalogue tools, on catalogueServer (below)
+      "src/crm/services/crm-product-service.ts", // the service; also the first-use seed of the built-in list
+      "src/crm/services/crm-quickbooks-service.ts", // linkProductToItem, called by the quickbooks route
+    ]);
   });
 
   it("and reading the catalogue stays on the read gate: the sales team picks products for deals", () => {
@@ -161,12 +217,12 @@ describe("every handler that changes the product catalogue asks crm.products.man
 describe("the report route asks crm.reports.view, and Home's totals door does not", () => {
   it("GET /api/crm/reports asks it before anything is built", () => {
     const [get] = handlers(join(API, "reports/route.ts"));
-    expect(get!.body).toContain("denyCrmReports(ctx)");
+    expect(get!.body).toMatch(asksAndReturns("denyCrmReports"));
     expect(get!.body.indexOf("denyCrmReports(ctx)")).toBeLessThan(get!.body.indexOf("buildCrmReport("));
   });
 
   it("GET /api/crm/reports/headline is on the read gate alone and builds only the headline", () => {
-    const source = readFileSync(join(API, "reports/headline/route.ts"), "utf8");
+    const source = code(join(API, "reports/headline/route.ts"));
     expect(source).toContain("requireCrmRead(req)");
     expect(source).not.toContain("denyCrmReports");
     expect(source).toContain("buildCrmReportHeadline(");
@@ -178,7 +234,10 @@ describe("the report route asks crm.reports.view, and Home's totals door does no
   it("every other route under /api/crm/reports asks the key (a new report door must not be born open)", () => {
     const others = routeFiles(join(API, "reports")).filter((f) => !f.endsWith("reports/headline/route.ts"));
     expect(others.length).toBeGreaterThanOrEqual(1);
-    for (const file of others) expect(readFileSync(file, "utf8"), file).toContain("denyCrmReports(ctx)");
+    // Per HANDLER, not per file: a second handler in a guarded file must ask too.
+    for (const file of others) {
+      for (const h of handlers(file)) expect(h.body, `${h.method} ${file}`).toMatch(asksAndReturns("denyCrmReports"));
+    }
   });
 });
 
@@ -284,10 +343,78 @@ describe("the assistant's tools follow the two keys", () => {
     expect(reports).not.toContain("create_crm_product");
   });
 
+  it("in the source, every tool that writes the catalogue or builds the report is on its own registrar", () => {
+    const source = code(join(process.cwd(), "src/crm/agent-tools.ts"));
+    // One block per registration: from `<registrar>.tool(` to the next one.
+    const blocks = source.split(/(?=\b\w+\.tool\(\s*")/).filter((b) => /^\w+\.tool\(/.test(b));
+    expect(blocks.length).toBeGreaterThan(20);
+    const registrarOf = (b: string) => b.slice(0, b.indexOf(".tool("));
+    const catalogue = blocks.filter((b) => /\b(createCrmProduct|updateCrmProduct|setCrmProductArchived|linkProductToItem)\(/.test(b));
+    expect(catalogue.length).toBe(2);
+    for (const b of catalogue) expect(registrarOf(b), b.slice(0, 60)).toBe("catalogueServer");
+    const report = blocks.filter((b) => /\bbuildCrmReport\(/.test(b));
+    expect(report.length).toBe(1);
+    expect(registrarOf(report[0]!)).toBe("reportServer");
+  });
+
   it("the catalogue tools also need the write key: a reader with the catalogue key alone gets neither", () => {
     const principal = { userId: "u-1", baseRole: "MEMBER", organizationId: ORG, fromApiKey: false, grants: [{ permission: "crm.read" }, { permission: "crm.products.manage" }], personGrants: {} };
     const names = toolNames({ role: "MEMBER", fromApiKey: false, principal: principal as never });
     for (const tool of CATALOGUE_TOOLS) expect(names).not.toContain(tool);
     expect(names).toContain("list_crm_products");
   });
+});
+
+// ── an API key that acts with a role (review of 3f2959f5) ────────────────────
+
+/**
+ * The role-bound key door registers the CRM tools through `registerAllMcpTools`
+ * behind `gateMcpServerForKey`, whose gate asks ONE key per tool. Until the
+ * review the CRM registrations saw a full key there, so what a tool decides for
+ * itself (the write key beside the catalogue key; whether money is printed)
+ * was decided as an admin.
+ */
+describe("an API key that acts with a role is judged as that role by the CRM tools", () => {
+  type Tool = (input: Record<string, unknown>, extra: unknown) => Promise<{ content: Array<{ text: string }> }>;
+
+  function keyTools(permissions: PermissionKey[]): Map<string, Tool> {
+    const tools = new Map<string, Tool>();
+    const server = { tool: (name: string, ...rest: unknown[]) => void tools.set(name, rest[rest.length - 1] as Tool), resource: vi.fn(), prompt: vi.fn() };
+    const principal = principalFromApiKey(ORG, permissions.map((permission) => ({ permission })));
+    registerAllMcpTools(gateMcpServerForKey(server as never, principal, ORG), ORG, { keyPrincipal: principal });
+    return tools;
+  }
+
+  it("the catalogue key without the write key gets no catalogue tools, as the routes refuse it", () => {
+    const names = [...keyTools(["crm.read", "crm.products.manage"]).keys()];
+    expect(names).toContain("list_crm_products");
+    for (const tool of CATALOGUE_TOOLS) expect(names, tool).not.toContain(tool);
+  });
+
+  it("with both keys it gets them, and still no report without the reports key", () => {
+    const names = [...keyTools(["crm.read", "crm.write", "crm.products.manage"]).keys()];
+    expect(names).toEqual(expect.arrayContaining(CATALOGUE_TOOLS));
+    expect(names).not.toContain("get_crm_report");
+  });
+
+  it("a role without deal values gets the report's counts and none of its money", async () => {
+    vi.mocked(db.crmPipelineStage.findMany).mockResolvedValue([
+      { id: "s1", name: "New", isTerminal: false },
+      { id: "s2", name: "Won", isTerminal: true },
+    ] as never);
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmDeal.groupBy).mockImplementation(((args: { by: string[] }) =>
+      Promise.resolve(args.by.includes("stageId") ? [{ stageId: "s1", currency: "AED", _count: { _all: 3 }, _sum: { dealValue: 480000 } }] : [])) as never);
+
+    const blind = await keyTools(["crm.read", "crm.reports.view"]).get("get_crm_report")!({}, {});
+    expect(blind.content[0]!.text).toContain("3 deal(s)");
+    expect(blind.content[0]!.text).not.toContain("480");
+
+    const sighted = await keyTools(["crm.read", "crm.reports.view", "crm.dealValues.view"]).get("get_crm_report")!({}, {});
+    expect(sighted.content[0]!.text).toContain("480");
+  });
+
+  // list_crm_deals and get_crm_deal print a deal's value without asking
+  // `crm.dealValues.view` at all, for every caller: an OLDER defect, recorded
+  // in docs/ROADMAP.md (CRM corporate projects, Nov 12), not fixed here.
 });

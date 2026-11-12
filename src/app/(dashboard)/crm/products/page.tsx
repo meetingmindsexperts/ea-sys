@@ -40,7 +40,7 @@ function listView(isLoading: boolean, isError: boolean, empty: boolean): ListVie
 }
 
 function emptyCatalogueHint(canManage: boolean): string {
-  return canManage ? "Your catalog seeds on first load — reload in a moment, or add one." : "Your catalog seeds on first load. Reload in a moment.";
+  return canManage ? "Your catalog seeds on first load. Reload in a moment, or add one." : "Your catalog seeds on first load. Reload in a moment.";
 }
 
 function emptyProductsTitle(noProducts: boolean, archived: boolean): string {
@@ -49,7 +49,12 @@ function emptyProductsTitle(noProducts: boolean, archived: boolean): string {
 }
 
 export default function CrmProductsPage() {
-  const canManage = useCan("crm.products.manage") === "allowed";
+  // Both keys, as the routes ask them (the write gate, then the catalogue key).
+  const catalogueAccess = useCan("crm.products.manage");
+  const canWrite = useCan("crm.write") === "allowed";
+  const canManage = catalogueAccess === "allowed" && canWrite;
+  // Said only once the answer is known: while the session loads an admin is not "not an admin".
+  const showAdminsOnlyNote = catalogueAccess === "denied";
 
   const [q, setQ] = useState("");
   const [category, setCategory] = useState<string>(ALL_CATEGORIES);
@@ -84,7 +89,7 @@ export default function CrmProductsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Your service catalog. Add these to deals as line items to itemize what you&rsquo;re selling.
-          {!canManage && " Only admins add or change products."}
+          {showAdminsOnlyNote && " Only admins add or change products."}
         </p>
         {canManage && (
           <Button onClick={() => setCreateOpen(true)}>

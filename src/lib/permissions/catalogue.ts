@@ -639,12 +639,14 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("crm.dealValues.view", "CRM", "See deal values", "See the money on deals and reports."),
   app("crm.quoteDefaults.manage", "CRM", "Quote defaults", "Set the default terms on quotes."),
   // Admins only (owner, Nov 12, 2026): the sales team sees the catalogue and
-  // puts its products on deals, and never changes the catalogue itself. This
-  // key alone decides archive and restore of a PRODUCT (not `crm.delete`).
-  app("crm.products.manage", "CRM", "Manage the product catalogue", "Add, change, archive and restore products, and link them to QuickBooks. Without it a person still sees the catalogue and adds products to deals."),
-  // Admins only (owner, Nov 12, 2026). CRM Home keeps its two totals (open
-  // pipeline, win rate) for everyone in the CRM: /api/crm/reports/headline.
-  app("crm.reports.view", "CRM", "See CRM reports", "Open Reports: the pipeline by stage, won and lost, each person's results and the breakdowns."),
+  // puts its products on deals, and never changes the catalogue itself. Asked
+  // on top of `crm.write`; archive and restore of a PRODUCT need this key and
+  // not `crm.delete`.
+  app("crm.products.manage", "CRM", "Manage the product catalogue", "Add, change, archive and restore products, and link them to QuickBooks. Also needs \"Work the CRM\". Without it a person still sees the catalogue and adds products to deals."),
+  // Admins only (owner, Nov 12, 2026). It hides the Reports page and the
+  // report tool, not the deals: the board still shows every deal. CRM Home's
+  // totals are not behind it (/api/crm/reports/headline).
+  app("crm.reports.view", "CRM", "See CRM reports", "Open the Reports page: the pipeline by stage, won and lost, a table per person and the breakdowns. The deals themselves stay visible on the board."),
 
   // ── HR ──
   app("hr.read", "HR", "See HR", "Open attendance, leave and holidays. Also needs HR access on the person, except for a Super Admin or HR User.", { personGrant: "hrAccess" }),

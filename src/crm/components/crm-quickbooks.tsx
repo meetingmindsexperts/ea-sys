@@ -360,25 +360,34 @@ export function QuickBooksProductsPanel({ unlinkedCount }: { unlinkedCount: numb
 type ProblemFix = { href: string; label: string } | { note: string } | null;
 
 /**
- * Where the rep goes to fix each kind of problem. Linking a product is part of
- * the catalogue, which only admins change (crm.products.manage, Nov 12, 2026):
- * a person who cannot is told who can, never sent to a page with no Link button.
+ * Where the rep goes to fix each kind of problem. Two of them are fixed on
+ * Products by admins only: linking a product (crm.products.manage, Nov 12,
+ * 2026) and choosing the VAT codes (crm.quoteDefaults.manage). A person who
+ * cannot is told who can, never sent to a page with no button for it.
  */
-function fixLink(p: QuickBooksProblem, companyId: string | null, canManageProducts: boolean): ProblemFix {
+function fixLink(p: QuickBooksProblem, companyId: string | null, may: { manageProducts: boolean; setTaxCodes: boolean }): ProblemFix {
   if (p.code === "CUSTOMER_NOT_LINKED" || p.code === "CURRENCY_MISMATCH") {
     return companyId ? { href: `/crm/accounts/${companyId}`, label: "Open the account" } : null;
   }
-  if (p.code === "PRODUCT_NOT_LINKED" && !canManageProducts) return { note: "An admin links it on the Products page." };
-  if (p.code === "PRODUCT_NOT_LINKED" || p.code === "TAX_CODES_NOT_SET") return { href: "/crm/products", label: "Open Products" };
+  if (p.code === "PRODUCT_NOT_LINKED") {
+    return may.manageProducts ? { href: "/crm/products", label: "Open Products" } : { note: "An admin links it on the Products page." };
+  }
+  if (p.code === "TAX_CODES_NOT_SET") {
+    return may.setTaxCodes ? { href: "/crm/products", label: "Open Products" } : { note: "An admin chooses them on the Products page." };
+  }
   return null;
 }
 
 function ProblemList({ problems, companyId }: { problems: Array<{ code: string; message: string }>; companyId: string | null }) {
-  const canManageProducts = useCan("crm.products.manage") === "allowed";
+  const canWrite = useCan("crm.write") === "allowed";
+  const may = {
+    manageProducts: useCan("crm.products.manage") === "allowed" && canWrite,
+    setTaxCodes: useCan("crm.quoteDefaults.manage") === "allowed",
+  };
   return (
     <ul className="space-y-1.5">
       {problems.map((p, i) => {
-        const fix = fixLink(p as QuickBooksProblem, companyId, canManageProducts);
+        const fix = fixLink(p as QuickBooksProblem, companyId, may);
         return (
           <li key={`${p.code}-${i}`} className="flex items-start gap-2 text-sm">
             <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />

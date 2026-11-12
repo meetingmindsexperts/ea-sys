@@ -2,8 +2,8 @@
  * /api/crm/products/[productId] — edit / archive / restore one catalog product.
  *
  * Admins only since Nov 12, 2026: every handler asks `crm.products.manage`
- * after the write gate, and for a product that key alone decides archive and
- * restore (`crm.delete` is about deals and accounts). PATCH edits OR restores
+ * after the write gate, and archive and restore of a product need that key
+ * and not `crm.delete`, which is about deals and accounts. PATCH edits OR restores
  * (`archived:false`); DELETE archives (soft delete). Prices are stripped for a
  * caller without deal values by redactForCaller.
  */

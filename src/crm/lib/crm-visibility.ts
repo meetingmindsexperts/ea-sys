@@ -144,8 +144,8 @@ export function denyCrmExport(ctx: CrmCaller) {
  * Admins only (owner, Nov 12, 2026): the sales team reads the catalogue and
  * puts its products on deals at the price they type, and never changes the
  * catalogue itself. Asked AFTER the write gate by every handler under
- * /api/crm/products (a source test lists them). For a product this key alone
- * decides archive and restore; `crm.delete` is about deals and accounts.
+ * /api/crm/products (a source test lists them). Archive and restore of a
+ * product need this key and not `crm.delete`, which is about deals and accounts.
  * Logs its own refusal.
  */
 export function denyCrmProductsManage(ctx: CrmCaller) {
@@ -165,7 +165,9 @@ export function denyCrmProductsManage(ctx: CrmCaller) {
 
 /**
  * Returns a 403 if the caller may not open CRM REPORTS (the pipeline by stage,
- * won and lost, each person's results, the breakdowns), else null.
+ * won and lost, the per-person table, the breakdowns), else null. It hides the
+ * summaries, not the deals: the board still shows every deal to everyone in
+ * the CRM.
  *
  * Admins only (owner, Nov 12, 2026). CRM Home's two totals are NOT this: they
  * come from /api/crm/reports/headline, which everyone in the CRM may read
