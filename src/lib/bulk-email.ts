@@ -24,6 +24,7 @@ import { getTitleLabel } from "./utils";
 import { reviewerSpeakerRecords } from "@/lib/abstract-reviewer-notify";
 import { resolveTimezone, formatTimeInTz, tzLabel } from "./event-time";
 import { buildPaymentReminderVars } from "./payment-reminder";
+import { computeRegistrationRowMoney } from "./registration-export";
 import { googleCalendarUrl, outlookCalendarUrl, buildIcsContent } from "./calendar-links";
 import {
   DEFAULT_SURVEY_EXPIRY_DAYS,
@@ -40,6 +41,7 @@ import { isDailyMode, type SurveyResponseModeValue } from "./survey/response-mod
 import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
   excludesGroupMembers,
+  excludedAsNoBalance,
   NO_BALANCE_PAYMENT_STATUSES,
   excludesCancelledByDefault,
   PER_ABSTRACT_EMAIL_TYPES,
@@ -1567,9 +1569,26 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         // The confirmation's payment block: owed or not, and covered by whom.
         paymentStatus: true,
         group: { select: { billingAccount: { select: { name: true } } } },
+        // The balance, for the reminder's owes-nothing rule below.
+        status: true,
+        payments: { select: { amount: true, status: true } },
       },
     });
-    recipients = registrations.map((r) => ({
+    // Nobody who owes nothing is chased (owner, Nov 12, 2026). The where
+    // clause above can only test the payment status; a balance of zero under
+    // an outstanding status (a code entered after registering, a free type)
+    // needs the money worked out, with the helper the list's Paid / Due
+    // column uses. excludedAsNoBalance is the rule; the dialog's count asks it
+    // the same question of the same figure.
+    const reminderMoneyCtx = { taxRate: event.taxRate ? Number(event.taxRate) : null, taxLabel: event.taxLabel ?? null };
+    const chased = registrations.filter((r) => {
+      const amountDue = computeRegistrationRowMoney(r, reminderMoneyCtx)?.amountDue ?? null;
+      return !excludedAsNoBalance(emailType, r.paymentStatus, !!r.ticketType, amountDue);
+    });
+    if (chased.length !== registrations.length) {
+      apiLogger.info({ msg: "bulk-email:payment-reminder-nothing-due-left-out", eventId, leftOut: registrations.length - chased.length, kept: chased.length });
+    }
+    recipients = chased.map((r) => ({
       id: r.id,
       email: r.attendee.email,
       additionalEmail: r.attendee.additionalEmail,

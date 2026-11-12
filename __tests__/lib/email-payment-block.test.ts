@@ -16,6 +16,18 @@ describe("buildRegistrationPaymentBlock", () => {
     expect(buildRegistrationPaymentBlock({ ticketPrice: null, paymentLink: LINK, quoteAttached: false }).html).toBe("");
   });
 
+  // Owner, Nov 12, 2026: nobody who owes nothing gets a payment email. A code
+  // covering the whole fee used to render "Total: USD 0.00" beside Pay Now.
+  it("renders nothing when a code covers the whole fee, with or without tax", () => {
+    const covered = { ticketPrice: 200, discountAmount: 200, promoCode: "GCCHH26SEHA", paymentLink: LINK, quoteAttached: false };
+    expect(buildRegistrationPaymentBlock(covered)).toEqual({ html: "", text: "" });
+    expect(buildRegistrationPaymentBlock({ ...covered, taxRate: 5, taxLabel: "VAT" })).toEqual({ html: "", text: "" });
+    // A discount larger than the fee is capped at it.
+    expect(buildRegistrationPaymentBlock({ ...covered, discountAmount: 999 })).toEqual({ html: "", text: "" });
+    // One cent still owed is still owed.
+    expect(buildRegistrationPaymentBlock({ ...covered, discountAmount: 199.99 }).html).toContain("Pay Now");
+  });
+
   it("a group member gets the covered-by note with the payer escaped, never an amount", () => {
     const b = buildRegistrationPaymentBlock({ coveredByGroupPayerName: "Acme & Co", ticketPrice: 500, paymentLink: LINK, quoteAttached: true });
     expect(b.html).toContain("Registration covered by Acme &amp; Co");

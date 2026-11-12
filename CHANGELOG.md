@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### A payment email never goes to someone who owes nothing (November 12)
+
+Owner: "if someone is 0 or owes nothing, dont send any payment related emails". On the 4th GCC Hematology Hub five nurses entered a 100% code after registering (payment status UNPAID, nothing due), and a payment reminder would have asked them for 0.00.
+
+- **A payment reminder leaves out anyone whose balance is zero, whatever the payment status says**: a code that covers the whole fee, a free type or rate, a paid or refunded registration, one paid in full by parts. This holds for the bulk send, a scheduled one, the agent's `send_bulk_email` and the single send from a registration. Before, only complimentary, sponsor-paid, cancelled, group and typeless registrations were left out; a paid one was kept out only by the organiser's own filter. On the local copy of GCC Hub the reminder's audience went from 43 to 16
+- **One rule, one figure**: `excludedAsNoBalance` (bulk-email-audience.ts) now takes the balance, read from `computeRegistrationRowMoney`, the helper behind the list's Paid / Due column and the CSV. The dialog's recipient count asks the same question of the same figure, so the count and the send agree
+- **The single send says why**: `NO_BALANCE_DUE`, "This registration owes nothing: it is already paid, or a promo code or a free rate covers the fee"
+- **The confirmation email's payment box is left out when a code covers the whole fee** (`buildRegistrationPaymentBlock`): it showed "Total 0.00" beside Pay Now
+- A send whose whole audience owes nothing is refused ("No recipients"). From the dialog it is queued first, so it shows as failed under Scheduled Emails
+- Not changed: the reminder still prints the full fee to someone who has paid part (ROADMAP)
+
 ### Registrations page: the summary card adds up and says what it is made of (November 12)
 
 Owner, on the 4th GCC Hematology Hub: "these numbers are off", and "on what basis faculty is decided". The card read Total 65 beside Confirmed 27, Pending 37 and Checked In 0, and nothing on the page said why.

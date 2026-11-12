@@ -156,12 +156,22 @@ export interface RegistrationRowMoney {
 }
 
 /**
+ * What the balance is worked out from. Narrower than a whole export row so a
+ * sender that loads only these columns (the payment reminder) can ask the same
+ * question the list and the CSV ask, and get the same answer.
+ */
+export type RegistrationMoneyInput = Pick<
+  RegistrationExportRow,
+  "status" | "paymentStatus" | "payments" | "originalPrice" | "discountAmount" | "pricingTier" | "ticketType"
+>;
+
+/**
  * Returns null when redaction removed the inputs: an absent `payments` means
  * "this role cannot see money", not "nothing was paid" (see the redaction
  * contract above). Callers render a blank, never 0.00, for null.
  */
 export function computeRegistrationRowMoney(
-  r: RegistrationExportRow,
+  r: RegistrationMoneyInput,
   ctx: Pick<RegistrationExportContext, "taxRate" | "taxLabel">,
 ): RegistrationRowMoney | null {
   if (r.payments === undefined) return null;

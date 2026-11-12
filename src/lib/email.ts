@@ -2631,6 +2631,10 @@ export function buildRegistrationPaymentBlock(p: RegistrationPaymentBlockInput):
   const taxRate = p.taxRate ? Number(p.taxRate) : 0;
   const taxAmount = taxRate > 0 ? netAmount * (taxRate / 100) : 0;
   const totalAmount = netAmount + taxAmount;
+  // A code that covers the whole fee leaves nothing to pay (owner, Nov 12,
+  // 2026): no "Total 0.00" beside a Pay Now button, no "complete only upon
+  // receipt of your payment".
+  if (!(totalAmount > 0)) return { html: "", text: "" };
   const taxLabel = p.taxLabel || "Tax";
   const discountLabel = p.promoCode ? `Promo ${p.promoCode}` : "Discount";
 

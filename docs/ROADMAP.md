@@ -24,17 +24,23 @@ rule. Not done with the card because it is one decision across seven surfaces, t
 them read by the agent: decide the one rule (live only, cancelled named) and apply it
 through one helper. The user guide says today that the other pages can read higher.
 
-**Older defect, MED: a payment reminder reaches a registration that owes nothing.** A
-promo code that covers the whole fee, entered AFTER registering
-(`applyPromoCodeToRegistration`), records the discount and leaves the payment status
-UNPAID; entered while registering, the same code makes it COMPLIMENTARY. The owner's
-ruling (Nov 12): UNPAID stays, the list names the code. The reminder audience
-(`bulk-email.ts`, `excludedAsNoBalance`) is decided by payment status alone, so such a
-row is sent a payment reminder for an amount of zero. Six rows on production on Nov 12
-(five on GCC Hub, code GCCHH26SEHA); none has been sent one. By hand until built: set
-those registrations to Complimentary before sending a reminder to the event. The fix
-is to leave out anyone with nothing due, in the one rule and its three mirrors (the
-bulk audience, the two count predicates, the single send).
+**~~Older defect, MED: a payment reminder reaches a registration that owes nothing.~~ FIXED
+Nov 12, 2026** (owner: "if someone is 0 or owes nothing, dont send any payment related
+emails"). The reminder, bulk and single, leaves out anyone whose balance is zero
+(`excludedAsNoBalance` with the balance from `computeRegistrationRowMoney`), and the
+confirmation's payment box is left out when a code covers the whole fee. The payment
+status of a registration whose code was entered after registering stays UNPAID (owner).
+
+**Older defects found while fixing it, recorded and not fixed.**
+- The payment reminder prints the FULL fee, and its Pay Now link carries the full
+  price, for someone who has paid part: `buildPaymentReminderVars` works with
+  `totalPaid: 0`. They are rightly still chased; the amount is wrong. The fix is the
+  balance in the email, after checking what checkout charges a part-payer.
+- A bulk send from the dialog is queued before anyone is counted, so a send with nobody
+  to send to (every recipient owes nothing, or a filter that matches no one) answers
+  "Email queued" and fails a minute later under Scheduled Emails. Refusing at the
+  route would need the audience worked out twice; the count in the dialog is the guard
+  today.
 
 **Decision waiting on the owner: an event with BOTH an ordinary "Faculty" type and the
 built-in one.** An ordinary type named exactly "Faculty" becomes the built-in type by

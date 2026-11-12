@@ -27,17 +27,36 @@ import { executeBulkEmail } from "@/lib/bulk-email";
 
 describe("excludedAsNoBalance", () => {
   it.each(["COMPLIMENTARY", "INCLUSIVE"])("leaves %s out of a payment reminder", (s) => {
-    expect(excludedAsNoBalance("payment-reminder", s, true)).toBe(true);
+    expect(excludedAsNoBalance("payment-reminder", s, true, 0)).toBe(true);
+    // The status alone decides, even where the balance is unknown.
+    expect(excludedAsNoBalance("payment-reminder", s, true, null)).toBe(true);
   });
-  it.each(["UNPAID", "PENDING", "UNASSIGNED", "PAID"])("keeps %s with a type (other filters decide)", (s) => {
-    expect(excludedAsNoBalance("payment-reminder", s, true)).toBe(false);
+  it.each(["UNPAID", "PENDING", "UNASSIGNED", "FAILED"])("keeps %s with a type and a balance to pay", (s) => {
+    expect(excludedAsNoBalance("payment-reminder", s, true, 210)).toBe(false);
   });
   it.each(["UNASSIGNED", "UNPAID"])("leaves a %s registration with no type out: nothing is priced yet", (s) => {
-    expect(excludedAsNoBalance("payment-reminder", s, false)).toBe(true);
+    expect(excludedAsNoBalance("payment-reminder", s, false, 210)).toBe(true);
   });
   it("only applies to payment reminders", () => {
-    expect(excludedAsNoBalance("event-reminder", "COMPLIMENTARY", true)).toBe(false);
-    expect(excludedAsNoBalance("event-reminder", "UNASSIGNED", false)).toBe(false);
+    expect(excludedAsNoBalance("event-reminder", "COMPLIMENTARY", true, 0)).toBe(false);
+    expect(excludedAsNoBalance("event-reminder", "UNASSIGNED", false, 0)).toBe(false);
+    expect(excludedAsNoBalance("event-reminder", "UNPAID", true, 0)).toBe(false);
+  });
+
+  // Owner, Nov 12, 2026: "if someone is 0 or owes nothing, dont send any
+  // payment related emails". Five nurses on the 4th GCC Hematology Hub entered
+  // a 100% code after registering: UNPAID, nothing due.
+  it.each(["UNPAID", "PENDING", "UNASSIGNED", "FAILED", "PAID", "REFUNDED"])("leaves %s out when nothing is left to pay", (s) => {
+    expect(excludedAsNoBalance("payment-reminder", s, true, 0)).toBe(true);
+  });
+  it("treats a balance that is not a positive number as nothing to pay", () => {
+    expect(excludedAsNoBalance("payment-reminder", "UNPAID", true, -5)).toBe(true);
+    expect(excludedAsNoBalance("payment-reminder", "UNPAID", true, Number.NaN)).toBe(true);
+    expect(excludedAsNoBalance("payment-reminder", "UNPAID", true, 0.01)).toBe(false);
+  });
+  it("lets the status and the type decide where the balance cannot be known", () => {
+    expect(excludedAsNoBalance("payment-reminder", "UNPAID", true, null)).toBe(false);
+    expect(excludedAsNoBalance("payment-reminder", "UNPAID", false, null)).toBe(true);
   });
 });
 

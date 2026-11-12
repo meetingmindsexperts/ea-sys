@@ -453,8 +453,8 @@ export default function RegistrationsPage() {
       // Group members are never dunned individually (H2) — count matches send.
       if (excludesGroupMembers(f.emailType) && r.group)
         return false;
-      // Complimentary / sponsor-paid / no type yet: never sent a payment reminder.
-      if (excludedAsNoBalance(f.emailType, r.paymentStatus, !!r.ticketType)) return false;
+      // Complimentary / sponsor-paid / no type yet / nothing left to pay: never sent a payment reminder.
+      if (excludedAsNoBalance(f.emailType, r.paymentStatus, !!r.ticketType, r.rowMoney?.amountDue ?? null)) return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
       if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;

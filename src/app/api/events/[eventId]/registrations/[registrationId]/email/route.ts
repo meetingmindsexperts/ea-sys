@@ -24,7 +24,8 @@ import {
   repointOrgContactEmail,
 } from "@/lib/email-change";
 import { buildPaymentReminderVars } from "@/lib/payment-reminder";
-import { excludedAsNoBalance } from "@/lib/bulk-email-audience";
+import { excludedAsNoBalance, NO_BALANCE_PAYMENT_STATUSES } from "@/lib/bulk-email-audience";
+import { computeRegistrationRowMoney } from "@/lib/registration-export";
 import { executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
 import { surveyExpiryDaysSchema } from "@/lib/survey/expiry";
 
@@ -51,6 +52,15 @@ const sendEmailSchema = z.object({
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
+}
+
+/** Why a payment reminder is refused for a registration that owes nothing, in the organiser's words. */
+function noBalanceRefusal(paymentStatus: string, hasType: boolean): string {
+  if (!hasType) return "This registration has no type yet, so there is no price to pay. Send them the registration form, or set their type first.";
+  if (NO_BALANCE_PAYMENT_STATUSES.includes(paymentStatus)) {
+    return "This registration is complimentary or sponsor-paid, so there is nothing to pay. Change its payment status first if they do owe.";
+  }
+  return "This registration owes nothing: it is already paid, or a promo code or a free rate covers the fee. A payment reminder is not sent.";
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -110,6 +120,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           attendee: true,
           pricingTier: { select: { name: true, price: true, currency: true } },
           promoCode: { select: { code: true } },
+          // The balance, for the payment reminder's owes-nothing rule.
+          payments: { select: { amount: true, status: true } },
         },
       }),
     ]);
@@ -288,14 +300,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Nothing owed, never chased (Oct 22, 2026): same rule as the bulk audience.
-    if (type === "payment-reminder" && excludedAsNoBalance(type, registration.paymentStatus, !!registration.ticketType)) {
-      apiLogger.warn({ msg: "registration-email:no-balance-payment-reminder-refused", registrationId, eventId, paymentStatus: registration.paymentStatus, hasType: !!registration.ticketType });
+    // Nothing owed, never chased (Oct 22, 2026; a zero balance under any
+    // status since Nov 12, 2026): same rule, and same figure, as the bulk audience.
+    const amountDue = computeRegistrationRowMoney(registration, {
+      taxRate: event.taxRate ? Number(event.taxRate) : null,
+      taxLabel: event.taxLabel ?? null,
+    })?.amountDue ?? null;
+    if (type === "payment-reminder" && excludedAsNoBalance(type, registration.paymentStatus, !!registration.ticketType, amountDue)) {
+      apiLogger.warn({ msg: "registration-email:no-balance-payment-reminder-refused", registrationId, eventId, paymentStatus: registration.paymentStatus, hasType: !!registration.ticketType, amountDue });
       return NextResponse.json(
         {
-          error: registration.ticketType
-            ? "This registration is complimentary or sponsor-paid, so there is nothing to pay. Change its payment status first if they do owe."
-            : "This registration has no type yet, so there is no price to pay. Send them the registration form, or set their type first.",
+          error: noBalanceRefusal(registration.paymentStatus, !!registration.ticketType),
           code: "NO_BALANCE_DUE",
         },
         { status: 400 },

@@ -89,10 +89,28 @@ export const NO_BALANCE_PAYMENT_STATUSES: readonly string[] = ["COMPLIMENTARY", 
  * is UNASSIGNED, "they choose it themselves", so there is no price to remind
  * them of; the registration form is what they are sent. `hasType` is required
  * so no caller can quietly leave it out and count differently from the send.
+ *
+ * Nor is anyone whose balance is zero, whatever the payment status says
+ * (owner, Nov 12, 2026: "if someone is 0 or owes nothing, dont send any
+ * payment related emails"). A promo code entered after registering covers the
+ * fee and leaves the status UNPAID; a paid or refunded registration owes
+ * nothing; a free type owes nothing. `amountDue` is the balance from
+ * computeRegistrationRowMoney (registration-export.ts), the ONE figure the
+ * list's Paid / Due column and the CSV show, so the reminder cannot chase a
+ * row the page shows as owing nothing. Required for the same reason as
+ * `hasType`. Pass null ONLY where the balance cannot be known (a reader whose
+ * rows have the money removed): the payment status and the type then decide
+ * the count, and the server, which always knows, decides the send.
  */
-export function excludedAsNoBalance(emailType: string | undefined, paymentStatus: string, hasType: boolean): boolean {
+export function excludedAsNoBalance(
+  emailType: string | undefined,
+  paymentStatus: string,
+  hasType: boolean,
+  amountDue: number | null,
+): boolean {
   if (emailType !== "payment-reminder") return false;
-  return NO_BALANCE_PAYMENT_STATUSES.includes(paymentStatus) || !hasType;
+  if (NO_BALANCE_PAYMENT_STATUSES.includes(paymentStatus) || !hasType) return true;
+  return amountDue !== null && !(amountDue > 0);
 }
 
 // ───────────────────────── Abstract email types ─────────────────────────
