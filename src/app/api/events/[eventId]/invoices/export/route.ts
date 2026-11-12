@@ -15,6 +15,7 @@ import {
   buildInvoiceQuickBooksCsv,
   type InvoiceExportRow,
 } from "@/lib/invoice-export";
+import { contentDisposition } from "@/lib/download-filename";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -108,7 +109,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         status: 200,
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": `attachment; filename="${name}-${event.code || eventId}-${stamp}.csv"`,
+          "Content-Disposition": contentDisposition(`${name}-${event.code || eventId}-${stamp}.csv`),
         },
       });
     }
@@ -181,7 +182,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": contentDisposition(filename),
         "Cache-Control": "private, max-age=0",
       },
     });

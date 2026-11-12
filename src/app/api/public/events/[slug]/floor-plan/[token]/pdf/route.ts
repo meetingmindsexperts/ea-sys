@@ -13,6 +13,7 @@ import { exhibitorLayout } from "@/lib/venue/exhibitor-view";
 import { FLOOR_PLAN_HEADERS, withFloorPlanLink } from "@/lib/venue/exhibitor-link";
 import { PLAN_PAPERS, planDateLine, renderFloorPlanPdf, type PlanPaper } from "@/lib/venue/floor-plan-pdf";
 import { loadVenueProgramme } from "@/services/venue-programme-service";
+import { contentDisposition } from "@/lib/download-filename";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
 const ROUTE = "public-floor-plan-pdf";
@@ -34,7 +35,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       const pdf = await renderFloorPlanPdf({ layout, eventName: event.name, dateLine: planDateLine(event.startDate, event.endDate, event.timezone), place, sponsors: programme.sponsors, paper, generatedAt: new Date() });
       apiLogger.info({ msg: `${ROUTE}:rendered`, slug, eventId: event.id, paper, bytes: pdf.length });
       return new NextResponse(new Uint8Array(pdf), {
-        headers: { ...FLOOR_PLAN_HEADERS, "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${event.slug}-floor-plan-${paper}.pdf"` },
+        headers: { ...FLOOR_PLAN_HEADERS, "Content-Type": "application/pdf", "Content-Disposition": contentDisposition(`${event.slug}-floor-plan-${paper}.pdf`) },
       });
     });
   } catch (err) {

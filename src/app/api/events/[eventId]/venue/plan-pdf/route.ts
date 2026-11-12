@@ -23,6 +23,7 @@ import { checkLayout } from "@/lib/venue/layout-check";
 import { readVenueRooms } from "@/lib/venue/rooms";
 import { PLAN_PAPERS, planDateLine, renderFloorPlanPdf, type PlanPaper } from "@/lib/venue/floor-plan-pdf";
 import { loadVenueProgramme } from "@/services/venue-programme-service";
+import { contentDisposition } from "@/lib/download-filename";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 const ROUTE = "events/[eventId]/venue/plan-pdf:GET";
@@ -112,7 +113,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return new NextResponse(new Uint8Array(pdf), {
         headers: {
           "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="${event.slug}-floor-plan-${paper}.pdf"`,
+          "Content-Disposition": contentDisposition(`${event.slug}-floor-plan-${paper}.pdf`),
           "Cache-Control": "private, no-store",
         },
       });

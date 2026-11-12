@@ -29,6 +29,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { toCsv } from "@/lib/csv-escape";
 import { loadCertificatePeople, loadRecipientReport, recipientReportCsv } from "@/lib/certificates/recipients-report";
+import { contentDisposition } from "@/lib/download-filename";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -110,7 +111,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     return new NextResponse(csv, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="certificate-recipients-${event.slug}.csv"`,
+        "Content-Disposition": contentDisposition(`certificate-recipients-${event.slug}.csv`),
         "Cache-Control": "no-store",
       },
     });

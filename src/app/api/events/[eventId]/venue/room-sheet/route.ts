@@ -23,6 +23,7 @@ import { ROOM_ID, SEATED_KINDS, readVenueRooms } from "@/lib/venue/rooms";
 import { checkLayout } from "@/lib/venue/layout-check";
 import { planDateLine } from "@/lib/venue/floor-plan-pdf";
 import { renderRoomSheetPdf, roomFilePart } from "@/lib/venue/room-sheet-pdf";
+import { contentDisposition } from "@/lib/download-filename";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 const ROUTE = "events/[eventId]/venue/room-sheet:GET";
@@ -105,7 +106,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return new NextResponse(new Uint8Array(pdf), {
         headers: {
           "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="${event.slug}-${roomFilePart(room.name)}-setup.pdf"`,
+          "Content-Disposition": contentDisposition(`${event.slug}-${roomFilePart(room.name)}-setup.pdf`),
           "Cache-Control": "private, no-store",
         },
       });

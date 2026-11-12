@@ -34,6 +34,7 @@ import { checkRateLimit } from "@/lib/security";
 import { collectRunItemCertRows } from "@/lib/certificates/bundle";
 import { loadCertificatePdfBytes } from "@/lib/certificates/pdf-loader";
 import { certZipEntryName } from "@/lib/certificates/zip";
+import { contentDisposition } from "@/lib/download-filename";
 
 interface RouteParams {
   params: Promise<{ eventId: string; runId: string }>;
@@ -222,7 +223,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": contentDisposition(filename),
         "Cache-Control": "private, max-age=0",
       },
     });

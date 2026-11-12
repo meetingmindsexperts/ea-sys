@@ -18,6 +18,7 @@ import { checkRateLimit } from "@/lib/security";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { resolveShareEvent } from "@/lib/share-link-access";
 import { buildEventBundle } from "@/lib/event-export/bundle";
+import { contentDisposition } from "@/lib/download-filename";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -76,7 +77,7 @@ export async function GET(req: Request, { params }: RouteParams): Promise<NextRe
       return new NextResponse(new Uint8Array(bundle.zip), {
         headers: {
           "Content-Type": "application/zip",
-          "Content-Disposition": `attachment; filename="${bundle.filename}"`,
+          "Content-Disposition": contentDisposition(bundle.filename),
           "Cache-Control": "no-store",
         },
       });

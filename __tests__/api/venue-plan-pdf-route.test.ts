@@ -78,7 +78,7 @@ describe("GET /api/events/:eventId/venue/plan-pdf", () => {
     const res = await get();
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/pdf");
-    expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="summit-27-floor-plan-A3.pdf"');
+    expect(res.headers.get("Content-Disposition")).toBe("attachment; filename=\"summit-27-floor-plan-A3.pdf\"; filename*=UTF-8''summit-27-floor-plan-A3.pdf");
     const input = render.mock.calls[0][0] as unknown as { paper: string; sponsors: { id: string; name: string }[]; dateLine: string; place: string };
     expect(input.paper).toBe("A3");
     expect(input.sponsors.map((s) => s.name)).toEqual(["Pfizer", "Novartis"]);

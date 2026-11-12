@@ -73,7 +73,7 @@ describe("GET /api/events/:eventId/venue/room-sheet", () => {
     const res = await get("?room=plenary-0");
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/pdf");
-    expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="mehfc-27-plenary-1-setup.pdf"');
+    expect(res.headers.get("Content-Disposition")).toBe("attachment; filename=\"mehfc-27-plenary-1-setup.pdf\"; filename*=UTF-8''mehfc-27-plenary-1-setup.pdf");
     expect(Buffer.from(res.body as Uint8Array).subarray(0, 5).toString()).toBe("%PDF-");
   });
 
