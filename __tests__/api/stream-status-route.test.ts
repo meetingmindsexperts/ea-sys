@@ -39,6 +39,7 @@ vi.mock("@/lib/security", () => ({
 
 import { GET } from "@/app/api/public/events/[slug]/sessions/[sessionId]/stream-status/route";
 import { resetRoomOpenCache } from "@/lib/webinar/viewer-entitlement";
+import { resetSessionStreamCache } from "@/lib/webinar/session-stream";
 
 // The route probes MediaMTX with a global fetch — always "live" here. The
 // probe result is cached per streamKey (3s TTL), so each test uses a DISTINCT
@@ -64,6 +65,7 @@ beforeEach(() => {
   fetchMock.mockResolvedValue({ ok: true });
   mockAuth.mockResolvedValue(null);
   resetRoomOpenCache();
+  resetSessionStreamCache();
   mockDb.event.findFirst.mockResolvedValue({
     id: "ev1",
     organizationId: "org1",

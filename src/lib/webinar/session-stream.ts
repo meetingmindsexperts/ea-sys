@@ -87,6 +87,37 @@ export async function sessionStream(sessionId: string, eventId: string): Promise
   return pickSessionStream({ externalStream, zoomMeeting });
 }
 
+/**
+ * sessionStream for the ONE hot caller, stream-status: every waiting or
+ * recovering player polls it about every 10 seconds, so 5,000 viewers after a
+ * drop are 500 requests a second, each of which would otherwise read both
+ * tables (review of 12c4c8b8: the resolver made that two reads where there was
+ * one). Per container, a few seconds, like the probe and the room caches
+ * beside it. "No stream" is cached too: a session without one is polled just
+ * as hard.
+ *
+ * Only for a reader that can be a few seconds late. Anything that ACTS on the
+ * answer (the room route, the publish check, the watchdog) asks sessionStream.
+ */
+const streamCache = new Map<string, { stream: SessionStream | null; at: number }>();
+const STREAM_CACHE_TTL_MS = 3000;
+const STREAM_CACHE_MAX = 5000;
+
+/** Test hook. */
+export function resetSessionStreamCache(): void {
+  streamCache.clear();
+}
+
+export async function cachedSessionStream(sessionId: string, eventId: string): Promise<SessionStream | null> {
+  const key = `${eventId}:${sessionId}`;
+  const cached = streamCache.get(key);
+  if (cached && Date.now() - cached.at < STREAM_CACHE_TTL_MS) return cached.stream;
+  const stream = await sessionStream(sessionId, eventId);
+  if (streamCache.size >= STREAM_CACHE_MAX) streamCache.clear();
+  streamCache.set(key, { stream, at: Date.now() });
+  return stream;
+}
+
 /** Whose key this is, for the publish check, which is handed a key and nothing else. */
 export type StreamKeyOwner =
   | { source: "zoom"; eventId: string; sessionId: string }
@@ -159,6 +190,10 @@ export async function setSessionStreamStatus(
   at: { sessionId: string; eventId: string; organizationId: string },
   status: StreamStatus,
 ): Promise<void> {
+  // Keep the cached answer in step BEFORE the write is awaited, so the requests
+  // arriving in the next few seconds see the new status and do not each write it again.
+  const cached = streamCache.get(`${at.eventId}:${at.sessionId}`);
+  if (cached?.stream) cached.stream = { ...cached.stream, streamStatus: status };
   const data = { streamStatus: status, organizationId: at.organizationId };
   if (stream.source === "external") {
     await db.externalStream.updateMany({ where: { sessionId: at.sessionId, eventId: at.eventId }, data });

@@ -7,7 +7,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { can, principalFromUser } from "@/lib/permissions/can";
-import { hlsPlaybackUrls, sessionStream, setSessionStreamStatus } from "@/lib/webinar/session-stream";
+import { cachedSessionStream, hlsPlaybackUrls, setSessionStreamStatus } from "@/lib/webinar/session-stream";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
 import { isViewerRoomOpen, viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
 
@@ -91,8 +91,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(event.organizationId, async () => {
-    // Our Zoom's stream or a partner's: session-stream.ts decides, bound to this event.
-    const stream = await sessionStream(sessionId, event.id);
+    // Our Zoom's stream or a partner's: session-stream.ts decides, bound to this
+    // event. Cached for a few seconds: this route is polled by every player.
+    const stream = await cachedSessionStream(sessionId, event.id);
     if (!stream) {
       return NextResponse.json({ status: "unavailable" });
     }

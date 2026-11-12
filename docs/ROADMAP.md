@@ -134,6 +134,9 @@ the server-side waiting room, export headers, presence archive); see CHANGELOG, 
    `NEXTAUTH_SECRET` rotation runbook, which already re-enters the Zoom and EventsAir credentials.
 2. **Publish check on the platform instance.** `POST /api/webhooks/mediamtx-auth` looks the key up
    with plain `db` and no tenant; with RLS enforced it finds nothing and refuses every publish.
+   Since Nov 12, 2026 the lookup is `streamKeyOwner` in `src/lib/webinar/session-stream.ts` and
+   reads two policied tables (`ZoomMeeting`, `ExternalStream`), so the move covers both
+   (review of 12c4c8b8).
    Move the lookup to the operator lane (`dbOperator`, allowlisted in `check-tenant-als.sh`) and
    check the meeting's organisation. A precondition for streaming on platform, not for master.
 3. **Shareable HLS URLs (review W-04).** `/stream/live/{key}/index.m3u8` plays for anyone holding
