@@ -165,6 +165,20 @@ door accepts a Pending registration on a free type today), and DTCM codes bought
 people who have not confirmed. Do it before the platform instance takes a second
 organisation.
 
+**From the review of `d0f29937` (0 BLOCKER, 0 HIGH, 0 MED, 4 LOW; the script settles
+confirmed speakers only).** Found sound: status is written by one path, `updateSpeaker`,
+so no door confirms a speaker without settling, and the settle keys on the type, so it
+works on an adopted type. LOW, listed only: the changelog's "24 settled" on the local
+copy is the first rule's figure; a speaker confirmed in the seconds between the script
+reading statuses and marking the type is settled by neither (run it again with
+`--event --type`); the dry run prints "set the speaker to Confirmed and it settles by
+itself", which is true only after `--write`; a checked-in, Unpaid registration of a
+speaker still Invited is listed as waiting for the yes. Older, LOW: the header says a
+checked-in row is never changed, while a checked-in Unpaid row of a confirmed speaker is
+made Complimentary; the script finds the speaker by `sourceRegistrationId` alone, which
+is not unique and misses a speaker linked to another registration; a settle that fails
+is not tried again (Confirmed to Confirmed is not a change).
+
 **From the review of `2727a13f` (0 BLOCKER, 0 HIGH, 6 MED, 11 LOW).** Five MED were in
 the one-off script and are fixed (cancelling is opt-in and never touches a checked-in or
 paid row; no speaker record means left; the built-in type is refused). Recorded:
