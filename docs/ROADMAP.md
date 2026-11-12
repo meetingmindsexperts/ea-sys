@@ -217,6 +217,29 @@ only. Also done that day: Registrations, Import from Contacts offers "Faculty
 (speakers and committee)" itself, so the team's two-step habit now ends on a Faculty
 registration.
 
+**From the review of `57a321bc`, `c5b90916` and `e6f3547b` (0 BLOCKER, 0 HIGH, 3 MED,
+14 LOW; "those who owe us", Add Speaker, the API's Faculty).** MED: an older worker
+ignores `filters.owesMoney` (recorded in `docs/ROLLBACK.md`; the deploy of the release
+itself has the same window between the web switch and the worker restart, a few
+minutes, once); the tile now reaches Unassigned, Pending and Failed registrations with
+a balance (kept, it is the payment reminder's rule, and now said in the changelog and
+the picker); Add Speaker's "Faculty" overwrote the contact's category (fixed). LOW
+fixed: the filter is refused on non-registration recipients. LOW, left and why: with an
+explicit Cancelled status the send is queued then "sent to 0" (nobody is mailed); a
+reader who cannot see amounts gets a count by status that can exceed the send (the
+server decides; said in the changelog); the page's "Unpaid" card counts by status
+beside a tile that counts by balance (two honest numbers, a relabel would fix it); the
+Scheduled Emails list does not show which filters a queued send carries (true of every
+filter; worth doing for this one, since it is 17 people or everyone); the dialog and
+tile behaviour is pinned by source text, not rendered; only Add Speaker in the browser
+and Speakers, Import from Contacts save "Faculty" (Import from Registrations, the CSV
+import, the agent and a direct API call save the type's name, the cell, or nothing); a
+contact whose only profession record was its category ("Nurse", no role) no longer
+passes it to a speaker imported from Contacts. Older, LOW: a registration charged to
+another account is chased personally (awaiting the owner, above); a payment in another
+currency counts as paid toward the balance; a virtual registration stamped 0 on a
+priced rate reads as owing the rate.
+
 **The speaker's own registration type is the website's (found Nov 12, 2026).** The
 n8n workflow that fills the Webflow People collection reads `registrationType` from
 `GET /api/events/{id}/speakers`, which is `Speaker.registrationType`, the text the old

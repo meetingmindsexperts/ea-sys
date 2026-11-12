@@ -137,6 +137,41 @@ describe("a Custom email to those who owe us", () => {
     expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
+  // Review of 57a321bc. The old tile was Confirmed + Unpaid only; the balance
+  // rule also reaches the other statuses that can still owe, as a payment
+  // reminder always has. Pinned so it is a decision, not an accident.
+  it("reaches anyone with a balance whose payment is Unassigned, Pending or Failed too", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      reg("unassigned", { paymentStatus: "UNASSIGNED" }),
+      reg("pending", { paymentStatus: "PENDING" }),
+      reg("failed", { paymentStatus: "FAILED" }),
+    ]);
+    await executeBulkEmail({ ...CUSTOM, filters: { status: "CONFIRMED", owesMoney: true } });
+    expect(emailedTo()).toEqual(["failed@h.com", "pending@h.com", "unassigned@h.com"]);
+  });
+
+  it("with a payment status as well, narrows to both: never wider", async () => {
+    mockDb.registration.findMany.mockResolvedValue([reg("owes")]);
+    await executeBulkEmail({ ...CUSTOM, filters: { owesMoney: true, paymentStatus: "UNPAID" } });
+    const where = whereOf();
+    expect(where.paymentStatus).toBe("UNPAID");
+    expect(where.AND).toHaveLength(2);
+    expect(where.groupId).toBeNull();
+  });
+
+  it("refuses the picker's own value arriving as a payment status, rather than mailing everyone", async () => {
+    mockDb.registration.findMany.mockResolvedValue([reg("owes"), reg("code", { discountAmount: 200 })]);
+    await expect(executeBulkEmail({ ...CUSTOM, filters: { paymentStatus: OWES_MONEY_FILTER } })).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("refuses the filter on speakers, where there is no balance, rather than ignoring it", async () => {
+    await expect(
+      executeBulkEmail({ ...CUSTOM, recipientType: "speakers" as const, filters: { owesMoney: true } }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
   it("is a filter the request schema keeps (an unknown key would be dropped and everyone mailed)", () => {
     const parsed = bulkEmailSchema.safeParse({ recipientType: "registrations", emailType: "custom", customSubject: "s", customMessage: "m", filters: { owesMoney: true } });
     expect(parsed.success).toBe(true);

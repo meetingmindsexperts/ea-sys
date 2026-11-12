@@ -1309,7 +1309,7 @@ export function BulkEmailDialog({
                     </Select>
                     <p className="text-xs text-muted-foreground">
                       {localPaymentFilter === OWES_MONEY_FILTER
-                        ? "Only people with a balance still to pay, after any promo code and payments. Leaves out complimentary and sponsor-paid registrations, anyone a code fully covers, group members (their company is invoiced) and cancelled registrations."
+                        ? "Only people with a balance still to pay, after any promo code and payments, whether their payment reads Unpaid, Unassigned, Pending or Failed. Leaves out complimentary and sponsor-paid registrations, anyone a code fully covers, group members (their company is invoiced) and cancelled registrations."
                         : "Send only to registrations with this payment status. To chase payment, choose \"Those who owe us\": Unpaid alone includes people a promo code already covers."}
                     </p>
                   </div>

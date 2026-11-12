@@ -32,7 +32,7 @@ vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotifyAdmins }));
 // stay pure speaker-service tests.
 vi.mock("@/services/payment-service", () => ({ cancelRegistration: mockCancelRegistration }));
 
-import { createSpeaker, cascadeSpeakerDecline, isSpeakerDeclineTransition } from "@/services/speaker-service";
+import { contactCategoryOf, createSpeaker, cascadeSpeakerDecline, isSpeakerDeclineTransition } from "@/services/speaker-service";
 
 const BASE_INPUT = {
   eventId: "evt-1",
@@ -117,6 +117,25 @@ describe("createSpeaker — happy path", () => {
     const createCall = mockDb.speaker.create.mock.calls[0][0];
     expect(createCall.data.tags).toEqual([]);
     expect(createCall.data.socialLinks).toEqual({});
+  });
+
+  // Review of e6f3547b: Add Speaker saves "Faculty" for every speaker (the
+  // speakers API and the website sync read it). A contact's category is a
+  // profession, and "Faculty" must not replace "Physician" on it.
+  it("saves Faculty on the speaker but never writes it over the contact's own category", async () => {
+    await createSpeaker({ ...BASE_INPUT, registrationType: "Faculty" });
+    expect(mockDb.speaker.create.mock.calls[0][0].data.registrationType).toBe("Faculty");
+    expect(mockSyncToContact.mock.calls[0][0].registrationType).toBeNull();
+    vi.clearAllMocks();
+    mockDb.speaker.create.mockResolvedValue({ id: "sp-2", eventId: BASE_INPUT.eventId, email: "b@x.com" });
+    await createSpeaker({ ...BASE_INPUT, registrationType: "Physician" });
+    expect(mockSyncToContact.mock.calls[0][0].registrationType).toBe("Physician");
+  });
+
+  it("reads Faculty in any case, and a blank, as no category for the contact", () => {
+    expect(["Faculty", "faculty", " FACULTY ", "", "  ", null, undefined].map(contactCategoryOf)).toEqual(Array(7).fill(null));
+    expect(contactCategoryOf(" Nurse ")).toBe("Nurse");
+    expect(contactCategoryOf("Invited Faculty")).toBe("Invited Faculty");
   });
 
   it("calls syncToContact with the full payload (parity with REST)", async () => {

@@ -795,6 +795,17 @@ export function assertValidBulkEmailFilters(
     }
   }
 
+  // "Those who owe us" is about a registration's balance. On speakers,
+  // reviewers or abstracts there is no balance, and ignoring the filter would
+  // mail everyone (review of 57a321bc): refuse, like any other bad filter.
+  if (filters.owesMoney === true && recipientType !== "registrations") {
+    throw new BulkEmailError(
+      "The \"owes money\" filter applies to registrations only. The send was rejected instead of silently widening the audience.",
+      400,
+      INVALID_FILTER_CODE,
+    );
+  }
+
   if (filters.paymentStatus) {
     const tokens = filters.paymentStatus.split(",").map((s) => s.trim()).filter(Boolean);
     for (const token of tokens) {

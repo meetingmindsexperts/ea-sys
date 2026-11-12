@@ -152,10 +152,13 @@ export interface CompanionSpeakerInput {
   country?: string | null;
   specialty?: string | null;
   /**
-   * The speaker's professional category (Physician / Allied Health / Nurse /
-   * Others). Stored on the companion attendee's `registrationType`. NOTE: this
-   * is NOT "Faculty" — Faculty is a badge/role (`badgeType`), not a profession.
-   * Left null when the speaker's category wasn't recorded.
+   * The speaker's own registration type text. Stored on the companion
+   * attendee's `registrationType`, where a profession (Physician / Allied
+   * Health / Nurse) is shown as the type on Registrations and the plain word
+   * "Faculty" is read as "no profession recorded" (displayRegistrationType).
+   * Since Nov 12, 2026 Add Speaker and Speakers, Import from Contacts save
+   * "Faculty" here (SPEAKER_API_REGISTRATION_TYPE: the speakers API serves
+   * this column to the website sync). Null when nothing was recorded.
    */
   registrationType?: string | null;
   /** The speaker's `role` (AttendeeRole profession category, e.g. PHYSICIAN).
@@ -341,8 +344,8 @@ export async function ensureSpeakerCompanionRegistration(
         zipCode: speaker.zipCode ?? undefined,
         country: speaker.country ?? undefined,
         specialty: speaker.specialty ?? undefined,
-        // The professional category (Physician/Nurse/…), NOT "Faculty" — the
-        // Faculty designation lives in `badgeType` + the isFaculty ticket type.
+        // The speaker's own type text: a profession, or the plain "Faculty"
+        // the Speakers page saves, which Registrations reads as no profession.
         registrationType: speaker.registrationType ?? undefined,
         // Role (AttendeeRole) carried over from the speaker so the companion
         // registration's Role matches the speaker's.

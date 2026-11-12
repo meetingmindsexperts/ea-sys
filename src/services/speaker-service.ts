@@ -28,6 +28,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { ensureSpeakerCompanionRegistration, settleFacultyRegistration, type FacultyRegistrationSettleResult } from "@/lib/speaker-companion";
+import { SPEAKER_API_REGISTRATION_TYPE } from "@/lib/faculty-filter";
 import { runOptimisticUpdate } from "@/lib/optimistic-lock";
 import { syncSpeakerTagsToRegistrations, computeTagDelta } from "@/lib/person-tag-sync";
 import { computeDetailsDelta, syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
@@ -278,7 +279,7 @@ export async function createSpeaker(
     bio: normBio,
     specialty: normSpecialty,
     customSpecialty: normCustomSpecialty,
-    registrationType: normRegType,
+    registrationType: contactCategoryOf(normRegType),
   });
 
   // Ensure the companion registration (the "attendee facet") so this speaker
@@ -367,6 +368,20 @@ export async function createSpeaker(
 // update_speaker) per the no-cross-caller-duplication rule; the cancel itself
 // delegates to payment-service.cancelRegistration (the single cancel domain op
 // — claim + seat/promo transition + audit + checkout-session cleanup).
+
+/**
+ * What a speaker's own registration type may write into the organisation's
+ * Contact as that person's category. The category is a profession; "Faculty"
+ * is what Add Speaker saves for every speaker so the speakers API and the
+ * website sync say Faculty (SPEAKER_API_REGISTRATION_TYPE), and it must not
+ * replace "Physician" on the contact (review of e6f3547b). A blank is never
+ * written over a contact's value, so null leaves it as it is.
+ */
+export function contactCategoryOf(speakerRegistrationType: string | null | undefined): string | null {
+  const value = speakerRegistrationType?.trim();
+  if (!value || value.toLowerCase() === SPEAKER_API_REGISTRATION_TYPE.toLowerCase()) return null;
+  return value;
+}
 
 /** Statuses that mean "this speaker is out". */
 export const SPEAKER_OUT_STATUSES = new Set<string>(["DECLINED", "CANCELLED"]);
@@ -758,7 +773,7 @@ export async function updateSpeaker(
       country: speaker.country,
       bio: speaker.bio,
       specialty: speaker.specialty,
-      registrationType: speaker.registrationType,
+      registrationType: contactCategoryOf(speaker.registrationType),
     });
 
     refreshEventStats(eventId);

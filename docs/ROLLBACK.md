@@ -164,6 +164,16 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   checked by the old sweep. Nothing wrong is ever sent. After rolling forward again, open
   Certificates, Recipients: those people show as "Ready to issue", and the Issue tab sends
   them. Never drop the table or the column.
+- **"Those who owe us" (`filters.owesMoney`, Nov 12, 2026, `57a321bc`).** The bulk email
+  filter that sends only to registrations with a balance is one key inside a queued
+  email's `filters`. A worker older than that release does not know the key and IGNORES
+  it, so the email goes to everyone its status filter matches (for the Chase Unpaid tile,
+  every Confirmed registration; with no status, every registration). Before rolling back
+  past that release, cancel what is waiting:
+  `SELECT id, "eventId", "scheduledFor" FROM "ScheduledEmail" WHERE status IN ('PENDING','PROCESSING') AND filters->>'owesMoney' = 'true';`
+  and cancel each from Communications, Scheduled Emails. The same window exists for a few
+  minutes in the deploy of that release itself (the web slot switches before the worker
+  restarts), once.
 - **The "Base role" (`BASE`, Oct 23, 2026; migration `20261023120000_add_base_role`).** Once
   anyone holds it, an image older than this release cannot read their user row: its Prisma
   client throws on the unknown enum value wherever that person is loaded (sign-in, Settings,
