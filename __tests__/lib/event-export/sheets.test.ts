@@ -13,7 +13,8 @@ const mockDb = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 
-import { accommodationSheets, promoCodesSheet, registrationTypesSheet, speakersSheet } from "@/lib/event-export/sheets";
+import { SPEAKER_TYPE_HEADER, accommodationSheets, promoCodesSheet, registrationTypesSheet, speakersSheet } from "@/lib/event-export/sheets";
+import { parseCSVHeaders } from "@/lib/csv-parser";
 import { principalFromUser } from "@/lib/permissions/can";
 
 const dec = (v: string) => ({ toString: () => v });
@@ -54,6 +55,45 @@ beforeEach(() => {
 });
 
 const as = (role: string) => principalFromUser({ id: "u1", role, organizationId: "org1" });
+
+// Owner report, Nov 12, 2026: a speaker read "Faculty" while the registration
+// was Physician. The column is the registration's type, named as the
+// Registrations page names it; the speaker's own text only fills in while
+// there is no live registration.
+describe("the speakers sheet's type column", () => {
+  const speaker = (over: Record<string, unknown>) => ({
+    id: "s", title: null, firstName: "A", lastName: "B", email: "a@x.com", additionalEmail: null, phone: null,
+    organization: null, jobTitle: null, city: null, state: null, country: null, specialty: null,
+    customSpecialty: null, registrationType: "Faculty", status: "CONFIRMED", tags: [], website: null, bio: null,
+    agreementAcceptedAt: null, presenterAgreementAcceptedAt: null, honorariumAmount: null, honorariumCurrency: null,
+    sourceRegistrationId: "r", createdAt: new Date("2026-09-01T00:00:00Z"), sessions: [],
+    ...over,
+  });
+  const typeColumn = async () => {
+    const lines = (await speakersSheet("ev1", as("MEMBER"))).csv.split("\n");
+    const col = lines[0].split(",").indexOf(SPEAKER_TYPE_HEADER);
+    expect(col).toBeGreaterThan(-1);
+    return lines.slice(1).map((l) => l.split(",")[col]);
+  };
+
+  it("prints the registration's type, not the speaker's own text", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([
+      speaker({ id: "delegate", sourceRegistration: { status: "PENDING", ticketType: { name: "Physician", isFaculty: false }, attendee: { registrationType: "Physician" } } }),
+      speaker({ id: "faculty", registrationType: null, sourceRegistration: { status: "CONFIRMED", ticketType: { name: "Faculty", isFaculty: true }, attendee: { registrationType: "Nurse" } } }),
+      speaker({ id: "cancelled", sourceRegistration: { status: "CANCELLED", ticketType: { name: "Physician", isFaculty: false }, attendee: null } }),
+      speaker({ id: "none", sourceRegistrationId: null, sourceRegistration: null }),
+    ]);
+    expect(await typeColumn()).toEqual(["Physician", "Nurse", "Faculty", "Faculty"]);
+  });
+
+  // The speakers CSV import reads a "Registration Type" column into the
+  // speaker's own text. This column is not that text, so it must not be read
+  // back as it (review of 4da1db66).
+  it("is not a column the speakers import reads back", () => {
+    expect(parseCSVHeaders(SPEAKER_TYPE_HEADER)).not.toContain("registrationtype");
+    expect(parseCSVHeaders("Registration Type")).toEqual(["registrationtype"]);
+  });
+});
 
 describe("money columns follow the screen predicates", () => {
   it("the honorarium shows for admins and organisers, not for a desk role", async () => {

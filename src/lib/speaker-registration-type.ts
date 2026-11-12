@@ -15,13 +15,21 @@
  * THAT registration's type, read-only. The speaker's own text is shown, and
  * edited, only while there is no live registration to read. Pure and
  * client-safe: the two speaker screens and the speakers export share it.
+ *
+ * The type is NAMED the way the Registrations page names it
+ * (`displayRegistrationType`): for a Faculty registration that is the
+ * person's recorded profession, when there is one. A second way of naming it
+ * here would put the two pages out of step again (review of 4da1db66).
  */
+import { displayRegistrationType } from "@/lib/faculty-filter";
 
 export interface SpeakerLinkedRegistration {
   serialId?: number | null;
   status: string;
   paymentStatus?: string | null;
   ticketType?: { name: string; isFaculty?: boolean | null } | null;
+  /** The registration's attendee: its `registrationType` is the profession shown for a Faculty registration. */
+  attendee?: { registrationType?: string | null } | null;
 }
 
 export type SpeakerRegistrationTypeView =
@@ -29,9 +37,11 @@ export type SpeakerRegistrationTypeView =
   | { kind: "own"; typeName: string | null }
   | {
       kind: "registration";
-      /** The registration's type, or NO_TYPE_LABEL when it has none yet. */
+      /** The registration's type as the Registrations page names it, or NO_TYPE_LABEL when it has none yet. */
       typeName: string;
       isFaculty: boolean;
+      /** The Faculty type's own name, when `typeName` is the person's profession instead; else null. */
+      facultyTypeName: string | null;
       /** "043", or null for a registration with no number. */
       serial: string | null;
       /** What an organiser should know about this type, or null. */
@@ -65,10 +75,17 @@ export function speakerRegistrationTypeView(
   registration: SpeakerLinkedRegistration | null | undefined,
 ): SpeakerRegistrationTypeView {
   if (!isLive(registration)) return { kind: "own", typeName: ownType?.trim() || null };
+  const isFaculty = registration.ticketType?.isFaculty === true;
+  const ownName = registration.ticketType?.name.trim() || null;
+  const typeName = displayRegistrationType(
+    { ticketTypeName: ownName, isFaculty, attendeeRegistrationType: registration.attendee?.registrationType },
+    NO_TYPE_LABEL,
+  );
   return {
     kind: "registration",
-    typeName: registration.ticketType?.name.trim() || NO_TYPE_LABEL,
-    isFaculty: registration.ticketType?.isFaculty === true,
+    typeName,
+    isFaculty,
+    facultyTypeName: isFaculty && ownName && ownName !== typeName ? ownName : null,
     serial: registration.serialId != null ? String(registration.serialId).padStart(3, "0") : null,
     note: noteFor(registration),
   };

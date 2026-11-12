@@ -65,6 +65,14 @@ export async function eventSheet(eventId: string, principal: Principal): Promise
   return sheet("event.csv", header, [row]);
 }
 
+/**
+ * NOT "Registration Type": the speakers CSV import reads a column of that name
+ * back into the speaker's own text, and this column is the registration's
+ * type, so an export edited and imported again would overwrite that text (and
+ * the Contact behind it) with a value nobody typed. Review of 4da1db66.
+ */
+export const SPEAKER_TYPE_HEADER = "Type On Registration";
+
 export async function speakersSheet(eventId: string, principal: Principal): Promise<Sheet> {
   const honorarium = can(principal, "honorarium.view");
   const speakers = await db.speaker.findMany({
@@ -97,14 +105,16 @@ export async function speakersSheet(eventId: string, principal: Principal): Prom
       sourceRegistrationId: true,
       // The type column is the registration's own type when the speaker has a
       // live one (speaker-registration-type.ts), never the speaker's own text.
-      sourceRegistration: { select: { status: true, ticketType: { select: { name: true, isFaculty: true } } } },
+      sourceRegistration: {
+        select: { status: true, ticketType: { select: { name: true, isFaculty: true } }, attendee: { select: { registrationType: true } } },
+      },
       createdAt: true,
       sessions: { select: { role: true, session: { select: { name: true } } } },
     },
   });
   const header = [
     "Speaker ID", "Name", "Title", "First Name", "Last Name", "Email", "Additional Email", "Phone",
-    "Organization", "Job Title", "City", "State", "Country", "Specialty", "Registration Type", "Status",
+    "Organization", "Job Title", "City", "State", "Country", "Specialty", SPEAKER_TYPE_HEADER, "Status",
     "Tags", "Website", "Sessions (role)", "Speaker Agreement Accepted", "Presenter Agreement Accepted",
     ...(honorarium ? ["Honorarium", "Honorarium Currency"] : []),
     "Has Companion Registration", "Bio", "Created At",

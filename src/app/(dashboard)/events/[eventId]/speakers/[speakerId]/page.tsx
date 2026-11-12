@@ -176,7 +176,7 @@ interface Speaker {
     surveyCompletedAt: string | null;
     createdSource: string | null;
     ticketType: { name: string; isFaculty: boolean } | null;
-    attendee: { email: string | null } | null;
+    attendee: { email: string | null; registrationType?: string | null } | null;
   } | null;
 }
 

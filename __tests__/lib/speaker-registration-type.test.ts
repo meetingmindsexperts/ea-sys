@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { NO_TYPE_LABEL, speakerRegistrationTypeName, speakerRegistrationTypeView } from "@/lib/speaker-registration-type";
+import { displayRegistrationType } from "@/lib/faculty-filter";
 
 const PHYSICIAN = { name: "Physician", isFaculty: false };
 const FACULTY = { name: "Faculty", isFaculty: true };
@@ -30,7 +31,26 @@ describe("speakerRegistrationTypeView", () => {
 
   it("has nothing to add for a registration on a Faculty type", () => {
     const view = speakerRegistrationTypeView("Physician", { serialId: 7, status: "CONFIRMED", paymentStatus: "COMPLIMENTARY", ticketType: FACULTY });
-    expect(view).toEqual({ kind: "registration", typeName: "Faculty", isFaculty: true, serial: "007", note: null });
+    expect(view).toEqual({ kind: "registration", typeName: "Faculty", isFaculty: true, facultyTypeName: null, serial: "007", note: null });
+  });
+
+  // Review of 4da1db66: the Registrations page names a Faculty registration by
+  // the person's recorded profession. Printing the type's own name here put
+  // the two pages out of step the other way round.
+  it("names a Faculty registration the way the Registrations page does", () => {
+    const reg = (profession: string | null) => ({ serialId: 7, status: "CONFIRMED", paymentStatus: "COMPLIMENTARY", ticketType: FACULTY, attendee: { registrationType: profession } });
+    for (const profession of ["Physician", "Nurse", "Faculty", "faculty", "", null]) {
+      const view = speakerRegistrationTypeView("whatever the speaker says", reg(profession));
+      const onRegistrations = displayRegistrationType({ ticketTypeName: "Faculty", isFaculty: true, attendeeRegistrationType: profession });
+      expect(view.typeName).toBe(onRegistrations);
+    }
+    expect(speakerRegistrationTypeView(null, reg("Physician"))).toMatchObject({ typeName: "Physician", isFaculty: true, facultyTypeName: "Faculty", note: null });
+    expect(speakerRegistrationTypeView(null, reg("Faculty"))).toMatchObject({ typeName: "Faculty", facultyTypeName: null });
+  });
+
+  it("never reads a profession into a delegate type's name", () => {
+    const view = speakerRegistrationTypeView(null, { status: "PENDING", paymentStatus: "UNPAID", ticketType: PHYSICIAN, attendee: { registrationType: "Faculty" } });
+    expect(view).toMatchObject({ typeName: "Physician", isFaculty: false, facultyTypeName: null });
   });
 
   it("names a registration that has no type yet, and says where to give it one", () => {
@@ -79,5 +99,10 @@ describe("the speaker screens and the export use the rule", () => {
   it("the speakers export prints the registration's type", () => {
     const src = read("src/lib/event-export/sheets.ts");
     expect(src).toContain("speakerRegistrationTypeName(s.registrationType, s.sourceRegistration)");
+  });
+
+  it("the speaker API hands the page the profession the Registrations page shows", () => {
+    const src = read("src/app/api/events/[eventId]/speakers/[speakerId]/route.ts");
+    expect(src).toMatch(/attendee: \{ select: \{ email: true, registrationType: true \} \}/);
   });
 });

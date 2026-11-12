@@ -142,7 +142,9 @@ export async function GET(req: Request, { params }: RouteParams) {
               surveyCompletedAt: true,
               createdSource: true,
               ticketType: { select: { name: true, isFaculty: true } },
-              attendee: { select: { email: true } },
+              // registrationType: the profession the Registrations page shows
+              // for a Faculty registration (speaker-registration-type.ts).
+              attendee: { select: { email: true, registrationType: true } },
             },
           },
           _count: {

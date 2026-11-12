@@ -175,8 +175,11 @@ Failure Conference about 100 speaker records are abstract presenters on paid typ
 it is a one-click fee waiver). Also open from the same postmortem: nothing on the
 Speakers list marks a speaker whose registration is on a paid type and Unpaid; the Add
 Speaker form still offers "Registration Type" although the registration it makes is a
-Faculty one; the agent's `update_speaker` and the speaker CSV import still write the
-label; `src/components/speakers/speaker-detail-sheet.tsx` is imported by nothing; and
+Faculty one (what is picked there becomes the profession shown for it on Registrations);
+the speaker's own text is still written by the speaker CSV import, the agent's
+`create_speakers_bulk`, importing registrations as speakers, abstract sign-up and
+cloning, and the speaker PUT still accepts it for a speaker who has a registration (the
+read-only rule is the screen's); `src/components/speakers/speaker-detail-sheet.tsx` is imported by nothing; and
 **there is no one-step way to bring a contact in as faculty.** The Speakers page lost
 its Import from Contacts button on Mar 24, 2026 (`a0790d16`, before the Faculty type
 existed; the button, the dialog's speaker mode and the `speakers/import-contacts` route
@@ -186,6 +189,23 @@ The Import from Contacts dialog hides Faculty types, so since the script ran, GC
 "Faculty" is no longer offered there: the next faculty contact brought in that way
 lands on a delegate type, or on none. Offered to the owner: put the button back on the
 Speakers page (it makes the Faculty registration by itself).
+
+**From the review of `4da1db66` (0 BLOCKER, 0 HIGH, 2 MED, 9 LOW; the speaker shows the
+registration's type).** Both MED fixed: the type is named by `displayRegistrationType`,
+as on the Registrations page, and the export column is "Type On Registration" so the
+speakers import cannot read it back into the speaker's own text. LOW, listed only: the
+hidden text still flows to the Contact on every save and cannot be corrected on screen
+for a speaker who has a registration; the link in the edit form opens in the same tab
+and drops unsaved edits; "it is changed on the registration" sends the organiser to a
+sheet that refuses Faculty (the decision above); no test renders the field, so the
+dropdown coming back inside the shared component would pass; "has a registration" is
+the speaker's pointer alone, so a speaker who registers themselves later is not linked
+and keeps the dropdown; a speaker whose registration was cancelled shows the label
+beside a card naming the cancelled registration's type. Older, LOW: a refetch after a
+settle resets the edit form under the organiser; the export's "Has Companion
+Registration" says Yes for a cancelled or a delegate registration; a custom role with
+`speakers.read` and no `registrations.read` sees the registration's status and payment
+on the speaker page and a link it cannot open.
 
 **Decision waiting on the owner: a speaker's Faculty registration says Confirmed before
 the speaker has said yes.** Adding a speaker on the Speakers page makes their Faculty
