@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { findUserByEmail, userEmailScope, isUniqueViolation } from "@/lib/tenant/user-lookup";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { contactCategoryOf } from "@/lib/faculty-filter";
 import { isLinkedRole, requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings } from "@/lib/event-settings";
 import { getClientIp } from "@/lib/security";
@@ -312,7 +313,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           country: spk.country,
           bio: spk.bio,
           specialty: spk.specialty,
-          registrationType: spk.registrationType,
+          // "Faculty" is not a profession: never written over the contact's
+          // own category (contactCategoryOf).
+          registrationType: contactCategoryOf(spk.registrationType),
         });
       }
     } else {

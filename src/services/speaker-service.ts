@@ -28,7 +28,8 @@ import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { ensureSpeakerCompanionRegistration, settleFacultyRegistration, type FacultyRegistrationSettleResult } from "@/lib/speaker-companion";
-import { SPEAKER_API_REGISTRATION_TYPE } from "@/lib/faculty-filter";
+import { contactCategoryOf } from "@/lib/faculty-filter";
+import { isLiveTypedRegistration } from "@/lib/speaker-registration-type";
 import { runOptimisticUpdate } from "@/lib/optimistic-lock";
 import { syncSpeakerTagsToRegistrations, computeTagDelta } from "@/lib/person-tag-sync";
 import { computeDetailsDelta, syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
@@ -369,18 +370,16 @@ export async function createSpeaker(
 // delegates to payment-service.cancelRegistration (the single cancel domain op
 // — claim + seat/promo transition + audit + checkout-session cleanup).
 
-/**
- * What a speaker's own registration type may write into the organisation's
- * Contact as that person's category. The category is a profession; "Faculty"
- * is what Add Speaker saves for every speaker so the speakers API and the
- * website sync say Faculty (SPEAKER_API_REGISTRATION_TYPE), and it must not
- * replace "Physician" on the contact (review of e6f3547b). A blank is never
- * written over a contact's value, so null leaves it as it is.
- */
-export function contactCategoryOf(speakerRegistrationType: string | null | undefined): string | null {
-  const value = speakerRegistrationType?.trim();
-  if (!value || value.toLowerCase() === SPEAKER_API_REGISTRATION_TYPE.toLowerCase()) return null;
-  return value;
+export { contactCategoryOf };
+
+/** Does this speaker have a live registration with a type? Then that type is the speaker's, and the own text is not written. */
+async function registrationDecidesSpeakerType(sourceRegistrationId: string | null, eventId: string): Promise<boolean> {
+  if (!sourceRegistrationId) return false;
+  const registration = await db.registration.findFirst({
+    where: { id: sourceRegistrationId, eventId },
+    select: { status: true, ticketTypeId: true },
+  });
+  return isLiveTypedRegistration(registration);
 }
 
 /** Statuses that mean "this speaker is out". */
@@ -628,6 +627,16 @@ export async function updateSpeaker(
       };
     }
 
+    // The speaker's own registration type text is not theirs to set while a
+    // live registration with a type exists: the registration decides, on the
+    // screens and in the API (speakerApiRegistrationType). Without this, the
+    // speaker page, which loads the value the API serves into its form, would
+    // write that derived value back over the stored text on any unrelated
+    // save, under the name of someone who never touched it (review of
+    // f2b53afd). The same holds for the agent and a CSV import.
+    const typeBelongsToRegistration =
+      fields.registrationType !== undefined && (await registrationDecidesSpeakerType(existing.sourceRegistrationId, eventId));
+
     // Build the change set. `undefined` is skipped; empty string collapses to
     // null (clear) — trimmed first so trailing whitespace can't slip a phantom
     // value past the clear path.
@@ -652,7 +661,7 @@ export async function updateSpeaker(
       ...(fields.zipCode !== undefined && { zipCode: fields.zipCode || null }),
       ...(fields.country !== undefined && { country: fields.country || null }),
       ...(fields.specialty !== undefined && { specialty: fields.specialty || null }),
-      ...(fields.registrationType !== undefined && {
+      ...(fields.registrationType !== undefined && !typeBelongsToRegistration && {
         registrationType: fields.registrationType || null,
       }),
       ...(fields.tags !== undefined && { tags: fields.tags }),

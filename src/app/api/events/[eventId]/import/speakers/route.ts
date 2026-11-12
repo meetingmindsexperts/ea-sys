@@ -14,6 +14,7 @@ import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
 import { syncManyToContacts } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { updateSpeaker } from "@/services/speaker-service";
+import { contactCategoryOf } from "@/lib/faculty-filter";
 import { buildImportPatch, updatedRowMessage } from "@/lib/import-upsert";
 
 const SPEAKER_STATUS_VALUES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
@@ -364,7 +365,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         bio: s.bio,
         specialty: s.specialty,
         role: s.role,
-        registrationType: s.registrationType,
+        registrationType: contactCategoryOf(s.registrationType),
       }))
     );
 

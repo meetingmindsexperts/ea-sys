@@ -17,9 +17,9 @@
  * client-safe: the two speaker screens and the speakers export share it.
  *
  * The type is NAMED the way the Registrations page names it
- * (`displayRegistrationType`): for a Faculty registration that is the
- * person's recorded profession, when there is one. A second way of naming it
- * here would put the two pages out of step again (review of 4da1db66).
+ * (`displayRegistrationType`): "Faculty" for a Faculty registration, the
+ * type's own name otherwise. A second way of naming it here would put the
+ * two pages out of step again (review of 4da1db66).
  */
 import { displayRegistrationType } from "@/lib/faculty-filter";
 
@@ -28,7 +28,7 @@ export interface SpeakerLinkedRegistration {
   status: string;
   paymentStatus?: string | null;
   ticketType?: { name: string; isFaculty?: boolean | null } | null;
-  /** The registration's attendee: its `registrationType` is the profession shown for a Faculty registration. */
+  /** The registration's attendee. Its `registrationType` (a profession) is no longer shown: a Faculty registration reads "Faculty". */
   attendee?: { registrationType?: string | null } | null;
 }
 
@@ -57,8 +57,20 @@ function words(value: string): string {
 }
 
 /** A cancelled registration is not one the speaker stands on: Re-grant makes a new one. */
-function isLive(reg: SpeakerLinkedRegistration | null | undefined): reg is SpeakerLinkedRegistration {
+function isLive<T extends { status: string }>(reg: T | null | undefined): reg is T {
   return !!reg && reg.status !== "CANCELLED";
+}
+
+/**
+ * Does a registration decide the speaker's type? Live, and with a type. The
+ * ONE definition for the API value below and for the write guard in
+ * `updateSpeaker` (which ignores the speaker's own text then), so the two
+ * cannot disagree about a cancelled or untyped registration.
+ */
+export function isLiveTypedRegistration(
+  reg: { status: string; ticketTypeId?: string | null; ticketType?: object | null } | null | undefined,
+): boolean {
+  return isLive(reg) && (!!reg.ticketTypeId || !!reg.ticketType);
 }
 
 function noteFor(reg: SpeakerLinkedRegistration): string | null {
@@ -112,8 +124,7 @@ export function speakerApiRegistrationType(
   ownType: string | null | undefined,
   registration: { status: string; ticketType?: { name?: string | null; isFaculty?: boolean | null } | null } | null | undefined,
 ): string | null {
-  const live = !!registration && registration.status !== "CANCELLED";
-  if (!live || !registration.ticketType) return ownType ?? null;
+  if (!isLive(registration) || !registration.ticketType) return ownType ?? null;
   const name = displayRegistrationType({ ticketTypeName: registration.ticketType.name, isFaculty: registration.ticketType.isFaculty }, "").trim();
   return name || (ownType ?? null);
 }

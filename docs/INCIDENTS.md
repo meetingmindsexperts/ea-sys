@@ -31,7 +31,7 @@ lost. What was wrong, and for how long:
   "Add Registration, Faculty" was refused ("type not found or inactive").
 - On 12 Nov, while fixing the above, two changes of that day would have sent the
   website an empty type for every new speaker and a contact's own category for a
-  speaker imported from Contacts. The second was live for about three hours and
+  speaker imported from Contacts. The second was live for about an hour and a half and
   reached one speaker on a sandbox event. The owner caught both the same day.
 
 **Cause.** "Registration type" was three stored things under one name:
@@ -69,13 +69,19 @@ reads the column (API, exports, integrations), not only the screens.
 
 **Fix (all 12 Nov).**
 - The speaker page shows the registration's own type, read-only, with its number.
-- One name for a registration's type on every surface (`displayRegistrationType`):
+- One name for a registration's type on the Registrations list and sheet, the speaker
+  page, the exports, shared views and the speakers API (`displayRegistrationType`; the
+  places that still print the type's own name are listed in ROADMAP):
   a Faculty registration reads "Faculty", anything else its type's own name. The
   speakers API serves that same name (`speakerApiRegistrationType`), so it follows
   the registration: change the registration's type and the screen, the exports and
   the API change with it. The speaker's own text is served only while there is no
   live, typed registration. Add Speaker and Speakers, Import from Contacts save
   "Faculty" themselves.
+- Saving a speaker no longer writes the API's value back over the speaker's own text:
+  `updateSpeaker` ignores the field while a live registration with a type exists. The
+  first two versions of the API fix let the speaker page do exactly that on any save
+  (found by review the same day, before anyone reported it).
 - Speakers has Import from Contacts again; Registrations, Import from Contacts has a
   "Faculty" choice; Add Speaker states the Faculty type and offers nothing to pick.
 - A Faculty type that is switched off no longer refuses Faculty registrations.
@@ -99,13 +105,16 @@ reads the column (API, exports, integrations), not only the screens.
 - [x] Registrations 028, 043, 044: the team deleted them and gave the three speakers
   Faculty registrations with Grant Registration (#78, #79, #80, 12 Nov). That is the
   way to move a speaker off a wrong delegate registration that carries no money.
-- [ ] Owner: run `merge-faculty-types.ts --all` on production, dry run first.
+- [x] Owner ran `merge-faculty-types.ts --all --write` on production on 12 Nov: on the
+  GCC Hub "Faculty." (6 registrations) was merged into "Faculty" (now 43), and HEMNET's
+  empty second type was deleted. No event holds two Faculty types.
 - [ ] Owner: the website picks up the corrected API values on its next full sync.
   If the n8n workflow skips rows whose "last modified" has not moved, run it once in
   full: these speakers' rows did not change, only what the API says about them.
 - [ ] The agent's `create_speaker`, `create_speakers_bulk` and the speakers CSV import
-  still write the speaker's own text; it now matters only for a speaker with no
-  Faculty registration.
+  still write the speaker's own text when they CREATE a speaker. On an update it is
+  ignored while the speaker has a live registration with a type, and it is served by
+  the API only for a speaker without one.
 
 ---
 

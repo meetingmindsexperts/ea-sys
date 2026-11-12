@@ -164,6 +164,13 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   checked by the old sweep. Nothing wrong is ever sent. After rolling forward again, open
   Certificates, Recipients: those people show as "Ready to issue", and the Issue tab sends
   them. Never drop the table or the column.
+- **Speakers API `registrationType` follows the registration (Nov 12, 2026, `f2b53afd`, `c8490537`).**
+  Nothing in the database changed, so there is nothing to repair. An image older than these
+  serves each speaker's own stored text again: on the Middle East Heart Failure Conference
+  that is "Physician" for 12 faculty and nothing for 31, and nothing for about 110 abstract
+  presenters. The website sync (n8n to Webflow) copies whatever is served, so a rollback
+  across these commits changes the public website on its next run. After rolling forward
+  again, run the n8n workflow once in full: no speaker's `updatedAt` moves either way.
 - **"Those who owe us" (`filters.owesMoney`, Nov 12, 2026, `57a321bc`).** The bulk email
   filter that sends only to registrations with a balance is one key inside a queued
   email's `filters`. A worker older than that release does not know the key and IGNORES

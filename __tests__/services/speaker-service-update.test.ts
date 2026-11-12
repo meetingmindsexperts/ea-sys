@@ -177,6 +177,41 @@ describe("the write itself", () => {
     expect(data.jobTitle).toBe("Prof");
   });
 
+  // Review of f2b53afd. The speaker page loads the type the API serves (the
+  // registration's own) into its form and sends it back on every save. With a
+  // live, typed registration that value is not the speaker's to set: writing
+  // it replaced the stored text on an unrelated edit, under the editor's name.
+  describe("the speaker's own registration type text", () => {
+    const written = () => mockRunOptimisticUpdate.mock.calls[0][0].data as Record<string, unknown>;
+
+    it("is not written while a live registration with a type decides it", async () => {
+      mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, registrationType: "Physician", sourceRegistrationId: "reg-1" });
+      mockDb.registration.findFirst.mockResolvedValue({ status: "CONFIRMED", ticketTypeId: "tt-faculty" });
+      await updateSpeaker({ ...BASE, fields: { bio: "Fixed a typo", registrationType: "Faculty" } });
+      expect(written()).not.toHaveProperty("registrationType");
+      expect(written().bio).toBe("Fixed a typo");
+      expect(mockDb.registration.findFirst.mock.calls[0][0].where).toMatchObject({ id: "reg-1", eventId: BASE.eventId });
+    });
+
+    it.each([
+      ["no registration", null, null],
+      ["a cancelled registration", "reg-1", { status: "CANCELLED", ticketTypeId: "tt-faculty" }],
+      ["a registration with no type yet", "reg-1", { status: "PENDING", ticketTypeId: null }],
+      ["a pointer to a registration that is gone", "reg-1", null],
+    ])("is written as before with %s", async (_label, sourceRegistrationId, registration) => {
+      mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, sourceRegistrationId });
+      mockDb.registration.findFirst.mockResolvedValue(registration);
+      await updateSpeaker({ ...BASE, fields: { registrationType: "Nurse" } });
+      expect(written().registrationType).toBe("Nurse");
+    });
+
+    it("costs no query when the edit does not carry the field", async () => {
+      mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, sourceRegistrationId: "reg-1" });
+      await updateSpeaker({ ...BASE, fields: { jobTitle: "Prof" } });
+      expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
   it("skips undefined fields entirely (leave-alone, not clear)", async () => {
     await updateSpeaker({ ...BASE, fields: { jobTitle: "Prof" } });
 

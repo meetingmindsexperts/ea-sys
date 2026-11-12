@@ -85,6 +85,73 @@ alone.
 - The import's rate limit and its import record use the caller's organisation, not the
   event's; a track the import creates stays when its session is then refused.
 
+## Registration type naming and the speakers API: what the Nov 12 reviews left (recorded Nov 12, 2026): not started
+
+From the reviews of `f2b53afd` (0 BLOCKER, 0 HIGH, 2 MED, 7 LOW, 1 older MED) and
+`c8490537` (0 BLOCKER, 0 HIGH, 6 MED, 9 LOW, 3 older LOW). Fixed in the commit that
+added this section: a speaker save writing the API's value back over the stored text
+(MED, both reviews), three callers writing "Faculty" over a contact's category (older
+MED), the API reference saying nothing about `updatedAt` (MED, documented), and the
+false statements in the user guide, CHANGELOG and INC-007.
+
+**MED, recorded, owner decision needed: an ordinary type named exactly "Faculty" beside
+the built-in one.** Two sides of one question.
+- The registration sheet's type dropdown and bulk Change Type list both as "Faculty".
+  Picking the ordinary one moves a faculty member onto a delegate type, and the built-in
+  type is then no longer offered, so the sheet cannot move them back.
+- Add Registration and Import from Contacts hide the ordinary one from anyone who may
+  add speakers (`isFacultyLookalikeName`), so a real, priced "Faculty" category cannot be
+  picked there: the only "Faculty" entry gives a complimentary Faculty registration.
+- Recommended: stop hiding, and name the ordinary one "Faculty (delegate type)" in every
+  picker. Not done here because it is new wording on screen, and the owner asked for one
+  short name. Reach today: seven events hold such a type, all ended; a clone of one
+  carries it forward.
+
+**MED, recorded, follows from an owner ruling: a faculty member's profession is no
+longer shown.** "Short Faculty everywhere" (owner, Nov 12) means the type column, the
+registrations and speakers exports and shared views say "Faculty" for a Faculty
+registration. The profession text (`Attendee.registrationType`) is still stored and is
+shown nowhere; `role` is a separate field, blank unless set, absent from the speakers
+export and from shared views. If the profession is wanted back, the honest place is its
+own column, not the type column.
+
+**MED, recorded: the API value moves without `Speaker.updatedAt`.** Documented in the
+API reference and the CHANGELOG. Not fixed: bumping the speaker from every registration
+write (type change, bulk Change Type, cancel, delete, restore, type rename) touches six
+paths for one consumer, whose workflow pulls everything on each run. Revisit if a
+consumer moves to `updatedAfter`.
+
+**LOW, left, with why.**
+- These still print a Faculty type's own name where the list says "Faculty": the
+  Registrations type filter, the sheet's Payment Summary line, the badge on the speaker
+  page's Registration card, the check-in desk, the invoices list, the attendee's portal,
+  the `{{ticketType}}` email variable and the quote PDF, the Certificates recipients
+  filter and CSV, the accommodation and RSVP import dialogs, the contacts central sync,
+  the registrations REST API and the agent's `list_registrations`. Every Faculty type on
+  production is named "Faculty" since the Nov 12 merge, so nothing differs until one is
+  renamed. Left: thirteen call sites for no visible change today.
+- A live registration with no type: the screen says "No type yet", the API serves the
+  speaker's own text. Left: the API has no better value to give, and an empty one would
+  blank the website.
+- A shared view with "Include faculty" on merges an ordinary type named "Faculty" and
+  the built-in one into one count. Goes away with the first item above.
+- While permissions load, Add Registration lists the ordinary "Faculty" for a moment.
+  Goes away with the first item above.
+- `RegistrationTypeSelect` (the speaker's own-text dropdown) lists type names, so a
+  stored "Faculty" shows blank on an event whose built-in type was renamed. Older;
+  the dropdown shows only for a speaker with no live registration.
+- The speaker detail read still selects `attendee.registrationType`, now unread, and
+  several comments still say a Faculty registration is named by profession
+  (`speaker-companion.ts`, the two speakers routes, three picker comments). The two
+  library headers were corrected; the rest is wording.
+- Untested: Add Registration's lookalike filter, the sheet dropdown, the bulk dialog,
+  the detail route for a delegate type, and `updatedAfter` against a type change. One
+  test in `speaker-registration-type.test.ts` ("names a Faculty registration the way
+  the Registrations page does") compares the function with itself.
+- From the review of `f2b53afd`: the list read loads the registration's status and
+  type for every speaker (one join, no extra query); the single read and the list
+  build the value in two places from one function.
+
 ## Registration counts: what the Nov 12 review left (recorded Nov 12, 2026): not started
 
 From the review of `cd275466` (the Registrations page summary card; 0 BLOCKER, 0 HIGH,

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { contactCategoryOf } from "@/lib/faculty-filter";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
@@ -602,7 +603,7 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
           country: speaker.country,
           bio: speaker.bio,
           specialty: speaker.specialty,
-          registrationType: speaker.registrationType,
+          registrationType: contactCategoryOf(speaker.registrationType),
         });
       } catch (err) {
         const email = (items[i] as { email?: string }).email;

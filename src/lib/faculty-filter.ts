@@ -26,9 +26,10 @@ export const FACULTY_ONLY_WHERE: Prisma.RegistrationWhereInput = {
 };
 
 /**
- * Last resort when a registration on the speakers' type has no profession AND
- * the type has no name to show. Normally the type's own name is used, so each
- * organisation's wording (renamed on Registration Types) shows through.
+ * The one word a registration on the speakers' type is called, on every
+ * screen, export and the speakers API (`displayRegistrationType`; owner, Nov
+ * 12, 2026: "short faculty everywhere"). The type's own name shows on the
+ * Registration Types page.
  */
 export const FACULTY_TYPE_FALLBACK = "Faculty";
 
@@ -45,6 +46,20 @@ export const FACULTY_TYPE_FALLBACK = "Faculty";
  * the longer picker label**: changing it changes the public website.
  */
 export const SPEAKER_API_REGISTRATION_TYPE = FACULTY_TYPE_FALLBACK;
+
+/**
+ * What a speaker's own registration type may write into the organisation's
+ * Contact as that person's category. The category is a profession; "Faculty"
+ * is what Add Speaker saves for every speaker so the speakers API and the
+ * website sync say Faculty (SPEAKER_API_REGISTRATION_TYPE), and it must not
+ * replace "Physician" on the contact (review of e6f3547b). A blank is never
+ * written over a contact's value, so null leaves it as it is.
+ */
+export function contactCategoryOf(speakerRegistrationType: string | null | undefined): string | null {
+  const value = speakerRegistrationType?.trim();
+  if (!value || value.toLowerCase() === SPEAKER_API_REGISTRATION_TYPE.toLowerCase()) return null;
+  return value;
+}
 
 /**
  * How a registration's type is NAMED, everywhere a person or a program reads

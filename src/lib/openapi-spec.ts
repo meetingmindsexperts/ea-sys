@@ -260,7 +260,12 @@ export function buildOpenApiSpec(serverUrl: string): Json {
             city: { type: "string", nullable: true },
             country: { type: "string", nullable: true },
             specialty: { type: "string", nullable: true },
-            registrationType: { type: "string", nullable: true },
+            registrationType: {
+              type: "string",
+              nullable: true,
+              description:
+                "The type of the speaker's registration: \"Faculty\" for a Faculty registration, otherwise that registration type's name (Physician, Nurse, ...). It follows the registration, so it can change when the registration's type changes or the registration is cancelled, WITHOUT this speaker's updatedAt moving: a client that pulls only rows updated since a checkpoint will not see such a change. The speaker's own stored text is returned only while they have no live registration with a type.",
+            },
             tags: { type: "array", items: { type: "string" } },
             socialLinks: { type: "object", additionalProperties: { type: "string" } },
             status: SPEAKER_STATUS,
