@@ -59,6 +59,7 @@ import {
   ArrowRightLeft,
   Mail,
   ListChecks,
+  AlertTriangle,
   Eye,
   EyeOff,
   ConciergeBell,
@@ -108,7 +109,7 @@ import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { DtcmPoolCard } from "./dtcm-pool-card";
 import { DtcmRunCard } from "./dtcm-run-card";
 import { DtcmUnusedCard } from "./dtcm-unused-card";
-import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
+import { lookalikeFacultyTypes, paidNoteOf, sourcesLine, summarizeRegistrationRows, totalNote } from "@/lib/registration-list-stats";
 
 /**
  * Radix `SelectItem` rejects value="" (it reserves the empty string for the
@@ -471,27 +472,19 @@ export default function RegistrationsPage() {
   );
 
   // The stats follow the filters, as the table does, and keep delegates and
-  // faculty (speakers' companion registrations, on the hidden Faculty type)
-  // apart (owner, Oct 27): a speaker is not a delegate in anyone's count.
+  // faculty apart (owner, Oct 27): nobody on the built-in Faculty type is a
+  // delegate in anyone's count. Faculty is decided by the TYPE alone; what
+  // each number counts is in registration-list-stats.ts (owner report, Nov 12).
   const isFacultyRow = (r: Registration) => !!r.ticketType?.isFaculty;
-  const delegates = filteredRegistrations.filter((r) => !isFacultyRow(r));
-  const faculty = filteredRegistrations.filter(isFacultyRow);
-  const countStatus = (rows: Registration[], status: string) => rows.filter((r) => r.status === status).length;
-  const stats = {
-    total: delegates.length,
-    confirmed: countStatus(delegates, "CONFIRMED"),
-    pending: countStatus(delegates, "PENDING"),
-    checkedIn: countStatus(delegates, "CHECKED_IN"),
-    // Paid = money collected only. Complimentary and sponsor-paid rows are
-    // named under the number, never counted in it (organiser report on
-    // OOPVF2026: 123 complimentary delegates read as "Paid 123").
-    ...summarizePaymentStatuses(delegates),
-  };
-  const facultyStats = { total: faculty.length, confirmed: countStatus(faculty, "CONFIRMED"), checkedIn: countStatus(faculty, "CHECKED_IN") };
+  const stats = summarizeRegistrationRows(filteredRegistrations.filter((r) => !isFacultyRow(r)));
+  const facultyStats = summarizeRegistrationRows(filteredRegistrations.filter(isFacultyRow));
   // The faculty row shows on events that have faculty at all, so it does not come and go as filters change.
   const hasFaculty = registrations.some(isFacultyRow);
   const filtered = filteredRegistrations.length !== registrations.length;
-  const paidNote = paidCardNote(stats);
+  const paidNote = paidNoteOf(stats);
+  const delegateSources = sourcesLine(stats);
+  const facultySources = sourcesLine(facultyStats);
+  const lookalikeTypes = lookalikeFacultyTypes(stats);
 
   // Selection helpers
   const allOnPageSelected = paginatedRegistrations.length > 0 && paginatedRegistrations.every((r) => selectedIds.has(r.id));
@@ -785,17 +778,45 @@ export default function RegistrationsPage() {
       {statsAllowed && !statsHidden && (
       <Card className="gap-0 py-0">
         <CardContent className="divide-y px-5">
-          <StatsRow label="Delegates" hint={filtered ? "Matching the filters" : undefined}>
-            <StatTile compact label="Total" value={stats.total} />
+          <StatsRow
+            label="Delegates"
+            hint={filtered ? "Matching the filters" : undefined}
+            footer={
+              stats.total > 0 && (
+                <>
+                  {delegateSources && <p><span className="font-medium text-foreground">How they registered:</span> {delegateSources}</p>}
+                  <p>
+                    <span className="font-medium text-foreground">By type:</span>{" "}
+                    {stats.types.map((t) => `${t.name} ${t.count}`).join(" · ")}
+                  </p>
+                  {lookalikeTypes.map((t) => (
+                    <p key={t.id} className="flex items-start gap-1.5 text-amber-700">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        {t.count} of these {t.count === 1 ? "is" : "are"} on the registration type &ldquo;{t.name}&rdquo;, which someone made on this event.
+                        {" "}They count as delegates: only the built-in Faculty type is kept out of the delegate count.
+                      </span>
+                    </p>
+                  ))}
+                </>
+              )
+            }
+          >
+            <StatTile compact label="Total" value={stats.total} note={totalNote(stats) || undefined} />
             <StatTile compact label="Confirmed" value={stats.confirmed} valueClassName="text-green-600" />
             <StatTile compact label="Pending" value={stats.pending} valueClassName="text-yellow-600" />
             <StatTile compact label="Checked In" value={stats.checkedIn} valueClassName="text-purple-600" />
             <StatTile compact label="Paid" value={stats.paid} valueClassName="text-blue-600" note={paidNote || undefined} />
           </StatsRow>
           {hasFaculty && (
-            <StatsRow label="Faculty" hint="Speakers' registrations">
-              <StatTile compact label="Total" value={facultyStats.total} />
+            <StatsRow
+              label="Faculty"
+              hint="On the Faculty type: speakers and committee"
+              footer={facultySources && <p><span className="font-medium text-foreground">How they were added:</span> {facultySources}</p>}
+            >
+              <StatTile compact label="Total" value={facultyStats.total} note={totalNote(facultyStats) || undefined} />
               <StatTile compact label="Confirmed" value={facultyStats.confirmed} valueClassName="text-green-600" />
+              <StatTile compact label="Pending" value={facultyStats.pending} valueClassName="text-yellow-600" />
               <StatTile compact label="Checked In" value={facultyStats.checkedIn} valueClassName="text-purple-600" />
             </StatsRow>
           )}

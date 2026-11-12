@@ -183,14 +183,28 @@ export function StatTile({
  * One labelled row of compact stats inside a card (owner, Oct 27: delegates and faculty, invited speakers and
  * abstract submitters, each counted apart, in a shorter card). The tiles sit in up to five columns beside the label.
  */
-export function StatsRow({ label, hint, children }: { label: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode }) {
+export function StatsRow({
+  label,
+  hint,
+  footer,
+  children,
+}: {
+  label: React.ReactNode;
+  hint?: React.ReactNode;
+  /** Small print under the tiles: what the numbers are made of. */
+  footer?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="grid gap-x-6 gap-y-3 py-3 sm:grid-cols-[9rem_1fr] sm:items-center">
       <div>
         <p className="text-sm font-semibold">{label}</p>
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
-      <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-5">{children}</div>
+      <div className="min-w-0 space-y-3">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-5">{children}</div>
+        {footer && <div className="space-y-1 text-xs text-muted-foreground">{footer}</div>}
+      </div>
     </div>
   );
 }

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations page: the summary card adds up and says what it is made of (November 12)
+
+Owner, on the 4th GCC Hematology Hub: "these numbers are off", and "on what basis faculty is decided". The card read Total 65 beside Confirmed 27, Pending 37 and Checked In 0, and nothing on the page said why.
+
+- **Every number counts live registrations.** A cancelled registration sat in Total and in Paid and in no tile. It now leaves both and is named under them ("1 cancelled, not counted", "1 cancelled, still marked paid"), so Total is always Confirmed + Pending + Checked In (+ waitlisted, named when there are any)
+- **"How they registered"** under the numbers: registered online, added by staff, imported, walk-in at the desk, added by the AI agent, read from each registration's `createdSource`. On that event 38 of the 65 had been typed in by staff
+- **"By type"**, largest first, and a warning when a delegate type is named like faculty or speaker. Faculty is decided by the registration type alone: the built-in Faculty type (`TicketType.isFaculty`). A type an organiser made and called "Faculty" is a delegate type, which is where 33 of that event's delegates came from; 10 of 48 events on production hold such a type. The warning names the count and changes nothing: no number depends on a type's name
+- **The Faculty row** gains Pending (its total was 6 beside Confirmed 5), says how its people were added, and its hint reads "On the Faculty type: speakers and committee" since the Nov 9 ruling
+- One pure rule, `src/lib/registration-list-stats.ts`; `StatsRow` takes an optional `footer`. No request and no query added: the page already holds the rows
+- Not changed, and reported to the owner: there is no way to move a registration onto the built-in Faculty type (the bulk type change and the sheet refuse it on purpose, Oct 22), so those 33 stay delegates until that is decided; and a code covering the whole fee, applied after registering, leaves the registration UNPAID with nothing due (5 on that event, 6 on production)
+
 ### External streams, step 1: one place that knows a session's stream (November 12)
 
 Owner: "giving our RTMP key to someone else so that they can stream into our platform". Plan: `docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md`. This first step changes nothing anyone can see.
