@@ -330,7 +330,8 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
                 <code>topicSpeakerEmails</code>. The session&#39;s other columns
                 are read from its first row. A session already on the event is
                 not changed: only topics it does not have yet are added,
-                matched by title. Optional{" "}
+                matched by title, so a topic you removed or renamed there
+                comes back if the file still lists it. Optional{" "}
                 <code>type</code> column: <code>SESSION</code> (default) or a
                 break item — <code>REGISTRATION</code>, <code>BREAK</code>{" "}
                 (&quot;Coffee Break&quot; works too), <code>LUNCH</code>,{" "}

@@ -76,6 +76,15 @@ interface SessionGroup {
   /** Later rows naming no topic: the same session written twice. */
   repeatRows: number;
   topics: TopicDraft[];
+  /** Every row after the first, for the retry a group with no topics gets. */
+  laterRows: { rowNum: number; fields: string[] }[];
+  /**
+   * A later row whose own end time, track or location differs from the first
+   * row's: a SECOND session under the same name and start time. From that row
+   * on nothing is read into the group, or its topics would be published under
+   * the first session.
+   */
+  split?: { rowNum: number; refused: number };
 }
 
 const ROLE_COLUMNS = [
@@ -217,6 +226,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     let skipped = 0;
     let tracksCreated = 0;
     let topicsCreated = 0;
+    // Which sessions already on the event gained which topics: a count alone
+    // does not tell the organiser what a re-import changed.
+    const updatedRows: string[] = [];
 
     const resolveEmails = (raw: string | undefined, rowNum: number): string[] => {
       const ids: string[] = [];
@@ -251,6 +263,31 @@ export async function POST(req: Request, { params }: RouteParams) {
       return { rowNum, title, duration, speakerIds: resolveEmails(speakersRaw, rowNum) };
     };
 
+    // Whether a later row describes a different session from the group's first
+    // row. Only a value BOTH rows give can disagree: a topic row normally
+    // leaves the session's columns blank.
+    const startsAnotherSession = (head: string[], row: string[]): boolean => {
+      const differs = (i: number) => {
+        const a = getField(head, i)?.toLowerCase();
+        const b = getField(row, i)?.toLowerCase();
+        return Boolean(a && b && a !== b);
+      };
+      if (differs(idx.track) || differs(idx.location)) return true;
+      const headEnd = getField(head, idx.endTime);
+      const rowEnd = getField(row, idx.endTime);
+      if (!headEnd || !rowEnd) return false;
+      const a = parseImportDate(headEnd, eventTz).getTime();
+      const b = parseImportDate(rowEnd, eventTz).getTime();
+      return !isNaN(a) && !isNaN(b) && a !== b;
+    };
+
+    // A row whose start time cannot be read belongs to no session. The rows
+    // meant to sit under it then form a session of their own, without its
+    // track, people or first topic, and a corrected file could not repair that
+    // (a session already on the event is never changed). So a session sharing
+    // that row's NAME is held back whenever topics are involved.
+    const unreadableStart = new Map<string, { rowNum: number; hadTopicCells: boolean }>();
+
     // ── Pass 1: read the rows into sessions and their topics ────────────────
     const groups = new Map<string, SessionGroup>();
     for (let i = 0; i < rows.length; i++) {
@@ -266,16 +303,37 @@ export async function POST(req: Request, { params }: RouteParams) {
       const startTime = parseImportDate(startTimeRaw, eventTz);
       if (isNaN(startTime.getTime())) {
         rowError(rowNum, "invalid date format (use ISO 8601, e.g. 2026-03-15T09:00:00 — interpreted in the event's timezone unless you add Z or a +HH:MM offset)");
+        const seen = unreadableStart.get(name.toLowerCase());
+        unreadableStart.set(name.toLowerCase(), {
+          rowNum: seen?.rowNum ?? rowNum,
+          hadTopicCells: Boolean(seen?.hadTopicCells) || hasTopicCells(fields),
+        });
         continue;
       }
 
       const key = sessionKey(name, startTime);
-      const group = groups.get(key) ?? { key, rowNum, name, startTime, fields, rowCount: 0, repeatRows: 0, topics: [] };
+      const group = groups.get(key) ?? { key, rowNum, name, startTime, fields, rowCount: 0, repeatRows: 0, topics: [], laterRows: [] };
       groups.set(key, group);
+      if (group.split) {
+        group.split.refused++;
+        continue;
+      }
+      if (group.rowCount > 0 && startsAnotherSession(group.fields, fields)) {
+        group.split = { rowNum, refused: 1 };
+        continue;
+      }
       group.rowCount++;
+      if (group.rowCount > 1) group.laterRows.push({ rowNum, fields });
       const topic = readTopic(fields, rowNum);
       if (topic) group.topics.push(topic);
       else if (group.rowCount > 1 && !hasTopicCells(fields)) group.repeatRows++;
+    }
+
+    for (const group of groups.values()) {
+      if (!group.split) continue;
+      const { rowNum, refused } = group.split;
+      const rest = refused > 1 ? ` This row and the ${refused - 1} after it for that session were not imported.` : " This row was not imported.";
+      rowError(rowNum, `"${group.name}" at this start time is already on row ${group.rowNum} with a different end time, track or location, and two sessions cannot share a name and a start time in one file.${rest} Give one of them its own name, for example "${group.name} (Hall B)".`);
     }
 
     // A session already on the event: left as it is, and given the topics it
@@ -310,19 +368,21 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
       topicsCreated += result.added.length;
       skipped += group.rowCount - result.added.length;
-      if (result.added.length > 0) updated++;
+      if (result.added.length === 0) return;
+      updated++;
+      updatedRows.push(`${group.name}: added ${result.added.map((t) => t.title).join(", ")}`);
     };
 
     // The session's own people, from the FIRST row of its group. One person
     // under two role columns is refused here, in the file's words; the service
     // would refuse it too, in the dashboard's.
-    const readSessionRoles = (group: SessionGroup): { speakerId: string; role: SessionRole }[] | null => {
+    const readSessionRoles = (fields: string[], rowNum: number, lostTopics: string): { speakerId: string; role: SessionRole }[] | null => {
       const roleByEmail = new Map<string, (typeof ROLE_COLUMNS)[number]>();
       for (const col of ROLE_COLUMNS) {
-        for (const email of splitEmails(getField(group.fields, idx[col.column]))) {
+        for (const email of splitEmails(getField(fields, idx[col.column]))) {
           const prev = roleByEmail.get(email);
           if (prev && prev.role !== col.role) {
-            rowError(group.rowNum, `"${email}" is listed as both ${prev.label} and ${col.label}, and a person holds one role per session. To have a moderator or chairperson speak as well, name them in topicSpeakerEmails. Session not imported.`);
+            rowError(rowNum, `"${email}" is listed as both ${prev.label} and ${col.label}, and a person holds one role per session. To have a moderator or chairperson speak as well, name them in topicSpeakerEmails. Session not imported.${lostTopics}`);
             return null;
           }
           roleByEmail.set(email, col);
@@ -332,7 +392,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       for (const [email, col] of roleByEmail) {
         const sid = speakerByEmail.get(email);
         if (sid) roles.push({ speakerId: sid, role: col.role });
-        else rowError(group.rowNum, `speaker "${email}" not found for this event`);
+        else rowError(rowNum, `speaker "${email}" not found for this event`);
       }
       return roles;
     };
@@ -355,19 +415,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       return newTrack.id;
     };
 
-    const createFromGroup = async (group: SessionGroup) => {
-      const { fields, rowNum, name, startTime } = group;
+    // Creates the group's session from ONE of its rows. False = refused, with
+    // the reason already reported against that row.
+    const createFromRow = async (group: SessionGroup, head: { rowNum: number; fields: string[] }): Promise<boolean> => {
+      const { name, startTime } = group;
+      const { fields, rowNum } = head;
       const lostTopics = group.topics.length > 0 ? ` (its ${group.topics.length} topic${group.topics.length === 1 ? " was" : "s were"} not imported)` : "";
 
       const endTimeRaw = getField(fields, idx.endTime);
       if (!endTimeRaw) {
         rowError(rowNum, `missing required fields (name, startTime, endTime)${lostTopics}`);
-        return;
+        return false;
       }
       const endTime = parseImportDate(endTimeRaw, eventTz);
       if (isNaN(endTime.getTime())) {
         rowError(rowNum, `invalid date format (use ISO 8601, e.g. 2026-03-15T09:00:00 — interpreted in the event's timezone unless you add Z or a +HH:MM offset)${lostTopics}`);
-        return;
+        return false;
       }
 
       // Optional type column: SESSION (default) or a break item.
@@ -377,7 +440,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         const mapped = SESSION_TYPE_ALIASES[typeRaw];
         if (!mapped) {
           rowError(rowNum, `unknown type "${typeRaw}" — use SESSION, WORKSHOP, SYMPOSIUM, REGISTRATION, BREAK (or "Coffee Break"), LUNCH, or NETWORKING${lostTopics}`);
-          return;
+          return false;
         }
         sessionType = mapped;
       }
@@ -386,8 +449,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       // break row are NOT ignored: the service rejects the row with a clear error.
       const isBreakRow = sessionType !== "SESSION";
 
-      const sessionRoles = readSessionRoles(group);
-      if (!sessionRoles) return;
+      const sessionRoles = readSessionRoles(fields, rowNum, lostTopics);
+      if (!sessionRoles) return false;
 
       const trackId = isBreakRow ? null : await resolveTrackId(getField(fields, idx.track));
 
@@ -425,15 +488,34 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
       if (!result.ok) {
         rowError(rowNum, `${result.message}${lostTopics}`);
-        return;
+        return false;
       }
       created++;
       topicsCreated += group.topics.length;
-      skipped += group.repeatRows;
+      return true;
     };
+
+    // A group with topics is created from its first row or not at all. A group
+    // with none is the same session written more than once, and each row is
+    // tried in turn as it was before topics existed: a first row missing its
+    // end time does not cost the complete row under it.
+    const createFromGroup = async (group: SessionGroup) => {
+      const heads = [{ rowNum: group.rowNum, fields: group.fields }, ...(group.topics.length > 0 ? [] : group.laterRows)];
+      for (const [i, head] of heads.entries()) {
+        if (!(await createFromRow(group, head))) continue;
+        skipped += group.topics.length > 0 ? group.repeatRows : heads.length - i - 1;
+        return;
+      }
+    };
+
 
     // ── Pass 2: write each session once, in file order ──────────────────────
     for (const group of groups.values()) {
+      const unreadable = unreadableStart.get(group.name.toLowerCase());
+      if (unreadable && (unreadable.hadTopicCells || group.topics.length > 0)) {
+        rowError(group.rowNum, `"${group.name}" was not imported: row ${unreadable.rowNum} names the same session with a start time that could not be read, so this may be the rest of it. Correct row ${unreadable.rowNum} and import the file again.`);
+        continue;
+      }
       const matches = existingByKey.get(group.key);
       if (matches) await addToExisting(group, matches);
       else await createFromGroup(group);
@@ -471,7 +553,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       format: "csv",
     });
 
-    return NextResponse.json({ created, updated, skipped, tracksCreated, topicsCreated, errors });
+    return NextResponse.json({ created, updated, skipped, tracksCreated, topicsCreated, updatedRows, errors });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing sessions" });

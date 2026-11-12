@@ -140,7 +140,9 @@ Upload a CSV file to bulk-import schedule sessions.
 - Session status defaults to `SCHEDULED`
 - A person holds one role per session: the same email under two of `speakerEmails`, `moderatorEmails` and `chairEmails` is a row error and the session is not imported
 - **Topics (Nov 12, 2026)**: rows sharing a `name` and `startTime` are one session. Each row with a `topicTitle` adds one topic to it, in file order; the session's own columns are read from its first row, so later rows need only `name`, `startTime` and the topic columns
-- A session already on the event (same name and start time) is never changed. Topics it does not hold yet are added after its existing ones, matched by title and counted, so a repeated "Discussion" is kept and the same file imported twice adds nothing
+- A session already on the event (same name and start time) is never changed. Topics it does not hold yet are added after its existing ones, matched by title and counted, so a repeated "Discussion" is kept and the same file imported twice adds nothing. A topic removed or renamed on the agenda comes back if the file still lists it; the answer's `updatedRows` names each session and the topics it gained
+- Two sessions cannot share a name and a start time in one file: a later row with a different end time, track or location is a row error, and it and the rows after it for that name are not imported
+- A row whose start time cannot be read holds back the session of the same name whenever topics are involved, so a session is never created from its continuation rows alone
 - Break items (`type` REGISTRATION, BREAK, LUNCH, NETWORKING) cannot have speakers or topics
 - Max 5,000 rows per file
 

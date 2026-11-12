@@ -7,6 +7,55 @@
 
 ---
 
+## Agenda CSV import with topics: what the Nov 12 review left (recorded Nov 12, 2026)
+
+From the review of `5029717c` (0 BLOCKER, 0 HIGH, 5 MED, 10 LOW). M1, M2, M4 and M5
+are fixed in the follow-up commit; M3 is half fixed.
+
+**MED, OPEN, needs the owner: a re-import brings back topics the organiser deleted or
+renamed.** Topics are matched by title and a session already on the event only ever
+gains topics. So: import the file, delete "Panel discussion" and rename "Talk A" on the
+agenda, import the file again for one new session, and "Panel discussion" returns with
+a second "Talk A", on every session the file names. Done so far: the result names each
+session and the topics it gained, and the dialog, the guide and the import doc say it.
+Not done, because it is a product choice: a tick box in the import window, "Add missing
+topics to sessions already on the agenda" (on by default, like "Update people already
+on the event" for speakers), so an organiser adding sessions can leave existing ones
+alone.
+
+**LOW, listed, not fixed:**
+- Appending many topics to one existing session runs in the default 5 s transaction
+  (a 200-topic poster session could time out, and would on every retry).
+- The session row is touched even when nothing is added, so re-importing an unchanged
+  file makes an open edit dialog on a matched session save as stale.
+- The agent: `add_topic_to_session` does not return the session's new `updatedAt`, so
+  `update_session` with a value read earlier answers STALE_WRITE; the tool description
+  still says "another agent wrote in between"; `add_speaker_to_session` does not move it.
+- The break-item check and the speaker check in `appendSessionTopics` run before the
+  lock (as in the neighbouring roster functions).
+- A row with a duration but no topic title on an existing session counts as an error
+  and as skipped.
+- `topicDuration` is read with `Number()`: "0x10" and "1e3" pass, and a huge value
+  overflows the column and loses the session with the database's own message.
+- The "Agenda Imported" notification counts topics added to existing sessions, and an
+  import that only adds topics sends none.
+- A topic that already exists is not given a speaker added to the file later, and its
+  "speaker not found" error repeats on each import.
+- `appendSessionTopics` does not check the title (empty, or over the 255 the dashboard
+  allows) or an empty list; its warn lines lack the acting user.
+
+**Older defects the review found (not from this work; the owner decides each):**
+- The import drops the track and capacity of a WORKSHOP or SYMPOSIUM row
+  (`isBreakRow = sessionType !== "SESSION"` in the import route), silently, since those
+  types were added on July 23.
+- `addSessionSpeaker` and `replaceSessionRoster` refuse a WORKSHOP or SYMPOSIUM as if it
+  were a break item (`type !== "SESSION"`), so the agent cannot add a speaker to a
+  workshop; `appendSessionTopics` uses `isBreakSessionType` and accepts one.
+- `createSession` returns the database's raw message on an unknown failure, which the
+  import shows the organiser as a row error.
+- The import's rate limit and its import record use the caller's organisation, not the
+  event's; a track the import creates stays when its session is then refused.
+
 ## Registration counts: what the Nov 12 review left (recorded Nov 12, 2026): not started
 
 From the review of `cd275466` (the Registrations page summary card; 0 BLOCKER, 0 HIGH,

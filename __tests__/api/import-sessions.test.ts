@@ -571,3 +571,156 @@ describe("moderatorEmails and chairEmails", () => {
     expect(mockCreateSession).not.toHaveBeenCalled();
   });
 });
+
+/** Review of 5029717c (Nov 12, 2026): M1 to M4. */
+describe("review of 5029717c", () => {
+  it("M1: with no topics, a first row missing its end time does not cost the complete row under it", async () => {
+    const csv = [
+      "name,startTime,endTime",
+      "Keynote,2026-03-15T09:00:00Z,",
+      "Keynote,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z",
+      "Keynote,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body).toMatchObject({ created: 1, skipped: 1 });
+    expect(body.errors).toEqual(["Row 2: missing required fields (name, startTime, endTime)"]);
+    expect(mockCreateSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("M1: a service refusal on the first row still tries the next row of a topic-less group", async () => {
+    mockCreateSession
+      .mockResolvedValueOnce({ ok: false, code: "INVALID_TIME_RANGE", message: "End time must be after start time" })
+      .mockResolvedValueOnce({ ok: true, session: { id: "s2" } });
+    const csv = [
+      "name,startTime,endTime,location",
+      "Keynote,2026-03-15T09:00:00Z,2026-03-15T09:00:00Z,Hall A",
+      "Keynote,2026-03-15T09:00:00Z,,Hall A",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    // Row 3 has no end time of its own, so it is refused too: two errors, nothing created.
+    expect(body.created).toBe(0);
+    expect(body.errors).toEqual([
+      "Row 2: End time must be after start time",
+      "Row 3: missing required fields (name, startTime, endTime)",
+    ]);
+  });
+
+  it("M1: a group WITH topics is created from its first row or not at all", async () => {
+    const csv = [
+      "name,startTime,endTime,topicTitle",
+      "Plenary,2026-03-15T09:00:00Z,,Talk A",
+      "Plenary,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,Talk B",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.created).toBe(0);
+    expect(body.errors).toEqual(["Row 2: missing required fields (name, startTime, endTime) (its 2 topics were not imported)"]);
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("M2: a second session under the same name and start time is refused, never merged into the first", async () => {
+    mockDb.track.findMany.mockResolvedValue([
+      { id: "trk-card", name: "Cardiology" },
+      { id: "trk-neph", name: "Nephrology" },
+    ]);
+    const csv = [
+      "name,startTime,endTime,track,location,topicTitle",
+      "Free Papers,2026-03-15T14:00:00Z,2026-03-15T15:00:00Z,Cardiology,Hall A,Paper C1",
+      "Free Papers,2026-03-15T14:00:00Z,,,,Paper C2",
+      "Free Papers,2026-03-15T14:00:00Z,2026-03-15T15:00:00Z,Nephrology,Hall B,Paper N1",
+      "Free Papers,2026-03-15T14:00:00Z,,,,Paper N2",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body).toMatchObject({ created: 1, topicsCreated: 2 });
+    expect(mockCreateSession.mock.calls[0][0].trackId).toBe("trk-card");
+    expect(mockCreateSession.mock.calls[0][0].topics.map((t: { title: string }) => t.title)).toEqual(["Paper C1", "Paper C2"]);
+    expect(body.errors).toHaveLength(1);
+    expect(body.errors[0]).toContain("Row 4:");
+    expect(body.errors[0]).toContain("already on row 2 with a different end time, track or location");
+    expect(body.errors[0]).toContain("This row and the 1 after it for that session were not imported");
+  });
+
+  it("M2: a topic row that repeats the session's own columns unchanged is not a second session", async () => {
+    const csv = [
+      "name,startTime,endTime,track,location,topicTitle",
+      "Plenary,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,Main,Hall A,Talk A",
+      "Plenary,2026-03-15T09:00:00Z,2026-03-15T14:00:00+04:00,MAIN,hall a,Talk B",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body).toMatchObject({ created: 1, topicsCreated: 2, errors: [] });
+  });
+
+  it("M4: a row with an unreadable start time holds back the session of that name when topics are involved", async () => {
+    const csv = [
+      "name,startTime,endTime,track,speakerEmails,topicTitle",
+      "Plenary,15/03/2026 9am,2026-03-15T10:00:00Z,Main,jane@example.com,Talk A",
+      "Plenary,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,,,Talk B",
+      "Coffee,2026-03-15T10:00:00Z,2026-03-15T10:30:00Z,,,",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    // Without this, "Plenary" would be created from row 3 alone: no track, no speaker, Talk B only.
+    expect(body.created).toBe(1);
+    expect(mockCreateSession).toHaveBeenCalledTimes(1);
+    expect(mockCreateSession.mock.calls[0][0].name).toBe("Coffee");
+    expect(body.errors).toHaveLength(2);
+    expect(body.errors[0]).toContain("Row 2: invalid date format");
+    expect(body.errors[1]).toContain('Row 3: "Plenary" was not imported: row 2 names the same session');
+  });
+
+  it("M4: with no topics anywhere, an unreadable start time costs only its own row (as before)", async () => {
+    const csv = [
+      "name,startTime,endTime",
+      "Coffee,not-a-date,2026-03-15T10:30:00Z",
+      "Coffee,2026-03-16T10:00:00Z,2026-03-16T10:30:00Z",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.created).toBe(1);
+    expect(body.errors).toHaveLength(1);
+  });
+
+  it("M3: the answer names each session already on the event and the topics it gained", async () => {
+    mockDb.eventSession.findMany.mockResolvedValue([
+      { id: "s-plen", type: "SESSION", name: "Plenary 1", startTime: new Date("2026-03-15T09:00:00.000Z") },
+    ]);
+    mockAppendTopics.mockResolvedValue({
+      ok: true,
+      sessionName: "Plenary 1",
+      added: [{ id: "t1", title: "Talk B" }, { id: "t2", title: "Panel" }],
+      alreadyPresent: 1,
+    });
+    const csv = [
+      "name,startTime,endTime,topicTitle",
+      "Plenary 1,2026-03-15T09:00:00Z,,Talk A",
+      "Plenary 1,2026-03-15T09:00:00Z,,Talk B",
+      "Plenary 1,2026-03-15T09:00:00Z,,Panel",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.updatedRows).toEqual(["Plenary 1: added Talk B, Panel"]);
+  });
+
+  it("L6: one person under two roles says how many topics went with the session", async () => {
+    const csv = [
+      "name,startTime,endTime,speakerEmails,moderatorEmails,topicTitle",
+      "S,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,jane@example.com,jane@example.com,Talk A",
+    ].join("\n");
+
+    const body = await (await POST(csvRequest(csv), params)).json();
+
+    expect(body.errors[0]).toContain("Session not imported. (its 1 topic was not imported)");
+  });
+});
