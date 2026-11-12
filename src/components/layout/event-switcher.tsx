@@ -8,6 +8,12 @@
  * typed as "jump to the item starting with this letter" and moves focus out
  * of any text box placed inside it. Arrow keys and Enter work from the search
  * box; the matching rule is `eventMatchesSearch`.
+ *
+ * Two things the Command list would get wrong by itself (review of 27ed4c29):
+ * it highlights the FIRST event on open, so a stray Enter would leave the
+ * current event (the highlight starts on the current one here); and it takes
+ * Enter for anything inside it, so the "View All Events" link sits OUTSIDE
+ * the Command, where Enter follows the link.
  */
 import { useState } from "react";
 import Link from "next/link";
@@ -36,11 +42,15 @@ export function EventSwitcher({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  // The highlighted row. Starts on the current event; the list moves it to the
+  // first match as the person types.
+  const [highlighted, setHighlighted] = useState(currentEventId);
   const matches = filterEventsBySearch(events, search);
 
   const close = (next: boolean) => {
     setOpen(next);
-    if (!next) setSearch("");
+    setSearch("");
+    setHighlighted(currentEventId);
   };
 
   const pick = (eventId: string) => {
@@ -51,17 +61,18 @@ export function EventSwitcher({
   return (
     <Popover open={open} onOpenChange={close}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" role="combobox" aria-expanded={open} aria-label="Switch event" className="flex h-auto min-w-0 items-center gap-2 py-1">
+        <Button variant="ghost" role="combobox" aria-expanded={open} aria-label={`${currentEventName}, switch event`} className="flex h-auto min-w-0 items-center gap-2 py-1">
           <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate font-semibold">{currentEventName}</span>
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 max-w-[calc(100vw-2rem)] p-0">
-        <Command shouldFilter={false}>
-          <CommandInput placeholder="Search events" value={search} onValueChange={setSearch} aria-label="Search events" />
+        <Command shouldFilter={false} value={highlighted} onValueChange={setHighlighted}>
+          {/* 16px on a phone: a smaller focused input makes iOS zoom the page. */}
+          <CommandInput placeholder="Search events" value={search} onValueChange={setSearch} aria-label="Search events" className="text-base md:text-sm" />
           <CommandList className="max-h-[420px] p-1">
-            <CommandEmpty>No event matches &ldquo;{search.trim()}&rdquo;.</CommandEmpty>
+            <CommandEmpty>{search.trim() ? <>No event matches &ldquo;{search.trim()}&rdquo;.</> : "No events to show."}</CommandEmpty>
             {matches.length > 0 && (
               <CommandGroup heading={search.trim() ? `${matches.length} of ${events.length} events` : "Switch event"}>
                 {matches.map((event) => {
@@ -87,16 +98,16 @@ export function EventSwitcher({
               </CommandGroup>
             )}
           </CommandList>
-          <div className="border-t p-1">
-            <Link
-              href="/events"
-              onClick={() => close(false)}
-              className="flex items-center justify-center rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              View All Events
-            </Link>
-          </div>
         </Command>
+        <div className="border-t p-1">
+          <Link
+            href="/events"
+            onClick={() => close(false)}
+            className="flex items-center justify-center rounded-md px-2 py-1.5 text-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
+          >
+            View All Events
+          </Link>
+        </div>
       </PopoverContent>
     </Popover>
   );

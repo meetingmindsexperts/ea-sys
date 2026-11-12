@@ -137,15 +137,22 @@ function formFilterRecipientIds(selected: Set<string>, narrowed: boolean, listed
   return narrowed ? listed.map((r) => r.id) : [];
 }
 
-/** Nothing ticked and no form filter: the button means "everyone", which is Communications' job. */
-function emailsEveryone(selectedCount: number, narrowed: boolean): boolean {
-  return selectedCount === 0 && !narrowed;
+/**
+ * Nothing ticked and no filter on the list: the button means "everyone", which
+ * is Communications' job. With a status, payment, type, tag or survey filter
+ * on, it is NOT everyone: the send carries that filter, and Communications has
+ * no way to ask for "everyone who checked in" (review of 27ed4c29), so that
+ * send still composes here.
+ */
+function emailsEveryone(selectedCount: number, narrowed: boolean, listFiltered: boolean): boolean {
+  return selectedCount === 0 && !narrowed && !listFiltered;
 }
 
-/** The label when the button composes here: ticked rows, or the rows the form filter lists. */
-function emailButtonLabel(selectedCount: number, narrowed: boolean, listedCount: number): string {
+/** The label when the button composes here. "Email All" remains for someone who may send but cannot open Communications. */
+function emailButtonLabel(selectedCount: number, narrowed: boolean, listedCount: number, listFiltered: boolean): string {
   if (selectedCount > 0) return `Email (${selectedCount})`;
-  return narrowed ? `Email listed (${listedCount})` : "Email All";
+  if (narrowed) return `Email listed (${listedCount})`;
+  return listFiltered ? "Email filtered" : "Email All";
 }
 
 function selectAllCheckedState(all: boolean, some: boolean): boolean | "indeterminate" {
@@ -266,6 +273,7 @@ export default function RegistrationsPage() {
   const canReadContacts = useCan("contacts.read") === "allowed";
   const canBulk = useCan("registrations.bulk", eventId) === "allowed";
   const canSendEmail = useCan("communications.send", eventId) === "allowed";
+  const canOpenCommunications = useCan("templates.read", eventId) === "allowed";
   const canImportDtcm = useCan("dtcm.import", eventId) === "allowed";
   const canUpdate = useCan("registrations.update", eventId) === "allowed";
   // The desk admits people, so it follows the check-in key, as its routes do.
@@ -437,6 +445,12 @@ export default function RegistrationsPage() {
   // The bulk send cannot express the form filter or the ID and document filter, so with either on
   // "Email" sends to exactly the listed rows.
   const completionNarrowed = completionFilter !== "all" || evidenceFilter !== "all";
+  // The filters the bulk send DOES carry (the dialog's starting filters below).
+  const listFiltered = statusFilter !== "all" || paymentFilter !== "all" || ticketFilters.length > 0 || tagFilter.length > 0 || surveyFilter !== null;
+  // "Email All" leaves for Communications only when that page will open: it is
+  // gated by templates.read (event-page-keys.ts), a separate box from
+  // communications.send on a custom role.
+  const emailAllGoesToCommunications = canOpenCommunications && emailsEveryone(selectedIds.size, completionNarrowed, listFiltered);
 
   // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
   // SEND semantics (status + payment + ticket) and deliberately EXCLUDES the
@@ -649,10 +663,10 @@ export default function RegistrationsPage() {
               )}
               {/* "Email All" goes to Communications (owner, Nov 12, 2026):
                   one place to email everyone, with its templates, schedule and
-                  history. Ticked rows, or rows narrowed by the form filter,
-                  still compose here, because that choice exists only on this
-                  page. */}
-              {canSendEmail && registrations.length > 0 && emailsEveryone(selectedIds.size, completionNarrowed) && (
+                  history. Ticked rows, a filtered list, or rows narrowed by
+                  the form filter still compose here, because that choice
+                  exists only on this page. */}
+              {canSendEmail && registrations.length > 0 && emailAllGoesToCommunications && (
                 <Button variant="secondary" size="sm" asChild>
                   <Link href={`/events/${eventId}/communications`}>
                     <Send className="mr-2 h-4 w-4" />
@@ -660,14 +674,14 @@ export default function RegistrationsPage() {
                   </Link>
                 </Button>
               )}
-              {canSendEmail && registrations.length > 0 && !emailsEveryone(selectedIds.size, completionNarrowed) && (
+              {canSendEmail && registrations.length > 0 && !emailAllGoesToCommunications && (
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => setBulkEmailOpen(true)}
                 >
                   <Send className="mr-2 h-4 w-4" />
-                  {emailButtonLabel(selectedIds.size, completionNarrowed, filteredRegistrations.length)}
+                  {emailButtonLabel(selectedIds.size, completionNarrowed, filteredRegistrations.length, listFiltered)}
                 </Button>
               )}
               {canImport && <CSVImportButton eventId={eventId} entityType="registrations" />}

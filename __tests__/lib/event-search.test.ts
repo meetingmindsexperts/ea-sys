@@ -41,6 +41,15 @@ describe("eventMatchesSearch", () => {
   it("survives missing optional fields and a bad date", () => {
     expect(eventMatchesSearch({ name: "Plain", startDate: "not a date" }, "plain")).toBe(true);
     expect(eventMatchesSearch({ name: "Plain", slug: null, code: null }, "nan")).toBe(false);
+    // A date that cannot be read contributes no year: never the text "NaN".
+    expect(eventMatchesSearch({ name: "Plain", startDate: "not a date" }, "nan")).toBe(false);
+  });
+
+  it("the year is the one the row shows (Dubai), whatever the browser's timezone", () => {
+    // 31 Dec 2026 20:30 UTC is 1 Jan 2027 00:30 in Dubai: the row reads "Jan 1, 2027".
+    const newYear = { name: "New Year Forum", startDate: "2026-12-31T20:30:00.000Z" };
+    expect(eventMatchesSearch(newYear, "2027")).toBe(true);
+    expect(eventMatchesSearch(newYear, "2026")).toBe(false);
   });
 });
 
@@ -52,6 +61,8 @@ describe("the header uses the searchable switcher", () => {
     const switcher = read("src/components/layout/event-switcher.tsx");
     expect(switcher).toContain("filterEventsBySearch(events, search)");
     expect(switcher).toContain("shouldFilter={false}");
+    // The link sits after the Command closes: inside it, Enter picks an event instead of following the link.
+    expect(switcher.indexOf("</Command>")).toBeLessThan(switcher.indexOf('href="/events"'));
   });
 });
 
@@ -59,7 +70,9 @@ describe("Registrations: Email All goes to Communications", () => {
   it("links there when nothing is ticked, and still composes in place for ticked or narrowed rows", () => {
     const page = readFileSync(join(process.cwd(), "src/app/(dashboard)/events/[eventId]/registrations/page.tsx"), "utf8");
     expect(page).toContain("<Link href={`/events/${eventId}/communications`}>");
-    expect(page).toContain("return selectedCount === 0 && !narrowed;");
-    expect(page).toContain("!emailsEveryone(selectedIds.size, completionNarrowed) && (");
+    expect(page).toContain("return selectedCount === 0 && !narrowed && !listFiltered;");
+    // Only for someone who can open Communications (templates.read), and never with a list filter on.
+    expect(page).toContain("canOpenCommunications && emailsEveryone(selectedIds.size, completionNarrowed, listFiltered)");
+    expect(page).toContain("!emailAllGoesToCommunications && (");
   });
 });
