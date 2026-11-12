@@ -9,6 +9,7 @@ import { deleteStoredFile, readStoredFile } from "@/lib/storage";
 import { StorageError } from "@/lib/storage-errors";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import type { WebinarHandout } from "./handouts";
+import { contentDisposition } from "@/lib/download-filename";
 
 /** This event's private folder: the only place its handouts may be read from. */
 export function handoutFolder(eventId: string): string {
@@ -44,7 +45,7 @@ export async function handoutDownloadResponse(
     status: 200,
     headers: {
       "Content-Type": handout.contentType,
-      "Content-Disposition": `${disposition}; filename="${handout.name.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(handout.name)}`,
+      "Content-Disposition": contentDisposition(handout.name, disposition),
       "Content-Length": String(bytes.length),
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",

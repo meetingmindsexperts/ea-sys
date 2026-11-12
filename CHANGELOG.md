@@ -12,7 +12,8 @@ Found while checking the registrations export: the certificate **Recipients** ta
 
 - **Cause**: the file's name is built from the event's slug or code, and a download's name may only be sent as plain characters. Anything else made the server refuse its own answer after doing all the work
 - **Fixed for every download named that way** (`contentDisposition` in `src/lib/download-filename.ts`): the certificate recipients CSV, the certificates ZIP of an issue run, the event's data ZIP, the event's invoices CSV and ZIP, the venue floor plan PDF (staff and exhibitor link) and the room set-up sheet. The file keeps its real name in current browsers; an older one sees `_` in place of the letter
-- A test lists every download that names a slug or a code in its header, so a new one cannot bring the fault back
+- After review (`7b2160d8`, 1 high, 1 medium, 6 low): **invoice, receipt and credit note PDFs had the same fault**, through the invoice number, which starts with the event's code. Four downloads (staff, the registrant's portal, the group coordinator's, the public payer link) would have failed for an event whose code holds such a letter. No invoice in the local copy of production has one yet; one event's code does. Fixed, with the sales file (its name took a value from the web address) and the webinar handout download, which had its own weaker copy of the same logic
+- The guard test now reads **every** download header in the code: one that writes a value either goes through the helper or is listed with each value and why it can only be plain characters. The first version missed three of the eight headers it was written for
 
 ### Speakers: "Registration Type" shows the registration's own type (November 12)
 

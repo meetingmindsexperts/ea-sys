@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
 import { checkRateLimit } from "@/lib/security";
+import { contentDisposition } from "@/lib/download-filename";
 
 /**
  * GET /api/registrant/my-group/[groupId]/invoice/[invoiceId]
@@ -72,7 +73,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${invoice.invoiceNumber}.pdf"`,
+        "Content-Disposition": contentDisposition(`${invoice.invoiceNumber}.pdf`, "inline"),
         "Cache-Control": "private, no-store",
       },
     });

@@ -44,6 +44,7 @@ import { ensureFacultyTicketType } from "@/lib/speaker-companion";
 import { COMMITTEE_ROLES, facultyBadgeType, withCommitteeTags } from "@/lib/faculty-registration";
 import { createRegistration } from "@/services/registration-service";
 import { HTTP_STATUS_FOR_REGISTRATION_ERROR } from "@/lib/registration-error-status";
+import { contentDisposition } from "@/lib/download-filename";
 
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
@@ -710,7 +711,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       return new NextResponse(csv, {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": `attachment; filename="sales-${groupId ? `group-${groupId}` : eventId}.csv"`,
+          // groupId is the caller's own query text: through the helper, never raw.
+          "Content-Disposition": contentDisposition(`sales-${groupId ? `group-${groupId}` : eventId}.csv`),
           "Cache-Control": "private, no-store",
         },
       });

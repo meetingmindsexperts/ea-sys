@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
 import { runWithTenantLane } from "@/lib/tenant-lane";
+import { contentDisposition } from "@/lib/download-filename";
 
 interface RouteParams {
   params: Promise<{ eventId: string; invoiceId: string }>;
@@ -46,7 +47,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${invoice.invoiceNumber}.pdf"`,
+        "Content-Disposition": contentDisposition(`${invoice.invoiceNumber}.pdf`),
         "Cache-Control": "private, max-age=0",
       },
     });

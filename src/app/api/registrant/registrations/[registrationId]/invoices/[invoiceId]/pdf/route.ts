@@ -7,6 +7,7 @@ import { eventWhereFor } from "@/lib/permissions/can";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
+import { contentDisposition } from "@/lib/download-filename";
 
 interface RouteParams {
   params: Promise<{ registrationId: string; invoiceId: string }>;
@@ -98,7 +99,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${invoice.invoiceNumber}.pdf"`,
+        "Content-Disposition": contentDisposition(`${invoice.invoiceNumber}.pdf`),
         "Cache-Control": "private, max-age=0",
       },
     });

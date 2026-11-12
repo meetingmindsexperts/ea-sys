@@ -7,6 +7,7 @@ import { generatePDFForInvoice } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { getClientIp, checkRateLimit } from "@/lib/security";
+import { contentDisposition } from "@/lib/download-filename";
 
 interface RouteParams {
   params: Promise<{ slug: string; registrationId: string }>;
@@ -142,7 +143,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         status: 200,
         headers: {
           "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="invoice-${invoiceDoc.invoiceNumber}.pdf"`,
+          "Content-Disposition": contentDisposition(`invoice-${invoiceDoc.invoiceNumber}.pdf`),
           "Cache-Control": "private, max-age=0",
         },
       });
