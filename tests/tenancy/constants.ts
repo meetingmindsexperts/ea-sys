@@ -440,6 +440,9 @@ export const CRM_NOTE_B_ID = "tenancy-crmnote-b";
 // share the name.
 export const CRM_DEALTYPE_A_ID = "tenancy-crmdealtype-a";
 export const CRM_DEALTYPE_B_ID = "tenancy-crmdealtype-b";
+// Corporate projects (Nov 12, 2026): one per tenant, the same name on both.
+export const CRM_PROJECT_A_ID = "tenancy-crmproject-a";
+export const CRM_PROJECT_B_ID = "tenancy-crmproject-b";
 
 /**
  * CRM full-domain sweep — POLICY LAYER, Group 2 (the deal graph). Each org gets

@@ -175,6 +175,7 @@ function deal(over: Partial<BreakdownDealRow>): BreakdownDealRow {
     pipeline: null,
     ownerId: null,
     eventId: null,
+    projectId: null,
     dealTypeId: null,
     lostReason: null,
     expectedClose: null,
@@ -267,6 +268,50 @@ describe("bucketDeals — categorical dimensions", () => {
       expect([r.openMixed, r.wonMixed, r.lostMixed]).toEqual([false, false, false]);
     }
     expect(out[0]).toMatchObject({ totalCount: 2, openCount: 1, wonCount: 1, winRate: 100 });
+  });
+});
+
+// Corporate projects (Nov 12, 2026). The service hands `eventId` as the event a
+// deal is ATTRIBUTED to, so a project linked to an event arrives with both set.
+describe("bucketDeals — corporate projects", () => {
+  const rows = [
+    deal({ eventId: "e-1" }),
+    deal({ projectId: "p-solo", status: "WON", dealValue: 700 }),
+    deal({ projectId: "p-linked", eventId: "e-1", status: "WON", dealValue: 300 }),
+    deal({}),
+  ];
+  const labels = { event: new Map([["e-1", "BRIDGES 2026"]]), project: new Map([["p-solo", "Novartis Ad Board"], ["p-linked", "Bridges (duplicate)"]]) };
+
+  it("by event: a linked project's deal counts under the event, an unlinked one under 'No event'", () => {
+    const out = bucketDeals(rows, "event", { canSeeValues: true, labels });
+    expect(out.map((r) => [r.label, r.totalCount, r.wonValue])).toEqual([
+      ["BRIDGES 2026", 2, 300],
+      ["No event", 2, 700],
+    ]);
+  });
+
+  it("by project: each project keeps its own deals, linked or not; event deals sit apart", () => {
+    const out = bucketDeals(rows, "project", { canSeeValues: true, labels });
+    expect(out.map((r) => [r.label, r.totalCount])).toEqual([
+      ["Bridges (duplicate)", 1],
+      ["Novartis Ad Board", 1],
+      ["No corporate project (event deals)", 2],
+    ]);
+  });
+
+  it("by event or project: every deal sits under exactly one heading, and the totals add up", () => {
+    const out = bucketDeals(rows, "attribution", { canSeeValues: true, labels });
+    expect(out.map((r) => [r.label, r.totalCount, r.wonValue])).toEqual([
+      ["BRIDGES 2026", 2, 300],
+      ["Novartis Ad Board (corporate project)", 1, 700],
+      ["No event or project", 1, 0],
+    ]);
+    expect(out.reduce((n, r) => n + r.totalCount, 0)).toBe(rows.length);
+  });
+
+  it("never guesses the name of a project it was not given", () => {
+    const out = bucketDeals([deal({ projectId: "p-gone" })], "attribution", { canSeeValues: true, labels });
+    expect(out[0]!.label).toBe("(unknown project) (corporate project)");
   });
 });
 

@@ -62,10 +62,18 @@ entire reason to exist, so `CrmDeal.eventId` is a first-class link and `CrmCompa
 
 - **Companies** — first-class accounts (today `Contact.organization` is a string).
 - **Deals** — a kanban pipeline: stages, value, owner, expected close, win/loss,
-  tied to an event. **The event link is REQUIRED** (owner decision) — `createDeal`
-  returns `EVENT_REQUIRED` without one and `updateDeal` refuses to clear it; the DB
-  column stays nullable so a deal survives its event being deleted (`onDelete: SetNull`),
-  so the requirement is enforced at create/edit, not as a NOT-NULL constraint.
+  tied to an event **or a corporate project**. **One of the two is REQUIRED, never
+  both** (owner decisions, July 15 and Nov 12, 2026): `createDeal` returns
+  `EVENT_REQUIRED` with neither and `EVENT_AND_PROJECT` with both, and `updateDeal`
+  moves a deal from one to the other in one write but refuses to leave it on nothing.
+  Both columns stay nullable so a deal survives its event being deleted
+  (`onDelete: SetNull`); the rule is `resolveDealTarget` in `lib/deal-attribution.ts`.
+- **Corporate projects** (Nov 12, 2026; `services/project-service.ts`, `/api/crm/projects`)
+  — work that is not an event in EA-SYS (a client's own meeting, an advisory board):
+  name, client account, days, place, owner. Anyone who may create deals may create
+  one. A project can be **linked to an event**, only to correct a duplicate; its deals
+  then count under that event everywhere deals are counted per event, and unlinking
+  puts them back. See §3.9.
 - **Email** — outbound sends to an event's sponsors (the *Email sponsors* button on the
   board) or to one deal's contacts (the *Email* button on a deal), with per-contact
   personalization + attachments + built-in templates. See §3.7.
@@ -102,6 +110,7 @@ src/crm/
     company-service.ts        find-or-create accounts (dedup)
     pipeline-service.ts       seed + edit the org's stage list (DEFAULT_PIPELINE_STAGES)
     deal-service.ts           THE important one — create/update, stage moves, close, deal↔contacts
+    project-service.ts        corporate projects — create/update, the audited event link, archive
     crm-contact-service.ts    business contacts + link-to-event-contact
     task-service.ts           tasks + the reminder stamp
     note-service.ts           author-only notes
@@ -385,6 +394,25 @@ matches nothing (no IDOR by construction). API-key callers get an explicit 400
 
 ---
 
+### 3.9 "The deals of an event" is a rule, not a column
+
+Since corporate projects (Nov 12, 2026), a deal counts under an event in two
+ways: `deal.eventId`, or `deal.project.eventId` when its project was linked to
+that event to correct a duplicate. `lib/deal-attribution.ts` is the one place
+that knows: `dealsOfEventWhere(eventId)` for a query, `attributedEventId(deal)`
+for a row. The board's event filter, the reports, the CSV export, the event's
+sponsor email and the Budget revenue contract (`integrations/revenue-provider.ts`)
+all ask it.
+
+**Never write `where: { eventId }` on `crmDeal` to mean "this event's deals".**
+It reads correctly, passes every test with no linked project in it, and leaves
+a linked project's money out of that one surface. What is NOT covered, on
+purpose: how one deal presents itself (email branding, `{{event…}}` tokens, the
+quote's tax rate) still reads the deal's own event.
+
+The link is audited inside its own transaction (`CRM_PROJECT_EVENT_LINK_CHANGED`),
+because it moves revenue between an event's figures and none.
+
 ## 4. Code conventions
 
 Follows the app-wide rules in [`/AGENTS.md`](../../AGENTS.md) and the service
@@ -510,7 +538,7 @@ caught things during the build, should be treated as required, not a formality.
   name-bound). `ensurePipelineStages` never mutates an existing org's pipeline, so an
   existing org is brought over by `scripts/reconcile-crm-pipeline.ts` (pure
   `pipeline-reconcile.ts` planner; dry-run first; deals in dropped columns move to New).
-- **Deal requires an event** (§1) — enforced at create/edit.
+- **Deal requires an event or a corporate project** (§1) — enforced at create/edit.
 - **Product/service catalog + deal line items** (`crm-product-service.ts`, the **Products**
   tab, the Products card on the deal page) — seeded from Meeting Minds' service list
   (`crm-products-seed.ts`, 131 products); `category` = the functional group, `source` =

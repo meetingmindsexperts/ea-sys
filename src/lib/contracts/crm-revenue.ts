@@ -38,8 +38,9 @@ export interface CrmWonDeal {
 
 export interface CrmRevenueProvider {
   /**
-   * The WON, live (not archived) deals linked to one event of one
-   * organisation. Independent of the CRM entitlement: a suspended CRM's won
+   * The WON, live (not archived) deals that count under one event of one
+   * organisation: the event's own, and those of a corporate project linked
+   * to it (the CRM decides which, in src/crm/lib/deal-attribution.ts). Independent of the CRM entitlement: a suspended CRM's won
    * deals are still revenue (empty for an organisation that never had deals).
    */
   wonDealsForEvent(input: { organizationId: string; eventId: string }): Promise<CrmWonDeal[]>;

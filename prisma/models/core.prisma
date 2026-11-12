@@ -40,6 +40,7 @@ model Organization {
   crmPipelineStages           CrmPipelineStage[]
   crmDealTypes                CrmDealType[]
   crmDeals                    CrmDeal[]
+  crmProjects                 CrmProject[]
   crmTasks                    CrmTask[]
   employees                   Employee[]
   leaveCodes                  LeaveCode[]
@@ -256,6 +257,7 @@ model User {
   // CRM module — all SetNull on user delete, so removing a team member never
   // destroys deal/task/note history AND never blocks the delete. See CrmDeal.
   ownedCrmDeals            CrmDeal[]           @relation("CrmDealOwner")
+  ownedCrmProjects         CrmProject[]        @relation("CrmProjectOwner")
   ownedCrmContacts         CrmContact[]        @relation("CrmContactOwner")
   ownedCrmCompanies        CrmCompany[]        @relation("CrmCompanyOwner")
   ownedCrmTasks            CrmTask[]           @relation("CrmTaskOwner")
@@ -649,6 +651,8 @@ model Event {
   // CRM module — SetNull, so a sponsorship deal (revenue history) outlives the
   // event it was sold against.
   crmDeals CrmDeal[]
+  /// Corporate projects recorded as this event by mistake and linked back to it.
+  crmProjects CrmProject[]
 
   // Budget & Procurement module (Phase 1, Sep 14 2026).
   /// The edition this event repeats (spec §6c): the default benchmark source

@@ -39,6 +39,7 @@ import type { SponsorRecipient } from "@/crm/lib/crm-types";
 import { crmEmailIdentity, type CrmEmailIdentity } from "@/lib/crm-email-identity";
 import { extensionMatches, fileExtension, signatureMatches, typeFromExtension } from "@/lib/file-signature";
 import { crmEvents, EVENT_EMAIL_FIELDS } from "@/crm/integrations/events";
+import { dealsOfEventWhere } from "@/crm/lib/deal-attribution";
 import {
   CRM_EMAIL_TOKEN_RE,
   SIGNATURE_TOKEN_RE,
@@ -174,7 +175,8 @@ export async function resolveSponsorRecipients(args: {
   const deals = (await db.crmDeal.findMany({
     where: {
       organizationId: args.organizationId,
-      eventId: args.eventId,
+      // The event's own deals and those of a corporate project linked to it (deal-attribution.ts).
+      ...dealsOfEventWhere(args.eventId),
       archivedAt: null,
       // A LOST deal is not a sponsor — you don't send to a company that said no.
       status: { not: "LOST" },

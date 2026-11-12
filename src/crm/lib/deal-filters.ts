@@ -18,6 +18,7 @@
  *    one that errors).
  */
 import type { Prisma } from "@prisma/client";
+import { dealsOfEventWhere } from "@/crm/lib/deal-attribution";
 
 export type DealDateField = "expectedClose" | "createdAt" | "closed";
 
@@ -45,7 +46,13 @@ function endOfDay(d: Date): Date {
 export interface DealFilterParams {
   ownerId?: string | null;
   status?: string | null;
+  /**
+   * The event the deals count under: its own deals AND those of a corporate
+   * project linked to it (deal-attribution.ts), never `eventId` alone.
+   */
   eventId?: string | null;
+  /** A corporate project's deals (an unknown id narrows to nothing). */
+  projectId?: string | null;
   /** Deal category — Corporate / Conference. NOT finance-gated (not sensitive). */
   pipeline?: string | null;
   /** Org-configurable deal type id (an unknown id narrows to nothing — safe). */
@@ -84,8 +91,15 @@ export function buildDealWhere(
   const ownerId = params.ownerId?.trim();
   if (ownerId) where.ownerId = ownerId;
 
+  // Each of these two is an OR of its own, so they are ANDed: assigning both to
+  // `where.OR` would let the second replace the first and widen the list.
+  const and: Prisma.CrmDealWhereInput[] = [];
+
   const eventId = params.eventId?.trim();
-  if (eventId) where.eventId = eventId;
+  if (eventId) and.push(dealsOfEventWhere(eventId));
+
+  const projectId = params.projectId?.trim();
+  if (projectId) where.projectId = projectId;
 
   const status = params.status?.trim();
   if (status === "OPEN" || status === "WON" || status === "LOST") where.status = status;
@@ -113,7 +127,7 @@ export function buildDealWhere(
     if (field === "closed") {
       // "Closed in this window" spans two columns — won deals stamp wonAt, lost
       // deals stamp lostAt. Match either.
-      where.OR = [{ wonAt: range }, { lostAt: range }];
+      and.push({ OR: [{ wonAt: range }, { lostAt: range }] });
     } else {
       where[field] = range;
     }
@@ -131,6 +145,7 @@ export function buildDealWhere(
   // else: value params are silently ignored — a MEMBER cannot filter by a number
   // they are not allowed to see.
 
+  if (and.length > 0) where.AND = and;
   return where;
 }
 

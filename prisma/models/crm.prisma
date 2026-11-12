@@ -623,6 +623,7 @@ model CrmCompany {
 
   contacts CrmContact[]
   deals    CrmDeal[]
+  projects CrmProject[]
   tasks    CrmTask[]
   notes_   CrmNote[]
 
@@ -765,6 +766,14 @@ model CrmDeal {
   eventId String?
   event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
 
+  /// The corporate project this deal is for, INSTEAD of an event (Nov 12, 2026).
+  /// A deal carries an event or a project, never both and never neither: the
+  /// deal service enforces it (the columns stay nullable, as eventId does).
+  /// Restrict: a project that holds deals is archived, never deleted. Which
+  /// event such a deal counts under is src/crm/lib/deal-attribution.ts.
+  projectId String?
+  project   CrmProject? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
   /// Finance-gated: `dealValue` is in FINANCIAL_KEYS so the existing
   /// redactFinancialFields() machinery hides it from MEMBER unchanged (§9 d4).
   ///
@@ -835,8 +844,64 @@ model CrmDeal {
   @@index([organizationId, status])
   @@index([organizationId, stageId])
   @@index([eventId])
+  @@index([projectId])
   @@index([companyId])
   @@index([ownerId, status])
+}
+
+/// A corporate project (Nov 12, 2026): work the sales team sells that is not
+/// an event in EA-SYS (a client's own meeting, an advisory board, an experts
+/// tour). Created by anyone who may create deals; a deal is for an event OR a
+/// project (CrmDeal.projectId).
+///
+/// `eventId` is the correction for a duplicate or a mistake: a project that
+/// turns out to BE an event or webinar already in the system is linked to it,
+/// and from then on its deals count under that event everywhere (reports, the
+/// event's Budget revenue, the event's sponsor email). Nothing is moved, so
+/// clearing the link puts them back. The one rule for that is
+/// src/crm/lib/deal-attribution.ts; never read `deal.eventId` alone to decide
+/// which event a deal belongs to.
+///
+/// `nameKey` (trimmed, lowercased) carries the unique index, as on CrmCompany,
+/// so "Novartis Ad Board" and "novartis ad board" cannot become two projects.
+/// Dates are calendar days. Soft delete via archivedAt: hidden from the picker,
+/// its deals keep resolving its name.
+model CrmProject {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name    String
+  nameKey String
+
+  /// The client the project is for. SetNull: purging an account never blocks
+  /// on, or destroys, a project.
+  companyId String?
+  company   CrmCompany? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  startDate DateTime? @db.Date
+  endDate   DateTime? @db.Date
+  location  String?
+
+  /// The colleague responsible for the project; each deal keeps its own owner.
+  ownerId String?
+  owner   User?   @relation("CrmProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  /// Set only to correct a duplicate: see the model comment.
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  deals CrmDeal[]
+
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, nameKey])
+  @@index([organizationId, archivedAt])
+  @@index([eventId])
+  @@index([companyId])
 }
 
 model CrmTask {

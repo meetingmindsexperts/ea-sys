@@ -48,6 +48,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ companyI
           select: {
             id: true, name: true, dealValue: true, currency: true, status: true, stageId: true,
             event: { select: { id: true, name: true } },
+            project: { select: { id: true, name: true } },
           },
           orderBy: { createdAt: "desc" },
           take: 200,

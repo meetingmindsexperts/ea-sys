@@ -50,6 +50,8 @@ import {
   CRM_NOTE_B_ID,
   CRM_DEALTYPE_A_ID,
   CRM_DEALTYPE_B_ID,
+  CRM_PROJECT_A_ID,
+  CRM_PROJECT_B_ID,
 } from "./constants";
 
 beforeAll(() => {
@@ -77,6 +79,19 @@ interface CrmRlsCase {
 }
 
 const CASES: CrmRlsCase[] = [
+  // Corporate projects (Nov 12, 2026): the same flat policy, shipped with the table.
+  {
+    name: "CrmProject",
+    scopedRead: () => db.crmProject.findMany({ select: { organizationId: true } }),
+    findB: () => db.crmProject.findUnique({ where: { id: CRM_PROJECT_B_ID }, select: { id: true } }),
+    failClosed: () => db.crmProject.findMany({ select: { id: true } }),
+    deleteB: () => db.crmProject.delete({ where: { id: CRM_PROJECT_B_ID } }),
+    smuggle: () =>
+      db.crmProject.create({
+        data: { id: "tenancy-smuggle-project", organizationId: ORG_B_ID, name: "Smuggle", nameKey: "smuggle-project" },
+      }),
+    reHome: () => db.crmProject.update({ where: { id: CRM_PROJECT_A_ID }, data: { organizationId: ORG_B_ID } }),
+  },
   {
     name: "CrmCompany",
     scopedRead: () => db.crmCompany.findMany({ select: { organizationId: true } }),

@@ -322,6 +322,8 @@ SWEPT=(
   "src/app/api/crm/pipeline-stages/route.ts"
   "src/app/api/crm/products/[productId]/route.ts"
   "src/app/api/crm/products/route.ts"
+  "src/app/api/crm/projects/route.ts"
+  "src/app/api/crm/projects/[projectId]/route.ts"
   # QuickBooks Estimates (Nov 4, 2026)
   "src/app/api/crm/companies/[companyId]/quickbooks/route.ts"
   "src/app/api/crm/products/[productId]/quickbooks/route.ts"

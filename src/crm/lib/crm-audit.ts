@@ -31,13 +31,20 @@ export type CrmAuditAction =
   | "CRM_QUOTE_CREATED"
   | "CRM_QUOTE_UPDATED"
   | "CRM_QUOTE_DELETED"
-  | "CRM_QUOTE_SENT_TO_QUICKBOOKS";
+  | "CRM_QUOTE_SENT_TO_QUICKBOOKS"
+  // Corporate projects (Nov 12, 2026). The event link moves a project's deals
+  // under an event's revenue, so it is audited with the change, like money.
+  | "CRM_PROJECT_CREATED"
+  | "CRM_PROJECT_UPDATED"
+  | "CRM_PROJECT_EVENT_LINK_CHANGED"
+  | "CRM_PROJECT_ARCHIVED"
+  | "CRM_PROJECT_RESTORED";
 
 export interface CrmAuditEntry {
   organizationId: string;
   actorId: string | null;
   action: CrmAuditAction;
-  entityType: "CrmDeal" | "CrmQuote";
+  entityType: "CrmDeal" | "CrmQuote" | "CrmProject";
   entityId: string;
   /** What changed; `source` (rest / mcp / agent) belongs in here. */
   changes: Record<string, unknown>;

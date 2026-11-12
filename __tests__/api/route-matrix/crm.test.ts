@@ -85,6 +85,9 @@ import { PATCH as h66, DELETE as h67 } from "@/app/api/crm/products/[productId]/
 import { GET as h68, POST as h69 } from "@/app/api/crm/products/route";
 import { POST as h70 } from "@/app/api/crm/purge/route";
 import { GET as h71 } from "@/app/api/crm/reports/route";
+// Corporate projects (Nov 12, 2026)
+import { GET as hProjList, POST as hProjCreate } from "@/app/api/crm/projects/route";
+import { GET as hProjGet, PATCH as hProjPatch, DELETE as hProjDelete } from "@/app/api/crm/projects/[projectId]/route";
 import { GET as h72 } from "@/app/api/crm/reps/route";
 import { GET as h73 } from "@/app/api/crm/sponsor-email/recipients/route";
 import { POST as h74 } from "@/app/api/crm/sponsor-email/send/route";
@@ -158,6 +161,11 @@ const CASES: HandlerCase[] = [
   { name: "PATCH crm/notifications", handler: h60, method: "PATCH", body: {}, ...org },
   { name: "PATCH crm/pipeline-stages/[stageId]", handler: h61, method: "PATCH", params: {"stageId": "stage1"}, body: {}, ...org },
   { name: "DELETE crm/pipeline-stages/[stageId]", handler: h62, method: "DELETE", params: {"stageId": "stage1"}, ...org },
+  { name: "GET crm/projects", handler: hProjList, method: "GET", ...org },
+  { name: "POST crm/projects", handler: hProjCreate, method: "POST", body: {}, ...org },
+  { name: "GET crm/projects/[projectId]", handler: hProjGet, method: "GET", params: {"projectId": "project1"}, ...org },
+  { name: "PATCH crm/projects/[projectId]", handler: hProjPatch, method: "PATCH", params: {"projectId": "project1"}, body: {}, ...org },
+  { name: "DELETE crm/projects/[projectId]", handler: hProjDelete, method: "DELETE", params: {"projectId": "project1"}, ...org },
   { name: "GET crm/pipeline-stages", handler: h63, method: "GET", ...org },
   { name: "POST crm/pipeline-stages", handler: h64, method: "POST", body: {}, ...org },
   { name: "PATCH crm/pipeline-stages", handler: h65, method: "PATCH", body: {}, ...org },

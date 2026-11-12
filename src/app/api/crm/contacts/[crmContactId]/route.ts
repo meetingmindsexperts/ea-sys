@@ -54,6 +54,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ crmConta
               select: {
                 id: true, name: true, dealValue: true, currency: true, status: true, stageId: true, archivedAt: true,
                 event: { select: { id: true, name: true } },
+                project: { select: { id: true, name: true } },
               },
             },
           },

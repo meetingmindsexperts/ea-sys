@@ -8,13 +8,16 @@ import { getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, requireCrmDelete, denyCrmDelete, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
 import { updateDeal, setDealArchived } from "@/crm/services/deal-service";
+import { DEAL_PROJECT_SELECT } from "@/crm/lib/project-rows";
 import { archiveAlone } from "@/crm/lib/crm-archive-patch";
 
 const updateDealSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   companyId: z.string().min(1).nullable().optional(),
-  // Re-pointable, but not clearable — a deal must stay tied to an event (no null).
-  eventId: z.string().min(1).optional(),
+  // A deal is for an event OR a corporate project. Naming one moves the deal
+  // there and clears the other; ending with neither is refused by the service.
+  eventId: z.string().min(1).max(64).nullable().optional(),
+  projectId: z.string().min(1).max(64).nullable().optional(),
   ownerId: z.string().min(1).nullable().optional(),
   dealValue: z.number().nonnegative().max(1_000_000_000).nullable().optional(),
   currency: z.string().length(3).optional(),
@@ -64,6 +67,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ dealId: 
         // startDate/endDate/city/country back the derived "project date" + "project
         // location" facts (city/country only — not the venue string, per owner).
         event: { select: { id: true, name: true, slug: true, taxRate: true, taxLabel: true, startDate: true, endDate: true, city: true, country: true } },
+        project: { select: DEAL_PROJECT_SELECT },
         dealType: { select: { id: true, name: true } },
         owner: { select: { id: true, firstName: true, lastName: true, email: true } },
         stage: { select: { id: true, name: true, isTerminal: true } },

@@ -65,10 +65,22 @@ describe("buildDealWhere — date range", () => {
       { organizationId: ORG, canSeeValues: true },
     );
     // A won deal stamps wonAt, a lost deal stamps lostAt — "closed in July" is either.
-    expect(where.OR).toHaveLength(2);
-    expect(where.OR).toEqual([
-      { wonAt: expect.any(Object) },
-      { lostAt: expect.any(Object) },
+    // It sits under AND since Nov 12, 2026: the event filter is an OR of its own.
+    expect(where.OR).toBeUndefined();
+    expect(where.AND).toEqual([{ OR: [{ wonAt: expect.any(Object) }, { lostAt: expect.any(Object) }] }]);
+  });
+
+  // Nov 12, 2026. Both filters are ORs. Written to `where.OR` one after the
+  // other, the second replaced the first and the list silently widened.
+  it("the event filter and 'closed in this window' narrow together, neither replacing the other", () => {
+    const where = buildDealWhere(
+      { eventId: "e-1", dateField: "closed", from: "2026-07-01", to: "2026-07-31" },
+      { organizationId: ORG, canSeeValues: true },
+    );
+    expect(where.OR).toBeUndefined();
+    expect(where.AND).toEqual([
+      { OR: [{ eventId: "e-1" }, { project: { eventId: "e-1" } }] },
+      { OR: [{ wonAt: expect.any(Object) }, { lostAt: expect.any(Object) }] },
     ]);
   });
 
@@ -99,6 +111,12 @@ describe("buildDealWhere — date range", () => {
 });
 
 describe("buildDealWhere — scalar filters + tenancy", () => {
+  it("filters by corporate project, and adds no AND when nothing needs one", () => {
+    const where = buildDealWhere({ projectId: " p-1 " }, { organizationId: ORG, canSeeValues: true });
+    expect(where.projectId).toBe("p-1");
+    expect(where.AND).toBeUndefined();
+  });
+
   it("always binds organizationId", () => {
     expect(buildDealWhere({}, { organizationId: ORG, canSeeValues: true }).organizationId).toBe(ORG);
   });
@@ -109,7 +127,10 @@ describe("buildDealWhere — scalar filters + tenancy", () => {
       { organizationId: ORG, canSeeValues: true },
     );
     expect(where.ownerId).toBe("u-1");
-    expect(where.eventId).toBe("e-1");
+    // An event's deals are its own AND those of a corporate project linked to
+    // it (deal-attribution.ts), never the bare column.
+    expect(where.eventId).toBeUndefined();
+    expect(where.AND).toEqual([{ OR: [{ eventId: "e-1" }, { project: { eventId: "e-1" } }] }]);
     expect(where.status).toBe("WON");
 
     const bad = buildDealWhere({ status: "MADE_UP" }, { organizationId: ORG, canSeeValues: true });

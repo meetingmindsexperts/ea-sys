@@ -23,6 +23,7 @@ vi.mock("@/lib/db", () => {
     crmDealProduct: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     crmCompany: { findFirst: vi.fn() },
+    crmProject: { findFirst: vi.fn() },
     crmDealType: { findFirst: vi.fn() },
     contact: { findFirst: vi.fn() },
     event: { findFirst: vi.fn() },
@@ -43,6 +44,12 @@ import { createDeal, updateDeal, moveDealStage, closeDeal, setDealArchived } fro
 
 const ORG = "org-1";
 const base = { organizationId: ORG, userId: "u-1", source: "rest" as const };
+
+/** A stored deal as updateDeal reads it: on nothing until a test says so. */
+const storedDeal = {
+  name: "Abbott", dealValue: null, currency: "USD", expectedClose: null, companyId: null,
+  eventId: null as string | null, projectId: null as string | null, ownerId: null, pipeline: null, dealTypeId: null, tags: [], archivedAt: null,
+};
 
 const stage = (
   over: Partial<{ id: string; name: string; isTerminal: boolean; terminalOutcome: "WON" | "LOST" | null }> = {},
@@ -410,6 +417,7 @@ describe("createDeal — relations are bound to the caller's org", () => {
   });
 
   it("updateDeal refuses to CLEAR the event (re-point yes, remove no)", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ ...storedDeal, eventId: "e-1" } as never);
     const res = await updateDeal({ ...base, dealId: "d-1", eventId: null });
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
@@ -680,5 +688,104 @@ describe("high-impact deal changes write an AuditLog row inside their transactio
     vi.mocked(db.auditLog.create).mockClear();
     await moveDealStage({ ...base, dealId: "d-1", fromStageId: "s-neg", toStageId: "s-prop" });
     expect(db.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+// ── Corporate projects (Nov 12, 2026) ────────────────────────────────────────
+// A deal is for an event OR a corporate project, never both and never neither.
+describe("a deal on a corporate project", () => {
+  const liveProject = { id: "p-1", archivedAt: null };
+
+  it("creates on a project with no event", async () => {
+    vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(stage() as never);
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue(liveProject as never);
+    vi.mocked(db.crmDeal.create).mockResolvedValue({ id: "d-1", eventId: null, projectId: "p-1" } as never);
+
+    const res = await createDeal({ ...base, name: "Novartis Ad Board", stageId: "s-neg", projectId: "p-1" });
+
+    expect(res.ok).toBe(true);
+    expect(db.crmDeal.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ projectId: "p-1", eventId: null }) }),
+    );
+    // The project id came from the client: it is looked up inside the caller's organisation.
+    expect(db.crmProject.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "p-1", organizationId: ORG } }));
+  });
+
+  it("refuses an event AND a project, and neither", async () => {
+    const both = await createDeal({ ...base, name: "X", stageId: "s-neg", eventId: "e-1", projectId: "p-1" });
+    expect(both).toMatchObject({ ok: false, code: "EVENT_AND_PROJECT" });
+    const neither = await createDeal({ ...base, name: "X", stageId: "s-neg" });
+    expect(neither).toMatchObject({ ok: false, code: "EVENT_REQUIRED" });
+    expect(db.crmDeal.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a project of another organisation, and an archived one", async () => {
+    vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(stage() as never);
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue(null as never);
+    expect(await createDeal({ ...base, name: "X", stageId: "s-neg", projectId: "p-theirs" })).toMatchObject({ ok: false, code: "PROJECT_NOT_FOUND" });
+
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue({ id: "p-1", archivedAt: new Date() } as never);
+    expect(await createDeal({ ...base, name: "X", stageId: "s-neg", projectId: "p-1" })).toMatchObject({ ok: false, code: "PROJECT_ARCHIVED" });
+    expect(db.crmDeal.create).not.toHaveBeenCalled();
+  });
+
+  it("moving an event deal to a project clears its event in the same write", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ ...storedDeal, eventId: "e-1" } as never);
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue(liveProject as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", ownerId: null } as never);
+
+    const res = await updateDeal({ ...base, dealId: "d-1", projectId: "p-1" });
+
+    expect(res.ok).toBe(true);
+    const call = vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(call.data).toMatchObject({ projectId: "p-1", eventId: null });
+  });
+
+  it("moving a project deal to an event clears its project", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ ...storedDeal, projectId: "p-1" } as never);
+    vi.mocked(db.event.findFirst).mockResolvedValue({ id: "e-2" } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", ownerId: null } as never);
+
+    const res = await updateDeal({ ...base, dealId: "d-1", eventId: "e-2" });
+
+    expect(res.ok).toBe(true);
+    const call = vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(call.data).toMatchObject({ eventId: "e-2", projectId: null });
+  });
+
+  it("an edit cannot move a deal onto an archived project, or leave it on nothing", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ ...storedDeal, eventId: "e-1" } as never);
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue({ id: "p-old", archivedAt: new Date() } as never);
+    expect(await updateDeal({ ...base, dealId: "d-1", projectId: "p-old" })).toMatchObject({ ok: false, code: "PROJECT_ARCHIVED" });
+
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ ...storedDeal, projectId: "p-1" } as never);
+    expect(await updateDeal({ ...base, dealId: "d-1", projectId: null })).toMatchObject({ ok: false, code: "EVENT_REQUIRED" });
+    expect(db.crmDeal.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("a deal stays editable after its project was archived (the form re-sends the same project)", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ ...storedDeal, projectId: "p-old" } as never);
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue({ id: "p-old", archivedAt: new Date() } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", ownerId: null } as never);
+
+    const res = await updateDeal({ ...base, dealId: "d-1", projectId: "p-old", name: "Renamed" });
+
+    expect(res.ok).toBe(true);
+  });
+
+  it("an edit that names neither leaves a legacy deal with no event editable", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ ...storedDeal } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", ownerId: null } as never);
+
+    const res = await updateDeal({ ...base, dealId: "d-1", name: "Renamed" });
+
+    expect(res.ok).toBe(true);
+    const call = vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(call.data).not.toHaveProperty("eventId");
+    expect(call.data).not.toHaveProperty("projectId");
   });
 });

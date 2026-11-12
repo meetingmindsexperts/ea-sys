@@ -158,6 +158,12 @@ export const CRM_REPORT_DIMENSIONS = [
   "pipeline",
   "owner",
   "event",
+  // Corporate projects (Nov 12, 2026). `event` counts a deal under the event it
+  // is ATTRIBUTED to (deal-attribution.ts): its own, or the one its project is
+  // linked to. `project` groups by the project a deal is for. `attribution`
+  // puts both in one table, so every deal sits under exactly one heading.
+  "project",
+  "attribution",
   "dealType",
   "lostReason",
   "expectedCloseMonth",
@@ -171,6 +177,8 @@ export const CRM_REPORT_DIMENSION_LABELS: Record<CrmReportDimension, string> = {
   pipeline: "Pipeline",
   owner: "Sales rep",
   event: "Event",
+  project: "Corporate project",
+  attribution: "Event or project",
   dealType: "Deal type",
   lostReason: "Lost reason",
   expectedCloseMonth: "Expected close (month)",
@@ -196,7 +204,10 @@ export interface BreakdownDealRow {
   dealValue: number | null;
   pipeline: string | null;
   ownerId: string | null;
+  /** The event the deal counts under (attributedEventId), never the bare column. */
   eventId: string | null;
+  /** The corporate project the deal is for, linked to an event or not. */
+  projectId: string | null;
   dealTypeId: string | null;
   lostReason: string | null;
   expectedClose: Date | null;
@@ -209,6 +220,7 @@ export interface BreakdownLabels {
   pipeline?: ReadonlyMap<string, string>;
   owner?: ReadonlyMap<string, string>;
   event?: ReadonlyMap<string, string>;
+  project?: ReadonlyMap<string, string>;
   dealType?: ReadonlyMap<string, string>;
 }
 
@@ -264,6 +276,22 @@ function compareKeys(a: string, b: string): number {
   return a > b ? 1 : 0;
 }
 
+const EVENT_PREFIX = "event:";
+const PROJECT_PREFIX = "project:";
+
+/** One heading per deal: the event it counts under, else its corporate project. */
+function attributionKey(row: BreakdownDealRow): string {
+  if (row.eventId) return `${EVENT_PREFIX}${row.eventId}`;
+  if (row.projectId) return `${PROJECT_PREFIX}${row.projectId}`;
+  return NONE_KEY;
+}
+
+function attributionLabel(key: string, labels: BreakdownLabels): string {
+  if (key.startsWith(EVENT_PREFIX)) return labels.event?.get(key.slice(EVENT_PREFIX.length)) ?? "(unknown event)";
+  const name = labels.project?.get(key.slice(PROJECT_PREFIX.length)) ?? "(unknown project)";
+  return `${name} (corporate project)`;
+}
+
 function bucketKeyFor(row: BreakdownDealRow, dimension: CrmReportDimension): string {
   switch (dimension) {
     case "pipeline":
@@ -272,6 +300,10 @@ function bucketKeyFor(row: BreakdownDealRow, dimension: CrmReportDimension): str
       return row.ownerId ?? NONE_KEY;
     case "event":
       return row.eventId ?? NONE_KEY;
+    case "project":
+      return row.projectId ?? NONE_KEY;
+    case "attribution":
+      return attributionKey(row);
     case "dealType":
       return row.dealTypeId ?? NONE_KEY;
     case "lostReason": {
@@ -294,6 +326,10 @@ function bucketLabelFor(key: string, dimension: CrmReportDimension, labels: Brea
         return "Unassigned";
       case "event":
         return "No event";
+      case "project":
+        return "No corporate project (event deals)";
+      case "attribution":
+        return "No event or project";
       case "dealType":
         return "No deal type";
       case "lostReason":
@@ -311,6 +347,10 @@ function bucketLabelFor(key: string, dimension: CrmReportDimension, labels: Brea
       return labels.owner?.get(key) ?? "(unknown)";
     case "event":
       return labels.event?.get(key) ?? "(unknown event)";
+    case "project":
+      return labels.project?.get(key) ?? "(unknown project)";
+    case "attribution":
+      return attributionLabel(key, labels);
     case "dealType":
       return labels.dealType?.get(key) ?? "(unknown type)";
     case "lostReason":

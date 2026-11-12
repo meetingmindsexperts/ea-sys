@@ -1,7 +1,8 @@
 /**
  * THE CRM'S EVENTS PORT (Nov 6, 2026; CRM product review P1-8).
  *
- * A deal is linked to an event (required: owner decision, kept on Nov 6). The
+ * A deal is linked to an event, or since Nov 12, 2026 to a corporate project
+ * instead (one of the two is required: owner decisions, deal-attribution.ts). The
  * CRM's own direct questions about events go through here, never db.event:
  * does an event belong to this organisation, the names to pick from or group
  * by, and the event's email branding and tokens. The default answers from

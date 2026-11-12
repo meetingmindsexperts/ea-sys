@@ -12,13 +12,16 @@ import { recordExport } from "@/lib/audit-data-transfer";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
 import { CRM_DEALS_LIST_CAP, CRM_BULK_READ_AUDIT_ROWS, listMeta } from "@/crm/lib/list-caps";
 import { createDeal } from "@/crm/services/deal-service";
+import { DEAL_PROJECT_SELECT } from "@/crm/lib/project-rows";
 
 const createDealSchema = z.object({
   name: z.string().min(1).max(255),
   stageId: z.string().min(1),
   companyId: z.string().min(1).optional().nullable(),
-  // Required — a sponsorship deal must be sold against an event (project).
-  eventId: z.string().min(1, "Select the event (project) this deal is for"),
+  // A deal is for an event OR a corporate project: exactly one, decided by the
+  // service (resolveDealTarget), so the agent and the API get the same rule.
+  eventId: z.string().min(1).max(64).optional().nullable(),
+  projectId: z.string().min(1).max(64).optional().nullable(),
   ownerId: z.string().min(1).optional().nullable(),
   dealValue: z.number().nonnegative().max(1_000_000_000).optional().nullable(),
   currency: z.string().length(3).optional(),
@@ -49,6 +52,7 @@ export async function GET(req: Request) {
     const where = buildDealWhere(
       {
         eventId: searchParams.get("eventId"),
+        projectId: searchParams.get("projectId"),
         ownerId: searchParams.get("ownerId"),
         status: searchParams.get("status"),
         pipeline: searchParams.get("pipeline"),
@@ -97,6 +101,8 @@ export async function GET(req: Request) {
         // on the deal — no drift). city/country only, per owner: the venue string
         // is deliberately not surfaced here.
         event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true, city: true, country: true } },
+        // A deal is for an event or a corporate project, never both.
+        project: { select: DEAL_PROJECT_SELECT },
         owner: { select: { id: true, firstName: true, lastName: true, email: true } },
         _count: { select: { tasks: true, notes: true } },
       },

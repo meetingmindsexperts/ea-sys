@@ -15,6 +15,7 @@
  */
 import { db } from "@/lib/db";
 import { crmEvents } from "@/crm/integrations/events";
+import { DEAL_ATTRIBUTION_SELECT, attributedEventId } from "@/crm/lib/deal-attribution";
 import { buildDealWhere, type DealFilterParams } from "@/crm/lib/deal-filters";
 import {
   summarizePipeline,
@@ -54,7 +55,8 @@ const BREAKDOWN_SELECT = {
   dealValue: true,
   pipeline: true,
   ownerId: true,
-  eventId: true,
+  // The event a deal counts under needs its project's link too (deal-attribution.ts).
+  ...DEAL_ATTRIBUTION_SELECT,
   dealTypeId: true,
   lostReason: true,
   expectedClose: true,
@@ -79,7 +81,9 @@ export async function buildCrmReport(args: {
   // below return null + mixed:true rather than adding AED to USD and stamping
   // the result "$".
   const groupBy = args.groupBy ?? null;
-  const [stages, byStage, wonAgg, lostAgg, byOwner, users, breakdownDeals, eventNames, dealTypeNames] = await Promise.all([
+  const needsEvents = groupBy === "event" || groupBy === "attribution";
+  const needsProjects = groupBy === "project" || groupBy === "attribution";
+  const [stages, byStage, wonAgg, lostAgg, byOwner, users, breakdownDeals, eventNames, dealTypeNames, projectNames] = await Promise.all([
     db.crmPipelineStage.findMany({
       where: { organizationId: args.organizationId },
       orderBy: { sortOrder: "asc" },
@@ -119,11 +123,15 @@ export async function buildCrmReport(args: {
     groupBy ? db.crmDeal.findMany({ where, select: BREAKDOWN_SELECT }) : Promise.resolve([]),
     // Name lookups are org-bound and fetched only for the dimension in use.
     // Deal types include archived ones: an old deal may still point at one.
-    groupBy === "event"
+    needsEvents
       ? crmEvents.listAll(args.organizationId)
       : Promise.resolve([]),
     groupBy === "dealType"
       ? db.crmDealType.findMany({ where: { organizationId: args.organizationId }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    // Projects include archived ones: a finished project's deals still name it.
+    needsProjects
+      ? db.crmProject.findMany({ where: { organizationId: args.organizationId }, select: { id: true, name: true } })
       : Promise.resolve([]),
   ]);
 
@@ -215,7 +223,8 @@ export async function buildCrmReport(args: {
       dealValue: d.dealValue == null ? null : Number(d.dealValue),
       pipeline: d.pipeline ?? null,
       ownerId: d.ownerId ?? null,
-      eventId: d.eventId ?? null,
+      eventId: attributedEventId(d),
+      projectId: d.projectId ?? null,
       dealTypeId: d.dealTypeId ?? null,
       lostReason: d.lostReason ?? null,
       expectedClose: d.expectedClose ?? null,
@@ -230,6 +239,7 @@ export async function buildCrmReport(args: {
           pipeline: new Map(Object.entries(CRM_DEAL_PIPELINE_LABELS)),
           owner: nameById,
           event: new Map(eventNames.map((e) => [e.id, e.name])),
+          project: new Map(projectNames.map((p) => [p.id, p.name])),
           dealType: new Map(dealTypeNames.map((t) => [t.id, t.name])),
         },
       }),

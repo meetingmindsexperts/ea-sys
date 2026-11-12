@@ -8,6 +8,7 @@ import { toCsv } from "@/lib/csv-escape";
 import { requireCrmExport, crmCan } from "@/crm/lib/crm-route";
 
 import { buildDealWhere } from "@/crm/lib/deal-filters";
+import { DEAL_PROJECT_SELECT } from "@/crm/lib/project-rows";
 
 /**
  * GET /api/crm/deals/export — CSV of the (filtered) deal list.
@@ -54,6 +55,7 @@ export async function GET(req: Request) {
     const where = buildDealWhere(
       {
         eventId: searchParams.get("eventId"),
+        projectId: searchParams.get("projectId"),
         ownerId: searchParams.get("ownerId"),
         status: searchParams.get("status"),
         pipeline: searchParams.get("pipeline"),
@@ -86,6 +88,9 @@ export async function GET(req: Request) {
         company: { select: { name: true } },
         // Project date + location are derived from the event (city/country only).
         event: { select: { name: true, startDate: true, endDate: true, city: true, country: true } },
+        // A corporate project's deal has no event of its own: its days and place
+        // come from the project, and its event is the one the project is linked to.
+        project: { select: DEAL_PROJECT_SELECT },
         owner: { select: { firstName: true, lastName: true } },
         _count: { select: { contacts: true, tasks: true, notes: true } },
       },
@@ -95,7 +100,7 @@ export async function GET(req: Request) {
 
     const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
     // Project date + location are DERIVED from the linked event (city/country only).
-    const projectDates = (e: { startDate: Date; endDate: Date } | null) => {
+    const projectDates = (e: { startDate: Date | null; endDate: Date | null } | null) => {
       if (!e?.startDate) return "";
       const start = iso(e.startDate);
       const end = iso(e.endDate);
@@ -112,7 +117,10 @@ export async function GET(req: Request) {
       "Status",
       ...(canSeeValues ? ["Value", "Currency"] : []),
       "Owner",
+      // The event the deal counts under: its own, or the one its corporate
+      // project is linked to (deal-attribution.ts). Empty for a project on its own.
       "Event",
+      "Corporate project",
       "Project dates",
       "Project location",
       "Tags",
@@ -136,9 +144,10 @@ export async function GET(req: Request) {
       d.status,
       ...(canSeeValues ? [d.dealValue != null ? Number(d.dealValue) : "", d.currency] : []),
       d.owner ? `${d.owner.firstName} ${d.owner.lastName}` : "Unassigned",
-      d.event?.name ?? "",
-      projectDates(d.event),
-      projectLocation(d.event),
+      d.event?.name ?? d.project?.event?.name ?? "",
+      d.project?.name ?? "",
+      projectDates(d.event ?? d.project),
+      d.event ? projectLocation(d.event) : (d.project?.location ?? ""),
       d.tags.join(", "),
       iso(d.expectedClose),
       iso(d.wonAt),

@@ -28,6 +28,9 @@ export const CRM_CONTACTS_LIST_CAP = 1000;
 /** Accounts are the smallest of the three populations by an order of magnitude. */
 export const CRM_COMPANIES_LIST_CAP = 1000;
 
+/** Corporate projects: a list people pick from, far smaller than accounts. */
+export const CRM_PROJECTS_LIST_CAP = 1000;
+
 /**
  * Row count at which a list read by a role that may NOT export is recorded as a
  * bulk read (review H3).

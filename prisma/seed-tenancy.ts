@@ -184,6 +184,8 @@ import {
   CRM_NOTE_B_ID,
   CRM_DEALTYPE_A_ID,
   CRM_DEALTYPE_B_ID,
+  CRM_PROJECT_A_ID,
+  CRM_PROJECT_B_ID,
   CRM_DEAL_A_ID,
   CRM_DEAL_B_ID,
   CRM_DC_A_ID,
@@ -1050,6 +1052,7 @@ async function seedCrmGroup1(
     taskId: string;
     noteId: string;
     dealTypeId: string;
+    projectId: string;
   },
 ) {
   await db.crmCompany.create({
@@ -1081,6 +1084,10 @@ async function seedCrmGroup1(
   await db.crmNote.create({ data: { id: ids.noteId, organizationId: orgId, body: "Shared note" } });
   await db.crmDealType.create({
     data: { id: ids.dealTypeId, organizationId: orgId, name: "Shared Deal Type", sortOrder: 0 },
+  });
+  // A corporate project: the same name in both tenants, which the per-org unique key allows.
+  await db.crmProject.create({
+    data: { id: ids.projectId, organizationId: orgId, name: "Shared Corporate Project", nameKey: "shared corporate project" },
   });
 }
 
@@ -1424,6 +1431,7 @@ async function main() {
     taskId: CRM_TASK_A_ID,
     noteId: CRM_NOTE_A_ID,
     dealTypeId: CRM_DEALTYPE_A_ID,
+    projectId: CRM_PROJECT_A_ID,
   });
   await seedCrmGroup2(ORG_A_ID, {
     dealId: CRM_DEAL_A_ID,
@@ -1584,6 +1592,7 @@ async function main() {
     taskId: CRM_TASK_B_ID,
     noteId: CRM_NOTE_B_ID,
     dealTypeId: CRM_DEALTYPE_B_ID,
+    projectId: CRM_PROJECT_B_ID,
   });
   await seedCrmGroup2(ORG_B_ID, {
     dealId: CRM_DEAL_B_ID,

@@ -13,6 +13,7 @@
  */
 import { db } from "@/lib/db";
 import type { CrmRevenueProvider, CrmWonDeal, CrmWonDealProduct } from "@/lib/contracts/crm-revenue";
+import { dealsOfEventWhere } from "@/crm/lib/deal-attribution";
 
 /** The contract's source, mapped explicitly so a new enum value cannot slip through unconverted. */
 function productSource(source: string | null | undefined): CrmWonDealProduct["source"] {
@@ -23,7 +24,9 @@ function productSource(source: string | null | undefined): CrmWonDealProduct["so
 export const crmRevenueProvider: CrmRevenueProvider = {
   async wonDealsForEvent({ organizationId, eventId }): Promise<CrmWonDeal[]> {
     const deals = await db.crmDeal.findMany({
-      where: { organizationId, eventId, status: "WON", archivedAt: null },
+      // The event's own deals and those of a corporate project linked to it:
+      // one rule for which deals count under an event (deal-attribution.ts).
+      where: { organizationId, ...dealsOfEventWhere(eventId), status: "WON", archivedAt: null },
       select: {
         dealValue: true,
         currency: true,

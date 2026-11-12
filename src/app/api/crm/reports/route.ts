@@ -45,6 +45,7 @@ export async function GET(req: Request) {
       groupBy,
       filters: {
         eventId: searchParams.get("eventId"),
+        projectId: searchParams.get("projectId"),
         ownerId: searchParams.get("ownerId"),
         pipeline: searchParams.get("pipeline"),
         dealTypeId: searchParams.get("dealTypeId"),

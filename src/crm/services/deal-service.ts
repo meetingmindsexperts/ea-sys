@@ -34,6 +34,7 @@ import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
 import { auditMoney, writeCrmAudit } from "@/crm/lib/crm-audit";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 import { mayOwnCrmRecords } from "@/crm/services/crm-owner-eligibility";
+import { resolveDealTarget } from "@/crm/lib/deal-attribution";
 // The ONE CRM tag normalizer (trim, dedupe, first-casing-wins) — shared with
 // contacts + imports so a deal's tags dedupe by exactly the same rule (no
 // second implementation). See crm-contact-service.
@@ -42,7 +43,7 @@ import { resolveStage } from "./pipeline-service";
 import { refreshContactScores, refreshScoresForDeal } from "./contact-score-service";
 
 /** Fields worth showing in the change log when a deal is edited. */
-const DEAL_DIFF_KEYS = ["name", "dealValue", "currency", "expectedClose", "companyId", "eventId", "ownerId", "pipeline", "dealTypeId", "tags"] as const;
+const DEAL_DIFF_KEYS = ["name", "dealValue", "currency", "expectedClose", "companyId", "eventId", "projectId", "ownerId", "pipeline", "dealTypeId", "tags"] as const;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -61,8 +62,13 @@ export interface CreateDealInput {
    * isn't against a project is meaningless. The DB column stays nullable so the deal
    * survives its event being deleted (onDelete: SetNull); the requirement is enforced
    * here at create/edit, not as a NOT-NULL constraint.
+   *
+   * Since Nov 12, 2026 a deal is for an event OR a corporate project, never
+   * both and never neither (resolveDealTarget in deal-attribution.ts).
    */
-  eventId: string;
+  eventId?: string | null;
+  /** The corporate project this deal is for, instead of an event. */
+  projectId?: string | null;
   ownerId?: string | null;
   dealValue?: number | null;
   currency?: string;
@@ -85,6 +91,8 @@ export interface UpdateDealInput {
   name?: string;
   companyId?: string | null;
   eventId?: string | null;
+  /** Naming a project moves the deal to it and clears its event, and the reverse. */
+  projectId?: string | null;
   ownerId?: string | null;
   dealValue?: number | null;
   currency?: string;
@@ -116,6 +124,9 @@ export interface CloseDealInput {
 export type DealErrorCode =
   | "NAME_REQUIRED"
   | "EVENT_REQUIRED"
+  | "EVENT_AND_PROJECT"
+  | "PROJECT_NOT_FOUND"
+  | "PROJECT_ARCHIVED"
   | "DEAL_NOT_FOUND"
   | "DEAL_ARCHIVED"
   | "STAGE_NOT_FOUND"
@@ -150,11 +161,29 @@ export type CloseDealResult = { ok: true; deal: CrmDeal } | Fail;
  */
 async function validateRelations(
   organizationId: string,
-  rel: { companyId?: string | null; eventId?: string | null; ownerId?: string | null; dealTypeId?: string | null },
-  /** Refuse an archived account (Oct 28, 2026). An edit passes false when the account is unchanged. */
-  { refuseArchivedCompany = true }: { refuseArchivedCompany?: boolean } = {},
+  rel: { companyId?: string | null; eventId?: string | null; projectId?: string | null; ownerId?: string | null; dealTypeId?: string | null },
+  /**
+   * Refuse an archived account (Oct 28, 2026) or an archived project. An edit
+   * passes false for the one that is unchanged, so a deal stays editable after
+   * its account or project was archived.
+   */
+  { refuseArchivedCompany = true, refuseArchivedProject = true }: { refuseArchivedCompany?: boolean; refuseArchivedProject?: boolean } = {},
 ): Promise<Fail | null> {
   const checks: Array<Promise<Fail | null>> = [];
+
+  if (rel.projectId) {
+    checks.push(
+      db.crmProject
+        .findFirst({ where: { id: rel.projectId, organizationId }, select: { id: true, archivedAt: true } })
+        .then((r) => {
+          if (!r) return { ok: false, code: "PROJECT_NOT_FOUND", message: "Corporate project not found" } as Fail;
+          if (refuseArchivedProject && r.archivedAt) {
+            return { ok: false, code: "PROJECT_ARCHIVED", message: "That corporate project is archived. Restore it from the Projects page first." } as Fail;
+          }
+          return null;
+        }),
+    );
+  }
 
   if (rel.companyId) {
     checks.push(
@@ -217,11 +246,13 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
   const name = input.name?.trim() ?? "";
   if (!name) return { ok: false, code: "NAME_REQUIRED", message: "Deal name is required" };
 
-  // A deal must be sold against a project (event) — the reason this pipeline exists
-  // rather than a generic CRM. Enforced here so every create path (not just the
-  // dialog) honours it.
-  if (!input.eventId) {
-    return { ok: false, code: "EVENT_REQUIRED", message: "Select the event (project) this deal is for" };
+  // A deal is sold against an event or a corporate project, never both and
+  // never neither: the reason this pipeline exists rather than a generic CRM.
+  // Enforced here so every create path (not just the dialog) honours it.
+  const target = resolveDealTarget({ eventId: input.eventId, projectId: input.projectId });
+  if (!target.ok) {
+    apiLogger.warn({ msg: "crm-deal:create-bad-target", code: target.code, organizationId: input.organizationId });
+    return target;
   }
 
   const stage = await resolveStage(input.stageId, input.organizationId);
@@ -230,7 +261,7 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
     return { ok: false, code: "STAGE_NOT_FOUND", message: "Pipeline stage not found" };
   }
 
-  const relFail = await validateRelations(input.organizationId, input);
+  const relFail = await validateRelations(input.organizationId, { ...input, eventId: target.eventId, projectId: target.projectId });
   if (relFail) {
     apiLogger.warn({ msg: "crm-deal:create-bad-relation", code: relFail.code, organizationId: input.organizationId });
     return relFail;
@@ -243,7 +274,8 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
         name,
         stageId: stage.id,
         companyId: input.companyId ?? null,
-        eventId: input.eventId ?? null,
+        eventId: target.eventId,
+        projectId: target.projectId,
         ownerId: input.ownerId ?? null,
         dealValue: input.dealValue ?? null,
         currency: input.currency?.trim().toUpperCase() || "USD",
@@ -285,6 +317,7 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
       dealId: deal.id,
       organizationId: input.organizationId,
       eventId: deal.eventId,
+      projectId: deal.projectId,
       source: input.source,
     });
     return { ok: true, deal };
@@ -301,7 +334,7 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
 // ── Update (fields only — stage moves go through moveDealStage) ───────────────
 
 export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResult> {
-  const data: Prisma.CrmDealUpdateManyMutationInput & { companyId?: string | null; eventId?: string | null; ownerId?: string | null; dealTypeId?: string | null } = {};
+  const data: Prisma.CrmDealUpdateManyMutationInput & { companyId?: string | null; eventId?: string | null; projectId?: string | null; ownerId?: string | null; dealTypeId?: string | null } = {};
 
   if (input.name !== undefined) {
     const name = input.name.trim();
@@ -315,24 +348,20 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
   if (input.dealTypeId !== undefined) data.dealTypeId = input.dealTypeId;
   if (input.tags !== undefined) data.tags = normalizeContactTags(input.tags);
   if (input.companyId !== undefined) data.companyId = input.companyId;
-  if (input.eventId !== undefined) {
-    // A deal must stay tied to a project — you can re-point it at another event, but
-    // not clear it. (An event-less legacy deal, e.g. one whose event was deleted,
-    // must be given an event on its next edit.)
-    if (input.eventId === null) {
-      return { ok: false, code: "EVENT_REQUIRED", message: "A deal must be linked to an event" };
-    }
-    data.eventId = input.eventId;
-  }
+  // What the deal is for (its event or its corporate project) is decided below,
+  // against the stored deal: naming one side clears the other. Marked here so
+  // an edit of that alone is not "no fields".
+  const retargets = input.eventId !== undefined || input.projectId !== undefined;
   if (input.ownerId !== undefined) data.ownerId = input.ownerId;
 
-  if (Object.keys(data).length === 0) {
+  if (Object.keys(data).length === 0 && !retargets) {
     return { ok: false, code: "NO_FIELDS", message: "No fields to update" };
   }
 
   // The edit form always sends the account: "archived" is checked below, only
   // when it CHANGES, so a deal whose account was archived stays editable.
-  const relFail = await validateRelations(input.organizationId, input, { refuseArchivedCompany: false });
+  // The same for its corporate project.
+  const relFail = await validateRelations(input.organizationId, input, { refuseArchivedCompany: false, refuseArchivedProject: false });
   if (relFail) {
     apiLogger.warn({ msg: "crm-deal:update-bad-relation", code: relFail.code, dealId: input.dealId });
     return relFail;
@@ -344,7 +373,7 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
     // from another tenant 404s here rather than being touched.
     const before = await db.crmDeal.findFirst({
       where: { id: input.dealId, organizationId: input.organizationId },
-      select: { name: true, dealValue: true, currency: true, expectedClose: true, companyId: true, eventId: true, ownerId: true, pipeline: true, dealTypeId: true, tags: true, archivedAt: true },
+      select: { name: true, dealValue: true, currency: true, expectedClose: true, companyId: true, eventId: true, projectId: true, ownerId: true, pipeline: true, dealTypeId: true, tags: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({ msg: "crm-deal:update-not-found", dealId: input.dealId, organizationId: input.organizationId });
@@ -364,6 +393,25 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
         apiLogger.warn({ msg: "crm-deal:update-bad-relation", code: companyFail.code, dealId: input.dealId });
         return companyFail;
       }
+    }
+    // What the deal is for: an event or a corporate project, never both and
+    // never neither. Decided against the stored deal, so moving it to a project
+    // clears its event in the same write (and the reverse).
+    if (retargets) {
+      const target = resolveDealTarget({ eventId: input.eventId, projectId: input.projectId }, before);
+      if (!target.ok) {
+        apiLogger.warn({ msg: "crm-deal:update-bad-target", code: target.code, dealId: input.dealId });
+        return target;
+      }
+      if (target.projectId && target.projectId !== before.projectId) {
+        const projectFail = await validateRelations(input.organizationId, { projectId: target.projectId });
+        if (projectFail) {
+          apiLogger.warn({ msg: "crm-deal:update-bad-relation", code: projectFail.code, dealId: input.dealId });
+          return projectFail;
+        }
+      }
+      data.eventId = target.eventId;
+      data.projectId = target.projectId;
     }
 
     // A deal's product lines are priced in the deal's currency (owner, Oct 27,

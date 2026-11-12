@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM: corporate projects, and a deal is for an event or a project (November 12) - data and API
+
+Asked for by the sales team: they sell corporate work that is not an event in EA-SYS (a client's own meeting, an advisory board), and a deal could not be entered without an event. Owner decisions the same day: a list of corporate projects inside the CRM; a deal is for an event OR a project, never both and never neither; anyone who creates deals may create a project; a project records its client account, days, place and owner. This entry is the data model, the rules and the API; the screens follow.
+
+- **Corporate projects** - New `CrmProject` table (additive migration `20261112150000_add_crm_project`, with its row-level-security policy for the platform instance) and `CrmDeal.projectId`. One name per organisation whatever its case. `src/crm/services/project-service.ts`, `GET/POST /api/crm/projects`, `GET/PATCH/DELETE /api/crm/projects/[projectId]`. Archiving a project hides it from the picker and leaves its deals and every total alone
+- **A deal is for an event or a project** - `resolveDealTarget` in `src/crm/lib/deal-attribution.ts`, enforced by the deal service for the form, the API and the agent alike. Naming one side on an edit moves the deal there and clears the other; a deal cannot be left on nothing. Every existing deal keeps its event; nothing was backfilled
+- **Linking a project to an event** - Only a correction, for a project that turns out to be an event or webinar already in the system. Its deals then count under that event wherever deals are counted per event: the board's event filter, the reports, the CSV export, the event's sponsor email, and the event's Budget revenue. Nothing is moved, so clearing the link puts them back. The link is audited in the same transaction (`CRM_PROJECT_EVENT_LINK_CHANGED`), because it moves revenue. The one rule is `dealsOfEventWhere` / `attributedEventId`; `where: { eventId }` on a deal no longer means "this event's deals"
+- **Reports** - The Event breakdown counts a deal under the event it is attributed to. Two new breakdowns: Corporate project, and Event or project, where every deal sits under exactly one heading so the totals add up. The CSV export gains a Corporate project column, and its project dates and location come from the project when the deal has no event
+- **A filter bug closed on the way** - The event filter and "closed in this window" are each an OR. Written one after the other onto the same key, the second would have replaced the first and widened the list; they are now ANDed
+- **Proof** - `tests/integration-db/crm-project-attribution.db.test.ts` on Postgres (the filter, the Budget revenue read before and after unlinking, the report, two simultaneous creates of one name, the delete guard); the isolation harness gains a `CrmProject` case; the whole migration chain replays from empty with no difference from the schema
+
 ### Agenda CSV import: topics, moderators and chairpersons (November 12)
 
 Owner: "program or agenda import is not handling topics, sessions should have topics under it". The import created sessions only; every topic had to be typed into the session dialog.
