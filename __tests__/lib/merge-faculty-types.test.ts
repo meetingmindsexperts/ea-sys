@@ -70,14 +70,20 @@ describe("donorBlocks", () => {
 describe("the write", () => {
   const src = readFileSync(join(process.cwd(), "scripts/merge-faculty-types.ts"), "utf8");
 
-  it("moves, counts, renames, deletes and records in one transaction, and deletes only an empty type", () => {
-    const merge = src.slice(src.indexOf("async function mergeDonor"), src.indexOf("/** Plan, print and"));
+  // What the write does to rows is run on a real Postgres in
+  // tests/integration-db/merge-faculty-types.db.test.ts. This pins the order.
+  it("locks the type first, rechecks under the lock, and deletes last, in one transaction", () => {
+    const merge = src.slice(src.indexOf("export async function mergeDonor"), src.indexOf("interface Tally"));
     expect(merge).toContain("db.$transaction(");
-    const order = ["tx.registration.updateMany(", "soldCount: { increment: fresh.soldCount }", "tx.attendee.updateMany(", "tx.registration.count(", "tx.ticketType.delete(", "tx.auditLog.create("];
+    const order = ["FOR UPDATE", "referencesTo(tx,", "tx.registration.updateMany(", "soldCount: { increment: donorRow.soldCount }", "tx.attendee.updateMany(", "tx.registration.count(", "tx.ticketType.delete(", "tx.auditLog.create("];
     const at = order.map((step) => merge.indexOf(step));
     expect(at.every((i) => i > -1)).toBe(true);
-    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect([...at].sort((x, y) => x - y)).toEqual(at);
     expect(merge).toMatch(/if \(left > 0\) throw new Error/);
+  });
+
+  it("refuses a flag given with no value, so --keep alone never lets it choose", () => {
+    expect(src).toContain('if (!value || value.startsWith("--")) throw new Error(`${name} needs a value`);');
   });
 
   it("changes nothing on a registration but its type", () => {
@@ -86,7 +92,9 @@ describe("the write", () => {
   });
 
   it("is a dry run unless --write is passed, and sends no email", () => {
-    expect(src).toContain("if (!write) continue;");
+    expect(src).toContain("if (!write) { tally.merged += 1; continue; }");
+    // The only call that changes anything sits after that line.
+    expect(src.indexOf("await mergeDonor(event, keeper, donor)")).toBeGreaterThan(src.indexOf("if (!write) { tally.merged += 1; continue; }"));
     expect(src).not.toMatch(/sendEmail|sendRegistration/);
   });
 });

@@ -212,6 +212,26 @@ only. Also done that day: Registrations, Import from Contacts offers "Faculty
 (speakers and committee)" itself, so the team's two-step habit now ends on a Faculty
 registration.
 
+**From the review of `9a57f2a5` (0 BLOCKER, 0 HIGH, 2 MED, 9 LOW; the merge script).**
+Both MED fixed (the donor type is locked first; the write runs on a real database in
+`tests/integration-db/`), and five LOW with them (see the changelog). LOW, left and
+why: after a merge, `adopt-ordinary-faculty-type.ts --event --type <kept> --cancel-declined`
+reaches the registrations that came from the built-in type too (its dry run lists
+them, and the flag is the operator's choice); the dry run does not list what filters on
+the KEPT type (a shared view, a pending email or a DTCM section there will include the
+people who move, which is the point); the moved seat count is not checked against the
+kept type's cap (Faculty rows hold no seat and nothing refuses Faculty on a full type);
+`updatedAt` changes on a moved registration (an open sheet gets a stale-write refusal
+once). **Older, MED, waiting on the owner: deleting a registration type in the app
+checks only its registration count** (`tickets/[ticketId]/route.ts`): a promo code
+limited to that type alone becomes valid for EVERY type when its only link is deleted
+with the type, shared views, scheduled emails and the DTCM map are left pointing at a
+missing id, and the count and the delete are not in one transaction (the same race the
+script had). The script's `referencesTo` is the check that route lacks. Older, LOW: two
+Faculty types can be made at the same instant (`ensureFacultyTicketType` has no lock
+and no unique index); the adopt script makes a second Faculty type on an event that
+already has one without a warning (how both events got here).
+
 **From the review of `3212f4c7` (0 BLOCKER, 0 HIGH, 4 MED, 10 LOW; Import from
 Contacts as Faculty).** All four MED fixed (the event is inside both grants; no spare
 DTCM code is taken; the contact's category is not overwritten; a row that throws is
@@ -244,7 +264,7 @@ HEMNET keeps the type with 7 and deletes the empty one). The owner's question:
 types, the 4th GCC Hematology Hub ("Faculty", 37 registrations, and "Faculty.", 6) and
 HEMNET 2026 (one empty and switched off, one with 7); thirty hold one. Both began with
 an ordinary "Faculty" type from the organisation's default list and got a built-in one
-beside it before Oct 22, 2026, when adopting the ordinary one replaced making a second.
+beside it before Oct 19, 2026, when adopting the ordinary one replaced making a second.
 `ensureFacultyTicketType` returns the OLDEST, so on HEMNET new faculty now land on the
 empty type, apart from the other seven. Offered: a one-off script, dry run first, that
 moves the registrations onto one Faculty type per event and deletes the emptied one
