@@ -148,6 +148,34 @@ them and a payment reminder will bill them. Not built: settling on a move to Con
 covers the status CHANGE only; a registration imported onto a Faculty type for a
 speaker who is already confirmed stays as imported until the script, or an edit.
 
+**Decision waiting on the owner: a speaker whose registration is on a delegate type
+cannot be moved onto Faculty.** Found Nov 12, 2026 on the 4th GCC Hematology Hub:
+registrations 028, 043 and 044 were imported from Contacts as Physician with the Early
+Bird rate (150) on Oct 16, each made a speaker seconds later, and "corrected" on the
+speaker's own Registration Type dropdown, which only wrote a label (fixed that day: the
+speaker now shows the registration's type, read-only). The registration sheet and the
+bulk type change both refuse the Faculty type as a destination (Oct 22, 2026), and since
+the one-off script made that event's ordinary "Faculty" type a Faculty type, no door is
+left. Two ways, offered to the owner: (A) by hand, set Confirmed, Complimentary and
+badge type Faculty on the sheet; the person keeps counting as a delegate. (B) let the
+registration sheet accept the Faculty type for a registration that belongs to a speaker
+and carries no money, with a confirmation naming the fee being waived (on the Heart
+Failure Conference about 100 speaker records are abstract presenters on paid types, so
+it is a one-click fee waiver). Also open from the same postmortem: nothing on the
+Speakers list marks a speaker whose registration is on a paid type and Unpaid; the Add
+Speaker form still offers "Registration Type" although the registration it makes is a
+Faculty one; the agent's `update_speaker` and the speaker CSV import still write the
+label; `src/components/speakers/speaker-detail-sheet.tsx` is imported by nothing; and
+**there is no one-step way to bring a contact in as faculty.** The Speakers page lost
+its Import from Contacts button on Mar 24, 2026 (`a0790d16`, before the Faculty type
+existed; the button, the dialog's speaker mode and the `speakers/import-contacts` route
+are all still in the code), so the team imports the contact as a registration, which
+asks for a delegate type and a rate, and then imports that registration as a speaker.
+The Import from Contacts dialog hides Faculty types, so since the script ran, GCC Hub's
+"Faculty" is no longer offered there: the next faculty contact brought in that way
+lands on a delegate type, or on none. Offered to the owner: put the button back on the
+Speakers page (it makes the Faculty registration by itself).
+
 **Decision waiting on the owner: a speaker's Faculty registration says Confirmed before
 the speaker has said yes.** Adding a speaker on the Speakers page makes their Faculty
 registration Confirmed and Complimentary at once, while the speaker is still Invited

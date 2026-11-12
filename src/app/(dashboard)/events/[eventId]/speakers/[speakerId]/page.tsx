@@ -65,7 +65,7 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { formatAttendeeRole } from "@/lib/schemas";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
-import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
+import { SpeakerRegistrationTypeField, SpeakerRegistrationTypeRow } from "@/components/speakers/speaker-registration-type";
 import { TagInput } from "@/components/ui/tag-input";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -920,10 +920,12 @@ export default function SpeakerDetailPage() {
                       <SpecialtySelect value={formData.specialty} onChange={(specialty) => setFormData({ ...formData, specialty })} />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Registration Type</Label>
-                    <RegistrationTypeSelect value={formData.registrationType} onChange={(rt) => setFormData({ ...formData, registrationType: rt })} eventId={eventId} />
-                  </div>
+                  <SpeakerRegistrationTypeField
+                    eventId={eventId}
+                    ownType={formData.registrationType}
+                    registration={speaker.sourceRegistration}
+                    onChange={(rt) => setFormData({ ...formData, registrationType: rt })}
+                  />
                   <div className="space-y-2">
                     <Label>Status</Label>
                     <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })}>
@@ -1008,15 +1010,7 @@ export default function SpeakerDetailPage() {
                       </a>
                     </div>
                   )}
-                  {speaker.registrationType && (
-                    <div className="flex items-center gap-3">
-                      <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <div>
-                        <div className="text-xs text-muted-foreground">Registration Type</div>
-                        <div className="text-sm">{speaker.registrationType}</div>
-                      </div>
-                    </div>
-                  )}
+                  <SpeakerRegistrationTypeRow eventId={eventId} ownType={speaker.registrationType} registration={speaker.sourceRegistration} />
                   {speaker.bio && (
                     <div className="col-span-2 mt-2">
                       <div className="text-xs text-muted-foreground mb-1">Bio</div>

@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { toCsvRow } from "@/lib/csv-escape";
 import { formatPersonName } from "@/lib/utils";
 import { can, type Principal } from "@/lib/permissions/can";
+import { speakerRegistrationTypeName } from "@/lib/speaker-registration-type";
 
 export interface Sheet {
   /** Path inside the ZIP. */
@@ -94,6 +95,9 @@ export async function speakersSheet(eventId: string, principal: Principal): Prom
       honorariumAmount: true,
       honorariumCurrency: true,
       sourceRegistrationId: true,
+      // The type column is the registration's own type when the speaker has a
+      // live one (speaker-registration-type.ts), never the speaker's own text.
+      sourceRegistration: { select: { status: true, ticketType: { select: { name: true, isFaculty: true } } } },
       createdAt: true,
       sessions: { select: { role: true, session: { select: { name: true } } } },
     },
@@ -107,7 +111,7 @@ export async function speakersSheet(eventId: string, principal: Principal): Prom
   ];
   const rows = speakers.map((s) => [
     s.id, person(s), s.title ?? "", s.firstName, s.lastName, s.email, s.additionalEmail, s.phone,
-    s.organization, s.jobTitle, s.city, s.state, s.country, s.customSpecialty || s.specialty, s.registrationType, s.status,
+    s.organization, s.jobTitle, s.city, s.state, s.country, s.customSpecialty || s.specialty, speakerRegistrationTypeName(s.registrationType, s.sourceRegistration), s.status,
     s.tags.join("; "), s.website, s.sessions.map((x) => `${x.session.name} (${x.role})`).join("; "),
     iso(s.agreementAcceptedAt), iso(s.presenterAgreementAcceptedAt),
     ...(honorarium ? [money(s.honorariumAmount), s.honorariumCurrency] : []),

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Speakers: "Registration Type" shows the registration's own type (November 12)
+
+Owner: "looks like reg type in registration and speakers are not in sync". On the 4th GCC Hematology Hub three speakers (registrations 028, 043, 044) read "Faculty" on the Speakers page while their registration was Physician at 150, Unpaid. Each was imported from Contacts with Physician and the Early Bird rate picked (18 others that day were given Faculty), and the organiser then changed "Registration Type" on the speaker to Faculty, believing that fixed it.
+
+- **That dropdown wrote a label on the speaker and nothing else.** The registration kept its own type, which is the one that decides the Faculty count, the price and whether confirming the speaker settles it
+- **A speaker who has a registration now shows that registration's type, read-only**, on the speaker page, in its details and in its edit form, with the registration number and a link to Registrations. The type is changed on the registration. One rule, `speakerRegistrationTypeView` in `src/lib/speaker-registration-type.ts`
+- **A delegate type says what it means**: the person counts as a delegate, and setting the speaker to Confirmed does not change that registration's status or payment, with where it stands now. A registration with no type yet says so
+- A speaker with no registration (or only a cancelled one) keeps the old field: there is no registration to read
+- **The speakers export's "Registration Type" column** prints the registration's type the same way; it printed the label
+- Not changed: the Add Speaker form still offers the field (no registration exists yet; the one it makes is a Faculty one), and the agent's `update_speaker` and a speaker CSV import still write the label, which is now shown only while the speaker has no registration. Still no way to move an existing registration onto a Faculty type: in ROADMAP, waiting on the owner
+
 ### Registrations export: which certificate each person is assigned, and whether it was issued (November 12)
 
 Asked by the events team: once certificates are assigned, see it against each registration in the export.

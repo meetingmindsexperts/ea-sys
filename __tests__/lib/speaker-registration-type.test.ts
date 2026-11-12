@@ -1,0 +1,83 @@
+/**
+ * "Registration Type" on a speaker (owner report, Nov 12, 2026, 4th GCC
+ * Hematology Hub). Three speakers imported as Physician at 150 had the
+ * speaker's own dropdown set to "Faculty"; the registration stayed Physician
+ * and Unpaid, because that dropdown wrote a label on the speaker and nothing
+ * else. A speaker with a live registration now shows the registration's type.
+ */
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { NO_TYPE_LABEL, speakerRegistrationTypeName, speakerRegistrationTypeView } from "@/lib/speaker-registration-type";
+
+const PHYSICIAN = { name: "Physician", isFaculty: false };
+const FACULTY = { name: "Faculty", isFaculty: true };
+
+describe("speakerRegistrationTypeView", () => {
+  it("shows the registration's type, not the speaker's own text, when the two disagree", () => {
+    // Dr. Malallah, registration 043: the speaker said Faculty, the registration is Physician.
+    const view = speakerRegistrationTypeView("Faculty", { serialId: 43, status: "PENDING", paymentStatus: "UNPAID", ticketType: PHYSICIAN });
+    expect(view).toMatchObject({ kind: "registration", typeName: "Physician", isFaculty: false, serial: "043" });
+  });
+
+  it("says what a delegate type means for a speaker, with where the registration stands", () => {
+    const view = speakerRegistrationTypeView("Faculty", { serialId: 43, status: "PENDING", paymentStatus: "UNPAID", ticketType: PHYSICIAN });
+    if (view.kind !== "registration") throw new Error("expected a registration view");
+    expect(view.note).toContain("counts as a delegate");
+    expect(view.note).toContain("does not change this registration");
+    expect(view.note).toContain("It is Pending, Unpaid now.");
+  });
+
+  it("has nothing to add for a registration on a Faculty type", () => {
+    const view = speakerRegistrationTypeView("Physician", { serialId: 7, status: "CONFIRMED", paymentStatus: "COMPLIMENTARY", ticketType: FACULTY });
+    expect(view).toEqual({ kind: "registration", typeName: "Faculty", isFaculty: true, serial: "007", note: null });
+  });
+
+  it("names a registration that has no type yet, and says where to give it one", () => {
+    const view = speakerRegistrationTypeView("Faculty", { serialId: null, status: "PENDING", paymentStatus: "UNASSIGNED", ticketType: null });
+    expect(view).toMatchObject({ kind: "registration", typeName: NO_TYPE_LABEL, isFaculty: false, serial: null });
+    if (view.kind !== "registration") throw new Error("expected a registration view");
+    expect(view.note).toContain("no type yet");
+  });
+
+  it("falls back to the speaker's own text only while there is no live registration", () => {
+    expect(speakerRegistrationTypeView("Physician", null)).toEqual({ kind: "own", typeName: "Physician" });
+    expect(speakerRegistrationTypeView("  ", undefined)).toEqual({ kind: "own", typeName: null });
+    // A cancelled registration is not one the speaker stands on.
+    expect(speakerRegistrationTypeView("Physician", { serialId: 9, status: "CANCELLED", paymentStatus: "UNPAID", ticketType: FACULTY })).toEqual({
+      kind: "own",
+      typeName: "Physician",
+    });
+  });
+
+  it("gives the export the same answer in one line", () => {
+    expect(speakerRegistrationTypeName("Faculty", { status: "PENDING", ticketType: PHYSICIAN })).toBe("Physician");
+    expect(speakerRegistrationTypeName("Faculty", { status: "PENDING", ticketType: null })).toBe(NO_TYPE_LABEL);
+    expect(speakerRegistrationTypeName("Faculty", null)).toBe("Faculty");
+    expect(speakerRegistrationTypeName(null, null)).toBeNull();
+  });
+});
+
+describe("the speaker screens and the export use the rule", () => {
+  const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+
+  // The dropdown wrote a label that looked like the registration's type. It
+  // may come back only through the shared field, which hides it for a speaker
+  // who has a live registration.
+  it.each([
+    "src/components/speakers/speaker-detail-sheet.tsx",
+    "src/app/(dashboard)/events/[eventId]/speakers/[speakerId]/page.tsx",
+  ])("%s shows the type through the shared field and row, never its own dropdown", (file) => {
+    const src = read(file);
+    expect(src).toContain("<SpeakerRegistrationTypeField");
+    expect(src).toContain("<SpeakerRegistrationTypeRow");
+    expect(src).not.toContain("RegistrationTypeSelect");
+    // The speaker's own text is handed to the row, never printed directly.
+    expect(src).not.toMatch(/>\s*\{speaker\.registrationType\}\s*</);
+  });
+
+  it("the speakers export prints the registration's type", () => {
+    const src = read("src/lib/event-export/sheets.ts");
+    expect(src).toContain("speakerRegistrationTypeName(s.registrationType, s.sourceRegistration)");
+  });
+});
