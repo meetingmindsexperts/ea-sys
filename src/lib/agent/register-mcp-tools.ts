@@ -6,6 +6,7 @@
  */
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { cmeHoursField } from "@/lib/certificates/cme-hours";
 import { MCP_PLACEHOLDER_USER_ID } from "@/lib/agent/mcp-placeholder-user";
 import { registerCrmMcpTools, type CrmMcpActor } from "@/crm/agent-tools"; // permitted core-side touch point (ESLint exemption)
 import { registerProcurementMcpTools } from "@/procurement/agent-tools"; // permitted core-side touch point (ESLint exemption)
@@ -650,7 +651,7 @@ export function registerAllMcpTools(
       role: z.string().max(120).nullable().optional(),
       // Static per-template CME hours — drives {{cmeHours}}, overriding the
       // event-level CME hours when set. Entered manually per template.
-      cmeHours: z.number().min(0).max(999).nullable().optional(),
+      cmeHours: cmeHoursField.nullable().optional(),
       // Survey-gated auto-issue: when true, issued automatically (rendered +
       // emailed) to the people ASSIGNED the template (assign_certificate)
       // once they answer the certificate survey. Nobody is assigned a new
@@ -679,7 +680,7 @@ export function registerAllMcpTools(
       })).max(40).optional(),
       sortOrder: z.number().int().min(0).max(9999).optional(),
       role: z.string().max(120).nullable().optional(),
-      cmeHours: z.number().min(0).max(999).nullable().optional(),
+      cmeHours: cmeHoursField.nullable().optional(),
       autoIssueOnSurvey: z.boolean().optional(),
       // Only after the user agreed to the sendNow count a CONFIRM_SEND_NOW refusal reported.
       confirmSendNow: z.number().int().min(0).optional().describe("The number of certificates (the sendNow of a CONFIRM_SEND_NOW refusal) the user agreed to send now."),
@@ -697,11 +698,11 @@ export function registerAllMcpTools(
       speakerIds: z.array(z.string().min(1)).max(500).optional(),
     }},
     { name: "update_cme_settings", description: "Patch event-level CME hours + accrediting bodies. Event-level data consumed via {{cmeHours}} / {{accreditationBody}} / {{accreditationReference}} tokens on either cert type's text boxes (not a separate cert type any more — collapsed 2026-06-02). Provide at least one of cmeHours or accreditations.", params: {
-      cmeHours: z.number().min(0).max(999.9).nullable().optional(),
+      cmeHours: cmeHoursField.nullable().optional(),
       accreditations: z.array(z.object({
         body: z.enum(["DHA", "DOH", "SCFHS", "EACCME", "ACCME", "OTHER"]),
         reference: z.string().min(1).max(120),
-        hours: z.number().min(0).max(999.9).optional(),
+        hours: cmeHoursField.optional(),
         officialStatement: z.string().max(500).optional(),
       })).max(5).optional(),
     }},

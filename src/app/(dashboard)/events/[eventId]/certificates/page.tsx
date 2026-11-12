@@ -35,6 +35,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { CME_HOURS_MAX, CME_HOURS_MESSAGE, isValidCmeHours } from "@/lib/certificates/cme-hours";
 import dynamic from "next/dynamic";
 import {
   Card,
@@ -339,6 +340,10 @@ export default function CertificatesPage() {
 
   const saveSettingsMutation = useMutation({
     mutationFn: async (body: SettingsResponse) => {
+      // Said here in words, before the request: the server refuses a third
+      // decimal too, but its answer reaches this toast only as "Invalid input".
+      const hours = [body.cmeHours, ...body.accreditations.map((a) => a.hours)];
+      if (hours.some((h) => h != null && !isValidCmeHours(h))) throw new Error(CME_HOURS_MESSAGE);
       const res = await fetch(`/api/events/${eventId}/certificates/settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1183,14 +1188,17 @@ export default function CertificatesPage() {
                         <Input
                           type="number"
                           min={0}
-                          max={999}
-                          step="0.5"
+                          max={CME_HOURS_MAX}
+                          step="any"
                           defaultValue={editingTemplate.cmeHours ?? ""}
                           placeholder="event default"
                           onBlur={(e) => {
                             const raw = e.target.value.trim();
                             const v = raw === "" ? null : Number(raw);
-                            if (v !== null && (Number.isNaN(v) || v < 0 || v > 999)) return;
+                            if (v !== null && !isValidCmeHours(v)) {
+                              toast.error(CME_HOURS_MESSAGE);
+                              return;
+                            }
                             if (v !== (editingTemplate.cmeHours ?? null)) {
                               updateTemplateMutation.mutate({ templateId: editingTemplate.id, patch: { cmeHours: v } });
                             }
@@ -1530,10 +1538,10 @@ export default function CertificatesPage() {
                 <Input
                   id="cmeHours"
                   type="number"
-                  step="0.5"
+                  step="any"
                   min="0"
-                  max="999.9"
-                  placeholder="e.g. 18.0"
+                  max={CME_HOURS_MAX}
+                  placeholder="e.g. 18 or 3.75"
                   value={editableSettings?.cmeHours ?? ""}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -1632,7 +1640,9 @@ export default function CertificatesPage() {
                       <Label className="text-xs">Hours (override)</Label>
                       <Input
                         type="number"
-                        step="0.5"
+                        step="any"
+                        min="0"
+                        max={CME_HOURS_MAX}
                         placeholder="default"
                         value={row.hours ?? ""}
                         onChange={(e) =>

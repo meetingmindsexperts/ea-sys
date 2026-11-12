@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CME hours to two decimals (November 12)
+
+Owner: "cme should handle 2 digits 3.75 or 5.25". Until now 3.75 was saved as 3.8 without a word, and a certificate printed one decimal whatever was stored.
+
+- **CME / CPD hours take two decimals everywhere**: the event's total, a template's own hours, and each accrediting body's override. 3.75 and 5.25 save and print as typed; a third decimal is refused with a message, never rounded
+- **`{{cmeHours}}` on a certificate prints what was entered**, without trailing zeros: 18, 5.5, 3.75 (it used to round to one decimal, so 3.75 printed as 3.8)
+- The three columns that hold hours are widened from one decimal to two (migration `20261112130000`, acknowledged in `prisma/destructive-migrations-ack.txt` because it changes a column type; every stored value is unchanged). Certificates already issued keep the hours they were issued with
+- One rule for every door (`src/lib/certificates/cme-hours.ts`): the CME settings and template routes, the agent's three tools and the page's inputs each had their own limit (0 to 999 in some, 0 to 999.9 in others)
+- MCP clients reconnect to see the new limits (package 0.4.57)
+
 ### A payment email never goes to someone who owes nothing (November 12)
 
 Owner: "if someone is 0 or owes nothing, dont send any payment related emails". On the 4th GCC Hematology Hub five nurses entered a 100% code after registering (payment status UNPAID, nothing due), and a payment reminder would have asked them for 0.00.

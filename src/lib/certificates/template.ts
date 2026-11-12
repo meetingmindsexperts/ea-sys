@@ -19,6 +19,7 @@
  */
 
 import { apiLogger } from "@/lib/logger";
+import { formatCmeHours } from "./cme-hours";
 import { formatPersonName } from "@/lib/utils";
 import type {
   CertificateType,
@@ -114,7 +115,7 @@ export function resolveTokens(data: CertificateData): Record<string, string> {
     : "";
   const accreditationReference = accreditation?.reference ?? "";
   // Per-template CME hours (organizer-entered) override the event-level value.
-  const cmeHoursStr = formatHoursForToken(template?.cmeHours ?? event.cmeHours);
+  const cmeHoursStr = formatCmeHours(template?.cmeHours ?? event.cmeHours);
 
   // APPRECIATION carries the presentation context; ATTENDANCE has none, so
   // both resolve to "" there rather than being absent (an absent key would
@@ -208,12 +209,6 @@ function formatDateRange(start: Date, end: Date): string {
     return `${ordinal(start.getUTCDate())} - ${ordinal(end.getUTCDate())} ${MONTHS[end.getUTCMonth()]} ${end.getUTCFullYear()}`;
   }
   return `${formatDate(start)} - ${formatDate(end)}`;
-}
-
-function formatHoursForToken(h: number | null | undefined): string {
-  if (h == null) return "";
-  const rounded = Math.round(h * 10) / 10;
-  return rounded % 1 === 0 ? String(Math.round(rounded)) : rounded.toFixed(1);
 }
 
 /**

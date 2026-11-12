@@ -12,6 +12,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { cmeHoursField } from "@/lib/certificates/cme-hours";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -47,7 +48,7 @@ const createSchema = z.object({
   // Role/designation this template certifies ({{role}} token) + static
   // per-template CME hours ({{cmeHours}}, overrides event-level when set).
   role: z.string().max(120).trim().nullable().optional(),
-  cmeHours: z.number().min(0).max(999).nullable().optional(),
+  cmeHours: cmeHoursField.nullable().optional(),
   // Survey-gated auto-issue: when on, this template is issued automatically
   // to the people assigned it once they answer the certificate survey. A new
   // template has nobody assigned, so turning it on here sends nothing yet.

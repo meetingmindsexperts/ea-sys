@@ -580,7 +580,7 @@ model Event {
   // settings-blob pattern (settings.zoom, settings.sponsors,
   // settings.webinar). Design-approval flag for cert templates lives
   // in `settings.cme.designApprovedBy` + `designApprovedAt`.
-  cmeHours                         Decimal?    @db.Decimal(4, 1)
+  cmeHours                         Decimal?    @db.Decimal(5, 2)
   externalId                       String?
   externalSource                   String?
   createdAt                        DateTime    @default(now())

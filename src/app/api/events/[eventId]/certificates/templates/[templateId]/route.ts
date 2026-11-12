@@ -15,6 +15,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { cmeHoursField } from "@/lib/certificates/cme-hours";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -50,7 +51,7 @@ const patchSchema = z.object({
   // emailSubject / emailBody has them stripped by Zod, never written.
   // Role/designation ({{role}}) + static per-template CME hours ({{cmeHours}}).
   role: z.string().max(120).trim().nullable().optional(),
-  cmeHours: z.number().min(0).max(999).nullable().optional(),
+  cmeHours: cmeHoursField.nullable().optional(),
   // Survey-gated auto-issue. Turning it ON can send certificates at once (to
   // everyone assigned who has already answered), so it goes through
   // setTemplateAutoIssue, which refuses with CONFIRM_SEND_NOW until the

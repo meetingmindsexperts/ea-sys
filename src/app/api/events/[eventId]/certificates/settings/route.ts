@@ -14,6 +14,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { cmeHoursField } from "@/lib/certificates/cme-hours";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
@@ -35,7 +36,7 @@ const accreditationSchema = z.object({
   // Optional per-accreditor hour override — defaults to the event's
   // global cmeHours when omitted. Useful when DHA awards 18 hours but
   // EACCME awards 12 ECMECs for the same event.
-  hours: z.number().min(0).max(999.9).optional(),
+  hours: cmeHoursField.optional(),
   // Verbatim wording override — accreditors who require exact text
   // (EACCME's "designated for a maximum of N ECMECs"). Capped at 500
   // chars to keep the cert layout sane. Never raw HTML — text only.
@@ -48,8 +49,8 @@ const accreditationSchema = z.object({
 
 const patchSchema = z
   .object({
-    // Allow nulling out to "no CME" — cap 999.9, decimal allowed up to 1dp.
-    cmeHours: z.number().min(0).max(999.9).nullable().optional(),
+    // Null clears it ("no CME"). Up to 999.99, at most two decimals (cme-hours.ts).
+    cmeHours: cmeHoursField.nullable().optional(),
     accreditations: z.array(accreditationSchema).max(5).optional(),
   })
   .strict();

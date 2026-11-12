@@ -69,7 +69,7 @@ model CertificateTemplate {
   role              String?
   // Static per-template CME hours (organizer-entered). Snapshotted onto the
   // issued cert; overrides the event-level CME hours when set.
-  cmeHours          Decimal?        @db.Decimal(4, 1)
+  cmeHours          Decimal?        @db.Decimal(5, 2)
   // Survey-gated auto-issue. When `autoIssueOnSurvey` is on, the cert worker
   // issues this template to everyone ASSIGNED it (CertificateAssignment) once
   // they have answered the certificate survey. Off by default, per template.
@@ -204,7 +204,7 @@ model IssuedCertificate {
   //   { title, firstName, lastName, fullName (formatted),
   //     organization?, jobTitle?, city?, country? }
   recipientSnapshot Json
-  cmeHoursSnapshot  Decimal? @db.Decimal(4, 1)
+  cmeHoursSnapshot  Decimal? @db.Decimal(5, 2)
 
   // URL to the rendered PDF — populated by the issue cron during the
   // RENDERING phase. Path convention: /uploads/certificates/{eventId}/{certId}.pdf

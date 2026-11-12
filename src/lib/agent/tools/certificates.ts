@@ -24,6 +24,7 @@
  */
 
 import { Prisma } from "@prisma/client";
+import { CME_HOURS_MESSAGE, isValidCmeHours } from "@/lib/certificates/cme-hours";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -251,8 +252,8 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
   }
   let cmeHours: number | null = null;
   if (input.cmeHours !== undefined && input.cmeHours !== null) {
-    if (typeof input.cmeHours !== "number" || Number.isNaN(input.cmeHours) || input.cmeHours < 0 || input.cmeHours > 999) {
-      return { error: "cmeHours must be a number between 0 and 999", code: "INVALID_FIELD" };
+    if (!isValidCmeHours(input.cmeHours)) {
+      return { error: CME_HOURS_MESSAGE, code: "INVALID_FIELD" };
     }
     cmeHours = input.cmeHours;
   }
@@ -391,8 +392,8 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
   if (input.cmeHours !== undefined) {
     if (input.cmeHours === null) {
       data.cmeHours = null;
-    } else if (typeof input.cmeHours !== "number" || Number.isNaN(input.cmeHours) || input.cmeHours < 0 || input.cmeHours > 999) {
-      return { error: "cmeHours must be a number between 0 and 999, or null", code: "INVALID_FIELD" };
+    } else if (!isValidCmeHours(input.cmeHours)) {
+      return { error: `${CME_HOURS_MESSAGE}, or null`, code: "INVALID_FIELD" };
     } else {
       data.cmeHours = input.cmeHours;
     }
@@ -485,8 +486,8 @@ async function updateCmeSettings(input: Record<string, unknown>, ctx: AgentConte
   if (input.cmeHours !== undefined) {
     if (input.cmeHours === null) {
       cmeHoursValue = null;
-    } else if (typeof input.cmeHours !== "number" || input.cmeHours < 0 || input.cmeHours > 999.9) {
-      return { error: "cmeHours must be a number 0..999.9 or null", code: "INVALID_FIELD" };
+    } else if (!isValidCmeHours(input.cmeHours)) {
+      return { error: `${CME_HOURS_MESSAGE}, or null`, code: "INVALID_FIELD" };
     } else {
       cmeHoursValue = input.cmeHours;
     }
@@ -517,8 +518,8 @@ async function updateCmeSettings(input: Record<string, unknown>, ctx: AgentConte
         reference: row.reference.trim(),
       };
       if (row.hours !== undefined && row.hours !== null) {
-        if (typeof row.hours !== "number" || row.hours < 0 || row.hours > 999.9) {
-          return { error: `accreditations[${i}].hours invalid`, code: "INVALID_FIELD" };
+        if (!isValidCmeHours(row.hours)) {
+          return { error: `accreditations[${i}].hours invalid: ${CME_HOURS_MESSAGE}`, code: "INVALID_FIELD" };
         }
         entry.hours = row.hours;
       }

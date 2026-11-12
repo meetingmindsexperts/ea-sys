@@ -205,7 +205,7 @@ orientation only; the catalog wins.
 | `{{accreditationName}}` | free-text accreditor name, else the body's standard name |
 | `{{accreditationBody}}` | "Dubai Health Authority (DHA)" |
 | `{{accreditationReference}}` | "DHA-CPD-2026-0142" |
-| `{{cmeHours}}` | "18.0" |
+| `{{cmeHours}}` | "18", "5.5" or "3.75": up to two decimals, no trailing zeros (`src/lib/certificates/cme-hours.ts`, the one rule for what may be entered and how it prints) |
 | `{{certificateSerial}}` | the issued serial ("PREVIEW-DRAFT-…" in previews) |
 | `{{issuedDate}}` | "17th June 2026" |
 
