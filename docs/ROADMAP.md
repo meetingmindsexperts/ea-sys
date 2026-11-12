@@ -191,9 +191,10 @@ registration sheet accept the Faculty type for a registration that belongs to a 
 and carries no money, with a confirmation naming the fee being waived (on the Heart
 Failure Conference about 100 speaker records are abstract presenters on paid types, so
 it is a one-click fee waiver). Also open from the same postmortem: nothing on the
-Speakers list marks a speaker whose registration is on a paid type and Unpaid; the Add
-Speaker form still offers "Registration Type" although the registration it makes is a
-Faculty one (what is picked there becomes the profession shown for it on Registrations);
+Speakers list marks a speaker whose registration is on a paid type and Unpaid; ~~the Add
+Speaker form still offers "Registration Type"~~ (done Nov 12, 2026: it states "Faculty
+(speakers and committee)" with nothing to pick; a new speaker's profession is no longer
+recorded there, so their Faculty registration shows the type's own name on Registrations);
 the speaker's own text is still written by the speaker CSV import, the agent's
 `create_speakers_bulk`, importing registrations as speakers, abstract sign-up and
 cloning, and the speaker PUT still accepts it for a speaker who has a registration (the

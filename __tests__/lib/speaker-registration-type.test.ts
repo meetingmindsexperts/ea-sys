@@ -96,6 +96,17 @@ describe("the speaker screens and the export use the rule", () => {
     expect(src).not.toMatch(/>\s*\{speaker\.registrationType\}\s*</);
   });
 
+  // Owner, Nov 12, 2026: Add Speaker showed "Faculty" in a dropdown of type
+  // names while Add Registration showed "Faculty (speakers and committee)".
+  // A new speaker's registration is a Faculty one whatever was picked, so the
+  // form states it in the same words and offers nothing to pick.
+  it("Add Speaker states the Faculty type in Add Registration's words, with no dropdown", () => {
+    const src = read("src/app/(dashboard)/events/[eventId]/speakers/new/page.tsx");
+    expect(src).toContain("{SPEAKERS_TYPE_LABEL}");
+    expect(src).not.toContain("RegistrationTypeSelect");
+    expect(read("src/app/(dashboard)/events/[eventId]/registrations/new/page.tsx")).toContain("{SPEAKERS_TYPE_LABEL}");
+  });
+
   it("the speakers export prints the registration's type", () => {
     const src = read("src/lib/event-export/sheets.ts");
     expect(src).toContain("speakerRegistrationTypeName(s.registrationType, s.sourceRegistration)");

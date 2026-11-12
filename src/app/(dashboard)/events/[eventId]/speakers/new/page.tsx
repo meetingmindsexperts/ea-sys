@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
+import { SPEAKERS_TYPE_LABEL } from "@/lib/faculty-filter";
 import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
 import { useEventSpeakerTags } from "@/hooks/use-api";
 import { ArrowLeft, Mic, Save, User, Tag, Share2 } from "lucide-react";
@@ -238,15 +238,18 @@ export default function NewSpeakerPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {/* Not a choice (owner, Nov 12, 2026: "I thought you unified
+                  it"). The dropdown that was here listed the event's type
+                  names and saved the pick as a label on the speaker; the
+                  registration made for a speaker is a Faculty one whatever was
+                  picked. The same words as Add Registration's Faculty entry. */}
               <div className="space-y-2">
-                <Label htmlFor="registrationType">Registration Type</Label>
-                <RegistrationTypeSelect
-                  value={formData.registrationType}
-                  onChange={(registrationType) =>
-                    setFormData({ ...formData, registrationType })
-                  }
-                  eventId={eventId}
-                />
+                <Label>Registration Type</Label>
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">{SPEAKERS_TYPE_LABEL}</div>
+                <p className="text-xs text-muted-foreground">
+                  Made automatically: complimentary, with no rate to pick. If this person has already registered for
+                  the event, that registration is kept and linked as it is.
+                </p>
               </div>
             </div>
           </CardContent>
