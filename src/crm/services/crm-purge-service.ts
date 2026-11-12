@@ -167,6 +167,7 @@ export async function purgeDeal(input: PurgeCtx & { dealId: string }): Promise<{
         dealValue: deal.dealValue ? Number(deal.dealValue) : null,
         currency: deal.currency,
         eventId: deal.eventId,
+        projectId: deal.projectId,
         companyId: deal.companyId,
         ownerId: deal.ownerId,
         archivedAt: deal.archivedAt.toISOString(),

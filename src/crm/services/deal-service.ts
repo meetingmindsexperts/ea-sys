@@ -424,6 +424,9 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
     const valueTo = "dealValue" in data ? auditMoney(data.dealValue) : auditMoney(before.dealValue);
     const valueChanged = "dealValue" in data && valueTo !== auditMoney(before.dealValue);
     const ownerChanged = data.ownerId !== undefined && data.ownerId !== before.ownerId;
+    // Both are set whenever the edit named either side (the block above).
+    const targetChanged =
+      retargets && ((data.eventId ?? null) !== before.eventId || (data.projectId ?? null) !== before.projectId);
     const res = await tenantTransaction(async (tx) => {
       const claim = await tx.crmDeal.updateMany({
         // archivedAt: null re-checked IN the write — the snapshot guard above has a
@@ -450,6 +453,23 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
             source: input.source,
             dealValue: { from: auditMoney(before.dealValue), to: valueTo },
             currency: { from: before.currency, to: data.currency ?? before.currency },
+          },
+        });
+      }
+      // Which event (if any) a deal's value counts under is money moving between
+      // an event's figures and another's, or none: recorded with the change,
+      // like the project link itself (review of dfe7cd70).
+      if (targetChanged) {
+        await writeCrmAudit(tx, {
+          organizationId: input.organizationId,
+          actorId: input.userId,
+          action: "CRM_DEAL_TARGET_CHANGED",
+          entityType: "CrmDeal",
+          entityId: input.dealId,
+          changes: {
+            source: input.source,
+            eventId: { from: before.eventId, to: data.eventId ?? null },
+            projectId: { from: before.projectId, to: data.projectId ?? null },
           },
         });
       }

@@ -79,7 +79,7 @@ describe("buildDealWhere — date range", () => {
     );
     expect(where.OR).toBeUndefined();
     expect(where.AND).toEqual([
-      { OR: [{ eventId: "e-1" }, { project: { eventId: "e-1" } }] },
+      { OR: [{ eventId: "e-1" }, { eventId: null, project: { eventId: "e-1" } }] },
       { OR: [{ wonAt: expect.any(Object) }, { lostAt: expect.any(Object) }] },
     ]);
   });
@@ -130,7 +130,7 @@ describe("buildDealWhere — scalar filters + tenancy", () => {
     // An event's deals are its own AND those of a corporate project linked to
     // it (deal-attribution.ts), never the bare column.
     expect(where.eventId).toBeUndefined();
-    expect(where.AND).toEqual([{ OR: [{ eventId: "e-1" }, { project: { eventId: "e-1" } }] }]);
+    expect(where.AND).toEqual([{ OR: [{ eventId: "e-1" }, { eventId: null, project: { eventId: "e-1" } }] }]);
     expect(where.status).toBe("WON");
 
     const bad = buildDealWhere({ status: "MADE_UP" }, { organizationId: ORG, canSeeValues: true });

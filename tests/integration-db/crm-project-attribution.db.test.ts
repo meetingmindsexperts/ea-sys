@@ -19,6 +19,7 @@ import { crmRevenueProvider } from "@/crm/integrations/revenue-provider";
 import { buildCrmReport } from "@/crm/services/report-service";
 import { createProject, updateProject } from "@/crm/services/project-service";
 import { createDeal, updateDeal } from "@/crm/services/deal-service";
+import { resolveSponsorRecipients } from "@/crm/services/sponsor-email-service";
 import { resetCrm, type CrmSeed } from "./helper";
 
 let seed: CrmSeed;
@@ -56,6 +57,15 @@ async function deal(
     select: { id: true },
   });
   return row.id;
+}
+
+/** One contact on a deal, so the deal has someone the event's sponsor email can reach. */
+async function contactOn(dealId: string, email: string): Promise<void> {
+  const contact = await db.crmContact.create({
+    data: { organizationId: seed.orgId, firstName: "Sam", lastName: "Sponsor", email, emailKey: email },
+    select: { id: true },
+  });
+  await db.crmDealContact.create({ data: { organizationId: seed.orgId, dealId, crmContactId: contact.id } });
 }
 
 const names = async (where: ReturnType<typeof buildDealWhere>) =>
@@ -131,8 +141,53 @@ describe("the deals that count under an event", () => {
     expect(byProject.breakdown!.rows.map((r) => [r.label, r.totalCount])).toEqual([
       ["Bridges (entered twice)", 2],
       ["Novartis Ad Board", 1],
-      ["No corporate project (event deals)", 1],
+      ["No corporate project", 1],
     ]);
+  });
+});
+
+// Review of dfe7cd70: these three had no proof on a database.
+describe("every surface that counts deals per event", () => {
+  it("the event's sponsor email reaches a linked project's contacts, never an unlinked project's or a lost deal's", async () => {
+    const byName = async (name: string) => (await db.crmDeal.findFirstOrThrow({ where: { name }, select: { id: true } })).id;
+    await contactOn(await byName("event deal"), "own@event.test");
+    await contactOn(await byName("linked project deal"), "linked@project.test");
+    await contactOn(await byName("linked project, lost"), "lost@project.test");
+    await contactOn(await byName("solo project deal"), "solo@project.test");
+
+    const res = await resolveSponsorRecipients({ organizationId: seed.orgId, eventId });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.recipients.map((r) => r.email).sort()).toEqual(["linked@project.test", "own@event.test"]);
+  });
+
+  it("the report filtered to an event holds its own and the linked project's deals in every figure", async () => {
+    const report = await buildCrmReport({ organizationId: seed.orgId, canSeeValues: true, filters: { eventId }, groupBy: "project" });
+    // Won: the event's own 100 and the linked project's 300. Lost: the linked project's one.
+    expect(report.winLoss).toMatchObject({ wonCount: 2, lostCount: 1, wonValue: 400 });
+    // The by-stage grouping carries the same relation filter: all three sit in the one stage.
+    expect(report.pipeline.stages.reduce((sum, st) => sum + st.count, 0)).toBe(3);
+    expect(report.breakdown!.rows.map((r) => [r.label, r.totalCount])).toEqual([
+      ["Bridges (entered twice)", 2],
+      ["No corporate project", 1],
+    ]);
+  });
+
+  it("a deal holding BOTH an event and a project (an older image can write one) counts under its own event, once", async () => {
+    const [other] = await Promise.all([
+      db.event.create({
+        data: { organizationId: seed.orgId, name: "Another Event", slug: `another-${n}`, startDate: new Date("2027-05-01"), endDate: new Date("2027-05-02") },
+        select: { id: true },
+      }),
+    ]);
+    // On the project linked to BRIDGES, but carrying the other event itself.
+    await deal("holds both", { eventId: other.id, projectId: linked }, { dealValue: 999 });
+
+    expect(await names(filter({ eventId: other.id }))).toEqual(["holds both"]);
+    expect(await names(filter({ eventId }))).not.toContain("holds both");
+    const bridgesWon = (await crmRevenueProvider.wonDealsForEvent({ organizationId: seed.orgId, eventId })).map((d) => Number(d.dealValue));
+    expect(bridgesWon).not.toContain(999);
   });
 });
 
@@ -152,6 +207,9 @@ describe("a deal is for an event or a project", () => {
     // the next test's TRUNCATE would otherwise deadlock with them.
     await settled(() => db.crmActivity.count({ where: { entityId: created.deal.id } }), 2);
     // The move is on record, with both sides of it.
+    // And on the audit trail, written with the move itself: its value left no event for this one.
+    const audit = await db.auditLog.findFirst({ where: { entityId: created.deal.id, action: "CRM_DEAL_TARGET_CHANGED" }, select: { changes: true } });
+    expect(audit?.changes).toMatchObject({ eventId: { from: null, to: eventId }, projectId: { from: solo, to: null } });
     const history = await db.crmActivity.findFirst({ where: { entityId: created.deal.id, action: "UPDATE" }, select: { changes: true } });
     expect(JSON.stringify(history?.changes)).toContain("projectId");
     expect(JSON.stringify(history?.changes)).toContain("eventId");

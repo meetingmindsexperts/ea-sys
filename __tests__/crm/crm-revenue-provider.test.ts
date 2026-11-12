@@ -26,7 +26,7 @@ describe("crmRevenueProvider.wonDealsForEvent", () => {
       },
     ]);
     const deals = await crmRevenueProvider.wonDealsForEvent({ organizationId: "org-1", eventId: "e1" });
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: "org-1", OR: [{ eventId: "e1" }, { project: { eventId: "e1" } }], status: "WON", archivedAt: null } }));
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: "org-1", OR: [{ eventId: "e1" }, { eventId: null, project: { eventId: "e1" } }], status: "WON", archivedAt: null } }));
     expect(deals).toEqual([
       {
         dealValue: "20000",

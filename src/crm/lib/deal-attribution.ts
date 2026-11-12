@@ -17,16 +17,26 @@
  * surface that counts deals per event asks here, or a linked project's deals
  * silently go missing from it.
  *
- * NOT covered, on purpose: how ONE deal presents itself (its email branding,
- * its {{event…}} tokens, its quote's tax rate) still reads the deal's own
- * event. A linked project is a rare correction, and a project's client is not
- * mailed under an event's letterhead because of it.
+ * NOT covered, on purpose: how ONE deal presents itself (the branding of an
+ * email sent from that deal, its {{event…}} tokens, its quote's tax rate, its
+ * QuickBooks class) still reads the deal's own event. A linked project is a
+ * rare correction. (The event's sponsor email DOES reach a linked project's
+ * contacts, under the event's branding: they are that event's sponsors now.)
  */
 import type { Prisma } from "@prisma/client";
 
-/** The deals that count under one event: its own, and those of a project linked to it. */
+/**
+ * The deals that count under one event: its own, and those of a project linked
+ * to it.
+ *
+ * `eventId: null` on the second arm keeps this and attributedEventId saying the
+ * same thing about a deal that holds BOTH an event and a project. The service
+ * never writes one, but the image before Nov 12, 2026 can after a rollback (it
+ * sets an event on a deal without knowing the project column). Such a deal
+ * counts under its own event, once, and never also under its project's.
+ */
 export function dealsOfEventWhere(eventId: string): Prisma.CrmDealWhereInput {
-  return { OR: [{ eventId }, { project: { eventId } }] };
+  return { OR: [{ eventId }, { eventId: null, project: { eventId } }] };
 }
 
 /** What a deal read must select for attributedEventId. */

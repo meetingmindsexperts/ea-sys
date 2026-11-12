@@ -327,7 +327,7 @@ function bucketLabelFor(key: string, dimension: CrmReportDimension, labels: Brea
       case "event":
         return "No event";
       case "project":
-        return "No corporate project (event deals)";
+        return "No corporate project";
       case "attribution":
         return "No event or project";
       case "dealType":

@@ -231,6 +231,20 @@ paid row; no speaker record means left; the built-in type is refused). Recorded:
   callout on the Registration Types section) is stale since Add Registration, Faculty
   (Nov 10).
 
+## CRM corporate projects: what the Nov 12 review left (recorded Nov 12, 2026): not started
+
+Review of `dfe7cd70` (corporate projects, data and API): no BLOCKER, no HIGH. Two of the three
+MED were fixed the same day (a deal's move between event and project is audited with the write;
+a deal holding both counts once). This part of the third was recorded instead:
+
+- **The CSV export's new columns have no test.** `GET /api/crm/deals/export` gained a Corporate
+  project column, shows the attributed event, and takes its project dates and location from the
+  project when the deal has no event. The other callers of the attribution rule are proven on
+  Postgres (`tests/integration-db/crm-project-attribution.db.test.ts`); the export is a route
+  that builds a file, and has no test of its rows at all, before or after. A route test that
+  reads the CSV back would cover the old columns too. Not done now: it is a new harness for
+  that route, not a one-line addition.
+
 ## CRM inbox, Sent folder: what the Nov 11 review left (recorded Nov 11, 2026): not started
 
 Review of `2870ddb1` (Sent lists only conversations holding an email we sent): no BLOCKER, no

@@ -23,6 +23,9 @@ import { Prisma } from "@prisma/client";
 export type CrmAuditAction =
   | "CRM_DEAL_VALUE_CHANGED"
   | "CRM_DEAL_OWNER_CHANGED"
+  // A deal moved between events, or between an event and a corporate project:
+  // its value leaves one event's revenue for another's, or for none.
+  | "CRM_DEAL_TARGET_CHANGED"
   | "CRM_DEAL_WON"
   | "CRM_DEAL_LOST"
   | "CRM_DEAL_REOPENED"

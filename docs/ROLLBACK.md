@@ -193,6 +193,17 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   `SELECT id, "abstractId", "recommendedFormat" FROM "AbstractReviewSubmission" WHERE "recommendedFormat" IN ('VIDEO','WORKSHOP');`.
   Never delete the enum values.
 
+- **CRM corporate projects (Nov 12, 2026; migration `20261112150000_add_crm_project`).** The
+  migration is additive, so an image older than it runs against the new table and column
+  without error. The hazard is a write: the older image does not know `CrmDeal.projectId`, and
+  its deal form refuses to save without an event. Editing a deal that is on a corporate
+  project there gives it an event AND leaves its project, which the current code never
+  writes. Such a deal counts under its own event only (`dealsOfEventWhere` in
+  `src/crm/lib/deal-attribution.ts`), so no figure is counted twice, but it still shows on
+  its project's page. After rolling forward, find them and clear one side by hand:
+  `SELECT id, name, "eventId", "projectId" FROM "CrmDeal" WHERE "eventId" IS NOT NULL AND "projectId" IS NOT NULL;`.
+  Projects created before the rollback are not visible in the older image; nothing is lost.
+
 - **Added as Faculty (`FACULTY_ADMIN`, Nov 10, 2026; migration
   `20261110100000_registration_source_faculty_admin`).** Once someone is added as Faculty from
   Add Registration, an image older than this release cannot read that registration: its Prisma

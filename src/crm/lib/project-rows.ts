@@ -54,8 +54,11 @@ export function dayString(d: Date | null): string | null {
 export function parseDay(v: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
   const d = new Date(`${v}T00:00:00.000Z`);
-  // "2027-02-31" parses to March 3: only a day that round-trips is real.
-  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v ? null : d;
+  // "2027-02-31" parses to March 3: only a day that round-trips is real. A year
+  // outside 1900 to 2200 is a typo ("0027"), not a project.
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v) return null;
+  const year = d.getUTCFullYear();
+  return year >= 1900 && year <= 2200 ? d : null;
 }
 
 export function projectRow({ deals, startDate, endDate, ...p }: ProjectRaw) {

@@ -23,7 +23,7 @@ describe("attributedEventId", () => {
 
 describe("dealsOfEventWhere", () => {
   it("takes the event's own deals and those of a project linked to it", () => {
-    expect(dealsOfEventWhere("e-1")).toEqual({ OR: [{ eventId: "e-1" }, { project: { eventId: "e-1" } }] });
+    expect(dealsOfEventWhere("e-1")).toEqual({ OR: [{ eventId: "e-1" }, { eventId: null, project: { eventId: "e-1" } }] });
   });
 });
 

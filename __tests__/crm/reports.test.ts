@@ -295,7 +295,7 @@ describe("bucketDeals — corporate projects", () => {
     expect(out.map((r) => [r.label, r.totalCount])).toEqual([
       ["Bridges (duplicate)", 1],
       ["Novartis Ad Board", 1],
-      ["No corporate project (event deals)", 2],
+      ["No corporate project", 2],
     ]);
   });
 

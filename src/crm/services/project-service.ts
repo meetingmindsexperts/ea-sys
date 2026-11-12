@@ -82,8 +82,9 @@ function isUniqueViolation(err: unknown): boolean {
 
 /**
  * Every id on a project arrives from the client and is bound to the caller's
- * organisation before it is written. `only` limits the check to the ids that
- * changed, so a project stays editable after its account was archived.
+ * organisation before it is written. An id left undefined is not checked:
+ * updateProject passes only the ids that changed, so a project stays editable
+ * after its account was archived.
  */
 async function validateRelations(
   organizationId: string,

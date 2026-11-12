@@ -410,8 +410,17 @@ a linked project's money out of that one surface. What is NOT covered, on
 purpose: how one deal presents itself (email branding, `{{event…}}` tokens, the
 quote's tax rate) still reads the deal's own event.
 
-The link is audited inside its own transaction (`CRM_PROJECT_EVENT_LINK_CHANGED`),
-because it moves revenue between an event's figures and none.
+Whatever moves revenue between an event's figures and none is audited inside
+the same transaction as the change: linking or unlinking a project
+(`CRM_PROJECT_EVENT_LINK_CHANGED`; a project CREATED already linked carries the
+event on its `CRM_PROJECT_CREATED` row), and moving one deal between events or
+between an event and a project (`CRM_DEAL_TARGET_CHANGED`). Not audited: an
+event deleted while a project is linked to it (the database clears the link).
+
+A deal holding BOTH an event and a project is never written by this code; the
+image before this feature can write one after a rollback (docs/ROLLBACK.md).
+`dealsOfEventWhere` counts it under its own event only, so the two halves of
+the rule agree and nothing is counted twice.
 
 ## 4. Code conventions
 

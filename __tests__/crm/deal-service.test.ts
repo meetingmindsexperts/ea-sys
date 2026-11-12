@@ -740,6 +740,26 @@ describe("a deal on a corporate project", () => {
     expect(res.ok).toBe(true);
     const call = vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0] as { data: Record<string, unknown> };
     expect(call.data).toMatchObject({ projectId: "p-1", eventId: null });
+    // The deal's value just left an event's revenue: on the audit trail, both sides of it.
+    expect(db.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "CRM_DEAL_TARGET_CHANGED",
+        entityId: "d-1",
+        changes: expect.objectContaining({ eventId: { from: "e-1", to: null }, projectId: { from: null, to: "p-1" } }),
+      }),
+    });
+  });
+
+  it("re-sending the deal's own project is not a move, and is not audited as one", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ ...storedDeal, projectId: "p-1" } as never);
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue(liveProject as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", ownerId: null } as never);
+
+    expect((await updateDeal({ ...base, dealId: "d-1", projectId: "p-1", eventId: null, name: "Renamed" })).ok).toBe(true);
+
+    const actions = vi.mocked(db.auditLog.create).mock.calls.map((c) => (c[0] as { data: { action: string } }).data.action);
+    expect(actions).not.toContain("CRM_DEAL_TARGET_CHANGED");
   });
 
   it("moving a project deal to an event clears its project", async () => {
