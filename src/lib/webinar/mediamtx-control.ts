@@ -47,6 +47,8 @@ export interface Publisher {
   /** The MediaMTX path, e.g. "live/<streamKey>". */
   path: string;
   remoteAddr: string;
+  /** When the connection began, or null when MediaMTX's answer did not say in a form we can read. */
+  connectedAt: Date | null;
 }
 
 export type PublishersResult = { ok: true; publishers: Publisher[] } | { ok: false; code: ControlFailure };
@@ -122,6 +124,13 @@ interface RawConn {
   state?: unknown;
   path?: unknown;
   remoteAddr?: unknown;
+  created?: unknown;
+}
+
+function readDate(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function readPage(json: unknown): { pageCount: number; items: RawConn[] } | null {
@@ -133,24 +142,48 @@ function readPage(json: unknown): { pageCount: number; items: RawConn[] } | null
 
 function toPublisher(conn: RawConn, family: Publisher["family"]): Publisher | null {
   if (conn.state !== "publish" || typeof conn.id !== "string" || typeof conn.path !== "string") return null;
-  return { id: conn.id, family, path: conn.path, remoteAddr: typeof conn.remoteAddr === "string" ? conn.remoteAddr : "" };
+  return {
+    id: conn.id,
+    family,
+    path: conn.path,
+    remoteAddr: typeof conn.remoteAddr === "string" ? conn.remoteAddr : "",
+    connectedAt: readDate(conn.created),
+  };
+}
+
+/** One page of a connection list: its publishers and how many pages there are, or why not. */
+async function listPage(
+  family: Publisher["family"],
+  page: number,
+): Promise<{ ok: true; publishers: Publisher[]; pageCount: number } | { ok: false; code: ControlFailure }> {
+  const answer = await call(`/v3/${family}/list?itemsPerPage=${PAGE_SIZE}&page=${page}`, "GET", "list");
+  if (typeof answer === "string") return { ok: false, code: answer };
+  if (answer.status === 401 || answer.status === 403) return { ok: false, code: "REFUSED" };
+  const read = answer.status === 200 ? readPage(answer.json) : null;
+  if (!read) {
+    // The status and the shape, never the content: enough to tell a changed API from a wrong address.
+    apiLogger.warn(
+      { family, status: answer.status, answer: answer.json === null ? "not JSON" : typeof answer.json },
+      "mediamtx-control:list-answer-not-understood",
+    );
+    return { ok: false, code: "BAD_ANSWER" };
+  }
+  const publishers = read.items.flatMap((conn) => toPublisher(conn, family) ?? []);
+  return { ok: true, publishers, pageCount: read.pageCount };
 }
 
 async function listFamily(family: Publisher["family"]): Promise<PublishersResult> {
   const publishers: Publisher[] = [];
   for (let page = 0; page < MAX_PAGES; page++) {
-    const answer = await call(`/v3/${family}/list?itemsPerPage=${PAGE_SIZE}&page=${page}`, "GET", "list");
-    if (typeof answer === "string") return { ok: false, code: answer };
-    if (answer.status === 401 || answer.status === 403) return { ok: false, code: "REFUSED" };
-    const read = answer.status === 200 ? readPage(answer.json) : null;
-    if (!read) return { ok: false, code: "BAD_ANSWER" };
-    for (const conn of read.items) {
-      const publisher = toPublisher(conn, family);
-      if (publisher) publishers.push(publisher);
-    }
-    if (page + 1 >= read.pageCount) break;
+    const listed = await listPage(family, page);
+    if (!listed.ok) return listed;
+    publishers.push(...listed.publishers);
+    if (page + 1 >= listed.pageCount) return { ok: true, publishers };
   }
-  return { ok: true, publishers };
+  // More connections than we read (review of a6ec7911): a publisher could be on
+  // a page we never saw, and "nobody is publishing" would then be a guess.
+  apiLogger.warn({ family, pages: MAX_PAGES }, "mediamtx-control:list-too-long");
+  return { ok: false, code: "BAD_ANSWER" };
 }
 
 /**
@@ -172,12 +205,20 @@ export async function listPublishers(): Promise<PublishersResult> {
   return { ok: true, publishers: [...rtmp.publishers, ...rtmps.publishers] };
 }
 
+function isMediamtxError(json: unknown): boolean {
+  return Boolean(json) && typeof json === "object" && typeof (json as { error?: unknown }).error === "string";
+}
+
 /** End one publisher's connection. True when MediaMTX did it, or it was already gone. */
 export async function kickPublisher(publisher: Publisher): Promise<boolean> {
   const answer = await call(`/v3/${publisher.family}/kick/${encodeURIComponent(publisher.id)}`, "POST", "kick");
   if (typeof answer === "string") return false;
-  // 404: the connection ended between the list and the kick, which is the outcome wanted.
-  if (answer.status === 200 || answer.status === 404) return true;
+  if (answer.status === 200) return true;
+  // 404 WITH MediaMTX's own error body: the connection ended between the list
+  // and the kick, which is the outcome wanted. A bare 404 is a different
+  // server answering (an address or a version whose API moved), and counting
+  // that as done would report a stream as cut while it is still running.
+  if (answer.status === 404 && isMediamtxError(answer.json)) return true;
   apiLogger.warn({ status: answer.status }, "mediamtx-control:kick-refused");
   return false;
 }

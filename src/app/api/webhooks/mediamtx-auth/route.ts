@@ -72,26 +72,44 @@ async function notePartnerPublish(owner: Extract<StreamKeyOwner, { source: "exte
 }
 const STREAM_KEY = /^live\/([a-f0-9]{32})$/;
 
+type Question = z.infer<typeof bodySchema>;
+type Read = { ok: true; question: Question } | { ok: false; reason: "invalid-body" | "unreadable-body"; detail: unknown };
+
 export async function POST(req: Request) {
   const ip = getClientIp(req);
+  // Read and checked first, reported later: what it says decides whether the rate limit applies at all.
+  let read: Read;
+  try {
+    const raw = await req.json();
+    const result = bodySchema.safeParse(raw);
+    read = result.success
+      ? { ok: true, question: result.data }
+      : { ok: false, reason: "invalid-body", detail: result.error.flatten() };
+  } catch (err) {
+    read = { ok: false, reason: "unreadable-body", detail: err };
+  }
+
+  // OUR OWN control call is answered before the rate limit (review of a6ec7911,
+  // HIGH). Every question arrives from MediaMTX's one address, so the limit
+  // below is one bucket for everyone: ten bogus publish attempts a second on
+  // port 1935 use it up, and "cut the feed" on that very stream would then be
+  // answered 429 and the stream would stay up. A caller holding
+  // MEDIAMTX_API_SECRET is us, and is never limited.
+  if (read.ok && read.question.action === "api" && isValidControlCaller(read.question.user, read.question.password)) {
+    return NextResponse.json({ ok: true });
+  }
+
   const { allowed } = checkRateLimit({ key: `mediamtx-auth:${ip}`, limit: 600, windowMs: 60_000 });
   if (!allowed) {
     apiLogger.warn({ ip }, "mediamtx-auth:rate-limited");
     return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }
 
-  let parsed: z.infer<typeof bodySchema>;
-  try {
-    const result = bodySchema.safeParse(await req.json());
-    if (!result.success) {
-      apiLogger.warn({ ip, errors: result.error.flatten() }, "mediamtx-auth:invalid-body");
-      return NextResponse.json({ error: "Invalid body" }, { status: 400 });
-    }
-    parsed = result.data;
-  } catch (err) {
-    apiLogger.warn({ ip, err }, "mediamtx-auth:unreadable-body");
+  if (!read.ok) {
+    apiLogger.warn({ ip, detail: read.detail }, `mediamtx-auth:${read.reason}`);
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
+  const parsed = read.question;
 
   if (READ_ACTIONS.has(parsed.action)) {
     return NextResponse.json({ ok: true });
@@ -99,16 +117,15 @@ export async function POST(req: Request) {
 
   // MediaMTX's control API (who is publishing, disconnect a publisher) has no
   // password of its own: it asks here, like a publish. Only our own callers,
-  // which send MEDIAMTX_API_SECRET, are let in (mediamtx-control.ts). This
-  // route is a public address, so a wrong or missing secret is the common case.
+  // which send MEDIAMTX_API_SECRET, were let in above (mediamtx-control.ts).
+  // This route is a public address, so a wrong or missing secret is the common case.
   if (parsed.action === "api") {
-    if (isValidControlCaller(parsed.user, parsed.password)) return NextResponse.json({ ok: true });
     apiLogger.warn({ ip, callerIp: parsed.ip }, "mediamtx-auth:api-refused");
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   if (parsed.action !== "publish") {
-    apiLogger.warn({ ip, action: parsed.action, path: parsed.path }, "mediamtx-auth:action-refused");
+    apiLogger.warn({ ip, action: parsed.action.slice(0, 40), pathLength: parsed.path.length }, "mediamtx-auth:action-refused");
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

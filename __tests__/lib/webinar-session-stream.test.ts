@@ -131,11 +131,11 @@ describe("streamKeyOwner (the publish check's lookup)", () => {
   it("an external key is returned whatever its state, so the check can say why it refuses", async () => {
     const end = new Date("2026-12-01T12:00:00Z");
     mockDb.externalStream.findFirst.mockResolvedValue({
-      id: "x1", eventId: "ev1", sessionId: "s1", secretVersion: 3, enabled: false,
+      id: "x1", eventId: "ev1", sessionId: "s1", secretVersion: 3, keyReplacedAt: null, enabled: false,
       validFrom: new Date("2026-11-20T00:00:00Z"), validUntil: null, session: { endTime: end },
     });
     expect(await streamKeyOwner("partnerkey")).toEqual({
-      source: "external", id: "x1", eventId: "ev1", sessionId: "s1", secretVersion: 3, enabled: false,
+      source: "external", id: "x1", eventId: "ev1", sessionId: "s1", secretVersion: 3, keyReplacedAt: null, enabled: false,
       validFrom: new Date("2026-11-20T00:00:00Z"), validUntil: null, sessionEndTime: end,
     });
   });

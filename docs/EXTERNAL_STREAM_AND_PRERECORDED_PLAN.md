@@ -308,7 +308,7 @@ attendance there is, so it needs:
 | 1 | **BUILT Nov 12, 2026.** The `ExternalStream` table and `session-stream.ts`; every reader moved to it. No visible change. Tests pin that Zoom webinars behave as before. | 1.5 days |
 | 2 | **BUILT Nov 12, 2026.** The publish check learns the version, the period and the switch; refusals logged with reasons. Issue, replace and switch off a key, with audit entries (`src/services/external-stream-service.ts`). Not offered in the console yet. Issuing is refused until `STREAM_PUBLISH_SECRET` is set. The table's isolation test is `tests/tenancy/externalstream-rls.test.ts` (runs in CI; not run locally, the harness was not up). | 1 day |
 | 3 | **BUILT Nov 12, 2026, not yet switched on.** Cut the feed: the control API on in `mediamtx.yml` (never published; its calls are checked by our webhook with `MEDIAMTX_API_SECRET`), `mediamtx-control.ts`, disconnect on replace, switch off and cut, the minute sweep for expiry, the config tests. Issuing a key is refused until the control API is set up. Owner: the six steps in `LIVE_STREAMING.md` §11b. | 1 day |
-| 4 | The source: chosen at creation; the provisioner, "Run provisioner", the Zoom form and the agent refuse a Zoom webinar for an external source, through ONE shared check taken under a per-session lock that issuing a partner's key also takes (review of 15f219c0: today only issuing checks, and two tables checked then written without a lock can both end up with a row). The attendee's join call and page work with no Zoom webinar. | 1.5 days |
+| 4 | The source: chosen at creation; the provisioner, "Run provisioner", the Zoom form and the agent refuse a Zoom webinar for an external source, through ONE shared check taken under a per-session lock that issuing a partner's key also takes (review of 15f219c0: today only issuing checks, and two tables checked then written without a lock can both end up with a row). Deleting a session or event that has a partner stream cuts the feed first (review of a6ec7911: the row is deleted with the session, and the sweep then only reports the running stream, it never cuts a key it cannot find). The attendee's join call and page work with no Zoom webinar. | 1.5 days |
 | 5 | The console: the Partner stream card, the Zoom-only controls hidden, room opening, the watchdog's alert, the safety net and the thank-you hold for a room with no Zoom webinar. Webinar emails checked. | 2.5 days |
 | 6 | The attendance report (4.8). | 1.5 days |
 | 7 | The handover sheet, the user guide, `LIVE_STREAMING.md`, the changelog. | half a day |
@@ -404,7 +404,13 @@ all behave as for a live webinar, because to them it is one.
   control API is protected (`api` is deliberately not exempted from the check). Owner step 6
   in `LIVE_STREAMING.md` §11b is its first real test.
 - Whether MediaMTX's connection list repeats the password an encoder sent. The minute sweep
-  therefore never judges a password, only whether the key is switched on and in its period.
+  therefore never judges a password, only whether the key is switched on and in its period,
+  and whether the connection began before the key was last replaced.
+- Read from MediaMTX 1.17.1's source by the step 3 review (not run): with `authMethod: http`
+  the internal users are never consulted, the API puts every call to the webhook with the
+  call's Basic user and password, and the list and disconnect addresses match the client.
+  Still for the owner's step 5 to prove: that our `authHTTPExclude` list replaces MediaMTX's
+  default one, which is what makes an API call without the secret answer 401.
 - Which platforms the Mounjaro and Omvoh webinars were produced on, and whether BigMarker
   gave those partners RTMP or RTMPS.
 - Whether the worker image has what scheduled playback needs to play a file into the door

@@ -326,6 +326,27 @@ describe("MediaMTX publish authorisation webhook", () => {
       expect(JSON.stringify(mockLogger.warn.mock.calls)).not.toContain(SECRET);
     });
 
+    it("our own call is answered even when the rate limit is used up: a flood of bogus publishes must not block cut the feed", async () => {
+      const from = (ip: string, body: unknown) =>
+        mediamtxAuth(
+          new Request("http://localhost/api/webhooks/mediamtx-auth", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-forwarded-for": ip },
+            body: JSON.stringify(body),
+          }),
+        );
+      const flooded = "10.9.9.9";
+      let limited = 0;
+      for (let i = 0; i < 650; i++) {
+        if ((await from(flooded, { action: "publish", path: "live/nope" })).status === 429) limited++;
+      }
+      expect(limited).toBeGreaterThan(0);
+      // Everyone else from that address is limited, including a wrong secret...
+      expect((await from(flooded, { action: "api", user: "ea-sys", password: "wrong" })).status).toBe(429);
+      // ...but the holder of the secret is us.
+      expect((await from(flooded, { action: "api", user: "ea-sys", password: SECRET })).status).toBe(200);
+    });
+
     it("metrics and pprof stay refused", async () => {
       expect((await call({ action: "metrics", user: "ea-sys", password: SECRET })).status).toBe(403);
       expect((await call({ action: "pprof", user: "ea-sys", password: SECRET })).status).toBe(403);

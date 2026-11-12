@@ -127,6 +127,8 @@ export type StreamKeyOwner =
       eventId: string;
       sessionId: string;
       secretVersion: number;
+      /** When the key was last replaced, or null for never. */
+      keyReplacedAt: Date | null;
       enabled: boolean;
       validFrom: Date;
       /** Null follows the session: see externalStreamValidUntil. */
@@ -161,6 +163,7 @@ export async function streamKeyOwner(streamKey: string): Promise<StreamKeyOwner 
         eventId: true,
         sessionId: true,
         secretVersion: true,
+        keyReplacedAt: true,
         enabled: true,
         validFrom: true,
         validUntil: true,

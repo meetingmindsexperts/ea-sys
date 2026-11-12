@@ -11,18 +11,24 @@
  *
  *   1. ask MediaMTX who is publishing (one call);
  *   2. for each publisher on a PARTNER's key, ask whether that key may still
- *      be used now (switched on, inside its period);
- *   3. if not, disconnect it, and say so in the log and the audit trail.
+ *      be used now (switched on, inside its period), and whether the
+ *      connection began before the key was last REPLACED (then it can only be
+ *      on an old password: the disconnect at replace time must have failed);
+ *   3. if either says no, disconnect it, and say so in the log and the audit
+ *      trail.
  *
  * What it deliberately does NOT do:
  *  - Judge the password. Whether MediaMTX's connection list repeats the
  *    password the encoder sent was not verified, and a wrong guess would
- *    disconnect a good stream every minute. A replaced key is disconnected at
- *    the moment it is replaced.
+ *    disconnect a good stream every minute. A replaced key is recognised by
+ *    WHEN the connection began, and a connection whose start time MediaMTX
+ *    does not give is left alone.
  *  - Touch a publisher whose key it cannot find. On the platform instance the
  *    tenant-less lookup finds nothing (ROADMAP, "Webinar streaming", item 2):
  *    "unknown" must never read as "not allowed", or every stream there would
- *    be cut once a minute. Only a partner's row that says no is acted on.
+ *    be cut once a minute. Only a partner's row that says no is acted on. An
+ *    unknown key is SAID, once per connection (a session deleted with its
+ *    partner stream still running leaves exactly this), and left running.
  *  - Touch our own Zoom's streams.
  *
  * Does nothing at all while the control API is not set up.
@@ -35,6 +41,37 @@ import { streamKeyOwner } from "@/lib/webinar/session-stream";
 
 const LIVE_PATH = /^live\/([a-f0-9]{32})$/;
 
+/** Connections already reported as publishing on a key nobody owns, so each is said once, not every minute. */
+const reportedUnknown = new Set<string>();
+const REPORTED_UNKNOWN_MAX = 500;
+
+/** Test hook. */
+export function resetExternalStreamSweep(): void {
+  reportedUnknown.clear();
+}
+
+function reportUnknownOnce(publisher: Publisher): void {
+  if (reportedUnknown.has(publisher.id)) return;
+  if (reportedUnknown.size >= REPORTED_UNKNOWN_MAX) reportedUnknown.clear();
+  reportedUnknown.add(publisher.id);
+  apiLogger.warn({ remoteAddr: publisher.remoteAddr }, "external-stream-sweep:publisher-on-unknown-key");
+}
+
+type SweepReason = "SWITCHED_OFF" | "NOT_YET_VALID" | "EXPIRED" | "KEY_REPLACED";
+
+/** Why this connection must end, or null. A start time we could not read never counts as "before". */
+function sweepReason(
+  owner: Extract<NonNullable<Awaited<ReturnType<typeof streamKeyOwner>>>, { source: "external" }>,
+  publisher: Publisher,
+  now: Date,
+): SweepReason | null {
+  const refusal = externalKeyRefusal(owner, now);
+  if (refusal) return refusal;
+  const replacedAt = owner.keyReplacedAt;
+  if (replacedAt && publisher.connectedAt && publisher.connectedAt.getTime() < replacedAt.getTime()) return "KEY_REPLACED";
+  return null;
+}
+
 export interface SweepReport {
   /** Publishers found on a partner's key. */
   checked: number;
@@ -43,9 +80,13 @@ export interface SweepReport {
 
 async function sweepOne(publisher: Publisher, streamKey: string, now: Date, report: SweepReport): Promise<void> {
   const owner = await streamKeyOwner(streamKey);
-  if (owner?.source !== "external") return;
+  if (!owner) {
+    reportUnknownOnce(publisher);
+    return;
+  }
+  if (owner.source !== "external") return;
   report.checked += 1;
-  const refusal = externalKeyRefusal(owner, now);
+  const refusal = sweepReason(owner, publisher, now);
   if (!refusal) return;
 
   const done = await kickPublisher(publisher);

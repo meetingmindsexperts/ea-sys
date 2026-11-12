@@ -62,7 +62,10 @@ describe("MediaMTX's control API (Nov 12, 2026: disconnecting a partner's stream
 
   it("is never published on the box: only the containers reach it", () => {
     expect(ports.some((p) => p.includes("9997"))).toBe(false);
-    expect(mediamtxBlock.slice(0, mediamtxBlock.indexOf("mem_limit:"))).not.toMatch(/^\s*-\s*"[^"]*9997/m);
+    // Quoted, unquoted or the long form: no line of the ports section that is not a comment names 9997.
+    const portLines = portsBlock.split("\n").filter((line) => !line.trim().startsWith("#"));
+    expect(portLines.join("\n")).not.toMatch(/9997/);
+    expect(mediamtxBlock).not.toMatch(/^\s*expose:/m);
   });
 
   it("each container that calls it is given its address: both web slots and the worker", () => {
@@ -74,5 +77,12 @@ describe("MediaMTX's control API (Nov 12, 2026: disconnecting a partner's stream
       expect(block).toContain("- MEDIAMTX_API_URL=http://ea-sys-mediamtx:9997");
       expect(block).toContain("env_file:");
     }
+  });
+});
+
+describe("the MediaMTX version the control client was written against", () => {
+  it("is pinned: mediamtx-control.ts reads 1.17.1's API, so an image change is a deliberate act that re-reads it", () => {
+    expect(mediamtxBlock).toContain("image: bluenviron/mediamtx:1.17.1");
+    expect(read("src/lib/webinar/mediamtx-control.ts")).toContain("1.17.1");
   });
 });

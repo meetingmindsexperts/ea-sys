@@ -23,8 +23,11 @@
  * does not change. Replacing, switching off and cutting the feed each also
  * disconnect whoever is publishing on the key at that moment. The database
  * write comes FIRST, so an encoder that reconnects at once is refused; when the
- * disconnect itself fails the result says so (`disconnect`), the caller tells
- * the producer, and the minute sweep tries again (external-stream-sweep.ts).
+ * disconnect itself fails the result says so (`disconnect`, with `ok: false`
+ * INSIDE an `ok: true` answer: the key did change), the caller tells the
+ * producer, and the minute sweep tries again: it disconnects a stream on a key
+ * that is switched off, and one that began before the key was last replaced
+ * (external-stream-sweep.ts).
  *
  * WHO SEES THE KEY. Nothing here returns the key or its password except
  * revealExternalStreamCredentials, which writes who looked to the audit log.
@@ -300,9 +303,10 @@ export async function replaceExternalStreamKey(input: Caller): Promise<ExternalS
   });
   if (!current) return refuse(input, "replace", "NOT_ISSUED", "This session has no partner stream.");
 
+  // keyReplacedAt is the sweep's evidence: a connection that began before it is on an old password.
   await db.externalStream.updateMany({
     where: { id: current.id, eventId: input.eventId },
-    data: { secretVersion: { increment: 1 } },
+    data: { secretVersion: { increment: 1 }, keyReplacedAt: new Date() },
   });
   const row = await db.externalStream.findFirst({ where: { id: current.id, eventId: input.eventId }, select: ROW_SELECT });
   if (!row) return refuse(input, "replace", "NOT_ISSUED", "This session has no partner stream.");

@@ -1,0 +1,13 @@
+-- When a partner's stream key was last replaced (Nov 12, 2026; review of
+-- a6ec7911). Replacing a key refuses the old password at the next connection
+-- and disconnects the stream running on it. When that disconnect fails (the
+-- stream server did not answer), nothing retried it: the minute sweep judges a
+-- key's state, never a password, so the holder of the OLD key kept streaming
+-- until someone pressed "cut the feed".
+--
+-- With this timestamp the sweep can tell without a password: a connection that
+-- began BEFORE the key was last replaced can only be using an old one.
+--
+-- Additive and idempotent: one nullable column on a table nothing writes to in
+-- production yet. The old slot never reads it.
+ALTER TABLE "ExternalStream" ADD COLUMN IF NOT EXISTS "keyReplacedAt" TIMESTAMP(3);

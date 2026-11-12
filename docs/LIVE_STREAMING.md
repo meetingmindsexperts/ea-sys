@@ -413,11 +413,26 @@ until these are done (the app refuses, and says which is missing).
    `STREAM_PUBLISH_SECRET` signs every publish password. Until now they were
    signed with `NEXTAUTH_SECRET`, so **setting it changes the password of every
    Zoom custom stream**: afterwards press "Re-send stream settings to Zoom" on
-   each upcoming custom-stream webinar. A partner's key is never signed with
-   the sign-in secret, so rotating that no longer cancels it.
+   each upcoming custom-stream webinar. A missed one has no video at go-live,
+   and the only sign is a `mediamtx-auth:publish-bad-credentials` warning, so
+   list them first (read-only, `npm run prod:psql`) and tick each off:
+
+   ```sql
+   SELECT e.name, s."startTime"
+   FROM "ZoomMeeting" z
+   JOIN "EventSession" s ON s.id = z."sessionId"
+   JOIN "Event" e ON e.id = z."eventId"
+   WHERE z."liveStreamEnabled" AND s."endTime" > now()
+   ORDER BY s."startTime";
+   ```
+
+   A partner's key is never signed with the sign-in secret, so rotating that
+   no longer cancels it.
 
 2. Deploy as usual (`bash scripts/deploy.sh`), so the app and the worker read
-   the new values.
+   the new values. Until step 3 the worker logs `mediamtx-control:unreachable`
+   once a minute, which is expected: the control address is set and MediaMTX
+   has not been recreated yet.
 
 3. Recreate MediaMTX so it reads the new `mediamtx.yml` (the deploy never
    restarts it):

@@ -70,6 +70,7 @@ Built, and inert until the owner's six steps in `docs/LIVE_STREAMING.md` §11b a
 - **Once a minute** the worker disconnects any partner's stream still running on a key that is switched off or past its period. It never touches a stream whose key it cannot find, and never our own Zoom's
 - **A partner's key cannot be issued until this is set up**: the service refuses with the reason (`CONTROL_API_NOT_SET`, `PUBLISH_SECRET_NOT_SET`)
 - Not run against a live stream server yet: the client was written from MediaMTX 1.17.1's published API description, so every part refuses when it is unsure, and §11b step 6 is the first real test
+- After its review (`a6ec7911`): our own control call is answered before the publish check's rate limit, so a flood of bogus stream attempts can no longer block "cut the feed"; a stream that began before its key was last replaced is disconnected by the minute sweep (new column `ExternalStream.keyReplacedAt`, migration `20261112140000`), which covers a disconnect that failed at replace time; a connection list longer than the client reads, or a bare 404 on a disconnect, is a failure and never "nobody is publishing"; a stream on a key nobody owns is reported once; the owner's steps now list the Zoom webinars whose password changes
 
 ### Speaker emails: a moderator who also speaks in their own session (November 11)
 

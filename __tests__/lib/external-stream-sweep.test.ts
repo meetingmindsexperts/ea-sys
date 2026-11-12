@@ -19,17 +19,24 @@ vi.mock("@/lib/webinar/session-stream", async (orig) => ({
   streamKeyOwner: ownerSpy,
 }));
 
-import { sweepExternalPublishers } from "@/lib/webinar/external-stream-sweep";
+import { resetExternalStreamSweep, sweepExternalPublishers } from "@/lib/webinar/external-stream-sweep";
 
 const KEY = "0123456789abcdef0123456789abcdef";
 const NOW = new Date("2026-12-01T12:00:00Z");
-const publisher = (path = `live/${KEY}`, id = "c1") => ({ id, family: "rtmpconns" as const, path, remoteAddr: "" });
+const publisher = (path = `live/${KEY}`, id = "c1", connectedAt: Date | null = new Date("2026-12-01T11:00:00Z")) => ({
+  id,
+  family: "rtmpconns" as const,
+  path,
+  remoteAddr: "203.0.113.9:5000",
+  connectedAt,
+});
 const external = (extra: Record<string, unknown> = {}) => ({
   source: "external" as const,
   id: "x1",
   eventId: "ev1",
   sessionId: "s1",
   secretVersion: 1,
+  keyReplacedAt: null,
   enabled: true,
   validFrom: new Date("2026-11-30T00:00:00Z"),
   validUntil: null,
@@ -39,6 +46,7 @@ const external = (extra: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetExternalStreamSweep();
   control.isMediamtxControlConfigured.mockReturnValue(true);
   control.listPublishers.mockResolvedValue({ ok: true, publishers: [publisher()] });
   control.kickPublisher.mockResolvedValue(true);
@@ -75,10 +83,36 @@ describe("sweepExternalPublishers", () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ reason: "EXPIRED" }), "external-stream-sweep:disconnected");
   });
 
-  it("NEVER touches a publisher whose key it cannot find: 'unknown' is not 'not allowed'", async () => {
+  it("NEVER touches a publisher whose key it cannot find: 'unknown' is not 'not allowed'. It says so once, not every minute", async () => {
     ownerSpy.mockResolvedValue(null);
     expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 0, disconnected: 0 });
+    await sweepExternalPublishers(NOW);
+    await sweepExternalPublishers(NOW);
     expect(control.kickPublisher).not.toHaveBeenCalled();
+    const said = mockLogger.warn.mock.calls.filter((c) => c[1] === "external-stream-sweep:publisher-on-unknown-key");
+    expect(said).toHaveLength(1);
+    expect(JSON.stringify(said)).not.toContain(KEY);
+  });
+
+  it("disconnects a stream that began BEFORE the key was last replaced: it can only be on an old password", async () => {
+    ownerSpy.mockResolvedValue(external({ keyReplacedAt: new Date("2026-12-01T11:30:00Z") }));
+    expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 1 });
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ reason: "KEY_REPLACED" }), "external-stream-sweep:disconnected");
+  });
+
+  it("leaves a stream that connected AFTER the replacement (the new key), and one whose start time is not known", async () => {
+    ownerSpy.mockResolvedValue(external({ keyReplacedAt: new Date("2026-12-01T10:30:00Z") }));
+    expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 0 });
+    control.listPublishers.mockResolvedValue({ ok: true, publishers: [publisher(`live/${KEY}`, "c1", null)] });
+    ownerSpy.mockResolvedValue(external({ keyReplacedAt: new Date("2026-12-01T11:30:00Z") }));
+    expect(await sweepExternalPublishers(NOW)).toEqual({ checked: 1, disconnected: 0 });
+    expect(control.kickPublisher).not.toHaveBeenCalled();
+  });
+
+  it("disconnects one on a key whose period has not started", async () => {
+    ownerSpy.mockResolvedValue(external({ validFrom: new Date("2026-12-01T12:00:01Z") }));
+    expect(await sweepExternalPublishers(NOW)).toMatchObject({ disconnected: 1 });
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ reason: "NOT_YET_VALID" }), "external-stream-sweep:disconnected");
   });
 
   it("never touches our own Zoom's stream, or a path that is not a stream key", async () => {

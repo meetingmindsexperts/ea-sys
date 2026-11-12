@@ -230,7 +230,8 @@ describe("replaceExternalStreamKey", () => {
     const res = await replaceExternalStreamKey(caller);
     expect(mockDb.externalStream.updateMany).toHaveBeenCalledWith({
       where: { id: "x1", eventId: "ev1" },
-      data: { secretVersion: { increment: 1 } },
+      // The time is the sweep's evidence that a connection still running began on the old key.
+      data: { secretVersion: { increment: 1 }, keyReplacedAt: expect.any(Date) },
     });
     expect(res).toMatchObject({ ok: true, externalStream: { secretVersion: 2 } });
     expect(JSON.stringify(res)).not.toContain(KEY);
@@ -355,6 +356,17 @@ describe("ending the running stream (cut the feed)", () => {
     const on = await setExternalStreamEnabled({ ...caller, enabled: true });
     expect(control.disconnectPublishers).not.toHaveBeenCalled();
     expect(on.ok && on.disconnect).toBeUndefined();
+  });
+
+  it("after a cut, switching on again accepts the same password: a cut is not a replacement", async () => {
+    mockDb.externalStream.findFirst.mockResolvedValue(row({ enabled: false }));
+    await cutExternalStream(caller);
+    mockDb.externalStream.findFirst.mockResolvedValue(row({ enabled: true }));
+    await setExternalStreamEnabled({ ...caller, enabled: true });
+    const writes = mockDb.externalStream.updateMany.mock.calls.map((c) => c[0].data);
+    expect(writes).toEqual([{ enabled: false }, { enabled: true }]);
+    const state = { streamKey: KEY, secretVersion: 1, enabled: true, validFrom: NOW, validUntil: null, sessionEndTime: SESSION_END };
+    expect(externalPublishDecision(state, streamPublishPassword(KEY, 1), NOW)).toEqual({ allowed: true });
   });
 
   it("cut the feed is switching off: the key is off and the stream is disconnected", async () => {

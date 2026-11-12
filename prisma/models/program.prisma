@@ -649,6 +649,9 @@ model ExternalStream {
   organizationId  String?
   streamKey       String       @unique
   secretVersion   Int          @default(1)
+  // When the key was last replaced. A connection that began before this can
+  // only be on an old password: the sweep disconnects it (external-stream-sweep.ts).
+  keyReplacedAt   DateTime?
   // Off = every new publish is refused. A push already running is cut separately.
   enabled         Boolean      @default(true)
   // The period the key works in; a publish outside it is refused. A null

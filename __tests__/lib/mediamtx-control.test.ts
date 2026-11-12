@@ -22,7 +22,8 @@ const SECRET = "s".repeat(40);
 const KEY = "0123456789abcdef0123456789abcdef";
 const fetchMock = vi.fn();
 const json = (status: number, body: unknown) => ({ status, json: async () => body });
-const conn = (id: string, path: string, state = "publish") => ({ id, state, path, remoteAddr: "203.0.113.9:5000" });
+const CREATED = "2026-12-01T09:00:00.000+04:00";
+const conn = (id: string, path: string, state = "publish") => ({ id, state, path, remoteAddr: "203.0.113.9:5000", created: CREATED });
 const page = (items: unknown[], pageCount = 1) => json(200, { pageCount, itemCount: items.length, items });
 
 /** Answers by URL: the two list families and the kick. */
@@ -89,10 +90,36 @@ describe("listPublishers", () => {
   it("sends our user and the secret as HTTP Basic, and returns only connections that are publishing", async () => {
     serve({ rtmp: page([conn("a", `live/${KEY}`), conn("b", "live/other", "read"), conn("c", "live/other", "idle")]) });
     const res = await listPublishers();
-    expect(res).toEqual({ ok: true, publishers: [{ id: "a", family: "rtmpconns", path: `live/${KEY}`, remoteAddr: "203.0.113.9:5000" }] });
+    expect(res).toEqual({
+      ok: true,
+      publishers: [{ id: "a", family: "rtmpconns", path: `live/${KEY}`, remoteAddr: "203.0.113.9:5000", connectedAt: new Date(CREATED) }],
+    });
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("http://ea-sys-mediamtx:9997/v3/rtmpconns/list?itemsPerPage=100&page=0");
     expect(init.headers.Authorization).toBe(`Basic ${Buffer.from(`ea-sys:${SECRET}`).toString("base64")}`);
+  });
+
+  it("a start time it cannot read is null, never a guess", async () => {
+    serve({ rtmp: page([{ ...conn("a", "live/x"), created: "soon" }, { id: "b", state: "publish", path: "live/y" }]) });
+    const res = await listPublishers();
+    expect(res.ok && res.publishers.map((p) => p.connectedAt)).toEqual([null, null]);
+  });
+
+  it("more pages than it reads is BAD_ANSWER: a publisher could be on a page never seen", async () => {
+    fetchMock.mockImplementation(async (url: string) => (url.includes("rtmpsconns") ? page([]) : page([conn("a", "live/x")], 999)));
+    expect(await listPublishers()).toEqual({ ok: false, code: "BAD_ANSWER" });
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ family: "rtmpconns" }), "mediamtx-control:list-too-long");
+    // Bounded: it stops asking.
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).includes("/v3/rtmpconns/list")).length).toBe(10);
+  });
+
+  it("an answer it cannot read is logged by status and shape, so the first real run can be diagnosed", async () => {
+    serve({ rtmp: json(200, { unexpected: true }) });
+    await listPublishers();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ family: "rtmpconns", status: 200, answer: "object" }),
+      "mediamtx-control:list-answer-not-understood",
+    );
   });
 
   it("reads every page", async () => {
@@ -130,13 +157,18 @@ describe("listPublishers", () => {
 });
 
 describe("kickPublisher and disconnectPublishers", () => {
-  const publisher = { id: "a", family: "rtmpconns" as const, path: `live/${KEY}`, remoteAddr: "" };
+  const publisher = { id: "a", family: "rtmpconns" as const, path: `live/${KEY}`, remoteAddr: "", connectedAt: null };
 
-  it("a kick that succeeds, or finds the connection already gone, is done; anything else is not", async () => {
+  it("a kick that succeeds, or that MediaMTX says found the connection already gone, is done; anything else is not", async () => {
     serve({ kick: () => json(200, {}) });
     expect(await kickPublisher(publisher)).toBe(true);
-    serve({ kick: () => json(404, {}) });
+    serve({ kick: () => json(404, { error: "connection not found" }) });
     expect(await kickPublisher(publisher)).toBe(true);
+    // A bare 404 is some other server answering (a moved API): the stream may still be running.
+    serve({ kick: () => json(404, null) });
+    expect(await kickPublisher(publisher)).toBe(false);
+    serve({ kick: () => json(404, {}) });
+    expect(await kickPublisher(publisher)).toBe(false);
     serve({ kick: () => json(500, {}) });
     expect(await kickPublisher(publisher)).toBe(false);
     fetchMock.mockRejectedValue(new Error("down"));
