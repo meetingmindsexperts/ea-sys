@@ -12,27 +12,45 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), war
 import { planRow } from "../../scripts/adopt-ordinary-faculty-type";
 
 describe("planRow", () => {
+  const PENDING = { status: "PENDING", paymentStatus: "UNPAID" };
+
   it("settles a pending, unpaid registration whose speaker is confirmed or still invited", () => {
-    expect(planRow({ status: "PENDING", paymentStatus: "UNPAID" }, "CONFIRMED")).toBe("settle");
-    expect(planRow({ status: "PENDING", paymentStatus: "UNPAID" }, "INVITED")).toBe("settle");
+    expect(planRow(PENDING, "CONFIRMED")).toBe("settle");
+    expect(planRow(PENDING, "INVITED")).toBe("settle");
   });
-  it("settles a registration with no speaker record: a committee member typed onto the type", () => {
-    expect(planRow({ status: "PENDING", paymentStatus: "UNPAID" }, null)).toBe("settle");
+
+  // Review of 2727a13f: nobody confirmed a person with no speaker record, so
+  // approving them is the organiser's to do, not a script's.
+  it("leaves a registration with no speaker record, and says which kind of leave", () => {
+    expect(planRow(PENDING, null)).toBe("leave-no-speaker");
+    expect(planRow(PENDING, null, { cancelDeclined: true })).toBe("leave-no-speaker");
   });
-  it.each(["DECLINED", "CANCELLED"])("cancels the registration of a speaker who is %s", (status) => {
-    expect(planRow({ status: "PENDING", paymentStatus: "UNPAID" }, status)).toBe("cancel");
-    expect(planRow({ status: "CONFIRMED", paymentStatus: "COMPLIMENTARY" }, status)).toBe("cancel");
+
+  // Owner, July 11, 2026: cancelling on a decline is a choice. Someone who
+  // declined to speak may still attend.
+  it.each(["DECLINED", "CANCELLED"])("keeps the registration of a speaker who is %s unless asked to cancel", (status) => {
+    expect(planRow(PENDING, status)).toBe("leave-declined");
+    expect(planRow(PENDING, status, { cancelDeclined: true })).toBe("cancel");
+    expect(planRow({ status: "CONFIRMED", paymentStatus: "COMPLIMENTARY" }, status, { cancelDeclined: true })).toBe("cancel");
   });
+
+  it("never cancels a checked-in registration, or one that money has touched, even when asked", () => {
+    const ask = { cancelDeclined: true };
+    expect(planRow({ status: "CHECKED_IN", paymentStatus: "COMPLIMENTARY" }, "DECLINED", ask)).toBe("leave");
+    for (const paymentStatus of ["PAID", "PENDING", "FAILED", "REFUNDED", "INCLUSIVE"]) {
+      expect(planRow({ status: "CONFIRMED", paymentStatus }, "DECLINED", ask)).toBe("leave");
+    }
+  });
+
   // An event that has ended: cancelling afterwards would rewrite who attended.
   it("never cancels on an event that has ended, and still settles there", () => {
-    expect(planRow({ status: "PENDING", paymentStatus: "UNPAID" }, "DECLINED", true)).toBe("leave");
-    expect(planRow({ status: "CHECKED_IN", paymentStatus: "COMPLIMENTARY" }, "CANCELLED", true)).toBe("leave");
-    expect(planRow({ status: "PENDING", paymentStatus: "UNPAID" }, "CONFIRMED", true)).toBe("settle");
+    expect(planRow(PENDING, "DECLINED", { eventEnded: true, cancelDeclined: true })).toBe("leave-declined");
+    expect(planRow(PENDING, "CONFIRMED", { eventEnded: true })).toBe("settle");
   });
 
   it("leaves what is already in line, and anything already cancelled", () => {
     expect(planRow({ status: "CONFIRMED", paymentStatus: "COMPLIMENTARY" }, "CONFIRMED")).toBe("leave");
-    expect(planRow({ status: "CANCELLED", paymentStatus: "UNPAID" }, "DECLINED")).toBe("leave");
+    expect(planRow({ status: "CANCELLED", paymentStatus: "UNPAID" }, "DECLINED", { cancelDeclined: true })).toBe("leave");
     expect(planRow({ status: "CHECKED_IN", paymentStatus: "PAID" }, "CONFIRMED")).toBe("leave");
   });
 });

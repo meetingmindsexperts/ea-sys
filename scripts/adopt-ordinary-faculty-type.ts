@@ -15,15 +15,22 @@
  *      the type is free and no registration on it carries money: the SAME
  *      guard the automatic adoption uses (adoptableFacultyType), not a copy.
  *      Nobody moves; no seat, barcode or speaker link changes.
- *   2. For each registration on that type:
- *        - its speaker DECLINED or was CANCELLED: the registration is
- *          cancelled, through the one cancel operation (cancelRegistration),
- *          as the decline does for a built-in Faculty registration;
- *        - otherwise: Pending becomes Confirmed and Unpaid becomes
- *          Complimentary, through settleFacultyRegistration, the rule a
- *          speaker's move to Confirmed applies from now on.
- *      Paid, sponsor-paid, checked-in and already cancelled rows are left as
- *      they are. No email is sent to anyone.
+ *   2. For each registration on that type that belongs to a speaker:
+ *        - the speaker is Confirmed or Invited: Pending becomes Confirmed and
+ *          Unpaid becomes Complimentary, through settleFacultyRegistration,
+ *          the rule a speaker's move to Confirmed applies from now on. (The
+ *          built-in Faculty registration of an invited speaker is created
+ *          Confirmed and Complimentary too.)
+ *        - the speaker Declined or was Cancelled: LEFT, and listed, unless
+ *          you pass --cancel-declined. Someone who declined to speak may
+ *          still attend (owner, July 11, 2026: cancelling on a decline is a
+ *          choice, never automatic). With the flag, the registration is
+ *          cancelled through the one cancel operation (cancelRegistration),
+ *          and only when it is not checked in and carries no money.
+ *      A registration with NO speaker record is left and listed: nobody
+ *      confirmed that person, so approving them is yours to do on the sheet.
+ *      Paid, sponsor-paid, checked-in and already cancelled rows are never
+ *      changed by either branch. No email is sent to anyone.
  *
  * An event that has ENDED is handled more gently: its type is marked and its
  * registrations settled, but nothing is cancelled. Cancelling after the fact
@@ -39,20 +46,23 @@
  * It never guesses from a name other than "Faculty": a type called "Speaker"
  * can be a paid category.
  *
- * Safe to run again: a type that is already a Faculty type is not touched, and
- * a registration already in line is reported "unchanged". To finish a run
- * that stopped half way, pass the event and the type.
+ * Safe to run again: a registration already in line is left. To finish a run
+ * that stopped half way, or to come back with --cancel-declined, pass the
+ * event and the type: a type that is already a Faculty type is accepted only
+ * if THIS SCRIPT adopted it (its audit row), never the built-in one, whose
+ * registrations a colleague may have kept on purpose.
  *
  *   docker exec ea-sys-worker npx tsx scripts/adopt-ordinary-faculty-type.ts --all-upcoming             # dry run
  *   docker exec ea-sys-worker npx tsx scripts/adopt-ordinary-faculty-type.ts --all-upcoming --write     # apply
  *   docker exec ea-sys-worker npx tsx scripts/adopt-ordinary-faculty-type.ts --event <eventId> --type <ticketTypeId> [--write]
+ *   add --cancel-declined to either form to cancel the registrations of speakers who declined
  *
  * To undo step 1: set the type's isFaculty back to false. Step 2 is undone on
  * each registration's sheet (status, payment status), and every change is an
  * audit row on that registration.
  */
 import { db } from "../src/lib/db";
-import { adoptableFacultyType, facultyAdoptionBlockFor, planFacultySettle, settleFacultyRegistration } from "../src/lib/speaker-companion";
+import { MONEY_PAYMENT_STATUSES, adoptableFacultyType, facultyAdoptionBlockFor, planFacultySettle, settleFacultyRegistration } from "../src/lib/speaker-companion";
 import { cancelRegistration } from "../src/services/payment-service";
 import { SPEAKER_OUT_STATUSES } from "../src/services/speaker-service";
 import { refreshEventStats } from "../src/lib/event-stats";
@@ -62,23 +72,44 @@ function arg(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-export type RowPlan = "cancel" | "settle" | "leave";
+export type RowPlan =
+  | "settle"
+  | "cancel"
+  /** Already in line, already cancelled, checked in, or money is involved. */
+  | "leave"
+  /** No speaker record: nobody confirmed this person. Listed for the operator. */
+  | "leave-no-speaker"
+  /** The speaker declined, and the operator did not ask for cancellations (or the event has ended). */
+  | "leave-declined";
 
-/**
- * What step 2 does to one registration. Pure, so the dry run and the write agree.
- * On an event that has ended nothing is cancelled: the row is settled or left.
- */
-export function planRow(reg: { status: string; paymentStatus: string }, speakerStatus: string | null, eventEnded = false): RowPlan {
+export interface PlanOptions {
+  /** The event is over: nothing is cancelled. */
+  eventEnded?: boolean;
+  /** The operator passed --cancel-declined. */
+  cancelDeclined?: boolean;
+}
+
+/** Registration statuses a declined speaker's registration may be cancelled from: never a checked-in one. */
+const CANCELLABLE_STATUSES = ["PENDING", "CONFIRMED", "WAITLISTED"];
+
+/** What step 2 does to one registration. Pure, so the dry run and the write agree. */
+export function planRow(reg: { status: string; paymentStatus: string }, speakerStatus: string | null, options: PlanOptions = {}): RowPlan {
   if (reg.status === "CANCELLED") return "leave";
-  const speakerOut = !!speakerStatus && SPEAKER_OUT_STATUSES.has(speakerStatus);
-  if (speakerOut) return eventEnded ? "leave" : "cancel";
-  const { confirm, comp } = planFacultySettle(reg);
-  return confirm || comp ? "settle" : "leave";
+  if (!speakerStatus) return "leave-no-speaker";
+  if (!SPEAKER_OUT_STATUSES.has(speakerStatus)) {
+    const { confirm, comp } = planFacultySettle(reg);
+    return confirm || comp ? "settle" : "leave";
+  }
+  const moneyInvolved = (MONEY_PAYMENT_STATUSES as readonly string[]).includes(reg.paymentStatus);
+  if (!CANCELLABLE_STATUSES.includes(reg.status) || moneyInvolved) return "leave";
+  return options.cancelDeclined && !options.eventEnded ? "cancel" : "leave-declined";
 }
 
 /** One line of the printed plan: what happens to this registration. */
 function describePlan(plan: RowPlan, reg: { status: string; paymentStatus: string }, speakerStatus: string | null): string {
   if (plan === "cancel") return `CANCEL (speaker ${speakerStatus})`;
+  if (plan === "leave-declined") return `LEFT: speaker ${speakerStatus}. Still ${reg.status}, ${reg.paymentStatus}`;
+  if (plan === "leave-no-speaker") return `LEFT: no speaker record. Still ${reg.status}, ${reg.paymentStatus}`;
   if (plan === "leave") return `leave (${reg.status}, ${reg.paymentStatus})`;
   const settle = planFacultySettle(reg);
   const status = settle.confirm ? `${reg.status} -> CONFIRMED` : reg.status;
@@ -107,8 +138,18 @@ async function resolveType(eventId: string, typeArg: string | undefined): Promis
     if (!type.isFaculty) {
       const blocked = await facultyAdoptionBlockFor(eventId, type.id);
       if (blocked) throw new Error(`"${type.name}" cannot be made a Faculty type: ${BLOCK_REASON[blocked]}`);
+      return { id: type.id, name: type.name, alreadyFaculty: false };
     }
-    return { id: type.id, name: type.name, alreadyFaculty: type.isFaculty };
+    // Already a Faculty type: only one this script adopted. The built-in type
+    // holds registrations colleagues may have kept on purpose after a decline.
+    const adoptedHere = await db.auditLog.findFirst({
+      where: { eventId, action: "FACULTY_TYPE_ADOPTED", entityType: "TicketType", entityId: type.id },
+      select: { id: true },
+    });
+    if (!adoptedHere) {
+      throw new Error(`"${type.name}" (${type.id}) is already a Faculty type and was not adopted by this script: it is the built-in one, and this script does not touch it`);
+    }
+    return { id: type.id, name: type.name, alreadyFaculty: true };
   }
   const adoptable = await adoptableFacultyType(eventId);
   if (!adoptable) throw new Error('No ordinary type named "Faculty" on this event. Name the type with --type <ticketTypeId>.');
@@ -139,7 +180,7 @@ async function upcomingTargets(): Promise<Target[]> {
 }
 
 /** Steps 1 and 2 for one event's type. Returns how many registrations failed. */
-async function runTarget({ event, type }: Target, write: boolean): Promise<number> {
+async function runTarget({ event, type }: Target, write: boolean, cancelDeclined: boolean): Promise<number> {
   const eventId = event.id;
   const eventEnded = event.endDate.getTime() < Date.now();
   const registrations = await db.registration.findMany({
@@ -162,7 +203,7 @@ async function runTarget({ event, type }: Target, write: boolean): Promise<numbe
 
   const plans = registrations.map((reg) => {
     const speaker = speakerByReg.get(reg.id) ?? null;
-    return { reg, speaker, plan: planRow(reg, speaker?.status ?? null, eventEnded) };
+    return { reg, speaker, plan: planRow(reg, speaker?.status ?? null, { eventEnded, cancelDeclined }) };
   });
   for (const { reg, speaker, plan } of plans) {
     const who = `#${String(reg.serialId ?? "").padStart(3, "0")} ${reg.attendee.firstName} ${reg.attendee.lastName}`.trim();
@@ -170,7 +211,13 @@ async function runTarget({ event, type }: Target, write: boolean): Promise<numbe
     console.log(`  ${who.padEnd(38)} speaker: ${(speaker?.status ?? "none").padEnd(10)} ${what}`);
   }
   const count = (p: RowPlan) => plans.filter((x) => x.plan === p).length;
-  console.log(`Plan: settle ${count("settle")}, cancel ${count("cancel")}, leave ${count("leave")}`);
+  console.log(
+    `Plan: settle ${count("settle")}, cancel ${count("cancel")}, leave ${count("leave")}` +
+      `, left for you: ${count("leave-declined")} declined speaker(s), ${count("leave-no-speaker")} with no speaker record`,
+  );
+  if (count("leave-declined") > 0 && !eventEnded && !cancelDeclined) {
+    console.log("  Declined speakers keep their registration. Add --cancel-declined to cancel those, or cancel one on its sheet.");
+  }
   if (!write) return 0;
 
   if (!type.alreadyFaculty) {
@@ -190,7 +237,7 @@ async function runTarget({ event, type }: Target, write: boolean): Promise<numbe
 
   const done = { settled: 0, cancelled: 0, unchanged: 0, failed: 0 };
   for (const { reg, speaker, plan } of plans) {
-    if (plan === "leave") { done.unchanged += 1; continue; }
+    if (plan !== "settle" && plan !== "cancel") { done.unchanged += 1; continue; }
     if (plan === "cancel") {
       const res = await cancelRegistration({ registrationId: reg.id, eventId, organizationId: event.organizationId, refund: false, source: "system", issuedByUserId: null });
       if (res.ok || res.code === "ALREADY_CANCELLED") done.cancelled += 1;
@@ -207,12 +254,13 @@ async function runTarget({ event, type }: Target, write: boolean): Promise<numbe
   return done.failed;
 }
 
-const USAGE = "Usage: adopt-ordinary-faculty-type.ts (--all-upcoming | --event <eventId> [--type <ticketTypeId>]) [--write]";
+const USAGE = "Usage: adopt-ordinary-faculty-type.ts (--all-upcoming | --event <eventId> [--type <ticketTypeId>]) [--cancel-declined] [--write]";
 
 async function main() {
   const eventId = arg("--event");
   const allUpcoming = process.argv.includes("--all-upcoming");
   const write = process.argv.includes("--write");
+  const cancelDeclined = process.argv.includes("--cancel-declined");
   if (allUpcoming === !!eventId) throw new Error(USAGE);
   if (allUpcoming && arg("--type")) throw new Error("--type goes with --event, not with --all-upcoming");
 
@@ -230,7 +278,7 @@ async function main() {
   }
 
   let failed = 0;
-  for (const target of targets) failed += await runTarget(target, write);
+  for (const target of targets) failed += await runTarget(target, write, cancelDeclined);
   console.log(write ? `\n${targets.length} event(s) done.` : `\n${targets.length} event(s) in the plan. Nothing was changed. Run again with --write to apply.`);
   if (failed > 0) process.exitCode = 1;
 }

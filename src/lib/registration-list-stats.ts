@@ -23,8 +23,9 @@ import { paidCardNote, summarizePaymentStatuses, type PaymentStatusSummary } fro
  *     `lookalikeFacultyTypes` exists to say so on the page. (An ordinary type
  *     named exactly "Faculty" does become the built-in one, by itself, the
  *     first time the event needs one, when it is free and holds no money:
- *     `ensureFacultyTicketType` in speaker-companion.ts. That cannot happen
- *     once the event has a built-in type, which is the case this flags.)
+ *     `ensureFacultyTicketType` in speaker-companion.ts. That does not happen
+ *     by itself once the event has a built-in type, which is the case this
+ *     flags; scripts/adopt-ordinary-faculty-type.ts does it on request.)
  *
  * Pure and client-safe: the page already holds the rows, so this costs no
  * request and no query.

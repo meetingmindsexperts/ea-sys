@@ -79,8 +79,9 @@ nothing. The first two are HIGH and waiting on the owner.**
 built-in one.~~ DECIDED Nov 12, 2026: no "Move to Faculty" feature.** The ordinary type
 itself is made a Faculty type by a one-off script, `scripts/adopt-ordinary-faculty-type.ts`
 (dry run by default), which also settles the registrations on it and cancels those of
-speakers who declined. **Waiting on the owner: run it on production**, each first
-without `--write` to read the plan:
+speakers who declined when asked to (`--cancel-declined`; without it they are left and
+listed). **Waiting on the owner: run it on production**, each first without `--write`
+to read the plan:
 `docker exec ea-sys-worker npx tsx scripts/adopt-ordinary-faculty-type.ts --all-upcoming`
 (on Nov 12: the 4th GCC Hematology Hub with 34 registrations, and the empty "Faculty"
 types of HEMNET 2026 and Big Sky 2027), and for the Annual Benign Hematology League
@@ -96,6 +97,37 @@ Left for the owner by hand: three GCC Hub speakers sit on the Physician type, Un
 them and a payment reminder will bill them. Not built: settling on a move to Confirmed
 covers the status CHANGE only; a registration imported onto a Faculty type for a
 speaker who is already confirmed stays as imported until the script, or an edit.
+
+**From the review of `2727a13f` (0 BLOCKER, 0 HIGH, 6 MED, 11 LOW).** Five MED were in
+the one-off script and are fixed (cancelling is opt-in and never touches a checked-in or
+paid row; no speaker record means left; the built-in type is refused). Recorded:
+- MED: **after the script an event holds two Faculty types of one name.**
+  `ensureFacultyTicketType` returns the OLDEST, and on GCC Hub the adopted type (July)
+  is older than the built-in one (October), so new speakers' registrations and Add
+  Registration, Faculty go to the adopted type from then on. Both are Faculty types, so
+  counts and the door are unaffected; the type filter shows "Faculty" twice, and an
+  event that maps DTCM sections per type must map both (GCC Hub has no DTCM set up). The
+  two cannot be merged in the app.
+- MED: **confirm follows the TYPE, decline follows who made the registration.** A
+  speaker's move to Confirmed settles any Faculty-type registration; a move to Declined
+  offers to cancel only a system-made one (`createdSource` SPEAKER_COMPANION). For an
+  adopted or imported row a decline only reminds the organiser. One of the two keys
+  should be chosen for both.
+- LOW, listed only: the "settled" notice says Confirmed and Complimentary when only one
+  changed; a confirmed speaker whose registration was cancelled on an earlier decline is
+  told nothing; the delegate-type notice fires even when that registration needs
+  nothing; "money" is read from the payment status alone, not from payment rows; a
+  speaker CREATED as confirmed (form, CSV, agent bulk) does not settle a registration it
+  links by email; the CSV import settles without reporting it; a role with
+  `speakers.update` now changes a registration's status and payment; the script's wait
+  for audit rows is a fixed four seconds; the settle does not mint a missing entry
+  barcode; the Registrations list can show the old status for up to five minutes.
+- Older: `linkExistingRegistration` matches a speaker to a registration by address with
+  `{ equals, mode: "insensitive" }`, where `_` is a wildcard (the like-escape rule), so
+  a speaker can be linked to another person's registration, and the settle then confirms
+  whatever is linked. A price or rate can be put on a Faculty type. The automatic
+  adoption writes no audit row. CLAUDE.md says `sourceRegistrationId` is set only on the
+  import-registrations path; the companion create and the link by address set it too.
 
 **LOW, listed only.**
 - "Added by staff" also covers Import from Contacts and API-key creates; a phone

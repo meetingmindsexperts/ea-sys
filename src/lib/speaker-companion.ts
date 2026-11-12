@@ -24,7 +24,7 @@ import { Prisma, type Title, type AttendeeRole, type SpeakerStatus } from "@pris
 export const SPEAKER_FACULTY_FALLBACK_NAME = "Faculty (speakers)";
 
 /** Payment states that mean money was taken, owed or covered: a type holding any is never adopted. */
-const MONEY_PAYMENT_STATUSES = ["PAID", "PENDING", "REFUNDED", "FAILED", "INCLUSIVE"] as const;
+export const MONEY_PAYMENT_STATUSES = ["PAID", "PENDING", "REFUNDED", "FAILED", "INCLUSIVE"] as const;
 
 /**
  * An ordinary "Faculty" type the speakers' type may take over, or null.
@@ -78,9 +78,12 @@ export async function facultyAdoptionBlockFor(eventId: string, ticketTypeId: str
  * uncapped, `isFaculty: true` (excluded from public registration + paid
  * capacity). Rare concurrent duplicates are harmless — companions just use one.
  *
- * Never a second type called "Faculty" (Oct 19, 2026): an ordinary "Faculty"
- * already on the event is adopted when that is safe, and otherwise the new
- * type is named "Faculty (speakers)" so the two can be told apart.
+ * Never CREATES a second type called "Faculty" (Oct 19, 2026): an ordinary
+ * "Faculty" already on the event is adopted when that is safe, and otherwise
+ * the new type is named "Faculty (speakers)" so the two can be told apart.
+ * Events from before that can still hold two, and the one-off script
+ * (scripts/adopt-ordinary-faculty-type.ts) leaves both as Faculty types: this
+ * returns the OLDEST, so new companions then go to whichever was made first.
  */
 export async function ensureFacultyTicketType(eventId: string): Promise<string> {
   const existing = await db.ticketType.findFirst({
