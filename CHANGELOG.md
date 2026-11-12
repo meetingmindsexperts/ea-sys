@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM: the product catalogue and Reports are for admins (November 12)
+
+Owner: "restrict adding products and reports to Admins in CRM." Then, asked how far: the whole catalogue, and the Reports page only.
+
+- **Only admins change the product catalogue**: add, edit, archive, restore and link a product to QuickBooks. The sales team (CRM User) still opens Products, sees the same list with no buttons, and still puts products on deals at the price they type. A quote that cannot go to QuickBooks because a product is not linked now tells a salesperson that an admin links it, instead of sending them to a page with no Link button
+- **Only admins open Reports.** The tab is hidden for everyone else, and someone who opens the address is told Reports are for admins. **CRM Home is unchanged for the sales team**: it keeps the open pipeline total and the win rate
+- **The assistant follows the same rule**: `create_crm_product`, `update_crm_product` and `get_crm_report` are no longer offered to a CRM User. Admins and a full organisation API key keep them. Package 0.4.59 to 0.4.60: connected MCP clients reconnect
+- **A named person can be given either back**: two new ticks in the role editor, "Manage the product catalogue" and "See CRM reports"
+- How: two permission keys, `crm.products.manage` and `crm.reports.view`, held by ADMIN and SUPER_ADMIN. Every handler under `/api/crm/products` that changes the catalogue asks the first after the write gate, and for a product it alone decides archive and restore (`crm.delete` is about deals and accounts). `GET /api/crm/reports` asks the second; Home reads the new `/api/crm/reports/headline`, a pick from the same report (so the tile and the Reports page cannot disagree) that returns the two totals and nothing else. A source test lists every handler that must ask
+- In production this changes what the 2 CRM User accounts can do, and nobody else
+
 ### Header: search in the event switcher; Registrations: Email All opens Communications (November 12)
 
 Owner: "add search in Event Switcher in the header" and "redirect email all cta in registrations to communications."

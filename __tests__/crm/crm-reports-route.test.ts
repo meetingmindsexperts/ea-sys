@@ -16,6 +16,8 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/crm/lib/crm-route", async () => ({
   // The REAL permission check: routes ask `crmCan` since custom roles Phase 2.
   crmCan: (await vi.importActual<typeof import("@/crm/lib/crm-visibility")>("@/crm/lib/crm-visibility")).crmCan,
+  // And the REAL reports gate (admins only since Nov 12, 2026).
+  denyCrmReports: (await vi.importActual<typeof import("@/crm/lib/crm-visibility")>("@/crm/lib/crm-visibility")).denyCrmReports,
   requireCrmRead: vi.fn(async () => ({
     ctx: { organizationId: "org-1", userId: "u-1", role: "ADMIN", fromApiKey: false },
   })),

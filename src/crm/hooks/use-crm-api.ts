@@ -969,6 +969,26 @@ export function useCrmReport(filters: Record<string, string | undefined> = {}) {
   });
 }
 
+/** CRM Home's two totals: the open pipeline and the win rate, over every deal. */
+export interface CrmReportHeadline {
+  canSeeValues: boolean;
+  pipeline: Pick<CrmReport["pipeline"], "openCount" | "openValue" | "openCurrency" | "openMixed">;
+  winLoss: Pick<CrmReport["winLoss"], "wonCount" | "lostCount" | "winRate">;
+}
+
+/**
+ * Home's totals, which everyone in the CRM may read. NOT `useCrmReport`: the
+ * report is admins only (`crm.reports.view`), and a salesperson's Home asking
+ * for it would be refused. Keyed under the reports prefix, so whatever
+ * refreshes the report refreshes these.
+ */
+export function useCrmReportHeadline() {
+  return useQuery({
+    queryKey: ["crm", "report", "headline"],
+    queryFn: () => apiFetch<CrmReportHeadline>("/api/crm/reports/headline"),
+  });
+}
+
 
 // ── Change log (system activity) ──────────────────────────────────────────────
 

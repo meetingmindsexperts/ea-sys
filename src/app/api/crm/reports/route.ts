@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { requireCrmRead, crmCan } from "@/crm/lib/crm-route";
+import { requireCrmRead, denyCrmReports, crmCan } from "@/crm/lib/crm-route";
 
 import { buildCrmReport } from "@/crm/services/report-service";
 import { parseReportDimension } from "@/crm/lib/reports";
@@ -17,12 +17,18 @@ import { parseReportDimension } from "@/crm/lib/reports";
  * a MEMBER gets counts + win-rate but every VALUE comes back null (rendered as "—",
  * never a fabricated 0).
  *
+ * Admins only since Nov 12, 2026 (`crm.reports.view`, asked after the read
+ * gate). CRM Home's two totals have their own door, ./headline, which everyone
+ * in the CRM may read.
+ *
  * The assembly lives in report-service (review R2-M9) — ONE implementation shared
  * with the MCP `get_crm_report` tool, which used to carry its own thinner copy.
  */
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  const denied = denyCrmReports(ctx); // logs its own refusal
+  if (denied) return denied;
   // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
   return await runWithTenant(ctx.organizationId, async () => {
 

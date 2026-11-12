@@ -3,14 +3,16 @@
  *
  * GET (read): seeds the built-in list on first use, then lists. Prices are stripped
  * for MEMBER by redactForCaller (`price` is in FINANCIAL_KEYS, like `dealValue`).
- * POST (write): create a catalog product.
+ * POST: create a catalog product. Admins only since Nov 12, 2026
+ * (`crm.products.manage`, asked after the write gate): the sales team reads
+ * the catalogue and never changes it.
  */
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
+import { requireCrmRead, requireCrmWrite, denyCrmProductsManage, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
 import { ensureCrmProducts, listCrmProducts, createCrmProduct } from "@/crm/services/crm-product-service";
 
 export async function GET(req: Request) {
@@ -47,6 +49,8 @@ const createSchema = z.object({
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  const denied = denyCrmProductsManage(ctx); // logs its own refusal
+  if (denied) return denied;
   // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
   return await runWithTenant(ctx.organizationId, async () => {
 

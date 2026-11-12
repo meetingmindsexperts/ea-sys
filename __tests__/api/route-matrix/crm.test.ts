@@ -85,6 +85,8 @@ import { PATCH as h66, DELETE as h67 } from "@/app/api/crm/products/[productId]/
 import { GET as h68, POST as h69 } from "@/app/api/crm/products/route";
 import { POST as h70 } from "@/app/api/crm/purge/route";
 import { GET as h71 } from "@/app/api/crm/reports/route";
+// CRM Home's two totals (Nov 12, 2026): on the read gate alone, while the report is admins only.
+import { GET as hHeadline } from "@/app/api/crm/reports/headline/route";
 // Corporate projects (Nov 12, 2026)
 import { GET as hProjList, POST as hProjCreate } from "@/app/api/crm/projects/route";
 import { GET as hProjGet, PATCH as hProjPatch, DELETE as hProjDelete } from "@/app/api/crm/projects/[projectId]/route";
@@ -175,6 +177,7 @@ const CASES: HandlerCase[] = [
   { name: "POST crm/products", handler: h69, method: "POST", body: {}, ...org },
   { name: "POST crm/purge", handler: h70, method: "POST", body: {}, ...org },
   { name: "GET crm/reports", handler: h71, method: "GET", ...org },
+  { name: "GET crm/reports/headline", handler: hHeadline, method: "GET", ...org },
   { name: "GET crm/reps", handler: h72, method: "GET", ...org },
   { name: "GET crm/sponsor-email/recipients", handler: h73, method: "GET", ...org },
   { name: "POST crm/sponsor-email/send", handler: h74, method: "POST", body: {}, ...org },

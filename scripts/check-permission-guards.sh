@@ -335,6 +335,7 @@ SWEPT=(
   "src/app/api/crm/quickbooks/tax-codes/route.ts"
   "src/app/api/crm/purge/route.ts"
   "src/app/api/crm/reports/route.ts"
+  "src/app/api/crm/reports/headline/route.ts"
   "src/app/api/crm/reps/route.ts"
   "src/app/api/crm/sponsor-email/preview/route.ts"
   "src/app/api/crm/sponsor-email/recipients/route.ts"

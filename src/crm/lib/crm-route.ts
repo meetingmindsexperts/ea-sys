@@ -23,7 +23,7 @@ import { crmCan, denyCrmAccess, denyCrmWrite, denyCrmDelete, denyCrmPurge, denyC
 
 // Re-exported so route handlers have one import site (the PATCH restore branch
 // calls this inline after requireCrmWrite).
-export { crmCan, denyCrmDelete } from "@/crm/lib/crm-visibility";
+export { crmCan, denyCrmDelete, denyCrmProductsManage, denyCrmReports } from "@/crm/lib/crm-visibility";
 
 /**
  * Resolve the caller and enforce the CRM read gate in one step.

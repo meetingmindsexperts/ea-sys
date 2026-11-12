@@ -258,18 +258,29 @@ export function registerCrmMcpTools(
   const auditSource = actor.source ?? "mcp";
   const canSeeValues = holds("crm.dealValues.view");
   const canWrite = holds("crm.write");
+  // Admins only since Nov 12, 2026: the catalogue (create and update a
+  // product) and the report. Not registered for anyone else, like every tool
+  // a caller may not use; list_crm_products and the deal line tools stay.
+  const canManageProducts = canWrite && holds("crm.products.manage");
+  const canSeeReports = holds("crm.reports.view");
 
   /**
    * Registrar for the MUTATING tools. A caller who may read the board but not
    * write it (MEMBER) simply never sees them — not registered, rather than
    * registered-and-403, so the tool list itself tells the truth.
    */
-  const writeServer = {
-    tool: ((...args: Parameters<McpServer["tool"]>) => {
-      if (!canWrite) return;
-      server.tool(...args);
-    }) as McpServer["tool"],
-  } as McpServer;
+  const registrarFor = (allowed: boolean) =>
+    ({
+      tool: ((...args: Parameters<McpServer["tool"]>) => {
+        if (!allowed) return;
+        server.tool(...args);
+      }) as McpServer["tool"],
+    }) as McpServer;
+  const writeServer = registrarFor(canWrite);
+  /** The catalogue tools (create and update a product): `crm.products.manage`. */
+  const catalogueServer = registrarFor(canManageProducts);
+  /** The report tool: `crm.reports.view`. */
+  const reportServer = registrarFor(canSeeReports);
   // Same error contract as the core registrations: a thrown error becomes an
   // MCP `isError` text response with the real message, logged server-side.
   async function safeTool(
@@ -859,7 +870,7 @@ export function registerCrmMcpTools(
 
   // ── Report ──────────────────────────────────────────────────────────────────
 
-  server.tool(
+  reportServer.tool(
     "get_crm_report",
     "Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional eventId filter (the event's own deals and those of a corporate project linked to it) or projectId filter. Optional groupBy adds a breakdown by ONE dimension: pipeline, owner, event (the event a deal counts under), project (corporate project), attribution (event or project: every deal under exactly one heading), dealType, lostReason, expectedCloseMonth or closedMonth (each row: deals, open/won/lost counts and values, win rate). Money is currency-aware — a bucket mixing currencies reports 'mixed' rather than a fake sum.",
     { eventId: z.string().optional(), projectId: z.string().optional(), groupBy: z.enum(CRM_REPORT_DIMENSIONS).optional() },
@@ -1293,7 +1304,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  writeServer.tool(
+  catalogueServer.tool(
     "create_crm_product",
     "Add a product/service to the org catalog. Required: name, category. Optional: sku, source (IN_HOUSE/OUTSOURCED, default IN_HOUSE), price (default 0), currency (default AED), priceIncludesTax.",
     {
@@ -1323,7 +1334,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  writeServer.tool(
+  catalogueServer.tool(
     "update_crm_product",
     "Update a catalog product: name, category, sku, source (IN_HOUSE/OUTSOURCED), price, currency, priceIncludesTax. Only the fields you pass change. Editing a product does NOT rewrite line items already on deals — those are snapshots.",
     {

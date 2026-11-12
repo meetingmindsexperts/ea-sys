@@ -138,6 +138,55 @@ export function denyCrmExport(ctx: CrmCaller) {
 }
 
 /**
+ * Returns a 403 if the caller may not change the PRODUCT CATALOGUE (add, edit,
+ * archive, restore, link to QuickBooks), else null.
+ *
+ * Admins only (owner, Nov 12, 2026): the sales team reads the catalogue and
+ * puts its products on deals at the price they type, and never changes the
+ * catalogue itself. Asked AFTER the write gate by every handler under
+ * /api/crm/products (a source test lists them). For a product this key alone
+ * decides archive and restore; `crm.delete` is about deals and accounts.
+ * Logs its own refusal.
+ */
+export function denyCrmProductsManage(ctx: CrmCaller) {
+  if (crmCan(ctx, "crm.products.manage")) return null;
+
+  apiLogger.warn({
+    msg: "auth-guard:crm-products-manage-denied",
+    role: ctx.role,
+    userId: ctx.userId,
+    fromApiKey: ctx.fromApiKey,
+  });
+  return NextResponse.json(
+    { error: "Only admins can change the product catalogue", code: "CRM_PRODUCTS_FORBIDDEN" },
+    { status: 403 },
+  );
+}
+
+/**
+ * Returns a 403 if the caller may not open CRM REPORTS (the pipeline by stage,
+ * won and lost, each person's results, the breakdowns), else null.
+ *
+ * Admins only (owner, Nov 12, 2026). CRM Home's two totals are NOT this: they
+ * come from /api/crm/reports/headline, which everyone in the CRM may read
+ * (owner: "Reports page only"). Logs its own refusal.
+ */
+export function denyCrmReports(ctx: CrmCaller) {
+  if (crmCan(ctx, "crm.reports.view")) return null;
+
+  apiLogger.warn({
+    msg: "auth-guard:crm-reports-denied",
+    role: ctx.role,
+    userId: ctx.userId,
+    fromApiKey: ctx.fromApiKey,
+  });
+  return NextResponse.json(
+    { error: "Only admins can open CRM reports", code: "CRM_REPORTS_FORBIDDEN" },
+    { status: 403 },
+  );
+}
+
+/**
  * Returns a 403 if the caller may not PERMANENTLY delete (purge) archived CRM
  * records, else null.
  *

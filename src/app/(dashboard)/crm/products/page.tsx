@@ -6,6 +6,10 @@
  * Seeded from Meeting Minds' service list on first load, then editable. Products are
  * added to deals as line items (Deals → a deal → Products). Prices are finance-gated:
  * a MEMBER sees the catalog but prices render "—" (redacted server-side).
+ *
+ * Changing the catalogue (add, edit, archive, restore, link to QuickBooks) is
+ * admins only since Nov 12, 2026 (`crm.products.manage`; the routes enforce it).
+ * Everyone else in the CRM sees the same list with no buttons.
  */
 import { useMemo, useState } from "react";
 import { useCan } from "@/hooks/use-can";
@@ -35,13 +39,17 @@ function listView(isLoading: boolean, isError: boolean, empty: boolean): ListVie
   return "list";
 }
 
+function emptyCatalogueHint(canManage: boolean): string {
+  return canManage ? "Your catalog seeds on first load — reload in a moment, or add one." : "Your catalog seeds on first load. Reload in a moment.";
+}
+
 function emptyProductsTitle(noProducts: boolean, archived: boolean): string {
   if (!noProducts) return "No products match";
   return archived ? "No archived products" : "No products yet";
 }
 
 export default function CrmProductsPage() {
-  const canWrite = useCan("crm.write") === "allowed";
+  const canManage = useCan("crm.products.manage") === "allowed";
 
   const [q, setQ] = useState("");
   const [category, setCategory] = useState<string>(ALL_CATEGORIES);
@@ -76,8 +84,9 @@ export default function CrmProductsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Your service catalog. Add these to deals as line items to itemize what you&rsquo;re selling.
+          {!canManage && " Only admins add or change products."}
         </p>
-        {canWrite && (
+        {canManage && (
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             New product
@@ -127,11 +136,11 @@ export default function CrmProductsPage() {
           title={emptyProductsTitle(products.length === 0, showArchived)}
           description={
             products.length === 0
-              ? "Your catalog seeds on first load — reload in a moment, or add one."
+              ? emptyCatalogueHint(canManage)
               : "Try clearing the search or the category filter."
           }
           action={
-            canWrite && products.length === 0 && !showArchived ? (
+            canManage && products.length === 0 && !showArchived ? (
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 New product
@@ -151,12 +160,12 @@ export default function CrmProductsPage() {
                 <TableHead>Sourcing</TableHead>
                 <TableHead className="text-right">List price</TableHead>
                 {qboRealm && <TableHead>QuickBooks</TableHead>}
-                {canWrite && <TableHead className="w-24" />}
+                {canManage && <TableHead className="w-24" />}
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((p) => (
-                <ProductRow key={p.id} product={p} canWrite={canWrite} categories={categories} qboRealm={qboRealm} />
+                <ProductRow key={p.id} product={p} canManage={canManage} categories={categories} qboRealm={qboRealm} />
               ))}
             </TableBody>
           </Table>
@@ -177,17 +186,17 @@ export default function CrmProductsPage() {
 
 function ProductRow({
   product,
-  canWrite,
+  canManage,
   categories,
   qboRealm,
 }: {
   product: CrmProductRow;
-  canWrite: boolean;
+  /** May change the catalogue: edit, archive, restore, link to QuickBooks (one key decides all four). */
+  canManage: boolean;
   categories: string[];
   /** The connected QuickBooks company, or null when not connected (no column). */
   qboRealm: string | null;
 }) {
-  const canDelete = useCan("crm.delete") === "allowed";
   const [editOpen, setEditOpen] = useState(false);
   const setArchived = useSetCrmProductArchived(product.id);
   const archived = !!product.archivedAt;
@@ -213,10 +222,10 @@ function ProductRow({
       </TableCell>
       {qboRealm && (
         <TableCell>
-          <ProductQuickBooksCell product={product} canWrite={canWrite && !archived} currentRealm={qboRealm} />
+          <ProductQuickBooksCell product={product} canWrite={canManage && !archived} currentRealm={qboRealm} />
         </TableCell>
       )}
-      {canWrite && (
+      {canManage && (
         <TableCell>
           <div className="flex items-center justify-end gap-1">
             {!archived && (
@@ -224,26 +233,25 @@ function ProductRow({
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
             )}
-            {canDelete &&
-              (archived ? (
-                <Button size="icon" variant="ghost" className="h-8 w-8" disabled={setArchived.isPending} onClick={() => setArchived.mutate(false)} aria-label="Restore product">
-                  <ArchiveRestore className="h-3.5 w-3.5" />
-                </Button>
-              ) : (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                  disabled={setArchived.isPending}
-                  aria-label="Archive product"
-                  onClick={() => {
-                    if (!confirm(`Archive "${product.name}"? It will be hidden from the catalog and the deal picker. You can restore it later.`)) return;
-                    setArchived.mutate(true);
-                  }}
-                >
-                  {setArchived.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
-                </Button>
-              ))}
+            {archived ? (
+              <Button size="icon" variant="ghost" className="h-8 w-8" disabled={setArchived.isPending} onClick={() => setArchived.mutate(false)} aria-label="Restore product">
+                <ArchiveRestore className="h-3.5 w-3.5" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                disabled={setArchived.isPending}
+                aria-label="Archive product"
+                onClick={() => {
+                  if (!confirm(`Archive "${product.name}"? It will be hidden from the catalog and the deal picker. You can restore it later.`)) return;
+                  setArchived.mutate(true);
+                }}
+              >
+                {setArchived.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
+              </Button>
+            )}
           </div>
           <CrmProductDialog
             key={editOpen ? `edit-${product.id}-open` : "edit-closed"}

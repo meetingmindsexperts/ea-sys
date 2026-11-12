@@ -245,6 +245,19 @@ CSV calls it**, keyed on the source containing `toCsv`/`text/csv` — because th
 failure mode is a future third export route reaching for `requireCrmRead` like
 its neighbours do.
 
+**Two keys only an admin holds by role (owner, Nov 12, 2026).**
+`crm.products.manage`: every change to the product catalogue (add, edit,
+archive, restore, link to QuickBooks). Each handler under `/api/crm/products`
+that changes it calls `denyCrmProductsManage(ctx)` after `requireCrmWrite`; for
+a product this key alone decides archive and restore. Reading the catalogue and
+putting a product on a deal stay with everyone who works deals.
+`crm.reports.view`: the Reports page, `GET /api/crm/reports` (`denyCrmReports`)
+and the `get_crm_report` tool. CRM Home's two totals are deliberately NOT behind
+it: they come from `/api/crm/reports/headline`, a pick from the same report, on
+the read gate alone. Never add a field to the headline without asking whether it
+belongs behind the key. `crm-admin-only-keys.test.ts` reads the route sources,
+so a new product or report handler fails until it asks.
+
 **Roles that reach the CRM:** SUPER_ADMIN / ADMIN / ORGANIZER (full, via the event platform), **MEMBER** (read-only, no money), and **`CRM_USER`** — a dedicated sales-team role CONFINED to the CRM (full pipeline + sees deal values, but blocked from events/registrations/invoices/settings via the proxy redirect, a zero-event `buildEventAccessWhere` branch, `denyReviewer`, and the sidebar). CRM_USER is NOT in `FINANCE_ROLES` (CRM deal money ≠ event finance). It uses `/api/crm/events-lite` for the name-only event picker since it has no event-API access.
 
 `CrmDeal.dealValue` is in `FINANCIAL_KEYS`, so the existing `redactFinancialFields`

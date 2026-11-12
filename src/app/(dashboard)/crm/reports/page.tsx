@@ -8,9 +8,13 @@ import { useCan } from "@/hooks/use-can";
  * always means "a report of what I'm filtered to". Money is finance-gated end to
  * end: a MEMBER sees counts + win-rate, values render "—" (never a fabricated 0),
  * and the CSV export drops the value columns entirely — the SERVER enforces both.
+ *
+ * Admins only since Nov 12, 2026 (`crm.reports.view`; the route is the
+ * authority). Anyone else who opens the address is told so, and the report is
+ * never asked for: the tab is hidden for them in crm-shell.
  */
 import { Suspense } from "react";
-import { BarChart3, Download, Layers, Percent, TrendingUp, Trophy, Users, X } from "lucide-react";
+import { BarChart3, Download, Layers, Lock, Percent, TrendingUp, Trophy, Users, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +41,7 @@ import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { useCrmReport, useCrmDealTypes } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
+import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { CRM_DEAL_PIPELINES, CRM_DEAL_PIPELINE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
 import {
@@ -476,10 +481,38 @@ function exportParamName(key: string): string {
   return key;
 }
 
+/**
+ * Asks the permission BEFORE mounting the report, so a person without it never
+ * sends a request that can only be refused (a 403 in their console and a
+ * "could not load" card that is not true).
+ */
+function ReportsGate() {
+  const access = useCan("crm.reports.view");
+  if (access === "loading") {
+    return (
+      <div className="p-6">
+        <ReportSkeleton />
+      </div>
+    );
+  }
+  if (access === "denied") {
+    return (
+      <div className="p-6">
+        <CrmEmptyState
+          icon={Lock}
+          title="Reports are for admins"
+          description="Your deals, tasks and the open pipeline total are on CRM Home. Ask an admin if you need a report."
+        />
+      </div>
+    );
+  }
+  return <ReportsInner />;
+}
+
 export default function CrmReportsPage() {
   return (
     <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
-      <ReportsInner />
+      <ReportsGate />
     </Suspense>
   );
 }

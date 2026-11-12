@@ -339,6 +339,10 @@ const ADMIN_EXTRA: PermissionKey[] = [
   "crm.delete",
   "crm.export",
   "crm.quoteDefaults.manage",
+  // The product catalogue and Reports: admins only (owner, Nov 12, 2026).
+  // CRM_USER works deals and never holds either; a custom role may add them.
+  "crm.products.manage",
+  "crm.reports.view",
   "procurement.requests.manage",
   "procurement.catalogue.manage",
   "procurement.integrations.manage",
@@ -588,6 +592,12 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
         "crm.export",
         "crm.inbox.read",
         "crm.dealValues.view",
+        // What a key already reached before these two keys existed (Nov 12,
+        // 2026): the product tools and routes, and get_crm_report. Only an
+        // admin issues a key, so a full key keeps them; a key bound to a
+        // custom role follows that role.
+        "crm.products.manage",
+        "crm.reports.view",
         // The list_media tool (one tool-permission list since Oct 7, 2026).
         "media.library.manage",
         "finance.view",

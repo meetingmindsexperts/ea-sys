@@ -248,3 +248,32 @@ export async function buildCrmReport(args: {
 
   return { pipeline, winLoss, reps, breakdown };
 }
+
+/**
+ * CRM Home's two totals: the open pipeline and the win rate, over every deal.
+ *
+ * Reports is admins only (`crm.reports.view`, Nov 12, 2026) and Home is not
+ * (owner: "Reports page only"), so Home reads THIS and never the report. It is
+ * a PICK from `buildCrmReport` with no filters, on purpose: a second set of
+ * queries would be a second answer to "how much is open", and the tile and the
+ * Reports page would one day disagree. What is left out is the point of the
+ * key: the stages, the won and lost values, each person's results, the
+ * breakdowns and every filter.
+ */
+export interface CrmReportHeadline {
+  pipeline: Pick<PipelineSummary, "openCount" | "openValue" | "openCurrency" | "openMixed">;
+  winLoss: Pick<WinLoss, "wonCount" | "lostCount" | "winRate">;
+}
+
+export async function buildCrmReportHeadline(args: { organizationId: string; canSeeValues: boolean }): Promise<CrmReportHeadline> {
+  const { pipeline, winLoss } = await buildCrmReport({ organizationId: args.organizationId, canSeeValues: args.canSeeValues, filters: {} });
+  return {
+    pipeline: {
+      openCount: pipeline.openCount,
+      openValue: pipeline.openValue,
+      openCurrency: pipeline.openCurrency,
+      openMixed: pipeline.openMixed,
+    },
+    winLoss: { wonCount: winLoss.wonCount, lostCount: winLoss.lostCount, winRate: winLoss.winRate },
+  };
+}

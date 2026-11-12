@@ -48,6 +48,8 @@ const PREDICATES: Record<string, { roles: RolePredicate; apiKey?: ApiKeyPredicat
   "crm.delete": key("crm.delete"),
   "crm.export": key("crm.export"),
   "crm.quoteDefaults.manage": key("crm.quoteDefaults.manage"),
+  "crm.products.manage": key("crm.products.manage"),
+  "crm.reports.view": key("crm.reports.view"),
   "crm.purge": key("crm.purge"),
   TEAM_ROLES: { roles: (r) => (TEAM_ROLES as readonly string[]).includes(r) },
   ASSIGNABLE_USER_ROLES: { roles: (r) => (ASSIGNABLE_USER_ROLES as readonly string[]).includes(r) },

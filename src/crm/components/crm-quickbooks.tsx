@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api-fetch";
+import { useCan } from "@/hooks/use-can";
 import {
   useCrmQuickBooksStatus,
   useLinkCompanyToQuickBooks,
@@ -356,30 +357,39 @@ export function QuickBooksProductsPanel({ unlinkedCount }: { unlinkedCount: numb
 
 // ── Deal: send a quote ────────────────────────────────────────────────────────
 
-/** Where the rep goes to fix each kind of problem. */
-function fixLink(p: QuickBooksProblem, companyId: string | null): { href: string; label: string } | null {
+type ProblemFix = { href: string; label: string } | { note: string } | null;
+
+/**
+ * Where the rep goes to fix each kind of problem. Linking a product is part of
+ * the catalogue, which only admins change (crm.products.manage, Nov 12, 2026):
+ * a person who cannot is told who can, never sent to a page with no Link button.
+ */
+function fixLink(p: QuickBooksProblem, companyId: string | null, canManageProducts: boolean): ProblemFix {
   if (p.code === "CUSTOMER_NOT_LINKED" || p.code === "CURRENCY_MISMATCH") {
     return companyId ? { href: `/crm/accounts/${companyId}`, label: "Open the account" } : null;
   }
+  if (p.code === "PRODUCT_NOT_LINKED" && !canManageProducts) return { note: "An admin links it on the Products page." };
   if (p.code === "PRODUCT_NOT_LINKED" || p.code === "TAX_CODES_NOT_SET") return { href: "/crm/products", label: "Open Products" };
   return null;
 }
 
 function ProblemList({ problems, companyId }: { problems: Array<{ code: string; message: string }>; companyId: string | null }) {
+  const canManageProducts = useCan("crm.products.manage") === "allowed";
   return (
     <ul className="space-y-1.5">
       {problems.map((p, i) => {
-        const fix = fixLink(p as QuickBooksProblem, companyId);
+        const fix = fixLink(p as QuickBooksProblem, companyId, canManageProducts);
         return (
           <li key={`${p.code}-${i}`} className="flex items-start gap-2 text-sm">
             <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
             <span>
               {p.message}
-              {fix && (
+              {fix && "href" in fix && (
                 <Link href={fix.href} className="ml-1.5 text-primary hover:underline">
                   {fix.label}
                 </Link>
               )}
+              {fix && "note" in fix && <span className="ml-1.5 text-muted-foreground">{fix.note}</span>}
             </span>
           </li>
         );

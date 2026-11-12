@@ -145,7 +145,8 @@ export const TOOL_PERMISSIONS: Readonly<Record<string, PermissionKey>> = {
   list_crm_contacts: "crm.read",
   list_crm_products: "crm.read",
   list_crm_deal_products: "crm.read",
-  get_crm_report: "crm.read",
+  // The full report is admins only (Nov 12, 2026); CRM Home has its own two totals.
+  get_crm_report: "crm.reports.view",
   create_crm_deal: "crm.write",
   update_crm_deal: "crm.write",
   move_crm_deal_stage: "crm.write",
@@ -158,8 +159,10 @@ export const TOOL_PERMISSIONS: Readonly<Record<string, PermissionKey>> = {
   add_crm_note: "crm.write",
   create_crm_contact: "crm.write",
   update_crm_contact: "crm.write",
-  create_crm_product: "crm.write",
-  update_crm_product: "crm.write",
+  // The catalogue is admins only (Nov 12, 2026). Putting a product on a deal
+  // (add_deal_product) stays with everyone who works deals.
+  create_crm_product: "crm.products.manage",
+  update_crm_product: "crm.products.manage",
   add_deal_product: "crm.write",
   update_deal_product: "crm.write",
   // Budgets
@@ -206,6 +209,8 @@ export const REST_API_KEY_PERMISSIONS: readonly { route: string; permission: Per
   { route: "CSV export under /api/crm/reports (canExportCrm)", permission: "crm.export" },
   { route: "GET /api/crm/inbox (canViewCrmInbox)", permission: "crm.inbox.read" },
   { route: "deal values on /api/crm/* (canViewDealValues)", permission: "crm.dealValues.view" },
+  { route: "POST, PATCH, DELETE /api/crm/products*, PUT .../quickbooks (denyCrmProductsManage)", permission: "crm.products.manage" },
+  { route: "GET /api/crm/reports (denyCrmReports)", permission: "crm.reports.view" },
 ];
 
 /**

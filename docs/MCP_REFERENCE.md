@@ -19,6 +19,8 @@ EA-SYS exposes event management capabilities via the [Model Context Protocol (MC
 
 ### June 25, 2026 — Speaker companion registrations, faculty-aware counts, multi-role certs
 
+**November 12, 2026: the CRM product catalogue and the report are admins only.** `create_crm_product` and `update_crm_product` now ask `crm.products.manage`, and `get_crm_report` asks `crm.reports.view`. Admins and a full organisation API key hold both, so their tool lists do not change. A CRM User (and any custom role without the key) no longer has these three tools; `list_crm_products`, `add_deal_product` and `update_deal_product` are unchanged. Package 0.4.59 → 0.4.60: connected clients reconnect to see the change.
+
 **November 11, 2026: certificates go to the people ASSIGNED them, not to a tag.** `autoIssueTag` is gone from `create_certificate_template` / `update_certificate_template` (a client still sending it has it ignored). Three tools were added: `assign_certificate`, `unassign_certificate` and `list_certificate_recipients`; `list_certificate_templates` now returns `_count.assignments` per template. Assigning people who have already answered the certificate survey to an auto-issuing template, or turning `autoIssueOnSurvey` on for a template whose people have already answered, would email certificates at once, so both are refused with `CONFIRM_SEND_NOW` and a `sendNow` count until repeated with `confirmSendNow` set to that number (a number, not `true`: if more people have answered since, the call is refused again with the new count; `sendNow` counts every certificate those people are then sent, other auto-issue templates they were already owed included, listed in `sendNowByTemplate`). **Sending needs `certificates.issue`**: a caller without it (an organisation API key, for one) is refused with `SEND_NOW_NOT_PERMITTED` and nothing changes; it can still assign people who have not answered yet. All three new tools ask a key the API key already holds (`certificates.read` / `certificates.templates.manage`). Package 0.4.54 → 0.4.55 → 0.4.56 (the `confirmSendNow` type): connected clients reconnect to see the tools.
 
 **September 21, 2026: `delete_review_criterion` and `delete_certificate_template` were removed from the server** (owner decision with the Event Agent architecture review: deletes happen in the dashboard, where the record and its dependants are in view; the in-app agent lost the same two tools). Connected clients reconnect to drop them from their lists.
@@ -337,8 +339,8 @@ No tool opens, edits or deletes a survey, or submits an answer.
 | `create_crm_contact` | Create a CRM business contact — or link to the existing one if the email already exists (deduped on the normalized email). |
 | `update_crm_contact` | Update a CRM contact's fields: firstName, lastName, email (kept deduped), companyId (re-point to another account; null unlinks), jobTitle, phone, mobile, country, notes, ownerEmail (reassign; null uno |
 | `list_crm_products` | List the org's product/service catalog (the sellable items put on deals as line items). |
-| `create_crm_product` | Add a product/service to the org catalog. |
-| `update_crm_product` | Update a catalog product: name, category, sku, source (IN_HOUSE/OUTSOURCED), price, currency, priceIncludesTax. |
+| `create_crm_product` | Add a product/service to the org catalog. Admins only (`crm.products.manage`). |
+| `update_crm_product` | Update a catalog product: name, category, sku, source (IN_HOUSE/OUTSOURCED), price, currency, priceIncludesTax. Admins only (`crm.products.manage`). |
 | `list_crm_deal_products` | List the line-item products on ONE deal, with a currency-aware products total. |
 | `add_deal_product` | Add a catalog product as a line item on a deal. |
 | `update_deal_product` | Update a deal line item's unitPrice and/or quantity. |
@@ -346,7 +348,7 @@ No tool opens, edits or deletes a survey, or submits an answer.
 | `create_crm_task` | Create a CRM follow-up task. |
 | `complete_crm_task` | Mark a CRM task done. |
 | `add_crm_note` | Log a note / call / meeting on a CRM record. |
-| `get_crm_report` | Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional `eventId` or `projectId` filter (the heading says which). Optional `groupBy` (`pipeline`, `owner`, `event`, `project`, `attribution`, `dealType`, `lostReason`, `expectedCloseMonth`, `closedMonth`) adds a breakdown with counts, values and win rate per group. |
+| `get_crm_report` | Admins only (`crm.reports.view`). Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional `eventId` or `projectId` filter (the heading says which). Optional `groupBy` (`pipeline`, `owner`, `event`, `project`, `attribution`, `dealType`, `lostReason`, `expectedCloseMonth`, `closedMonth`) adds a breakdown with counts, values and win rate per group. |
 
 Sponsorship pipeline. Registered from inside the CRM module (`src/crm/agent-tools.ts`) rather than the core registrar, which is why an earlier hand-maintained count missed all 26 of them.
 

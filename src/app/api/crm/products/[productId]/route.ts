@@ -1,15 +1,17 @@
 /**
  * /api/crm/products/[productId] — edit / archive / restore one catalog product.
  *
- * PATCH edits (write-gated) OR restores (`archived:false`, delete-gated). DELETE
- * archives (soft delete, delete-gated: admin + CRM_USER — an ORGANIZER may edit but
- * not archive). Prices stripped for MEMBER by redactForCaller.
+ * Admins only since Nov 12, 2026: every handler asks `crm.products.manage`
+ * after the write gate, and for a product that key alone decides archive and
+ * restore (`crm.delete` is about deals and accounts). PATCH edits OR restores
+ * (`archived:false`); DELETE archives (soft delete). Prices are stripped for a
+ * caller without deal values by redactForCaller.
  */
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { requireCrmWrite, requireCrmDelete, denyCrmDelete, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
+import { requireCrmWrite, denyCrmProductsManage, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
 import { updateCrmProduct, setCrmProductArchived } from "@/crm/services/crm-product-service";
 
 const patchSchema = z.object({
@@ -26,6 +28,8 @@ const patchSchema = z.object({
 export async function PATCH(req: Request, { params }: { params: Promise<{ productId: string }> }) {
   const [{ error, ctx }, { productId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  const denied = denyCrmProductsManage(ctx); // logs its own refusal
+  if (denied) return denied;
   // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
   return await runWithTenant(ctx.organizationId, async () => {
 
@@ -38,8 +42,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ produc
   const { archived, ...fields } = parsed.data;
 
   if (archived !== undefined) {
-    const denied = denyCrmDelete(ctx);
-    if (denied) return denied;
     const result = await setCrmProductArchived({ productId, organizationId: ctx.organizationId, userId: ctx.userId, archived });
     if (!result.ok) return crmErrorResponse(result);
     return NextResponse.json({ product: redactForCaller(result.product, ctx) });
@@ -52,8 +54,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ produc
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ productId: string }> }) {
-  const [{ error, ctx }, { productId }] = await Promise.all([requireCrmDelete(req), params]);
+  const [{ error, ctx }, { productId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  const denied = denyCrmProductsManage(ctx); // logs its own refusal
+  if (denied) return denied;
   // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
   return await runWithTenant(ctx.organizationId, async () => {
 

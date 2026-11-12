@@ -10,10 +10,11 @@
  *
  * It is deliberately ACTION-oriented, not analytics — Reports owns pipeline-by-stage,
  * win/loss and per-rep breakdowns. Everything here links somewhere you'd go to *do*
- * something. All data comes from existing endpoints (report / tasks / deals / inbox /
- * notifications), so there's no new server surface behind this.
+ * something. The two totals come from /api/crm/reports/headline (the report itself is
+ * admins only since Nov 12, 2026); the rest from the tasks / deals / inbox /
+ * notifications endpoints.
  *
- * Finance is gated end to end: the report tells us `canSeeValues`, and money renders
+ * Finance is gated end to end: the totals tell us `canSeeValues`, and money renders
  * "—" for a MEMBER — never a fabricated 0. MEMBER also gets tasks read-only (no
  * complete toggle), matching canOwnDeals everywhere else.
  */
@@ -47,7 +48,7 @@ import {
   useCrmDeals,
   useCrmInboxThreads,
   useCrmNotifications,
-  useCrmReport,
+  useCrmReportHeadline,
   useCrmStages,
   useCrmTasks,
   useUpdateTask,
@@ -101,7 +102,8 @@ export function CrmOverview() {
   const [newDealOpen, setNewDealOpen] = useState(false);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
 
-  const report = useCrmReport({});
+  // The two totals only: the report itself is admins only (crm.reports.view).
+  const report = useCrmReportHeadline();
   const tasksQ = useCrmTasks("mine", "OPEN");
   const dealsQ = useCrmDeals({});
   const inboxQ = useCrmInboxThreads();

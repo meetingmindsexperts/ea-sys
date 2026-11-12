@@ -31,7 +31,8 @@ const TABS = [
   // Staff-only (canViewCrmInbox) — hidden for MEMBER; the API is the real gate.
   { href: "/crm/inbox", label: "Inbox", icon: Inbox, staffOnly: true },
   { href: "/crm/tasks", label: "Tasks", icon: CheckSquare },
-  { href: "/crm/reports", label: "Reports", icon: BarChart3 },
+  // Admins only (crm.reports.view, Nov 12, 2026); the API is the real gate.
+  { href: "/crm/reports", label: "Reports", icon: BarChart3, reportsOnly: true },
   { href: "/crm/activity", label: "Activity", icon: Activity },
   { href: "/crm/products", label: "Products", icon: Package },
   { href: "/crm/templates", label: "Templates", icon: FileText },
@@ -40,7 +41,8 @@ const TABS = [
 export function CrmShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const canSeeInbox = useCan("crm.inbox.read") === "allowed";
-  const tabs = TABS.filter((t) => !t.staffOnly || canSeeInbox);
+  const canSeeReports = useCan("crm.reports.view") === "allowed";
+  const tabs = TABS.filter((t) => (!t.staffOnly || canSeeInbox) && (!t.reportsOnly || canSeeReports));
 
   return (
     <div className="flex flex-col">
