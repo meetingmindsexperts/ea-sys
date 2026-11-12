@@ -2878,7 +2878,11 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
   // Attachments: inline barcode (if rendered) + quote PDF for paid tickets.
   const attachments: NonNullable<SendEmailParams["attachments"]> = [];
   if (barcodeAttachment) attachments.push(barcodeAttachment);
-  if (params.ticketPrice && params.ticketPrice > 0 && params.organizationName && !params.coveredByGroupPayerName && !params.coveredBySponsorName) {
+  // A quote is for money still to be paid: none when a code covers the whole
+  // fee (review of 2ee430e4: the payment box was dropped, the quote for 0.00
+  // with bank details still attached).
+  const feeAfterDiscount = Number(params.ticketPrice ?? 0) - Math.min(Number(params.discountAmount ?? 0), Number(params.ticketPrice ?? 0));
+  if (params.ticketPrice && params.ticketPrice > 0 && feeAfterDiscount > 0 && params.organizationName && !params.coveredByGroupPayerName && !params.coveredBySponsorName) {
     try {
       const { generateQuotePDF } = await import("@/lib/quote-pdf");
       const pdfBuffer = await generateQuotePDF({

@@ -68,6 +68,7 @@ vi.mock("@/lib/email-barcode", () => ({ buildEntryBarcode: vi.fn(), templateUses
 vi.mock("@/lib/email-change", () => ({ normalizeEmail: vi.fn(), repointOrgContactEmail: vi.fn() }));
 
 import { POST } from "@/app/api/events/[eventId]/registrations/[registrationId]/email/route";
+import { getEventTemplate } from "@/lib/email";
 
 const params = Promise.resolve({ eventId: "ev1", registrationId: "reg1" });
 const send = (body: Record<string, unknown>) =>
@@ -121,9 +122,18 @@ describe("payment reminder to one registration", () => {
     expect((await refusal({ ticketType: null, pricingTier: null, originalPrice: null })).body.error).toContain("no type yet");
   });
 
-  it("is not refused on this ground when there is a balance to pay", async () => {
+  // The template lookup comes after the owes-nothing gate, so it is the proof
+  // of which side of the gate a request ended on (this file mocks the lookup
+  // to return nothing, so a request that passes the gate ends in a 500).
+  it("goes on to the template when there is a balance to pay", async () => {
     const r = await refusal({});
     expect(r.body.code).not.toBe("NO_BALANCE_DUE");
+    expect(getEventTemplate).toHaveBeenCalledTimes(1);
+  });
+
+  it("never reaches the template when nothing is owed", async () => {
+    await refusal({ discountAmount: 200 });
+    expect(getEventTemplate).not.toHaveBeenCalled();
   });
 
   it("loads the payments the balance is worked out from", async () => {

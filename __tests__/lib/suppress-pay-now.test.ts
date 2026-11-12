@@ -143,3 +143,24 @@ describe("sendRegistrationConfirmation with suppressPayNow", () => {
     expect(html).not.toContain("Payment Pending");
   });
 });
+
+/**
+ * A promo code that covers the whole fee (owner, Nov 12, 2026: nobody who owes
+ * nothing gets a payment email). The payment box and the quote go together:
+ * the review of 2ee430e4 found the box dropped while a quote for 0.00, bank
+ * details included, still attached.
+ */
+describe("sendRegistrationConfirmation when a code covers the whole fee", () => {
+  it("attaches no quote and shows no payment box", async () => {
+    await sendRegistrationConfirmation({ ...WITH_QUOTE, discountAmount: 400, promoCode: "GCCHH26SEHA" });
+    expect(hadAttachment()).toBe(false);
+    const html = renderedHtml();
+    expect(html).not.toContain("Pay Now");
+    expect(html).not.toContain("Payment Pending");
+  });
+
+  it("still attaches the quote when the code covers only part", async () => {
+    await sendRegistrationConfirmation({ ...WITH_QUOTE, discountAmount: 399 });
+    expect(hadAttachment()).toBe(true);
+  });
+});

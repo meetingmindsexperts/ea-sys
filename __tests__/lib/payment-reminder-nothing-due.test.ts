@@ -109,7 +109,13 @@ describe("bulk payment reminder: nobody who owes nothing", () => {
     expect(emailedTo()).toEqual(["owes@h.com"]);
     expect(res.successCount).toBe(1);
     expect(mockLog.info).toHaveBeenCalledWith(
-      expect.objectContaining({ msg: "bulk-email:payment-reminder-nothing-due-left-out", leftOut: 5, kept: 1 }),
+      expect.objectContaining({
+        msg: "bulk-email:payment-reminder-nothing-due-left-out",
+        leftOut: 5,
+        kept: 1,
+        // Who, so "why was this person not reminded" can be answered from the log.
+        registrationIds: ["code", "parts", "free", "paid", "refunded"],
+      }),
     );
   });
 

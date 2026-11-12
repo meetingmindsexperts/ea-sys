@@ -1586,7 +1586,12 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       return !excludedAsNoBalance(emailType, r.paymentStatus, !!r.ticketType, amountDue);
     });
     if (chased.length !== registrations.length) {
-      apiLogger.info({ msg: "bulk-email:payment-reminder-nothing-due-left-out", eventId, leftOut: registrations.length - chased.length, kept: chased.length });
+      // Who, not only how many: "why was this person not reminded" must be
+      // answerable from the log (a payment recorded on the wrong registration
+      // and its status set back to Unpaid by hand reads as paid here).
+      const keptIds = new Set(chased.map((r) => r.id));
+      const leftOutIds = registrations.filter((r) => !keptIds.has(r.id)).map((r) => r.id);
+      apiLogger.info({ msg: "bulk-email:payment-reminder-nothing-due-left-out", eventId, leftOut: leftOutIds.length, kept: chased.length, registrationIds: leftOutIds.slice(0, 100) });
     }
     recipients = chased.map((r) => ({
       id: r.id,
