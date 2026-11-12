@@ -14,9 +14,29 @@ import { planRow } from "../../scripts/adopt-ordinary-faculty-type";
 describe("planRow", () => {
   const PENDING = { status: "PENDING", paymentStatus: "UNPAID" };
 
-  it("settles a pending, unpaid registration whose speaker is confirmed or still invited", () => {
+  it("settles a pending, unpaid registration whose speaker is confirmed", () => {
     expect(planRow(PENDING, "CONFIRMED")).toBe("settle");
-    expect(planRow(PENDING, "INVITED")).toBe("settle");
+    expect(planRow({ status: "CONFIRMED", paymentStatus: "UNPAID" }, "CONFIRMED")).toBe("settle");
+    expect(planRow({ status: "WAITLISTED", paymentStatus: "UNASSIGNED" }, "CONFIRMED")).toBe("settle");
+  });
+
+  // Owner, Nov 12, 2026, reading the production dry run: a registration says
+  // Confirmed once the speaker has said yes, not when they were invited. The
+  // first version settled 10 invited speakers on the 4th GCC Hematology Hub.
+  it("leaves the registration of a speaker who is still invited, whatever the options", () => {
+    expect(planRow(PENDING, "INVITED")).toBe("leave-not-confirmed");
+    expect(planRow({ status: "CONFIRMED", paymentStatus: "UNPAID" }, "INVITED")).toBe("leave-not-confirmed");
+    expect(planRow(PENDING, "INVITED", { eventEnded: true })).toBe("leave-not-confirmed");
+    expect(planRow(PENDING, "INVITED", { cancelDeclined: true })).toBe("leave-not-confirmed");
+  });
+
+  it("settles on Confirmed only: a speaker status this build does not know waits too", () => {
+    expect(planRow(PENDING, "TENTATIVE")).toBe("leave-not-confirmed");
+  });
+
+  it("says plain leave, not waiting, for an invited speaker whose registration needs nothing", () => {
+    expect(planRow({ status: "CONFIRMED", paymentStatus: "COMPLIMENTARY" }, "INVITED")).toBe("leave");
+    expect(planRow({ status: "CONFIRMED", paymentStatus: "PAID" }, "INVITED")).toBe("leave");
   });
 
   // Review of 2727a13f: nobody confirmed a person with no speaker record, so

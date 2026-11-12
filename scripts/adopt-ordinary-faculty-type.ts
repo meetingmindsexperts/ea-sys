@@ -16,11 +16,16 @@
  *      guard the automatic adoption uses (adoptableFacultyType), not a copy.
  *      Nobody moves; no seat, barcode or speaker link changes.
  *   2. For each registration on that type that belongs to a speaker:
- *        - the speaker is Confirmed or Invited: Pending becomes Confirmed and
- *          Unpaid becomes Complimentary, through settleFacultyRegistration,
- *          the rule a speaker's move to Confirmed applies from now on. (The
- *          built-in Faculty registration of an invited speaker is created
- *          Confirmed and Complimentary too.)
+ *        - the speaker is Confirmed: Pending becomes Confirmed and Unpaid
+ *          becomes Complimentary, through settleFacultyRegistration, the rule
+ *          a speaker's move to Confirmed applies from now on.
+ *        - the speaker is still Invited: LEFT, and listed (owner, Nov 12,
+ *          2026, reading the production dry run: "when faculty is not
+ *          confirmed and status is invited, even then we are changing reg
+ *          status to confirmed?"). A registration says Confirmed once the
+ *          person has said yes, and not before. Nothing more is needed for
+ *          these: the type is a Faculty type now, so setting the speaker to
+ *          Confirmed on the Speakers page settles the registration by itself.
  *        - the speaker Declined or was Cancelled: LEFT, and listed, unless
  *          you pass --cancel-declined. Someone who declined to speak may
  *          still attend (owner, July 11, 2026: cancelling on a decline is a
@@ -79,6 +84,8 @@ export type RowPlan =
   | "leave"
   /** No speaker record: nobody confirmed this person. Listed for the operator. */
   | "leave-no-speaker"
+  /** The speaker has not said yes yet (Invited). Follows by itself when the speaker is set to Confirmed. */
+  | "leave-not-confirmed"
   /** The speaker declined, and the operator did not ask for cancellations (or the event has ended). */
   | "leave-declined";
 
@@ -98,7 +105,10 @@ export function planRow(reg: { status: string; paymentStatus: string }, speakerS
   if (!speakerStatus) return "leave-no-speaker";
   if (!SPEAKER_OUT_STATUSES.has(speakerStatus)) {
     const { confirm, comp } = planFacultySettle(reg);
-    return confirm || comp ? "settle" : "leave";
+    if (!confirm && !comp) return "leave";
+    // Only a speaker who said yes. Anything else that is not "out" (Invited
+    // today, and any status added later) waits for that yes.
+    return speakerStatus === "CONFIRMED" ? "settle" : "leave-not-confirmed";
   }
   const moneyInvolved = (MONEY_PAYMENT_STATUSES as readonly string[]).includes(reg.paymentStatus);
   if (!CANCELLABLE_STATUSES.includes(reg.status) || moneyInvolved) return "leave";
@@ -110,6 +120,7 @@ function describePlan(plan: RowPlan, reg: { status: string; paymentStatus: strin
   if (plan === "cancel") return `CANCEL (speaker ${speakerStatus})`;
   if (plan === "leave-declined") return `LEFT: speaker ${speakerStatus}. Still ${reg.status}, ${reg.paymentStatus}`;
   if (plan === "leave-no-speaker") return `LEFT: no speaker record. Still ${reg.status}, ${reg.paymentStatus}`;
+  if (plan === "leave-not-confirmed") return `LEFT: speaker ${speakerStatus}, not confirmed yet. Still ${reg.status}, ${reg.paymentStatus}`;
   if (plan === "leave") return `leave (${reg.status}, ${reg.paymentStatus})`;
   const settle = planFacultySettle(reg);
   const status = settle.confirm ? `${reg.status} -> CONFIRMED` : reg.status;
@@ -213,8 +224,12 @@ async function runTarget({ event, type }: Target, write: boolean, cancelDeclined
   const count = (p: RowPlan) => plans.filter((x) => x.plan === p).length;
   console.log(
     `Plan: settle ${count("settle")}, cancel ${count("cancel")}, leave ${count("leave")}` +
+      `, waiting for the speaker's yes: ${count("leave-not-confirmed")}` +
       `, left for you: ${count("leave-declined")} declined speaker(s), ${count("leave-no-speaker")} with no speaker record`,
   );
+  if (count("leave-not-confirmed") > 0) {
+    console.log("  A speaker not confirmed yet keeps the registration as it is. Set the speaker to Confirmed on the Speakers page and it settles by itself.");
+  }
   if (count("leave-declined") > 0 && !eventEnded && !cancelDeclined) {
     console.log("  Declined speakers keep their registration. Add --cancel-declined to cancel those, or cancel one on its sheet.");
   }

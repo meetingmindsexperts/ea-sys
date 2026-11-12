@@ -127,9 +127,10 @@ nothing. The first two are HIGH and waiting on the owner.**
 **~~Decision waiting on the owner: an event with BOTH an ordinary "Faculty" type and the
 built-in one.~~ DECIDED Nov 12, 2026: no "Move to Faculty" feature.** The ordinary type
 itself is made a Faculty type by a one-off script, `scripts/adopt-ordinary-faculty-type.ts`
-(dry run by default), which also settles the registrations on it and cancels those of
-speakers who declined when asked to (`--cancel-declined`; without it they are left and
-listed). **Waiting on the owner: run it on production**, each first without `--write`
+(dry run by default), which also settles the registrations of the speakers on it who
+are Confirmed (an Invited speaker's is left and listed, and settles by itself when the
+speaker is set to Confirmed) and cancels those of speakers who declined when asked to
+(`--cancel-declined`; without it they are left and listed). **Waiting on the owner: run it on production**, each first without `--write`
 to read the plan:
 `docker exec ea-sys-worker npx tsx scripts/adopt-ordinary-faculty-type.ts --all-upcoming`
 (on Nov 12: the 4th GCC Hematology Hub with 34 registrations, and the empty "Faculty"
@@ -146,6 +147,23 @@ Left for the owner by hand: three GCC Hub speakers sit on the Physician type, Un
 them and a payment reminder will bill them. Not built: settling on a move to Confirmed
 covers the status CHANGE only; a registration imported onto a Faculty type for a
 speaker who is already confirmed stays as imported until the script, or an edit.
+
+**Decision waiting on the owner: a speaker's Faculty registration says Confirmed before
+the speaker has said yes.** Adding a speaker on the Speakers page makes their Faculty
+registration Confirmed and Complimentary at once, while the speaker is still Invited
+(`ensureSpeakerCompanionRegistration`). On Nov 12, 2026 production held 32 such registrations made
+in the last 90 days. The owner ruled that day, for the one-off script, that a
+registration is confirmed once the speaker is, and asked what suits a multi-tenant
+system: one rule for every organisation, the registration follows the speaker (Invited
+leaves it Pending, Confirmed settles it, a decline stays the organiser's choice), and no
+per-organisation switch. Until this is built the system holds two behaviours: the
+script leaves an invited speaker's registration Pending, and a speaker added tomorrow
+starts Confirmed. To settle before building: what happens to the registrations already
+Confirmed for an invited speaker (leave them, or set them back to Pending), whether a
+Pending Faculty registration still gets its badge and entry barcode before the yes (the
+door accepts a Pending registration on a free type today), and DTCM codes bought for
+people who have not confirmed. Do it before the platform instance takes a second
+organisation.
 
 **From the review of `2727a13f` (0 BLOCKER, 0 HIGH, 6 MED, 11 LOW).** Five MED were in
 the one-off script and are fixed (cancelling is opt-in and never touches a checked-in or
