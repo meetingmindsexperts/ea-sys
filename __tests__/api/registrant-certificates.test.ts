@@ -290,10 +290,17 @@ describe("cmeTotals", () => {
     }) as unknown as Parameters<typeof cmeTotals>[0][number];
   const NOW = new Date("2026-11-04T08:00:00Z");
 
-  it("sums attendance hours this year and in total, in exact tenths", () => {
+  it("sums attendance hours this year and in total, in exact hundredths", () => {
     expect(cmeTotals([cert(0.5, "2026-03-01T06:00:00Z"), cert(0.5, "2026-04-01T06:00:00Z"), cert(0.5, "2026-05-01T06:00:00Z"), cert(8, "2025-06-01T06:00:00Z"), cert(null, "2026-06-01T06:00:00Z")], NOW, "Asia/Dubai"))
       .toEqual({ thisYear: 1.5, allTime: 9.5, year: "2026" });
     expect(cmeTotals([], NOW, "Asia/Dubai")).toEqual({ thisYear: 0, allTime: 0, year: "2026" });
+  });
+
+  it("adds a two-decimal certificate as it is, not rounded to a tenth (review of 27d2a0ba)", () => {
+    // In tenths 3.75 became 3.8 and 3.75 + 5.25 became 9.1, beside a row that said "3.75 CME hours".
+    expect(cmeTotals([cert(3.75, "2026-03-01T06:00:00Z")], NOW, "Asia/Dubai")).toMatchObject({ thisYear: 3.75, allTime: 3.75 });
+    expect(cmeTotals([cert(3.75, "2026-03-01T06:00:00Z"), cert(5.25, "2026-04-01T06:00:00Z")], NOW, "Asia/Dubai")).toMatchObject({ thisYear: 9, allTime: 9 });
+    expect(cmeTotals([cert(0.07, "2026-03-01T06:00:00Z"), cert(0.01, "2025-04-01T06:00:00Z")], NOW, "Asia/Dubai")).toMatchObject({ thisYear: 0.07, allTime: 0.08 });
   });
 
   it("counts an event once, at its largest, and never an appreciation certificate", () => {

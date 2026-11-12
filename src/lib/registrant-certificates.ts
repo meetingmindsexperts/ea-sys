@@ -193,8 +193,9 @@ export function certificateMeta(cert: PortalCertificate): string {
  *
  * The year is the EVENT's, in the event's own time zone (a conference that
  * starts at 00:00 on 1 January in Dubai is that year's, not the last), and
- * "this year" is now in `timeZone`. Summed in tenths, so 0.5 + 0.5 + 0.5 is
- * 1.5 and not 1.4999.
+ * "this year" is now in `timeZone`. Summed in hundredths (CME hours take two
+ * decimals since Nov 12, 2026), so 0.5 + 0.5 + 0.5 is 1.5 and not 1.4999, and
+ * a 3.75 certificate adds 3.75, not 3.8.
  */
 export function cmeTotals(
   certs: Pick<PortalCertificate, "type" | "cmeHoursSnapshot" | "certificateTemplate" | "event">[],
@@ -202,23 +203,23 @@ export function cmeTotals(
   timeZone: string,
 ): { thisYear: number; allTime: number; year: string } {
   const year = localDateInTz(now, timeZone).slice(0, 4);
-  const perEvent = new Map<string, { tenths: number; year: string }>();
+  const perEvent = new Map<string, { hundredths: number; year: string }>();
   for (const cert of certs) {
     if (cert.type !== "ATTENDANCE") continue;
     const hours = cmeHoursOf(cert);
-    const tenths = hours ? Math.round(Number(hours) * 10) : 0;
-    if (!Number.isFinite(tenths) || tenths <= 0) continue;
+    const hundredths = hours ? Math.round(Number(hours) * 100) : 0;
+    if (!Number.isFinite(hundredths) || hundredths <= 0) continue;
     const seen = perEvent.get(cert.event.id);
-    if (seen && seen.tenths >= tenths) continue;
-    perEvent.set(cert.event.id, { tenths, year: localDateInTz(cert.event.startDate, cert.event.timezone).slice(0, 4) });
+    if (seen && seen.hundredths >= hundredths) continue;
+    perEvent.set(cert.event.id, { hundredths, year: localDateInTz(cert.event.startDate, cert.event.timezone).slice(0, 4) });
   }
   let thisYear = 0;
   let allTime = 0;
   for (const e of perEvent.values()) {
-    allTime += e.tenths;
-    if (e.year === year) thisYear += e.tenths;
+    allTime += e.hundredths;
+    if (e.year === year) thisYear += e.hundredths;
   }
-  return { thisYear: thisYear / 10, allTime: allTime / 10, year };
+  return { thisYear: thisYear / 100, allTime: allTime / 100, year };
 }
 
 type Grouped = { event: { id: string; startDate: Date; timezone: string } };

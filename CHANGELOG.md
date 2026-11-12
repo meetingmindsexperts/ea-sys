@@ -54,6 +54,7 @@ Owner: "cme should handle 2 digits 3.75 or 5.25". Until now 3.75 was saved as 3.
 - One rule for every door (`src/lib/certificates/cme-hours.ts`): the CME settings and template routes, the agent's three tools and the page's inputs each had their own limit (0 to 999 in some, 0 to 999.9 in others)
 - MCP clients reconnect to see the new limits (package 0.4.57)
 - **Re-enter hours that should have had two decimals.** A value typed as 3.75 before this change was saved as 3.8 and stays 3.8, on the event, on a template and on certificates already issued with it
+- After a second review (`27d2a0ba`, 0 HIGH, 1 MED, 7 LOW): the CME totals on My events and My certificates still added in tenths, so one 3.75 certificate showed a total of 3.8 beside a row saying 3.75, and 3.75 + 5.25 showed 9.1. They add in hundredths now
 
 ### A payment email never goes to someone who owes nothing (November 12)
 
