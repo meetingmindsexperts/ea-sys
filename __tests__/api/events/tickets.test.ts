@@ -164,14 +164,37 @@ describe("POST /api/events/[eventId]/tickets", () => {
 
   it("matches a duplicate ignoring case and surrounding spaces (Oct 19, 2026)", async () => {
     mockAuth.mockResolvedValue(adminSession);
-    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt-existing", name: "Faculty" });
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt-existing", name: "Nurse" });
 
-    const res = await CreateTicket(makeRequest("POST", { name: "  faculty " }), makeListParams("evt-1"));
+    const res = await CreateTicket(makeRequest("POST", { name: "  nurse " }), makeListParams("evt-1"));
     expect(res.status).toBe(409);
     expect(mockDb.ticketType.findFirst.mock.calls.at(-1)?.[0].where).toEqual({
-      eventId: "evt-1", name: { equals: "faculty", mode: "insensitive" },
+      eventId: "evt-1", name: { equals: "nurse", mode: "insensitive" },
     });
     expect(mockDb.ticketType.create).not.toHaveBeenCalled();
+  });
+
+  // Owner, Nov 12, 2026: "dont allow Faculty reg type and mention it is reserved".
+  it.each(["Faculty", "  faculty ", "FACULTY"])("refuses the reserved name %j, saying it is reserved", async (name) => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.ticketType.findFirst.mockResolvedValue(null);
+
+    const res = await CreateTicket(makeRequest("POST", { name }), makeListParams("evt-1"));
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.code).toBe("TYPE_NAME_RESERVED");
+    expect(data.error).toContain("reserved name");
+    expect(mockDb.ticketType.create).not.toHaveBeenCalled();
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "events/tickets:reserved-name" }));
+  });
+
+  it("still allows a longer name that only contains the word", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.ticketType.findFirst.mockResolvedValue(null);
+    mockDb.ticketType.create.mockResolvedValue({ ...sampleTicketType, id: "tt-new", name: "Faculty (CME)" });
+
+    const res = await CreateTicket(makeRequest("POST", { name: "Faculty (CME)" }), makeListParams("evt-1"));
+    expect(res.status).toBe(201);
   });
 
   it("creates with optional pricing tiers", async () => {
@@ -315,6 +338,39 @@ describe("PUT /api/events/[eventId]/tickets/[ticketId]", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.name).toBe("Allied Health");
+  });
+
+  it("refuses renaming an ordinary type to the reserved name", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.ticketType.findFirst.mockResolvedValueOnce({ ...sampleTicketType, isFaculty: false });
+
+    const res = await UpdateTicket(makeRequest("PUT", { name: "faculty" }), makeDetailParams("evt-1", "tt-1"));
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("TYPE_NAME_RESERVED");
+    expect(mockDb.ticketType.update).not.toHaveBeenCalled();
+  });
+
+  it("lets the built-in Faculty type take its own name back", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.ticketType.findFirst
+      .mockResolvedValueOnce({ ...sampleTicketType, name: "Faculty.", isFaculty: true })
+      .mockResolvedValueOnce(null);
+    mockDb.ticketType.update.mockResolvedValue({ ...sampleTicketType, name: "Faculty", isFaculty: true });
+
+    const res = await UpdateTicket(makeRequest("PUT", { name: "Faculty" }), makeDetailParams("evt-1", "tt-1"));
+    expect(res.status).toBe(200);
+  });
+
+  it("an older ordinary type already named Faculty still saves its other details", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.ticketType.findFirst.mockResolvedValueOnce({ ...sampleTicketType, name: "Faculty", isFaculty: false });
+    mockDb.ticketType.update.mockResolvedValue({ ...sampleTicketType, name: "Faculty", description: "x" });
+
+    const res = await UpdateTicket(makeRequest("PUT", { name: "Faculty", description: "x" }), makeDetailParams("evt-1", "tt-1"));
+    expect(res.status).toBe(200);
   });
 
   it("rejects duplicate name", async () => {

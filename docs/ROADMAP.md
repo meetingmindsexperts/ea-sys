@@ -102,10 +102,13 @@ the built-in one.** Two sides of one question.
 - Add Registration and Import from Contacts hide the ordinary one from anyone who may
   add speakers (`isFacultyLookalikeName`), so a real, priced "Faculty" category cannot be
   picked there: the only "Faculty" entry gives a complimentary Faculty registration.
-- Recommended: stop hiding, and name the ordinary one "Faculty (delegate type)" in every
-  picker. Not done here because it is new wording on screen, and the owner asked for one
-  short name. Reach today: seven events hold such a type, all ended; a clone of one
-  carries it forward.
+- **Owner's answer (Nov 12, 2026): "dont allow Faculty reg type and mention it is
+  reserved."** Built the same day (`reservedTypeNameRefusal`): the name cannot be
+  created, renamed to, imported, seeded or cloned. What remains is the seven older
+  events that already hold such a type, all ended: their pickers still behave as
+  described above. Left: nobody registers on an ended event, and deleting or renaming
+  the seven types is the owner's call (five of them hold registrations: 2, 3, 5, 2
+  and 10).
 
 **MED, recorded, follows from an owner ruling: a faculty member's profession is no
 longer shown.** "Short Faculty everywhere" (owner, Nov 12) means the type column, the

@@ -9,6 +9,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { reservedTypeNameRefusal, TYPE_NAME_RESERVED_CODE } from "@/lib/faculty-filter";
 
 // Re-exported so existing importers keep working; the list itself lives with
 // the presenter-tier predicate, since the two have to agree.
@@ -160,6 +161,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const { name, description, isActive, requiresApproval, sortOrder, quantity, pricingTiers, requiresDocument, documentRequired, documentLabel, documentInstructions, requiresMemberId, requiresStudentId, requiresStudentIdExpiry } = validated.data;
+
+    // "Faculty" is the system's own type's name (reservedTypeNameRefusal).
+    const reserved = reservedTypeNameRefusal(name);
+    if (reserved) {
+      apiLogger.warn({ msg: "events/tickets:reserved-name", eventId, name, userId: session.user.id });
+      return NextResponse.json({ error: reserved, code: TYPE_NAME_RESERVED_CODE }, { status: 400 });
+    }
 
     // No two types on one event share a name, ignoring case ("faculty" next
     // to "Faculty" is the same type to a person reading the list).

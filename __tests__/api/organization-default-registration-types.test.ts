@@ -54,6 +54,7 @@ describe("PUT /api/organization defaultRegistrationTypes", () => {
 
   it.each([
     ["a duplicate", ["Delegate", "delegate"]],
+    ["the reserved name Faculty", ["Delegate", " faculty "]],
     ["a blank name", [""]],
     ["a non-list", "Delegate"],
   ])("refuses %s with a logged 400", async (_label, value) => {

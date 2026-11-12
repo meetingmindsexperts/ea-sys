@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### "Faculty" is a reserved registration type name (November 12)
+
+Owner: "dont allow Faculty reg type and mention it is reserved."
+
+- **A registration type can no longer be created as, or renamed to, "Faculty"** (the exact word, any capitals, spaces trimmed; "Faculty (CME)" is still allowed). The form answers: "Faculty" is a reserved name. Every event has one Faculty type for speakers and committee, and the system creates it by itself. Add faculty from the Speakers page, or with the Faculty choice in Add Registration. Give a delegate type another name
+- **Every door asks the one rule** (`reservedTypeNameRefusal` in `src/lib/faculty-filter.ts`): the Registration Types form (create and rename, 400 `TYPE_NAME_RESERVED`), the registrations CSV import (a "Faculty" cell on an event with no Faculty type yet used to create an ordinary type of that name; it is now a row error, as it already was when the event had one), the agent's `create_ticket_type`, the organisation's starting list in Settings, and event cloning. A test lists the doors, so a new one that forgets fails
+- **Cloning no longer carries an ordinary "Faculty" type into the new event.** Seven older events hold one (all free, no priced rate). The clone gets the source's built-in Faculty type, or makes it the first time a speaker needs it
+- **Nothing existing changes**: the seven ordinary "Faculty" types stay and still save their other details; the built-in type may be renamed and may take the name back. An organisation list saved with "Faculty" in it (none on production) seeds its other names
+- This answers the open question recorded an hour earlier (two "Faculty" entries in a picker): no new event can have the second one
+
 ### Saving a speaker no longer rewrites their registration type (November 12)
 
 From the reviews of `f2b53afd` and `c8490537` (0 BLOCKER, 0 HIGH; 8 MED between them, of which 3 fixed here and 5 recorded in `docs/ROADMAP.md`).

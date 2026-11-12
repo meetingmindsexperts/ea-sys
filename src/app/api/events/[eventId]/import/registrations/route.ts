@@ -5,6 +5,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { apiLogger } from "@/lib/logger";
+import { reservedTypeNameRefusal } from "@/lib/faculty-filter";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -456,8 +457,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         const match = ticketTypeByName.get(key);
         if (match) {
           ticketType = match;
-        } else if (facultyNames.has(key)) {
-          // Names the hidden speaker-companion type. Refusing loudly beats
+        } else if (facultyNames.has(key) || reservedTypeNameRefusal(registrationType)) {
+          // Names the hidden speaker-companion type, or the reserved word
+          // "Faculty" on an event that has no such type yet (the import would
+          // have made an ordinary type of that name). Refusing loudly beats
           // either miscategorising a delegate as faculty or minting a
           // confusing second type with the same name.
           errors.push(

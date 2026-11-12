@@ -11,6 +11,7 @@
  * that existed then, so MM Group kept the list it had when it was hard-coded.
  */
 import { z } from "zod";
+import { reservedTypeNameRefusal } from "@/lib/faculty-filter";
 
 export const DEFAULT_REG_TYPES_SETTING = "defaultRegistrationTypes";
 
@@ -20,18 +21,26 @@ export const MAX_DEFAULT_REG_TYPE_NAME = 100;
 /** The list that was hard-coded until Oct 8, 2026; the migration's value. */
 export const LEGACY_DEFAULT_REG_TYPE_NAMES = ["Physician", "Allied Health", "Student", "Resident", "Member"];
 
-export const defaultRegistrationTypesSchema = z
+const storedListSchema = z
   .array(z.string().trim().min(1, "A name cannot be blank").max(MAX_DEFAULT_REG_TYPE_NAME))
   .max(MAX_DEFAULT_REG_TYPES)
   .refine((names) => new Set(names.map((n) => n.toLowerCase())).size === names.length, {
     message: "Each name may appear only once",
   });
 
+/** What Settings may SAVE: the stored shape, and never the reserved name "Faculty". */
+export const defaultRegistrationTypesSchema = storedListSchema.superRefine((names, ctx) => {
+  const reserved = names.map((n) => reservedTypeNameRefusal(n)).find(Boolean);
+  if (reserved) ctx.addIssue({ code: "custom", message: reserved });
+});
+
 /** The org's list from its settings JSON; anything malformed reads as none. */
 export function readDefaultRegistrationTypes(settings: unknown): string[] {
   if (!settings || typeof settings !== "object") return [];
-  const parsed = defaultRegistrationTypesSchema.safeParse(
+  // Read with the stored shape, then drop a reserved name: a list saved before
+  // "Faculty" was reserved must still seed its other names, not read as none.
+  const parsed = storedListSchema.safeParse(
     (settings as Record<string, unknown>)[DEFAULT_REG_TYPES_SETTING],
   );
-  return parsed.success ? parsed.data : [];
+  return parsed.success ? parsed.data.filter((name) => !reservedTypeNameRefusal(name)) : [];
 }

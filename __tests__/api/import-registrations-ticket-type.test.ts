@@ -257,6 +257,19 @@ describe("CSV import — registration type resolution", () => {
     expect(mockDb.ticketType.create).not.toHaveBeenCalled();
   });
 
+  it("refuses a cell that says Faculty on an event with no Faculty type yet, and makes no type of that name", async () => {
+    mockDb.ticketType.findMany.mockResolvedValue([PHYSICIAN]);
+
+    const res = await POST(csvRequest(`${HEADER}\nJohn,Doe,john@example.com, faculty `), params);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.created).toBe(0);
+    expect(body.errors[0]).toContain("reserved for speaker faculty");
+    expect(mockDb.ticketType.create).not.toHaveBeenCalled();
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
   it("matches a non-faculty type named Faculty by name (an ordinary delegate type)", async () => {
     const delegateFaculty = { ...HIDDEN_FACULTY, id: "tt-fac-delegate", isFaculty: false };
     mockDb.ticketType.findMany.mockResolvedValue([delegateFaculty, PHYSICIAN]);

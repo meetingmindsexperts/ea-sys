@@ -653,6 +653,33 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(tt2Data.virtualPrice).toBeNull();
     });
 
+    it("does not carry an ordinary type named Faculty into the clone (the name is reserved)", async () => {
+      const base = makeSourceEvent();
+      const ordinaryFaculty = { ...base.ticketTypes[0], id: "tt-3", name: " faculty ", isFaculty: false, price: 0, pricingTiers: [] };
+      setupSuccessfulClone({ ticketTypes: [...base.ticketTypes, ordinaryFaculty] });
+      await POST(makeRequest(), makeParams("evt-1"));
+
+      const txFn = mockDb.$transaction.mock.calls[0][0];
+      const mockTx = {
+        event: { create: vi.fn().mockResolvedValue({ id: "new-evt", name: "T (Copy)", slug: "t-copy" }) },
+        ticketType: { create: vi.fn().mockResolvedValue({ id: "new-tt" }) },
+        speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
+        track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
+        hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
+        roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
+        eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
+        sessionSpeaker: { create: vi.fn().mockResolvedValue({}) },
+      };
+
+      await txFn(mockTx);
+
+      // The ordinary type and the built-in one are both in the source; only
+      // General Admission and the built-in Faculty reach the clone.
+      const made = mockTx.ticketType.create.mock.calls.map((c) => [c[0].data.name, c[0].data.isFaculty]);
+      expect(made).toEqual([["General Admission", false], ["Faculty", true]]);
+    });
+
     it("clones speakers without userId and resets status to INVITED", async () => {
       setupSuccessfulClone();
       await POST(makeRequest(), makeParams("evt-1"));

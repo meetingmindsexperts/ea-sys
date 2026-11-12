@@ -5,6 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { HELD_SEAT_WHERE } from "@/lib/registration-seat-db";
 import { apiLogger } from "@/lib/logger";
+import { reservedTypeNameRefusal, TYPE_NAME_RESERVED_CODE } from "@/lib/faculty-filter";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -135,6 +136,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const data = validated.data;
+
+    // "Faculty" is the system's own type's name (reservedTypeNameRefusal).
+    // Only on a rename of an ORDINARY type: the built-in type may keep or
+    // take back its name, and an older ordinary "Faculty" still saves its
+    // other details.
+    const reserved = data.name && data.name !== existing.name && !existing.isFaculty ? reservedTypeNameRefusal(data.name) : null;
+    if (reserved) {
+      apiLogger.warn({ msg: "events/tickets:reserved-name", eventId, ticketTypeId: ticketId, name: data.name, userId: session.user.id });
+      return NextResponse.json({ error: reserved, code: TYPE_NAME_RESERVED_CODE }, { status: 400 });
+    }
 
     // Check uniqueness if name is changing, ignoring case. Only on a rename,
     // so editing one of an event's existing duplicates still saves.

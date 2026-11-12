@@ -4,6 +4,7 @@ import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { lockRegistrationRows } from "@/lib/registration-row-lock";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { reservedTypeNameRefusal, TYPE_NAME_RESERVED_CODE } from "@/lib/faculty-filter";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
@@ -165,6 +166,11 @@ const createTicketType: ToolExecutor = async (input, ctx) => {
     return await runWithTenant(ctx.organizationId, async () => {
     const name = String(input.name ?? "").trim();
     if (!name) return { error: "Ticket type name is required" };
+    const reserved = reservedTypeNameRefusal(name);
+    if (reserved) {
+      apiLogger.warn({ msg: "agent:create_ticket_type:reserved-name", eventId: ctx.eventId, name });
+      return { error: reserved, code: TYPE_NAME_RESERVED_CODE };
+    }
 
     // Check for duplicate (case-insensitive)
     const existing = await db.ticketType.findFirst({

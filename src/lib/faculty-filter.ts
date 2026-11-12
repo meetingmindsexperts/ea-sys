@@ -110,6 +110,29 @@ export function isFacultyLookalikeName(name: string | null | undefined): boolean
   return (name ?? "").trim().toLowerCase() === FACULTY_TYPE_FALLBACK.toLowerCase();
 }
 
+export const TYPE_NAME_RESERVED_CODE = "TYPE_NAME_RESERVED";
+
+/**
+ * "Faculty" is a RESERVED registration type name (owner, Nov 12, 2026: "dont
+ * allow Faculty reg type and mention it is reserved"). An event has one
+ * Faculty type, the system's own (`TicketType.isFaculty`), made the first
+ * time a speaker or committee member needs a registration. An ordinary type
+ * of the same name is how 34 people on the 4th GCC Hematology Hub were
+ * registered as paying delegates.
+ *
+ * Returns what to tell the person, or null when the name is free to use.
+ * EVERY door that creates or renames an ordinary type asks it: the
+ * Registration Types form (create and rename), the registrations CSV import
+ * (which makes a type from a cell), the agent's `create_ticket_type`, the
+ * organisation's starting list (Settings) and event cloning. Types that
+ * already carry the name are left alone: editing their other details still
+ * saves. Exact word, any case, spaces trimmed; "Faculty (CME)" is allowed.
+ */
+export function reservedTypeNameRefusal(name: string | null | undefined): string | null {
+  if (!isFacultyLookalikeName(name)) return null;
+  return `"${FACULTY_TYPE_FALLBACK}" is a reserved name. Every event has one ${FACULTY_TYPE_FALLBACK} type for speakers and committee, and the system creates it by itself. Add faculty from the Speakers page, or with the ${FACULTY_TYPE_FALLBACK} choice in Add Registration. Give a delegate type another name.`;
+}
+
 /**
  * The registration types staff may pick for a registration (Oct 22, 2026).
  * The speakers' type is offered only to a registration already on it, so it

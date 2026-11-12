@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
+import { reservedTypeNameRefusal } from "@/lib/faculty-filter";
 import { refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
 import { cloneEventSettings } from "@/lib/event-clone-settings";
 import { Prisma } from "@prisma/client";
@@ -228,6 +229,14 @@ export async function POST(
         // 2. Clone ticket types + pricing tiers (old ID → new ID map)
         const ticketMap = new Map<string, string>();
         for (const tt of source.ticketTypes) {
+          // "Faculty" is reserved for the system's own type. An ordinary type
+          // of that name on the source (seven older events hold one) is not
+          // carried into a new event: the clone gets the built-in type from
+          // the source, or makes it the first time a speaker needs it.
+          if (!tt.isFaculty && reservedTypeNameRefusal(tt.name)) {
+            apiLogger.info({ msg: "events/clone:reserved-type-name-not-copied", sourceEventId: source.id, eventId: event.id, ticketTypeId: tt.id, name: tt.name });
+            continue;
+          }
           const created = await tx.ticketType.create({
             data: {
               eventId: event.id,

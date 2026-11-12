@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDefaultRegistrationTypes, useUpdateDefaultRegistrationTypes } from "@/hooks/use-api";
 import { MAX_DEFAULT_REG_TYPES, MAX_DEFAULT_REG_TYPE_NAME } from "@/lib/default-registration-types";
+import { reservedTypeNameRefusal } from "@/lib/faculty-filter";
 
 /**
  * The registration types a NEW event starts with, per organisation. Saved to
@@ -32,6 +33,11 @@ export function NewEventDefaultsCard({ readOnly = false }: { readOnly?: boolean 
   const add = () => {
     const name = draft.trim();
     if (!name) return;
+    const reserved = reservedTypeNameRefusal(name);
+    if (reserved) {
+      toast.error(reserved);
+      return;
+    }
     if (names.some((n) => n.toLowerCase() === name.toLowerCase())) {
       toast.error(`"${name}" is already in the list`);
       return;
