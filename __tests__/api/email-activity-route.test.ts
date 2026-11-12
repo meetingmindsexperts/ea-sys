@@ -165,6 +165,8 @@ describe("email-activity GET — payload", () => {
       templateSlug: "payment-reminder",
       OR: [
         { to: { contains: "abbott", mode: "insensitive" } },
+        { cc: { contains: "abbott", mode: "insensitive" } },
+        { bcc: { contains: "abbott", mode: "insensitive" } },
         { subject: { contains: "abbott", mode: "insensitive" } },
       ],
     });

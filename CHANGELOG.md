@@ -10,12 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Owner, after asking who was copied on a faculty follow-up and having to be told from the database: "can we show cc and bcc below to email."
 
-- **Every place that shows a sent email now says who was copied.** Under "To", a "Cc" line and a "Bcc" line, each only when the email had one: the Activity timeline on a speaker's page and on a registration, the **Email Activity** table on Communications, the **View email** window, and the Email History card on a contact
+- **The four screens that list sent emails now say who was copied.** Under "To", a "Cc" line and a "Bcc" line, each only when the email had one: the Activity timeline on a speaker's page and on a registration, the **Email Activity** table on Communications, the **View email** window, and the Email History card on a contact. (The operator's infrastructure page, which lists failed sends, is unchanged)
 - Both were already recorded on every send; Cc was read by one screen and shown by none, Bcc was read by none. No new data, no migration
 - In the Email Activity table a long list is cut to the column's width; hover shows all of it. Everywhere else it wraps
-- Who sees it: whoever already sees the email's "To" on that screen. A Bcc is hidden from the email's recipients, not from the organisation that sent it
+- **Who sees it**: on Email Activity, View email and Email History, whoever could already open that screen. On the Activity timeline, only someone who holds the email history key (`emailLogs.read`: admins and organisers). Desk staff (Onsite) and read-only staff (Member) open the timeline too, and they keep seeing the email and its To, without the copies: a Bcc is often an address kept out of sight on purpose, such as the accounts mailbox on a payment confirmation
+- **The Cc line can hold a second "To"**: an email addressed to two people (a group invoice to the coordinator and the billing contact) has always been recorded with the first as To and the rest under cc, and the record cannot tell them apart
+- Email Activity's search now also finds an email by an address it was copied to
 - How: one component, `src/components/communications/email-copies.tsx`, used by all four screens (a test lists them and fails if one drops it). The reads gained the two columns: `getEmailLogsFor`, the email-activity route, the email body route, and the activity feed (`cc` / `bcc` on an email item, absent when nobody was copied)
 - Checked in the browser on the local production copy: a speaker's timeline, View email and the Email Activity table. Not seen with real data: the contact's Email History card (no contact email on the local copy has a Cc), which uses the same component
+- Review of `68ff2173` (0 BLOCKER, 0 HIGH, 1 MED, 5 LOW), fixed here: the MED was the timeline rule above (the first version gave the copies to anyone who could open the timeline; `emailCopiesVisibleFor` in `src/lib/email-copies-visibility.ts`, passed by both activity routes, default closed in the feed). Lows fixed: the search, the wording about a second To, and the screen sweep test now ignores commented-out lines and a hard-coded null. Lows left: in the Email Activity table a cut-off list is read by mouse hover only (the To beside it is cut the same way), the sweep's list of screens is written by hand, and the lines in View email are not part of the window's spoken description
 
 ### CRM: the product catalogue and Reports are for admins (November 12)
 

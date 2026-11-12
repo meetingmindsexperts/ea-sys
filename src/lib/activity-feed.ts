@@ -86,6 +86,7 @@ async function collect(
   canViewFinance: boolean,
   canViewReimbursements: boolean,
   submissions: SubmissionVisibility,
+  canSeeEmailCopies: boolean,
 ): Promise<ActivityItem[]> {
   const items: ActivityItem[] = [];
 
@@ -187,8 +188,9 @@ async function collect(
         at: r.createdAt.toISOString(),
         subject: r.subject,
         to: r.to,
-        ...(r.cc ? { cc: r.cc } : {}),
-        ...(r.bcc ? { bcc: r.bcc } : {}),
+        // Who was copied needs emailLogs.read: a Bcc is often an address kept out of sight on purpose.
+        ...(canSeeEmailCopies && r.cc ? { cc: r.cc } : {}),
+        ...(canSeeEmailCopies && r.bcc ? { bcc: r.bcc } : {}),
         status: r.status,
         templateSlug: r.templateSlug,
         errorMessage: r.errorMessage,
@@ -301,6 +303,8 @@ export async function buildSpeakerActivity(
   canViewReimbursements = false,
   // Abstract and proposal emails need abstracts.read / proposals.read. Defaults closed.
   submissions: SubmissionVisibility = NO_SUBMISSIONS,
+  // An email's Cc and Bcc need emailLogs.read (emailCopiesVisibleFor). Defaults closed.
+  canSeeEmailCopies = false,
 ): Promise<ActivityFeed> {
   const linked = await resolveLinkedRegistration(eventId, speaker);
   const items = await collect(
@@ -311,6 +315,7 @@ export async function buildSpeakerActivity(
     canViewFinance,
     canViewReimbursements,
     submissions,
+    canSeeEmailCopies,
   );
   return {
     items,
@@ -330,6 +335,8 @@ export async function buildRegistrationActivity(
   canViewReimbursements = false,
   // The linked speaker's abstract and proposal emails need their read keys. Defaults closed.
   submissions: SubmissionVisibility = NO_SUBMISSIONS,
+  // An email's Cc and Bcc need emailLogs.read (emailCopiesVisibleFor). Defaults closed.
+  canSeeEmailCopies = false,
 ): Promise<ActivityFeed> {
   const linked = await resolveLinkedSpeaker(eventId, registration);
   const items = await collect(
@@ -340,6 +347,7 @@ export async function buildRegistrationActivity(
     canViewFinance,
     canViewReimbursements,
     submissions,
+    canSeeEmailCopies,
   );
   return {
     items,

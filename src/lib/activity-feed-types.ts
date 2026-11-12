@@ -35,7 +35,7 @@ export interface ActivityItem {
   // email
   subject?: string;
   to?: string;
-  /** Who was copied, as sent (comma-separated). Absent when nobody was. */
+  /** Who was copied (comma-separated). Absent when nobody was, and for a viewer without `emailLogs.read`. */
   cc?: string;
   bcc?: string;
   status?: string;

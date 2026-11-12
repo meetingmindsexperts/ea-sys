@@ -89,11 +89,30 @@ describe("activity timeline: abstract and proposal emails need their read keys",
           ]
         : [],
     );
-    const { items } = await buildSpeakerActivity("evt1", speaker, "org1", true, true);
+    const { items } = await buildSpeakerActivity("evt1", speaker, "org1", true, true, { abstracts: false, proposals: false }, true);
     const copied = items.find((i) => i.id === "email:e-copied");
     expect(copied).toMatchObject({ cc: "c1@x.com, c2@x.com", bcc: "b@x.com" });
     const plain = items.find((i) => i.id === "email:e-plain");
     expect(plain).not.toHaveProperty("cc");
     expect(plain).not.toHaveProperty("bcc");
+  });
+
+  it("without the email history key the entry keeps its To and loses who was copied, on both builders (review of 68ff2173)", async () => {
+    const COPIED = { ...email("e-copied", "speaker-invitation", "You are invited"), cc: "c1@x.com", bcc: "accounts@x.com" };
+    mockEmails.mockImplementation(async () => [COPIED]);
+    mockDb.speaker.findFirst.mockResolvedValue(null);
+
+    for (const flag of [false, undefined]) {
+      const spk = await buildSpeakerActivity("evt1", speaker, "org1", true, true, { abstracts: true, proposals: true }, flag);
+      const reg = await buildRegistrationActivity("evt1", { id: "reg1", attendeeEmail: null }, "org1", true, true, { abstracts: true, proposals: true }, flag);
+      for (const { items } of [spk, reg]) {
+        expect(items.length).toBeGreaterThan(0);
+        expect(items.every((i) => i.to === "spk@x.com")).toBe(true);
+        expect(JSON.stringify(items)).not.toContain("accounts@x.com");
+        expect(JSON.stringify(items)).not.toContain("c1@x.com");
+      }
+    }
+    const open = await buildRegistrationActivity("evt1", { id: "reg1", attendeeEmail: null }, "org1", true, true, { abstracts: true, proposals: true }, true);
+    expect(open.items[0]).toMatchObject({ cc: "c1@x.com", bcc: "accounts@x.com" });
   });
 });

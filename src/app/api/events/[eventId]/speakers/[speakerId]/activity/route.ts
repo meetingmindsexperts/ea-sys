@@ -12,6 +12,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { buildSpeakerActivity } from "@/lib/activity-feed";
 import { submissionVisibilityFor } from "@/lib/speaker-submission-visibility";
+import { emailCopiesVisibleFor } from "@/lib/email-copies-visibility";
 import { requirePermission } from "@/lib/permissions/require-permission";
 
 interface RouteParams {
@@ -66,6 +67,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       can(gate.principal, "finance.view"),
       can(gate.principal, "honorarium.view"),
       submissionVisibilityFor(gate.principal, event),
+      emailCopiesVisibleFor(gate.principal, event),
     );
     return NextResponse.json({ items, linked });
     });

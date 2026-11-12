@@ -143,3 +143,46 @@ describe("speaker activity GET — role gate", () => {
     expect(mockBuildSpk).toHaveBeenCalled();
   });
 });
+
+/**
+ * An email's Cc and Bcc on the timeline need `emailLogs.read` (review of
+ * 68ff2173, Nov 12, 2026): desk staff and read-only staff open these routes
+ * with the read key alone, and a Bcc is often the accounts mailbox.
+ */
+describe("activity GETs: who is told an email's Cc and Bcc", () => {
+  const EVENT = { id: "ev1", organizationId: "org1", eventType: "CONFERENCE", staffAssignments: [{ userId: "u-ons" }] };
+  const copiesFlag = (mock: { mock: { calls: unknown[][] } }) => mock.mock.calls.at(-1)?.[6];
+
+  beforeEach(() => {
+    mockDb.event.findFirst.mockResolvedValue(EVENT);
+  });
+
+  it.each([
+    ["ADMIN", ADMIN, true],
+    ["MEMBER", MEMBER, false],
+    ["ONSITE (assigned)", ONSITE, false],
+  ])("registration timeline, %s", async (_label, user, expected) => {
+    mockAuth.mockResolvedValue({ user });
+    const res = await regActivityGET(req, regParams);
+    expect(res.status).toBe(200);
+    expect(copiesFlag(mockBuildReg)).toBe(expected);
+  });
+
+  it.each([
+    ["ADMIN", ADMIN, true],
+    ["MEMBER", MEMBER, false],
+    ["ONSITE (assigned)", ONSITE, false],
+  ])("speaker timeline, %s", async (_label, user, expected) => {
+    mockAuth.mockResolvedValue({ user });
+    const res = await spkActivityGET(req, spkParams);
+    expect(res.status).toBe(200);
+    expect(copiesFlag(mockBuildSpk)).toBe(expected);
+  });
+
+  it("an event row without its organisation tells nobody (fails closed)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
+    mockAuth.mockResolvedValue({ user: ADMIN });
+    await regActivityGET(req, regParams);
+    expect(copiesFlag(mockBuildReg)).toBe(false);
+  });
+});

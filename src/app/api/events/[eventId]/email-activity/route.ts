@@ -88,6 +88,9 @@ export async function GET(
         ? {
             OR: [
               { to: { contains: q, mode: "insensitive" } },
+              // The table shows who was copied, so a copied address finds its email too.
+              { cc: { contains: q, mode: "insensitive" } },
+              { bcc: { contains: q, mode: "insensitive" } },
               { subject: { contains: q, mode: "insensitive" } },
             ],
           }

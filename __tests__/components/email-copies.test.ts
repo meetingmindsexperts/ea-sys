@@ -51,8 +51,13 @@ describe("every place that shows a logged email's To also shows who was copied",
     "src/components/activity/activity-timeline-card.tsx",
   ];
 
-  it.each(SURFACES)("%s renders EmailCopies with both cc and bcc", (file) => {
-    const src = readFileSync(file, "utf8");
-    expect(src).toMatch(/<EmailCopies\s+cc=\{[^}]+\}\s+bcc=\{[^}]+\}/);
+  // Comments are stripped first, and each value must be read off a row (`x.cc`,
+  // `x.bcc`), so a commented-out line or a hard-coded null does not pass.
+  const stripComments = (src: string) => src.replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+
+  it.each(SURFACES)("%s renders EmailCopies with the row's own cc and bcc", (file) => {
+    const src = stripComments(readFileSync(file, "utf8"));
+    expect(src).toMatch(/<EmailCopies\s[^>]*\bcc=\{[\w.?]+\.cc\}/);
+    expect(src).toMatch(/<EmailCopies\s[^>]*\bbcc=\{[\w.?]+\.bcc\}/);
   });
 });
