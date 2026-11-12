@@ -319,10 +319,10 @@ No tool opens, edits or deletes a survey, or submits an answer.
 
 | Tool | Description |
 |---|---|
-| `list_crm_deals` | List CRM deals, filterable by the event they count under or by corporate project. |
-| `get_crm_deal` | Full detail for ONE deal: fields, its line-item products (with a currency-aware products total), the contacts on the deal (with roles), recent notes/activity, and open tasks. |
+| `list_crm_deals` | List CRM deals, filterable by the event they count under or by corporate project. A deal on a corporate project names it, with its days, place and the event it counts under when the project is linked to one. |
+| `get_crm_deal` | Full detail for ONE deal: fields, the event or corporate project it is for, its line-item products (with a currency-aware products total), the contacts on the deal (with roles), recent notes/activity, and open tasks. |
 | `create_crm_deal` | Create a deal for an event (`eventId`) or for a corporate project (`projectId`): exactly one of the two. |
-| `update_crm_deal` | Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId (re-point to another event; clearing is refused — a deal must stay on a project), pipeline (deal CATEGORY CORPORATE |
+| `update_crm_deal` | Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId or projectId (move the deal to another event or to a corporate project; naming one clears the other, and a deal cannot be left on neither), pipeline (deal CATEGORY CORPORATE |
 | `move_crm_deal_stage` | Move a deal to another pipeline stage (by stage name or id). |
 | `close_crm_deal` | Close a deal as WON or LOST. |
 | `list_crm_pipeline` | List the CRM pipeline stages in board order, with each stage's deal count. |
@@ -346,7 +346,7 @@ No tool opens, edits or deletes a survey, or submits an answer.
 | `create_crm_task` | Create a CRM follow-up task. |
 | `complete_crm_task` | Mark a CRM task done. |
 | `add_crm_note` | Log a note / call / meeting on a CRM record. |
-| `get_crm_report` | Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional `groupBy` (`pipeline`, `owner`, `event`, `dealType`, `lostReason`, `expectedCloseMonth`, `closedMonth`) adds a breakdown with counts, values and win rate per group. |
+| `get_crm_report` | Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional `eventId` or `projectId` filter (the heading says which). Optional `groupBy` (`pipeline`, `owner`, `event`, `project`, `attribution`, `dealType`, `lostReason`, `expectedCloseMonth`, `closedMonth`) adds a breakdown with counts, values and win rate per group. |
 
 Sponsorship pipeline. Registered from inside the CRM module (`src/crm/agent-tools.ts`) rather than the core registrar, which is why an earlier hand-maintained count missed all 26 of them.
 

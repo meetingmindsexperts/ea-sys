@@ -12,6 +12,11 @@
  *
  * `fallbackName` names the selected project when it is not in the list (an
  * archived project still on a deal): the form shows what the deal holds.
+ *
+ * A typed name that is refused as taken is not a dead end (review of e92d660f):
+ * the refusal names the project holding it, so the picker selects that one, or
+ * says it is archived and how to get it back. An archived project keeps its
+ * name and is not in this list, so "Create" is offered for it.
  */
 import { useState } from "react";
 import { BriefcaseBusiness, Check, ChevronsUpDown, Plus, X } from "lucide-react";
@@ -20,7 +25,20 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
-import { useCreateProject, useCrmProjects } from "@/crm/hooks/use-crm-api";
+import { ApiError } from "@/lib/api-fetch";
+import { fetchCrmProject, useCreateProject, useCrmProjects } from "@/crm/hooks/use-crm-api";
+
+/** The server's rule for "the same name": trimmed, any case, inner spaces collapsed. */
+function nameKey(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** The project that already holds a refused name, when the refusal says which. */
+function takenProjectId(err: unknown): string | null {
+  if (!(err instanceof ApiError) || err.code !== "NAME_TAKEN") return null;
+  const meta = err.data?.meta as { existingProjectId?: unknown } | undefined;
+  return typeof meta?.existingProjectId === "string" ? meta.existingProjectId : null;
+}
 
 export function ProjectCombobox({
   value,
@@ -33,7 +51,8 @@ export function ProjectCombobox({
   fallbackName,
 }: {
   value: string | null;
-  onChange: (projectId: string | null) => void;
+  /** `name` comes with a pick, so the caller can show it before its own list catches up. */
+  onChange: (projectId: string | null, name?: string | null) => void;
   clearLabel?: string;
   className?: string;
   allowClear?: boolean;
@@ -52,12 +71,33 @@ export function ProjectCombobox({
   const typed = search.trim();
   const q = typed.toLowerCase();
   const filtered = q ? projects.filter((p) => p.name.toLowerCase().includes(q)) : projects;
-  const exact = projects.some((p) => p.name.trim().toLowerCase() === q);
+  const exact = projects.some((p) => nameKey(p.name) === nameKey(typed));
 
-  function pick(id: string | null) {
-    onChange(id);
+  function pick(id: string | null, name?: string | null) {
+    onChange(id, name ?? null);
     setOpen(false);
     setSearch("");
+  }
+
+  /** True when the refused name was dealt with: its project selected, or the person told it is archived. */
+  async function settleTakenName(err: unknown): Promise<boolean> {
+    const existingId = takenProjectId(err);
+    if (!existingId) return false;
+    try {
+      const existing = await fetchCrmProject(existingId);
+      if (existing.archivedAt) {
+        toast.error(`"${existing.name}" is an archived project`, {
+          description: "It keeps its name. Restore it from the Archived view of the Projects page, which needs the permission to archive, or use another name.",
+        });
+        return true;
+      }
+      toast.info(`"${existing.name}" already exists, so it was selected.`);
+      pick(existing.id, existing.name);
+      return true;
+    } catch {
+      // The read failed: fall back to the refusal's own message.
+      return false;
+    }
   }
 
   async function createTyped() {
@@ -66,8 +106,9 @@ export function ProjectCombobox({
       toast.success(`Created the project "${res.project.name}"`, {
         description: "Add its client, dates and owner on the Projects page.",
       });
-      pick(res.project.id);
+      pick(res.project.id, res.project.name);
     } catch (err) {
+      if (await settleTakenName(err)) return;
       toast.error(err instanceof Error ? err.message : "Could not create the project");
     }
   }
@@ -105,7 +146,7 @@ export function ProjectCombobox({
             {filtered.length > 0 && (
               <CommandGroup heading="Corporate projects">
                 {filtered.slice(0, 100).map((p) => (
-                  <CommandItem key={p.id} value={p.id} onSelect={() => pick(p.id)}>
+                  <CommandItem key={p.id} value={p.id} onSelect={() => pick(p.id, p.name)}>
                     <Check className={cn("mr-2 h-4 w-4 shrink-0", value === p.id ? "opacity-100" : "opacity-0")} />
                     <span className="min-w-0">
                       <span className="block truncate">{p.name}</span>

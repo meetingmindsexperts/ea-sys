@@ -41,7 +41,7 @@ import {
 } from "@/crm/services/deal-service";
 import { findOrCreateCompany, updateCompany } from "@/crm/services/company-service";
 import { createProject } from "@/crm/services/project-service";
-import { PROJECT_SELECT, parseDay, projectRow } from "@/crm/lib/project-rows";
+import { DEAL_PROJECT_SELECT, PROJECT_SELECT, dayString, parseDay, projectRow } from "@/crm/lib/project-rows";
 import { findOrCreateCrmContact, updateCrmContact } from "@/crm/services/crm-contact-service";
 import {
   ensureCrmProducts,
@@ -149,6 +149,38 @@ function projectDatesLine(event: { startDate: Date; endDate: Date } | null): str
 }
 function projectLocationLine(event: { city: string | null; country: string | null } | null): string {
   return [event?.city, event?.country].filter(Boolean).join(", ");
+}
+
+/** What a report was narrowed to, so a one-project report is not read as the whole organisation's. */
+function reportFilterNote(eventId?: string, projectId?: string): string {
+  const parts = [eventId ? "one event" : "", projectId ? "one corporate project" : ""].filter(Boolean);
+  return parts.length > 0 ? ` (filtered to ${parts.join(" and ")})` : "";
+}
+
+/**
+ * The lines that say which corporate project a deal is on, and the event it
+ * counts under when that project is linked to one. Without them a deal on a
+ * project printed no target at all, and an event filter returned a linked
+ * project's deals with nothing saying why (review of e92d660f).
+ */
+function dealProjectLines(
+  project: {
+    id: string;
+    name: string;
+    startDate: Date | null;
+    endDate: Date | null;
+    location: string | null;
+    archivedAt: Date | null;
+    event: { id: string; name: string } | null;
+  } | null,
+): string {
+  if (!project) return "";
+  return (
+    `\n  Corporate project: ${project.name} (${project.id})${project.archivedAt ? " [archived]" : ""}` +
+    `\n  Project dates: ${projectDaysText(dayString(project.startDate), dayString(project.endDate))}` +
+    (project.location ? `\n  Project location: ${project.location}` : "") +
+    (project.event ? `\n  Counts under the event: ${project.event.name} (${project.event.id}), which the project is linked to` : "")
+  );
 }
 
 /**
@@ -339,6 +371,7 @@ export function registerCrmMcpTools(
             company: { select: { name: true } },
             // Project date + location are derived from the event (city/country only).
             event: { select: { name: true, startDate: true, endDate: true, city: true, country: true } },
+            project: { select: DEAL_PROJECT_SELECT },
             owner: { select: { firstName: true, lastName: true } },
           },
           orderBy: { updatedAt: "desc" },
@@ -357,6 +390,7 @@ export function registerCrmMcpTools(
               (d.event ? `\n  Event: ${d.event.name}` : "") +
               (projectDatesLine(d.event) ? `\n  Project dates: ${projectDatesLine(d.event)}` : "") +
               (projectLocationLine(d.event) ? `\n  Project location: ${projectLocationLine(d.event)}` : "") +
+              dealProjectLines(d.project) +
               (d.owner ? `\n  Owner: ${d.owner.firstName} ${d.owner.lastName}` : "") +
               (d.expectedClose ? `\n  Expected close: ${d.expectedClose.toISOString().split("T")[0]}` : "") +
               (d.status === "LOST" && d.lostReason ? `\n  Lost reason: ${d.lostReason}` : ""),
@@ -379,7 +413,7 @@ export function registerCrmMcpTools(
 
   writeServer.tool(
     "create_crm_deal",
-    "Create a deal. Required: name, and EXACTLY ONE of eventId (the event the deal is sold against) or projectId (a corporate project, for work that is not an event in the system: call list_crm_projects, or create_crm_project first). Both, or neither, is refused. Optional: companyName (the account — found or created, deduped on the normalized name), stage (name or id; defaults to the first open stage), pipeline (deal CATEGORY — CORPORATE or CONFERENCE; NOT a pipeline stage), dealType (the org-configurable business line — name or id, call list_crm_deal_types), tags (free-form labels, normalized), dealValue, currency (default USD), expectedClose (ISO date). Project date + location are derived from the event, not set here.",
+    "Create a deal. Required: name, and EXACTLY ONE of eventId (the event the deal is sold against) or projectId (a corporate project, for work that is not an event in the system: call list_crm_projects, or create_crm_project first). Both, or neither, is refused. Optional: companyName (the account — found or created, deduped on the normalized name), stage (name or id; defaults to the first open stage), pipeline (deal CATEGORY — CORPORATE or CONFERENCE; NOT a pipeline stage), dealType (the org-configurable business line — name or id, call list_crm_deal_types), tags (free-form labels, normalized), dealValue, currency (default USD), expectedClose (ISO date). Project date + location come from the event, or from the corporate project, and are not set here.",
     {
       name: z.string().min(1).max(255),
       eventId: z.string().min(1).optional().describe("The event the deal is for. Give this OR projectId, never both"),
@@ -873,7 +907,7 @@ export function registerCrmMcpTools(
         }
 
         return (
-          `Pipeline${eventId ? " (filtered to one event)" : ""}:\n${stageLines.join("\n")}\n` +
+          `Pipeline${reportFilterNote(eventId, projectId)}:\n${stageLines.join("\n")}\n` +
           `Open pipeline: ${pipeline.openCount} deal(s) — ${openLine}\n\n` +
           `Closed:\n${wl}` +
           (repLines.length > 0 ? `\n\nTop reps:\n${repLines.join("\n")}` : "") +
@@ -1147,6 +1181,7 @@ export function registerCrmMcpTools(
             stage: { select: { name: true } },
             company: { select: { id: true, name: true } },
             event: { select: { name: true, startDate: true, endDate: true, city: true, country: true } },
+            project: { select: DEAL_PROJECT_SELECT },
             owner: { select: { firstName: true, lastName: true } },
           },
         });
@@ -1218,6 +1253,7 @@ export function registerCrmMcpTools(
           (deal.event ? `\n  Event: ${deal.event.name}` : "") +
           (projectDatesLine(deal.event) ? `\n  Project dates: ${projectDatesLine(deal.event)}` : "") +
           (projectLocationLine(deal.event) ? `\n  Project location: ${projectLocationLine(deal.event)}` : "") +
+          dealProjectLines(deal.project) +
           (deal.owner ? `\n  Owner: ${deal.owner.firstName} ${deal.owner.lastName}` : "") +
           (deal.expectedClose ? `\n  Expected close: ${deal.expectedClose.toISOString().split("T")[0]}` : "") +
           (deal.status === "LOST" && deal.lostReason ? `\n  Lost reason: ${deal.lostReason}` : "") +

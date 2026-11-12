@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM: corporate projects - what the review of the screens found (November 12)
+
+Review of `e92d660f`: no blocker, no high, 5 medium, 14 low. The five medium are fixed here.
+
+- **Looking at the other tab no longer files a deal under Corporate** - Choosing "A corporate project" on an uncategorised deal offers Corporate in the Pipeline field. That offer stayed after going back to "An event", so opening a deal, looking at the project tab and saving an unrelated fix changed its category. It is now withdrawn on going back unless the person chose the category themselves (`dealTargetPatch`)
+- **A project name that is already taken is not a dead end** - The deal form's picker offered "Create" for a name held by an archived project (archived projects keep their name and are not in the list) and then only said the name was taken. It now selects the existing project when it is live, and when it is archived says so and where to restore it. A name differing only in spacing no longer offers Create
+- **The link card says everything a link changes, and asks first** - "Is this really an event?" named the reports and the budget revenue. A link also puts the project's deals on the board's event filter and in the CSV export under that event, and includes their contacts when someone emails that event's sponsors. The card and a confirmation now say all of it
+- **The agent can see which project a deal is on** - `list_crm_deals` and `get_crm_deal` printed nothing for a deal on a corporate project. They now name the project, its days and place, and the event it counts under when the project is linked. `get_crm_report` filtered to a project says so in its heading. Package version 0.4.59: **connected MCP clients must disconnect and reconnect**
+- **Tests** - The deal form's rules for every starting state (`crm-deal-form.test.ts`), the project's days and money on screen (`project-format.test.ts`), and the agent's project tools: what they read, what they refuse, and that a caller who may not see deal values gets no money (`crm-agent-tools.test.ts`)
+
 ### CRM: corporate projects - the screens, the agent and the guide (November 12)
 
 The second half of corporate projects (the data, rules and API are the entry below).

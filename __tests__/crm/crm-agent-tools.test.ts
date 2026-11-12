@@ -21,7 +21,8 @@ vi.mock("@/lib/db", () => {
   const db = {
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     crmPipelineStage: { findMany: vi.fn(), findFirst: vi.fn(), createMany: vi.fn() },
-    crmDeal: { findMany: vi.fn(), findFirst: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
+    crmDeal: { findMany: vi.fn(), findFirst: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn(), create: vi.fn() },
+    crmProject: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     crmDealType: { findMany: vi.fn(), createMany: vi.fn() },
     crmCompany: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
     crmContact: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
@@ -350,3 +351,181 @@ describe("the MCP placeholder user is never written as an owner (review of 8553d
   });
 });
 
+
+describe("corporate projects (review of e92d660f: the new tools had no behavioural test)", () => {
+  const STAGES = [{ id: "s-1", name: "Lead", order: 0, isTerminal: false, terminalStatus: null }];
+  const PROJECT = {
+    id: "p-1", name: "Novartis Ad Board", startDate: new Date("2027-03-01T00:00:00.000Z"), endDate: new Date("2027-03-02T00:00:00.000Z"),
+    location: "Dubai, UAE", archivedAt: null, eventId: null, event: null,
+  };
+  const DEAL_ROW = {
+    id: "d-1", name: "Novartis deal", status: "OPEN", pipeline: "CORPORATE", tags: [], dealValue: 15000, currency: "USD",
+    expectedClose: null, lostReason: null, archivedAt: null, dealType: null, stage: { name: "Lead" }, company: null, event: null, owner: null,
+  };
+
+  it("list_crm_deals says which corporate project a deal is on, with its days and place", async () => {
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([{ ...DEAL_ROW, project: PROJECT }] as never);
+
+    const res = await collectTools().get("list_crm_deals")!({ projectId: "p-1" });
+    const text = res.content[0]!.text;
+
+    expect(text).toContain("Corporate project: Novartis Ad Board (p-1)");
+    expect(text).toContain("Project dates: 2027-03-01 to 2027-03-02");
+    expect(text).toContain("Project location: Dubai, UAE");
+    expect(text).not.toContain("Counts under the event");
+    const where = vi.mocked(db.crmDeal.findMany).mock.calls[0]![0]!.where as Record<string, unknown>;
+    expect(where).toMatchObject({ organizationId: ORG, projectId: "p-1" });
+  });
+
+  it("list_crm_deals explains a linked project's deal turning up under an event filter", async () => {
+    const linked = { ...PROJECT, eventId: "e-1", event: { id: "e-1", name: "BRIDGES 2027" } };
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([{ ...DEAL_ROW, project: linked }] as never);
+
+    const res = await collectTools().get("list_crm_deals")!({ eventId: "e-1" });
+
+    expect(res.content[0]!.text).toContain("Counts under the event: BRIDGES 2027 (e-1)");
+  });
+
+  it("get_crm_deal names the project, and marks an archived one", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ ...DEAL_ROW, project: { ...PROJECT, archivedAt: new Date() } } as never);
+    vi.mocked(db.crmDealProduct.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmDealContact.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmNote.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmTask.findMany).mockResolvedValue([] as never);
+
+    const res = await collectTools().get("get_crm_deal")!({ dealId: "d-1" });
+
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain("Corporate project: Novartis Ad Board (p-1) [archived]");
+  });
+
+  it("get_crm_report says when it was narrowed to one corporate project", async () => {
+    vi.mocked(db.crmPipelineStage.findMany).mockResolvedValue(STAGES as never);
+    vi.mocked(db.crmDeal.groupBy).mockResolvedValue([] as never);
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never);
+
+    const res = await collectTools().get("get_crm_report")!({ projectId: "p-1" });
+
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain("Pipeline (filtered to one corporate project):");
+  });
+
+  it("list_crm_projects reads the injected organisation's live projects", async () => {
+    vi.mocked(db.crmProject.findMany).mockResolvedValue([
+      {
+        ...PROJECT, createdAt: new Date(), company: { id: "c-1", name: "Novartis" }, owner: null,
+        deals: [{ status: "OPEN", dealValue: 15000, currency: "USD" }, { status: "WON", dealValue: 5000, currency: "USD" }],
+      },
+    ] as never);
+
+    const res = await collectTools().get("list_crm_projects")!({});
+    const text = res.content[0]!.text;
+
+    expect(vi.mocked(db.crmProject.findMany).mock.calls[0]![0]!.where).toMatchObject({ organizationId: ORG, archivedAt: null });
+    expect(text).toContain("Novartis Ad Board");
+    expect(text).toContain("ID: p-1 | Client: Novartis | 2027-03-01 to 2027-03-02 | Dubai, UAE");
+    expect(text).toContain("Deals: 2 (1 open, 1 won)");
+    expect(text).toContain("Value:");
+  });
+
+  it("list_crm_projects prints no money for a caller who may not see deal values", async () => {
+    vi.mocked(db.crmProject.findMany).mockResolvedValue([
+      { ...PROJECT, createdAt: new Date(), company: null, owner: null, deals: [{ status: "OPEN", dealValue: 15000, currency: "USD" }] },
+    ] as never);
+    const tools = new Map<string, ToolFn>();
+    const server = { tool: (name: string, _d: string, _s: unknown, fn: ToolFn) => void tools.set(name, fn) };
+    // Holds crm.read and nothing else.
+    const principal = { userId: "u-1", baseRole: "MEMBER", organizationId: ORG, fromApiKey: false, grants: [{ permission: "crm.read" }], personGrants: {} };
+    registerCrmMcpTools(server as never, ORG, "u-1", { role: "MEMBER", fromApiKey: false, principal: principal as never });
+    // Only meaningful if this caller really is refused the values.
+    const list = tools.get("list_crm_projects");
+    if (!list) throw new Error("the caller should hold crm.read");
+
+    const text = (await list({})).content[0]!.text;
+
+    expect(text).toContain("Deals: 1 (1 open, 0 won)");
+    expect(text).not.toContain("Value:");
+    expect(text).not.toMatch(/15[,.]?000/);
+    // A caller without crm.write is not offered the write tool at all.
+    expect(tools.has("create_crm_project")).toBe(false);
+  });
+
+  it("create_crm_project refuses a taken name and hands back the id that holds it", async () => {
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue({ id: "p-1" } as never);
+
+    const res = await collectTools().get("create_crm_project")!({ name: "  novartis   ad board " });
+
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain("(ID: p-1)");
+    expect(vi.mocked(db.crmProject.findFirst).mock.calls[0]![0]!.where).toMatchObject({ organizationId: ORG, nameKey: "novartis ad board" });
+    expect(db.crmProject.create).not.toHaveBeenCalled();
+  });
+
+  it("create_crm_project refuses a day that does not exist, before anything is written", async () => {
+    const res = await collectTools().get("create_crm_project")!({ name: "X", startDate: "2027-02-31" });
+
+    expect(res.isError).toBe(true);
+    expect(db.crmProject.findFirst).not.toHaveBeenCalled();
+    expect(db.crmProject.create).not.toHaveBeenCalled();
+  });
+
+  it("create_crm_project stores the days as calendar days", async () => {
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue(null as never);
+    vi.mocked(db.crmProject.create).mockResolvedValue({ id: "p-2", name: "Ad Board", eventId: null } as never);
+
+    const res = await collectTools().get("create_crm_project")!({ name: "Ad Board", startDate: "2027-03-01", endDate: "2027-03-02" });
+
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain("ID: p-2");
+    const data = vi.mocked(db.crmProject.create).mock.calls[0]![0]!.data as { startDate: Date; endDate: Date; organizationId: string };
+    expect(data.organizationId).toBe(ORG);
+    expect(data.startDate.toISOString()).toBe("2027-03-01T00:00:00.000Z");
+    expect(data.endDate.toISOString()).toBe("2027-03-02T00:00:00.000Z");
+  });
+
+  it("create_crm_deal refuses an event AND a project, and writes nothing", async () => {
+    vi.mocked(db.crmPipelineStage.findMany).mockResolvedValue(STAGES as never);
+
+    const res = await collectTools().get("create_crm_deal")!({ name: "X", eventId: "e-1", projectId: "p-1" });
+
+    expect(res.isError).toBe(true);
+    expect(db.crmDeal.create).not.toHaveBeenCalled();
+  });
+
+  it("create_crm_deal refuses neither", async () => {
+    vi.mocked(db.crmPipelineStage.findMany).mockResolvedValue(STAGES as never);
+
+    const res = await collectTools().get("create_crm_deal")!({ name: "X" });
+
+    expect(res.isError).toBe(true);
+    expect(db.crmDeal.create).not.toHaveBeenCalled();
+  });
+
+  it("create_crm_deal looks the project up in the injected organisation, and refuses an archived one", async () => {
+    vi.mocked(db.crmPipelineStage.findMany).mockResolvedValue(STAGES as never);
+    vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(STAGES[0] as never);
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue({ id: "p-1", archivedAt: new Date() } as never);
+
+    const res = await collectTools().get("create_crm_deal")!({ name: "X", projectId: "p-1" });
+
+    expect(res.isError).toBe(true);
+    expect(vi.mocked(db.crmProject.findFirst).mock.calls[0]![0]!.where).toMatchObject({ id: "p-1", organizationId: ORG });
+    expect(db.crmDeal.create).not.toHaveBeenCalled();
+  });
+
+  it("create_crm_deal on a project writes the project and no event", async () => {
+    vi.mocked(db.crmPipelineStage.findMany).mockResolvedValue(STAGES as never);
+    vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(STAGES[0] as never);
+    vi.mocked(db.crmProject.findFirst).mockResolvedValue({ id: "p-1", archivedAt: null } as never);
+    vi.mocked(db.crmDeal.create).mockResolvedValue({
+      id: "d-9", name: "X", pipeline: null, tags: [], dealValue: null, currency: "USD", ownerId: null, stageId: "s-1",
+    } as never);
+
+    const res = await collectTools().get("create_crm_deal")!({ name: "X", projectId: "p-1" });
+
+    expect(res.isError).toBeUndefined();
+    const data = vi.mocked(db.crmDeal.create).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data).toMatchObject({ organizationId: ORG, projectId: "p-1", eventId: null });
+  });
+});

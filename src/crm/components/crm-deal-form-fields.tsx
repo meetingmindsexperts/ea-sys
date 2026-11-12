@@ -54,6 +54,12 @@ export interface CrmDealFormState {
   expectedClose: string;
   /** "" = unclassified. */
   pipeline: CrmDealPipeline | "";
+  /**
+   * True while "Corporate" was filled in by choosing the project side, not by
+   * the person. Going back to "An event" then takes it away again, so looking
+   * at the other tab never files a deal under Corporate (dealTargetPatch).
+   */
+  pipelineFromTarget: boolean;
   /** Org-configurable deal type id, or null. */
   dealTypeId: string | null;
   tags: string[];
@@ -77,6 +83,7 @@ export function emptyCrmDealForm(defaults?: {
     expectedClose: "",
     // A deal for a corporate project starts in the Corporate category.
     pipeline: defaults?.project ? "CORPORATE" : "",
+    pipelineFromTarget: !!defaults?.project,
     dealTypeId: null,
     tags: [],
   };
@@ -100,9 +107,24 @@ export function crmDealToForm(deal: CrmBoardDeal): CrmDealFormState {
     projectName: deal.project?.name ?? null,
     expectedClose: toDateInput(deal.expectedClose),
     pipeline: deal.pipeline ?? "",
+    pipelineFromTarget: false,
     dealTypeId: deal.dealTypeId ?? deal.dealType?.id ?? null,
     tags: deal.tags ?? [],
   };
+}
+
+/**
+ * What choosing a side changes. An uncategorised deal moved to the project side
+ * is offered "Corporate", visibly, in the Pipeline field; going back to the
+ * event side withdraws that offer unless the person chose the category
+ * themselves. Until Nov 12, 2026 the offer stayed, so opening a deal, looking
+ * at the other tab and saving an unrelated fix filed it under Corporate.
+ */
+export function dealTargetPatch(f: CrmDealFormState, target: DealTargetKind): Partial<CrmDealFormState> {
+  if (target === f.target) return {};
+  if (target === "project" && !f.pipeline) return { target, pipeline: "CORPORATE", pipelineFromTarget: true };
+  if (target === "event" && f.pipelineFromTarget) return { target, pipeline: "", pipelineFromTarget: false };
+  return { target };
 }
 
 /** First failing rule as a toast-ready message, or null when the form is sound. */
@@ -198,17 +220,12 @@ export function CrmDealFormFields({
     </div>
   );
 
-  // Choosing "a corporate project" on an uncategorised deal also files it under Corporate.
-  function chooseTarget(target: DealTargetKind) {
-    onChange({ target, ...(target === "project" && !f.pipeline ? { pipeline: "CORPORATE" as const } : {}) });
-  }
-
   const eventField = (
     <div className="space-y-2">
       <Label>
         This deal is for <span className="text-destructive">*</span>
       </Label>
-      <Tabs value={f.target} onValueChange={(v) => chooseTarget(v as DealTargetKind)}>
+      <Tabs value={f.target} onValueChange={(v) => onChange(dealTargetPatch(f, v as DealTargetKind))}>
         <TabsList className="w-full">
           <TabsTrigger value="event" className="flex-1">
             An event
@@ -229,7 +246,7 @@ export function CrmDealFormFields({
       ) : (
         <ProjectCombobox
           value={f.projectId}
-          onChange={(projectId) => onChange({ projectId, projectName: null })}
+          onChange={(projectId, name) => onChange({ projectId, projectName: name ?? null })}
           allowClear={false}
           allowCreate
           fallbackName={f.projectName}
@@ -260,7 +277,7 @@ export function CrmDealFormFields({
       <Label htmlFor={`${idPrefix}-pipeline`}>Pipeline</Label>
       <Select
         value={f.pipeline || NO_PIPELINE}
-        onValueChange={(v) => onChange({ pipeline: v === NO_PIPELINE ? "" : (v as CrmDealPipeline) })}
+        onValueChange={(v) => onChange({ pipeline: v === NO_PIPELINE ? "" : (v as CrmDealPipeline), pipelineFromTarget: false })}
       >
         <SelectTrigger id={`${idPrefix}-pipeline`} className="w-full">
           <SelectValue placeholder="Uncategorised" />

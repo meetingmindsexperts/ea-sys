@@ -1100,10 +1100,15 @@ export function useCrmProjects(filters: CrmProjectFilters = {}) {
   });
 }
 
+/** One project, read once: the picker asks it about a name that is already taken. */
+export function fetchCrmProject(projectId: string): Promise<CrmProjectDetail> {
+  return apiFetch<{ project: CrmProjectDetail }>(`/api/crm/projects/${projectId}`).then((r) => r.project);
+}
+
 export function useCrmProject(projectId: string | null | undefined) {
   return useQuery({
     queryKey: crmKeys.project(projectId ?? ""),
-    queryFn: () => apiFetch<{ project: CrmProjectDetail }>(`/api/crm/projects/${projectId}`).then((r) => r.project),
+    queryFn: () => fetchCrmProject(projectId ?? ""),
     enabled: !!projectId,
   });
 }

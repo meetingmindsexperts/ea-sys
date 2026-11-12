@@ -245,6 +245,43 @@ a deal holding both counts once). This part of the third was recorded instead:
   reads the CSV back would cover the old columns too. Not done now: it is a new harness for
   that route, not a one-line addition.
 
+Review of `e92d660f` (the screens, the agent's tools, the guide): no BLOCKER, no HIGH, 5 MED all
+fixed the same day. LOW, listed and not fixed:
+
+- A board or report filter on an archived or unknown project reads "All projects" (the picker
+  has no fallback name there); an archived project's page still links "Open on the board".
+- Every card drag refetches the whole projects list, which carries every deal of up to 1,000
+  projects to feed a filter picker. The picker needs a names-only read.
+- Moving a deal between an event and a project does not refresh the reports; the account and
+  contact pages keep a renamed project's old name until their own 5 minutes pass; the sponsor
+  email's recipient preview is not refreshed after a link (the send re-reads).
+- The project page shows "could not load" for a project that does not exist, and an error card
+  above stale data when a background refresh fails.
+- Open value and Won value show the same dash for no value and for a caller who may not see values.
+- The project page's New deal form keeps the old client account after an edit until the dialog
+  has been closed once; the board's form can be reset when the projects list lands on a
+  `?project=` load.
+- The picker shows the newest 100 projects with no hint that more exist, and two Enters in one
+  tick can send two creates (the second is refused as taken).
+- The deal form starts a project deal in Corporate; `create_crm_deal` with `projectId` leaves the
+  category empty. One default, in the service, would end the difference.
+- A refused project (name taken, dates out of order) leaves the new client account it created
+  first. Same pattern as the deal paths.
+- History shows a project's raw id as a changed value.
+- The event-or-project choice is a tab list with no panels and a label not tied to it.
+- A quote or email from a deal on a project has no VAT rate, no project name in the title and a
+  blank `{{eventName}}` (the stated design of the first commit).
+
+Older defects that review found, not from this work, each waiting on a decision:
+
+- **A person who can edit deals but not see their values wipes the value on any edit.** The form
+  turns the hidden value into "no value" and the service writes it. Needs a custom role with
+  `crm.write` and without `crm.dealValues.view`; worth its own fix.
+- `list_crm_deals` and `get_crm_deal` print deal values without asking `crm.dealValues.view`.
+- A deal whose event was deleted cannot be saved from the form until a target is picked.
+- The event picker has no fallback name: a deal on a draft or cancelled event shows "Select an
+  event…" while holding the id.
+
 ## CRM inbox, Sent folder: what the Nov 11 review left (recorded Nov 11, 2026): not started
 
 Review of `2870ddb1` (Sent lists only conversations holding an email we sent): no BLOCKER, no

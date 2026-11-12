@@ -31,12 +31,22 @@ function moneyLine(lines: string[]) {
   return lines.length ? lines.join(" + ") : <Dash />;
 }
 
+/** Everything a link changes, said where the decision is made (review of e92d660f: the card named two of five). */
+const LINK_REACH =
+  "in the reports, on the board's event filter, in the CSV export and in the event's budget revenue, and the contacts on its open and won deals are included when someone emails that event's sponsors";
+const LINK_CONFIRM =
+  "Link this project to the event? Its deals will count under the event " +
+  LINK_REACH +
+  ". Nothing is moved, and unlinking puts them back.";
+
 /** Link the project to the event it duplicates, or clear that link. */
 function EventLinkCard({ project, canWrite }: { project: CrmProjectDetail; canWrite: boolean }) {
   const update = useUpdateProject(project.id);
   const [picked, setPicked] = useState<string | null>(null);
 
   async function save(eventId: string | null) {
+    // Linking reaches the event's sponsor emails, so it is confirmed; unlinking only takes that away.
+    if (eventId && !confirm(LINK_CONFIRM)) return;
     try {
       await update.mutateAsync({ eventId });
       toast.success(eventId ? "Linked. Its deals now count under that event." : "Unlinked. Its deals count under the project again.");
@@ -51,8 +61,8 @@ function EventLinkCard({ project, canWrite }: { project: CrmProjectDetail; canWr
       {project.event ? (
         <div className="space-y-3 text-sm">
           <p>
-            Linked to <span className="font-medium">{project.event.name}</span>. This project&rsquo;s deals count under that event in the
-            reports and in the event&rsquo;s budget revenue.
+            Linked to <span className="font-medium">{project.event.name}</span>. This project&rsquo;s deals count under that event{" "}
+            {LINK_REACH}.
           </p>
           {canWrite && !project.archivedAt && (
             <Button type="button" variant="outline" size="sm" onClick={() => save(null)} disabled={update.isPending}>
@@ -65,7 +75,7 @@ function EventLinkCard({ project, canWrite }: { project: CrmProjectDetail; canWr
         <div className="space-y-3 text-sm">
           <p className="text-muted-foreground">
             Only if this project was entered by mistake for an event or webinar that is already in the system. Linking makes its deals
-            count under that event in the reports and in the event&rsquo;s budget revenue. Nothing is moved, and unlinking puts them back.
+            count under that event {LINK_REACH}. Nothing is moved, and unlinking puts them back.
           </p>
           {canWrite && !project.archivedAt && (
             <>
