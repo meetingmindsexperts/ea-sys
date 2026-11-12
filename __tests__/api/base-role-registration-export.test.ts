@@ -6,7 +6,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockOrgCtx, mockAuth } = vi.hoisted(() => ({
+const { mockDb, mockOrgCtx, mockAuth, mockLoadRecipientReport } = vi.hoisted(() => ({
+  mockLoadRecipientReport: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findMany: vi.fn(), findFirst: vi.fn() },
@@ -42,6 +43,11 @@ vi.mock("next/server", () => {
   }
   return { NextResponse };
 });
+// The certificate columns: the loader is stubbed, the summary built from it is real.
+vi.mock("@/lib/certificates/recipients-report", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/certificates/recipients-report")>()),
+  loadRecipientReport: mockLoadRecipientReport,
+}));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/api-auth", () => ({ getOrgContext: () => mockOrgCtx() }));
@@ -114,5 +120,59 @@ describe("Base role + Marketing: registrations export", () => {
     const res = (await GET(exportReq(), params)) as unknown as { status: number };
     expect(res.status).toBe(403);
     expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// The certificate columns ask certificates.read ON THIS EVENT (review of
+// 04166413: the desk test proved only "no key at all", so dropping the event
+// from the question survived every test).
+describe("a custom role's certificate columns follow the event its key covers", () => {
+  const WEBINAR_CERTIFICATES = [...MARKETING, "certificates.read@WEBINAR"];
+  const REPORT = {
+    timezone: "Asia/Dubai",
+    templates: [{ id: "t1", name: "CME" }],
+    answeredNotAssigned: [],
+    rows: [{ templateId: "t1", templateName: "CME", registrationId: "r1", speakerId: null, state: "SENT" }],
+  };
+  const eventOfType = (eventType: string) => ({
+    id: "ev1",
+    name: "Summit",
+    taxRate: 5,
+    taxLabel: "VAT",
+    settings: {},
+    timezone: "Asia/Dubai",
+    cmeHours: null,
+    organizationId: "org1",
+    eventType,
+    staffAssignments: [],
+  });
+  const lastTwo = (csv: string) => csv.split("\n")[1].split(",").slice(-2);
+
+  beforeEach(() => {
+    mockLoadRecipientReport.mockResolvedValue(REPORT);
+  });
+
+  it("certificates on webinars only: a conference's file has both cells blank and reads no certificates", async () => {
+    asBase(WEBINAR_CERTIFICATES);
+    mockDb.event.findFirst.mockResolvedValue(eventOfType("CONFERENCE"));
+    const res = (await GET(exportReq(), params)) as unknown as { status: number; text: () => Promise<string> };
+    expect(res.status).toBe(200);
+    expect(lastTwo(await res.text())).toEqual(["", ""]);
+    expect(mockLoadRecipientReport).not.toHaveBeenCalled();
+  });
+
+  it("the same person on a webinar gets them", async () => {
+    asBase(WEBINAR_CERTIFICATES);
+    mockDb.event.findFirst.mockResolvedValue(eventOfType("WEBINAR"));
+    const res = (await GET(exportReq(), params)) as unknown as { text: () => Promise<string> };
+    expect(lastTwo(await res.text())).toEqual(["CME", "Sent"]);
+  });
+
+  it("managing templates is not seeing certificates: the key asked is certificates.read", async () => {
+    asBase([...MARKETING, "certificates.templates.manage@ALL"]);
+    mockDb.event.findFirst.mockResolvedValue(eventOfType("CONFERENCE"));
+    const res = (await GET(exportReq(), params)) as unknown as { text: () => Promise<string> };
+    expect(lastTwo(await res.text())).toEqual(["", ""]);
+    expect(mockLoadRecipientReport).not.toHaveBeenCalled();
   });
 });
