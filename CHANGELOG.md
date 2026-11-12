@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Bulk email: "Send me a copy" starts unticked (November 12)
+
+Owner: the tick is the sender's own choice, and organisers expect it off.
+
+- **Changed**: in the bulk email dialog (Communications, Registrations, Speakers, Reviewers) the "Send me a copy (BCC)" box starts unticked and goes back to unticked when the dialog closes. It started ticked, and on a bulk send it means one copy per recipient.
+- **Why now**: until the fix in the entry below, a certificate send ignored the box, so 41 of the 53 certificate sends made from Communications carried the tick and produced no copies. With the fix deployed, the same default would have copied the sender once per recipient, PDF attached (the largest send so far went to 439 people).
+- **Unchanged**: the email to one speaker keeps the box ticked to start with (one email, one copy).
+- **Pinned** by a source check in `__tests__/lib/bulk-email-bcc.test.ts`; the user guide says the same.
+
 ### Abstracts: bulk reviewer assignment - the smaller review findings worth fixing (November 12)
 
 The low findings of the same review. From now on the author judges which low findings to fix (AGENTS.md rule 5, owner, November 12); these are the ones that cost a user something. The rest are in the ROADMAP with why they were left.

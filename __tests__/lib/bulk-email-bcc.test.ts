@@ -8,6 +8,8 @@
  * recipient is never BCC'd on their own email.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const { mockDb, mockSendEmail, mockRenderAndWrap, mockGetDefaultTemplate, mockGetEventTemplate, mockBuildSpeakerEmailContext } =
   vi.hoisted(() => ({
@@ -202,6 +204,18 @@ describe("executeBulkEmail: manual CC (Oct 2, 2026)", () => {
     expect(bulkEmailSchema.safeParse({ ...base, filters: { cc: ["not-an-email"] } }).success).toBe(false);
     const eleven = Array.from({ length: 11 }, (_, i) => `p${i}@x.com`);
     expect(bulkEmailSchema.safeParse({ ...base, filters: { cc: eleven } }).success).toBe(false);
+  });
+});
+
+describe("the bulk dialog's copy-to-me box (owner, Nov 12, 2026)", () => {
+  // One copy PER recipient: ticked by default, a certificate send to several hundred people fills
+  // the sender's mailbox with as many PDFs. The tick is the sender's choice, so it starts off and
+  // goes back to off when the dialog closes.
+  it("starts unticked and resets to unticked", () => {
+    const source = readFileSync(join(process.cwd(), "src/components/bulk-email-dialog.tsx"), "utf8");
+    expect(source).toContain("const [bccSelf, setBccSelf] = useState(false);");
+    expect(source).toContain("setBccSelf(false);");
+    expect(source).not.toContain("setBccSelf(true)");
   });
 });
 

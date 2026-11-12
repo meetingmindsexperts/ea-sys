@@ -362,13 +362,17 @@ export function BulkEmailDialog({
   // (Sep 8, 2026). Same picker + limits as the single-send dialog.
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   // BCC observers + "send a copy to me" (organizer request July 29, 2026 —
-  // parity with the CRM email dialog). Copy-to-me defaults ON; on a bulk
-  // send the sender receives one BCC copy PER recipient email.
+  // parity with the CRM email dialog). On a bulk send the sender receives one
+  // BCC copy PER recipient email, so the box starts UNTICKED here (owner,
+  // Nov 12, 2026: the tick is the sender's own choice). It started ticked until
+  // then, and a certificate send to 439 people would have put 439 emails with
+  // PDFs in the sender's mailbox. The single speaker email keeps it ticked: one
+  // email, one copy.
   // Manual CC (Oct 2, 2026): on EVERY email of the send, visible to each
   // recipient, one copy per recipient per address; the field warns about both.
   const [ccInput, setCcInput] = useState("");
   const [bccInput, setBccInput] = useState("");
-  const [bccSelf, setBccSelf] = useState(true);
+  const [bccSelf, setBccSelf] = useState(false);
   const [sendMode, setSendMode] = useState<"now" | "later">("now");
   const [scheduledFor, setScheduledFor] = useState<string>("");
   // survey-invitation only — TTL (days) for the minted survey link.
@@ -811,7 +815,7 @@ export function BulkEmailDialog({
     setLocalAbstractStatus("all");
     setCcInput("");
     setBccInput("");
-    setBccSelf(true);
+    setBccSelf(false);
   };
 
   const handleOpenChange = (newOpen: boolean) => {
