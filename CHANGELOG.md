@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Certificates: CC and BCC on a send from Communications now reach people (November 12)
+
+A certificate was sent to one registrant from Communications with two colleagues on CC and "Send me a copy" ticked. None of the three received anything.
+
+- **Cause**: the send dialog accepts CC, BCC and "Send me a copy" for every email type and saves them on the send, but the certificate send took its own path and never read them. The email log showed the gap: the saved send held the CC and the self-copy, the email that went out had neither. 41 of the 53 certificate sends made from Communications so far had "Send me a copy" ticked (it is ticked by default) and none produced a copy
+- **Fixed** (`712f4ffd`): a certificate sent from Communications now carries the dialog's CC, BCC and self-copy on every recipient's email, as every other bulk email does. One reader of those settings for every kind of bulk send (`resolveBulkObservers`), and one rule for who is BCC'd on an email (`observerBcc`): never the recipient, never someone already on its CC
+- **Also changed for the other bulk emails**: an address on the event's CC list and on the BCC used to get two copies of each email. It now gets one, as CC
+- **Unchanged**: certificates issued, sent or resent from the Certificates page carry no CC or BCC beyond the person's additional email and the event's CC list
+- **To know**: "Send me a copy" means one copy per recipient, with the PDF attached. On a certificate send to several hundred people, untick it unless that is wanted (review of `712f4ffd`, medium: whether it should start unticked for certificates is the owner's decision)
+- Review of `712f4ffd`: no blocker, no high, 1 medium (above), 5 low: Email History does not show an email's CC or BCC although both are recorded; the single speaker email keeps its own BCC code; the dialog's CC warning speaks of "personal links" where a certificate send exposes the PDF; no test at the worker level; this entry was missing
+
+### Zoom: the session's Zoom details no longer include Zoom's stored response (November 11)
+
+Found by the review of the parallel webinars plan (`docs/ZOOM_PARALLEL_WEBINARS_PLAN.md`).
+
+- **Cause**: the session Zoom endpoint returned the whole Zoom meeting row. The host details (start link, stream key, passcode) were blanked for staff without "See Zoom host details", but the row also holds Zoom's own answer to the create call, which repeats the start link and passcode under Zoom's names. Member (every event) and Onsite (assigned events) could read it. Attendees, submitters and reviewers could not reach the endpoint
+- **Fixed** (`64923b6e`): that stored response never leaves the server, for any role (`withoutZoomResponse`). No page read it. No other endpoint returned the whole row
+
 ### Downloads named after an event no longer fail on a non-English letter (November 12)
 
 Found while checking the registrations export: the certificate **Recipients** tab's Export CSV answered "failed" for the one event whose web address holds a Greek letter (`AβTC2026`).
