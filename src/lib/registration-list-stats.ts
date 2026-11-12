@@ -1,3 +1,4 @@
+import type { RegistrationCreatedSource } from "@prisma/client";
 import { paidCardNote, summarizePaymentStatuses, type PaymentStatusSummary } from "@/lib/registration-payment-stats";
 
 /**
@@ -16,9 +17,14 @@ import { paidCardNote, summarizePaymentStatuses, type PaymentStatusSummary } fro
  *   - Where a registration came from is its `createdSource`, grouped into the
  *     few doors an organiser thinks in (online, staff, import, desk, agent).
  *   - Faculty is decided by the registration TYPE and nothing else: the
- *     built-in Faculty type (`TicketType.isFaculty`). A type an organiser made
- *     and named "Faculty" or "Speaker" is a delegate type like any other, and
- *     `lookalikeFacultyTypes` exists to say so on the page.
+ *     built-in Faculty type (`TicketType.isFaculty`). The page splits its rows
+ *     on that flag and passes each half here. An ordinary type that is merely
+ *     NAMED "Faculty" or "Speaker" is a delegate type like any other, and
+ *     `lookalikeFacultyTypes` exists to say so on the page. (An ordinary type
+ *     named exactly "Faculty" does become the built-in one, by itself, the
+ *     first time the event needs one, when it is free and holds no money:
+ *     `ensureFacultyTicketType` in speaker-companion.ts. That cannot happen
+ *     once the event has a built-in type, which is the case this flags.)
  *
  * Pure and client-safe: the page already holds the rows, so this costs no
  * request and no query.
@@ -34,12 +40,14 @@ export const SOURCE_GROUP_LABELS: Record<RegistrationSourceGroup, string> = {
   staff: "added by staff",
   imported: "imported",
   desk: "walk-in at the desk",
-  agent: "added by the AI agent",
-  speakers: "from the Speakers page",
+  agent: "added by an agent or integration",
+  speakers: "made for a speaker",
   unknown: "source not recorded",
 };
 
-const SOURCE_GROUP: Record<string, RegistrationSourceGroup> = {
+// Keyed by the Prisma enum (a type-only import, so this stays client-safe): a
+// source added to the enum will not compile until it is given a group here.
+const SOURCE_GROUP: Record<RegistrationCreatedSource, RegistrationSourceGroup> = {
   PUBLIC_REGISTER: "online",
   PUBLIC_SUBMITTER: "online",
   PUBLIC_COMPLETION_FORM: "online",
@@ -50,11 +58,13 @@ const SOURCE_GROUP: Record<string, RegistrationSourceGroup> = {
   ONSITE_DESK: "desk",
   MCP_AGENT: "agent",
   SPEAKER_COMPANION: "speakers",
+  OTHER: "unknown",
 };
 
-/** A source this file has no group for (a new enum value, OTHER, a row older than the column) is "unknown", never dropped. */
+/** A row older than the column, or a value this build does not know, is "unknown", never dropped. */
 export function sourceGroupOf(createdSource: string | null | undefined): RegistrationSourceGroup {
-  return (createdSource && SOURCE_GROUP[createdSource]) || "unknown";
+  if (!createdSource || !Object.hasOwn(SOURCE_GROUP, createdSource)) return "unknown";
+  return SOURCE_GROUP[createdSource as RegistrationCreatedSource];
 }
 
 export interface RegistrationStatRow {
@@ -128,13 +138,17 @@ export function totalNote(stats: Pick<RegistrationListStats, "cancelled" | "wait
 }
 
 /**
- * Delegate types whose NAME says faculty or speaker.
+ * Ordinary types whose NAME says faculty or speaker. Pass DELEGATE rows only.
  *
  * An advisory only, never a rule: nothing is counted differently because of a
- * name. It is here because the name is the whole confusion. Ten of 48 events
- * on production (Nov 12, 2026) held a hand-made "Faculty" or "Speaker" type,
- * whose people count as delegates while the page's own Faculty row counts only
- * the built-in type; the organiser saw two things called Faculty and one number.
+ * name, and what the page says about such a type (it is an ordinary type, its
+ * people count as delegates) is true of every ordinary type. It is here
+ * because the name is the whole confusion. Ten of 48 events on production
+ * (Nov 12, 2026) held an ordinary "Faculty" or "Speaker" type, most often a
+ * leftover from cloning before Jul 27, 2026, whose people count as delegates
+ * while the page's own Faculty row counts only the built-in type. Wider than
+ * the Registration Types page's note (exactly "Faculty", beside the built-in
+ * type): that one explains two types of one name, this one a number.
  */
 const FACULTY_LOOKALIKE = /\b(faculty|speakers?)\b/i;
 

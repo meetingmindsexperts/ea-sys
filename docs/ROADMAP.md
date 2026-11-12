@@ -7,6 +7,65 @@
 
 ---
 
+## Registration counts: what the Nov 12 review left (recorded Nov 12, 2026): not started
+
+From the review of `cd275466` (the Registrations page summary card; 0 BLOCKER, 0 HIGH,
+3 MED, 6 LOW) and the owner's report on the 4th GCC Hematology Hub.
+
+**MED, recorded and not fixed: other pages still count cancelled registrations.** The
+card now counts live registrations and names the cancelled ones under Total. These
+still include them, so each can read higher than the card by the cancelled count: the
+event overview tile (`events/[eventId]/page.tsx`), the events list and organisation
+dashboard, `refreshEventStats` (`event-stats.ts`) with the agent's `get_event_dashboard`
+and the MCP summary, Analytics (total and by type), Communications (which also counts
+faculty in "Registrations" and "Unpaid"), and the Registration Types page's per-type
+count. The Check-In page already leaves cancelled out and keeps faculty in, a third
+rule. Not done with the card because it is one decision across seven surfaces, two of
+them read by the agent: decide the one rule (live only, cancelled named) and apply it
+through one helper. The user guide says today that the other pages can read higher.
+
+**Older defect, MED: a payment reminder reaches a registration that owes nothing.** A
+promo code that covers the whole fee, entered AFTER registering
+(`applyPromoCodeToRegistration`), records the discount and leaves the payment status
+UNPAID; entered while registering, the same code makes it COMPLIMENTARY. The owner's
+ruling (Nov 12): UNPAID stays, the list names the code. The reminder audience
+(`bulk-email.ts`, `excludedAsNoBalance`) is decided by payment status alone, so such a
+row is sent a payment reminder for an amount of zero. Six rows on production on Nov 12
+(five on GCC Hub, code GCCHH26SEHA); none has been sent one. By hand until built: set
+those registrations to Complimentary before sending a reminder to the event. The fix
+is to leave out anyone with nothing due, in the one rule and its three mirrors (the
+bulk audience, the two count predicates, the single send).
+
+**Decision waiting on the owner: an event with BOTH an ordinary "Faculty" type and the
+built-in one.** An ordinary type named exactly "Faculty" becomes the built-in type by
+itself only while the event has none (`ensureFacultyTicketType`). GCC Hub has both: 33
+registrations sit on the ordinary one (32 of them linked to speaker records) and count
+as delegates, and the bulk type change and the sheet refuse the move on purpose
+(Oct 22). Ten of 48 events hold an ordinary "Faculty" or "Speaker" type. Proposed: a
+"Move to Faculty" bulk action for unpaid and complimentary rows, which frees their
+seats and marks them complimentary.
+
+**LOW, listed only.**
+- "Added by staff" also covers Import from Contacts and API-key creates; a phone
+  sign-up from the desk QR reads "registered online".
+- The name advisory misses "Committee", "Chairperson", "Moderator", "Faculty2" and
+  flags "Guest of Speaker", "Faculty of Medicine Student".
+- `formatCreatedSource` in the registration sheet is a second label list for the same
+  enum, and prints the raw value for SPEAKER_COMPANION, FACULTY_ADMIN and
+  GROUP_REGISTER (older).
+- With the status filter on Cancelled the card reads Total 0 above a table of N rows;
+  only the note under Total explains it.
+- The "Delegates" label is centred against the tiles plus the lines under them.
+- The delegate and faculty split lives in the page, not in the tested helper.
+
+**Older, found by the same review.**
+- The card's "Matching the filters" hint and the Faculty row's presence compare against
+  rows the server has already filtered by tag or sponsor, so under a tag filter the
+  card shows filtered numbers without the hint and the Faculty row can come and go.
+- The user guide's "Can I put someone on the speakers' type by hand? No" (the October
+  callout on the Registration Types section) is stale since Add Registration, Faculty
+  (Nov 10).
+
 ## CRM inbox, Sent folder: what the Nov 11 review left (recorded Nov 11, 2026): not started
 
 Review of `2870ddb1` (Sent lists only conversations holding an email we sent): no BLOCKER, no

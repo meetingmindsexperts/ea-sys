@@ -156,10 +156,23 @@ function bulkTagVerb(mode: string): string {
  * Collected vs outstanding for one row, from the server-computed `rowMoney`
  * (the same helper the CSV's "Total Paid" / "Amount Due" use, so the table and
  * the export cannot disagree). Absent for a role that cannot see money.
+ *
+ * A code that covers the whole fee is named here (owner, Nov 12, 2026): a code
+ * entered after registering leaves the payment status UNPAID with nothing
+ * due, and a bare "-" beside UNPAID read as a figure gone missing.
  */
-function RowMoney({ money }: { money: Registration["rowMoney"] }) {
+function RowMoney({ money, promoCode }: { money: Registration["rowMoney"]; promoCode?: string | null }) {
   const paid = !!money && money.totalPaid > 0;
   const due = !!money && money.amountDue > 0;
+  const covered = !!money && !paid && !due && !!promoCode && money.discount > 0;
+  if (covered) {
+    return (
+      <div className="text-sm leading-tight">
+        <div className="text-muted-foreground">Nothing due</div>
+        <div className="text-xs text-muted-foreground">code {promoCode}</div>
+      </div>
+    );
+  }
   if (!money || (!paid && !due)) {
     return <span className="text-sm text-muted-foreground">-</span>;
   }
@@ -793,8 +806,8 @@ export default function RegistrationsPage() {
                     <p key={t.id} className="flex items-start gap-1.5 text-amber-700">
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <span>
-                        {t.count} of these {t.count === 1 ? "is" : "are"} on the registration type &ldquo;{t.name}&rdquo;, which someone made on this event.
-                        {" "}They count as delegates: only the built-in Faculty type is kept out of the delegate count.
+                        &ldquo;{t.name}&rdquo; is an ordinary registration type, not the built-in Faculty type:
+                        {" "}its {t.count} {t.count === 1 ? "registration counts as a delegate" : "registrations count as delegates"}.
                       </span>
                     </p>
                   ))}
@@ -1169,7 +1182,7 @@ export default function RegistrationsPage() {
                     </TableCell>
                     {canSeeMoney && (
                       <TableCell className="whitespace-nowrap">
-                        <RowMoney money={registration.rowMoney} />
+                        <RowMoney money={registration.rowMoney} promoCode={registration.promoCode?.code} />
                       </TableCell>
                     )}
                     <TableCell className="text-muted-foreground">

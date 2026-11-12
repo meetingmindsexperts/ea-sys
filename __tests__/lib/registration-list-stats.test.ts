@@ -6,7 +6,10 @@
  * 33 of them on a hand-made type called "Faculty".
  */
 import { describe, it, expect } from "vitest";
+import { RegistrationCreatedSource } from "@prisma/client";
 import {
+  SOURCE_GROUP_LABELS,
+  SOURCE_GROUP_ORDER,
   lookalikeFacultyTypes,
   paidNoteOf,
   sourceGroupOf,
@@ -51,12 +54,23 @@ describe("summarizeRegistrationRows", () => {
     expect(stats.complimentary).toBe(1);
   });
 
-  it("says where the live registrations came from, in a fixed order", () => {
+  it("says where the live registrations came from", () => {
     expect(stats.sources).toEqual([
       { group: "online", count: 26 },
       { group: "staff", count: 38 },
     ]);
     expect(sourcesLine(stats)).toBe("26 registered online · 38 added by staff");
+  });
+
+  it("lists the sources in one fixed order, whatever order the rows arrive in", () => {
+    // Every group, fed in the reverse of the order they are shown in.
+    const one = (createdSource: string | null): RegistrationStatRow => ({ status: "CONFIRMED", paymentStatus: "UNPAID", createdSource, ticketType: NURSE });
+    const reversed = [null, "SPEAKER_COMPANION", "MCP_AGENT", "ONSITE_DESK", "CSV_IMPORT", "ADMIN_DASHBOARD", "PUBLIC_REGISTER"].map(one);
+    const s = summarizeRegistrationRows(reversed);
+    expect(s.sources.map((x) => x.group)).toEqual([...SOURCE_GROUP_ORDER]);
+    expect(sourcesLine(s)).toBe(
+      "1 registered online · 1 added by staff · 1 imported · 1 walk-in at the desk · 1 added by an agent or integration · 1 made for a speaker · 1 source not recorded",
+    );
   });
 
   it("lists the types largest first, with no type last whatever its size", () => {
@@ -96,8 +110,19 @@ describe("sourceGroupOf", () => {
     expect(sourceGroupOf("SPEAKER_COMPANION")).toBe("speakers");
   });
 
-  it("never drops a row it cannot place: an older row, OTHER, a value added later", () => {
-    expect([null, undefined, "", "OTHER", "SOMETHING_NEW"].map(sourceGroupOf)).toEqual(["unknown", "unknown", "unknown", "unknown", "unknown"]);
+  it("places every source the database knows, and only OTHER lands in unknown", () => {
+    // Read from the Prisma enum, not typed out again: a source added to the
+    // schema is checked here without anyone remembering this file.
+    const unplaced = Object.values(RegistrationCreatedSource).filter((source) => sourceGroupOf(source) === "unknown");
+    expect(unplaced).toEqual(["OTHER"]);
+  });
+
+  it("never drops a row it cannot place: an older row, a value added later, an object key", () => {
+    expect([null, undefined, "", "SOMETHING_NEW", "constructor", "toString"].map(sourceGroupOf)).toEqual(Array(6).fill("unknown"));
+  });
+
+  it("has a label for every group it can return", () => {
+    expect(Object.keys(SOURCE_GROUP_LABELS).sort()).toEqual([...SOURCE_GROUP_ORDER].sort());
   });
 });
 
