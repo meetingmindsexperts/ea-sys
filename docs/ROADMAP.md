@@ -213,6 +213,19 @@ only. Also done that day: Registrations, Import from Contacts offers "Faculty
 (speakers and committee)" itself, so the team's two-step habit now ends on a Faculty
 registration.
 
+**The speaker's own registration type is the website's (found Nov 12, 2026).** The
+n8n workflow that fills the Webflow People collection reads `registrationType` from
+`GET /api/events/{id}/speakers`, which is `Speaker.registrationType`, the text the old
+dropdown wrote. So that dropdown was not only misleading: on the speaker page it was
+also how the team set what the website shows ("Faculty"). Since `4da1db66` a speaker
+who has a registration shows the registration's type and that text cannot be edited on
+screen (it is still stored and served). New speakers get "Faculty" written for them
+(`SPEAKER_API_REGISTRATION_TYPE`). Open, for the owner: an existing speaker whose text
+is wrong for the website (on the Heart Failure Conference 144 are empty and 40 carry a
+delegate type's name) can be corrected only by a speakers CSV import or the API; a
+"shown on the website as" field, or the API deriving the value, would be the fix.
+**Never change what that API field returns without checking the Webflow sync.**
+
 **From the review of `9a57f2a5` (0 BLOCKER, 0 HIGH, 2 MED, 9 LOW; the merge script).**
 Both MED fixed (the donor type is locked first; the write runs on a real database in
 `tests/integration-db/`), and five LOW with them (see the changelog). LOW, left and

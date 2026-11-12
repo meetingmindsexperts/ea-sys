@@ -9,7 +9,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { NO_TYPE_LABEL, speakerRegistrationTypeName, speakerRegistrationTypeView } from "@/lib/speaker-registration-type";
-import { displayRegistrationType } from "@/lib/faculty-filter";
+import { SPEAKER_API_REGISTRATION_TYPE, displayRegistrationType } from "@/lib/faculty-filter";
 
 const PHYSICIAN = { name: "Physician", isFaculty: false };
 const FACULTY = { name: "Faculty", isFaculty: true };
@@ -104,6 +104,11 @@ describe("the speaker screens and the export use the rule", () => {
     const src = read("src/app/(dashboard)/events/[eventId]/speakers/new/page.tsx");
     expect(src).toContain("{SPEAKERS_TYPE_LABEL}");
     expect(src).not.toContain("RegistrationTypeSelect");
+    // The speakers API serves the speaker's type and the website sync shows
+    // it: with no dropdown, the form saves "Faculty" itself. The plain word,
+    // never the longer label shown on screen.
+    expect(src).toContain("registrationType: SPEAKER_API_REGISTRATION_TYPE,");
+    expect(SPEAKER_API_REGISTRATION_TYPE).toBe("Faculty");
     expect(read("src/app/(dashboard)/events/[eventId]/registrations/new/page.tsx")).toContain("{SPEAKERS_TYPE_LABEL}");
   });
 

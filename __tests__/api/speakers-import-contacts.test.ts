@@ -44,7 +44,7 @@ const req = (body: unknown) =>
 const contact = (over: Record<string, unknown> = {}) => ({
   id: "c1", title: "DR", role: "PHYSICIAN", email: "fatima@x.com", additionalEmail: "f.alt@x.com", firstName: "Fatima", lastName: "Malallah",
   organization: "Al Kindi Hospital", jobTitle: "Consultant", phone: "+973", photo: "/uploads/photos/2026/11/f.png", city: "Manama", state: null,
-  zipCode: null, country: "Bahrain", bio: "Bio", specialty: "Hematology", customSpecialty: null, registrationType: "Faculty",
+  zipCode: null, country: "Bahrain", bio: "Bio", specialty: "Hematology", customSpecialty: null, registrationType: "Physician",
   tags: ["Hematology", "Central-import"],
   ...over,
 });
@@ -111,6 +111,11 @@ describe("POST speakers/import-contacts", () => {
       photo: "/uploads/photos/2026/11/f.png", city: "Manama", country: "Bahrain", bio: "Bio", specialty: "Hematology",
       registrationType: "Faculty", tags: ["Hematology", "Central-import"],
     });
+    // The contact's own category was "Physician". The speaker's type is what
+    // the speakers API serves and the website sync copies, so it is saved as
+    // Faculty (owner, Nov 12, 2026); the profession is the role.
+    expect(row.registrationType).toBe("Faculty");
+    expect(row.role).toBe("PHYSICIAN");
     // No status is written: a speaker starts Invited (the column's default).
     expect(row.status).toBeUndefined();
   });

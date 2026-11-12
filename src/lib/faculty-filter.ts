@@ -33,6 +33,20 @@ export const FACULTY_ONLY_WHERE: Prisma.RegistrationWhereInput = {
 export const FACULTY_TYPE_FALLBACK = "Faculty";
 
 /**
+ * What a speaker's own `registrationType` is saved as when a speaker is made
+ * from the Speakers page (Add Speaker, Import from Contacts).
+ *
+ * That column is served as `registrationType` by GET /api/events/{id}/speakers,
+ * and the organisation's website sync (n8n to Webflow) copies it into the
+ * site's "registration type" for each person (owner, Nov 12, 2026: "in API,
+ * reg type should still be faculty because we use n8n to import to webflow").
+ * The team used to pick "Faculty" by hand in a dropdown; the dropdown is gone,
+ * so the value is written for them. **The API value is this plain word, never
+ * the longer picker label**: changing it changes the public website.
+ */
+export const SPEAKER_API_REGISTRATION_TYPE = FACULTY_TYPE_FALLBACK;
+
+/**
  * The professional registration type to DISPLAY for a registration.
  *
  * For a faculty companion (the `isFaculty` ticket type) this returns the

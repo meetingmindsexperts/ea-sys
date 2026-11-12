@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SPEAKERS_TYPE_LABEL } from "@/lib/faculty-filter";
+import { SPEAKERS_TYPE_LABEL, SPEAKER_API_REGISTRATION_TYPE } from "@/lib/faculty-filter";
 import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
 import { useEventSpeakerTags } from "@/hooks/use-api";
 import { ArrowLeft, Mic, Save, User, Tag, Share2 } from "lucide-react";
@@ -99,7 +99,9 @@ export default function NewSpeakerPage() {
         p.specialty === "Others" ? p.customSpecialty || undefined : undefined,
       tags: p.tags && p.tags.length > 0 ? p.tags : undefined,
       status: formData.status,
-      registrationType: formData.registrationType || undefined,
+      // Saved for the API and the website sync that reads it; see
+      // SPEAKER_API_REGISTRATION_TYPE. The form offers nothing to pick.
+      registrationType: SPEAKER_API_REGISTRATION_TYPE,
       socialLinks: formData.socialLinks,
     };
 

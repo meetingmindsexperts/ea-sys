@@ -9,6 +9,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { getClientIp } from "@/lib/security";
 import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
+import { SPEAKER_API_REGISTRATION_TYPE } from "@/lib/faculty-filter";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -105,7 +106,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           bio: c.bio ?? undefined,
           specialty: c.specialty ?? undefined,
           customSpecialty: c.customSpecialty ?? undefined,
-          registrationType: c.registrationType ?? undefined,
+          // Not the contact's own category: this column is what the speakers
+          // API serves and the website sync shows, and a speaker made here
+          // is Faculty (SPEAKER_API_REGISTRATION_TYPE). The profession is
+          // carried by `role` above.
+          registrationType: SPEAKER_API_REGISTRATION_TYPE,
           tags: c.tags.length > 0 ? c.tags : undefined,
         })),
         skipDuplicates: true,
