@@ -56,6 +56,16 @@ Found while checking the registrations export: the certificate **Recipients** ta
 - After review (`7b2160d8`, 1 high, 1 medium, 6 low): **invoice, receipt and credit note PDFs had the same fault**, through the invoice number, which starts with the event's code. Four downloads (staff, the registrant's portal, the group coordinator's, the public payer link) would have failed for an event whose code holds such a letter. No invoice in the local copy of production has one yet; one event's code does. Fixed, with the sales file (its name took a value from the web address) and the webinar handout download, which had its own weaker copy of the same logic
 - The guard test now reads **every** download header in the code: one that writes a value either goes through the helper or is listed with each value and why it can only be plain characters. The first version missed three of the eight headers it was written for
 
+### Registrations: Import from Contacts can add people as Faculty (November 12)
+
+Owner: "why we cannot give an importing contact a registration type faculty". The dialog hid every Faculty type, so a faculty contact could only be imported onto a delegate type with a rate. Add Registration has had a "Faculty (speakers and committee)" choice since Nov 10; the import never got it.
+
+- **Registrations, Import from Contacts lists "Faculty (speakers and committee)"** at the end of its type list, for someone who may add speakers. Picking it adds each person as Faculty: complimentary and confirmed, no rate to pick, no seat, a Faculty badge, not counted as a delegate. No email and no notification per person
+- **It does not make them speakers**, and the dialog says so: to put someone on the programme, add them on the Speakers page afterwards (Import from Registrations), and the speaker links to this Faculty registration
+- **One create path**: each row is made by `createRegistration` with `asFaculty`, exactly as Add Registration, Faculty does, so the two cannot drift. Faculty together with a type or a rate is refused. A Faculty TYPE is still never offered as a delegate type
+- Someone already registered for the event is skipped and counted; a row that cannot be added is counted and the message is a warning
+- **Fixed on the way: a Faculty type that is switched off refused every Faculty registration** ("Registration type not found or inactive"), from Add Registration too. An ordinary "Faculty" type left inactive becomes the Faculty type when it is adopted, and the create path asked for an active type. HEMNET 2026 and Big Sky 2027 are in that state on production. Active means on sale; a Faculty type never is, so the Faculty path no longer asks
+
 ### Speakers: Import from Contacts is back (November 12)
 
 Owner: "go ahead with it". The Speakers page lost this button in March 2026, replaced by Import from Registrations, before the Faculty type existed. From then on a contact became a speaker only in two steps: imported as a registration, which asks for a delegate type and a rate, then imported from registrations. Three faculty on the 4th GCC Hematology Hub were given Physician at 150 that way, and since that event's "Faculty" type became a Faculty type the dialog no longer offers it at all.

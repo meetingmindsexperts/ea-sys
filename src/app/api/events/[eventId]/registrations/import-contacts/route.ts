@@ -9,6 +9,10 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { runWithTenant } from "@/lib/tenant-context";
+import { getClientIp } from "@/lib/security";
+import { createRegistration } from "@/services/registration-service";
+import { ensureFacultyTicketType } from "@/lib/speaker-companion";
+import { facultyBadgeType } from "@/lib/faculty-registration";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode } from "@/lib/utils";
 import { claimSeats, incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
@@ -31,7 +35,71 @@ const importSchema = z.object({
   // tiers). Validated below to belong to the ticket type; drives the stamped
   // originalPrice + pricingTierId so finance surfaces price these correctly.
   pricingTierId: z.string().min(1).optional(),
+  // "Faculty (speakers and committee)", the same choice Add Registration has
+  // (Nov 12, 2026). Not a type id: the event's Faculty type is resolved here,
+  // and each row is made by the one create path under the Faculty terms.
+  asFaculty: z.boolean().optional(),
 });
+
+type FacultyContact = {
+  email: string; firstName: string; lastName: string; title: string | null; role: string | null;
+  organization: string | null; jobTitle: string | null; phone: string | null; additionalEmail: string | null;
+  bio: string | null; specialty: string | null; customSpecialty: string | null; photo: string | null;
+  city: string | null; state: string | null; zipCode: string | null; country: string | null;
+  associationName: string | null; memberId: string | null; studentId: string | null; studentIdExpiry: Date | null;
+  tags: string[];
+};
+
+/**
+ * Import contacts as Faculty: complimentary, no rate, no seat, Faculty badge,
+ * no speaker record. Each row goes through `createRegistration` with
+ * `asFaculty`, exactly as Add Registration, Faculty does, so the two cannot
+ * drift (the terms, the seatless source, the barcode, the contact sync and the
+ * audit row are the service's). No email and no per-row notification: an
+ * import has never sent either.
+ */
+async function importAsFaculty(input: {
+  eventId: string;
+  organizationId: string;
+  userId: string;
+  actorFirstName: string | null;
+  requestIp: string;
+  contacts: FacultyContact[];
+}): Promise<{ created: number; skipped: number; failed: number }> {
+  const facultyTypeId = await ensureFacultyTicketType(input.eventId);
+  const summary = { created: 0, skipped: 0, failed: 0 };
+  for (const contact of input.contacts) {
+    const result = await createRegistration({
+      eventId: input.eventId,
+      organizationId: input.organizationId,
+      userId: input.userId,
+      ticketTypeId: facultyTypeId,
+      asFaculty: true,
+      badgeType: facultyBadgeType("NONE"),
+      paymentStatus: "COMPLIMENTARY",
+      attendee: {
+        email: contact.email, firstName: contact.firstName, lastName: contact.lastName,
+        title: contact.title as never, role: contact.role as never,
+        organization: contact.organization, jobTitle: contact.jobTitle, phone: contact.phone,
+        additionalEmail: contact.additionalEmail, bio: contact.bio, specialty: contact.specialty,
+        customSpecialty: contact.customSpecialty, photo: contact.photo, city: contact.city, state: contact.state,
+        zipCode: contact.zipCode, country: contact.country, associationName: contact.associationName,
+        memberId: contact.memberId, studentId: contact.studentId, studentIdExpiry: contact.studentIdExpiry,
+        tags: contact.tags,
+      },
+      source: "rest",
+      requestIp: input.requestIp,
+      actorFirstName: input.actorFirstName,
+      suppressConfirmationEmail: true,
+      suppressAdminNotification: true,
+    });
+    if (result.ok) { summary.created += 1; continue; }
+    if (result.code === "ALREADY_REGISTERED") { summary.skipped += 1; continue; }
+    summary.failed += 1;
+    apiLogger.warn({ msg: "import-contacts:faculty-row-refused", eventId: input.eventId, code: result.code, message: result.message });
+  }
+  return summary;
+}
 
 export async function POST(req: Request, { params }: RouteParams) {
   // Resolved before the try so eventId is in scope for the catch's logs.
@@ -55,7 +123,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    const { contactIds, ticketTypeId, pricingTierId } = validated.data;
+    const { contactIds, ticketTypeId, pricingTierId, asFaculty } = validated.data;
+
+    // Faculty or a registration type, never both; and Faculty has no rate.
+    if (asFaculty && (ticketTypeId || pricingTierId)) {
+      apiLogger.warn({ msg: "import-contacts:faculty-with-type-or-rate", eventId, ticketTypeId, pricingTierId });
+      return NextResponse.json(
+        { error: "Import as Faculty or pick a registration type, not both.", code: "FACULTY_TERMS_INVALID" },
+        { status: 400 }
+      );
+    }
+    // Adding Faculty is an organiser's call (free, no seat, out of the
+    // delegate counts): the same key Add Registration, Faculty asks for.
+    if (asFaculty) {
+      const facultyGate = requirePermission(session, "speakers.create", { route: "events/[eventId]/registrations/import-contacts:POST:faculty", eventId });
+      if (!facultyGate.ok) return facultyGate.response;
+    }
 
     // A tier belongs to a type — a tier with no type is a client bug, not
     // "price the typeless rows anyway".
@@ -106,6 +189,29 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    if (asFaculty) {
+      const faculty = await importAsFaculty({
+        eventId,
+        organizationId: orgGuard.orgId,
+        userId: session.user.id,
+        actorFirstName: session.user.firstName ?? null,
+        requestIp: getClientIp(req),
+        contacts,
+      });
+      recordImport(req, {
+        entityType: "Registration",
+        eventId,
+        organizationId: session.user.organizationId,
+        userId: session.user.id,
+        role: session.user.role,
+        totalProcessed: contacts.length,
+        created: faculty.created,
+        skipped: faculty.skipped + faculty.failed,
+        format: "contacts",
+      });
+      return NextResponse.json({ created: faculty.created, skipped: faculty.skipped, failed: faculty.failed, uncategorised: 0, asFaculty: true });
     }
 
     // Resolve the (optional) registration type through the shared import

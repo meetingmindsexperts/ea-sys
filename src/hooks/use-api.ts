@@ -1379,11 +1379,11 @@ export function useImportRegistrationsToSpeakers(eventId: string) {
 export function useImportContactsToRegistrations(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ contactIds, ticketTypeId, pricingTierId }: { contactIds: string[]; ticketTypeId?: string; pricingTierId?: string }) =>
+    mutationFn: ({ contactIds, ticketTypeId, pricingTierId, asFaculty }: { contactIds: string[]; ticketTypeId?: string; pricingTierId?: string; asFaculty?: boolean }) =>
       fetchApi(`/api/events/${eventId}/registrations/import-contacts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contactIds, ticketTypeId, pricingTierId }),
+        body: JSON.stringify({ contactIds, ticketTypeId, pricingTierId, asFaculty }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });

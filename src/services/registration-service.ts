@@ -366,6 +366,14 @@ export interface CreateRegistrationInput {
   suppressConfirmationEmail?: boolean;
 
   /**
+   * No "Registration Added" notification for this row. For a caller that adds
+   * many people in one action (Import from Contacts as Faculty, Nov 12, 2026):
+   * an import has never notified per row, and twenty bells for one click hide
+   * the ones that matter.
+   */
+  suppressAdminNotification?: boolean;
+
+  /**
    * Which entry path minted this row, when it cannot be inferred from `source`.
    *
    * `source` answers "which transport called me" (rest/mcp/api) and is derived
@@ -630,7 +638,13 @@ export async function createRegistration(
     }),
     ticketTypeId
       ? db.ticketType.findFirst({
-          where: { id: ticketTypeId, eventId, isActive: true },
+          // "Active" means offered for sale and for picking. A Faculty type is
+          // never either, so the Faculty path does not ask for it: an ordinary
+          // "Faculty" type left inactive and later adopted (HEMNET 2026 and Big
+          // Sky 2027 on Nov 12, 2026) refused every Faculty registration with
+          // "Registration type not found or inactive". The Faculty terms below
+          // still demand that the type IS the Faculty type.
+          where: { id: ticketTypeId, eventId, ...(input.asFaculty ? {} : { isActive: true }) },
           select: {
             id: true,
             name: true,
@@ -1188,18 +1202,20 @@ export async function createRegistration(
   // Notify admins (fire-and-forget). Message names the actor when
   // available, falls back to "organizer" for non-human callers.
   const actorLabel = actorFirstName || "organizer";
-  notifyEventAdmins(eventId, {
-    type: "REGISTRATION",
-    title: "Registration Added",
-    setting: "notifyOnRegistration" as const,
-    message:
-      source === "mcp"
-        ? `${firstName} ${lastName} added via MCP`
-        : `${firstName} ${lastName} added by ${actorLabel}`,
-    link: `/events/${eventId}/registrations`,
-  }).catch((err) =>
-    apiLogger.error({ err }, "registration-service:notify-admins-failed"),
-  );
+  if (!input.suppressAdminNotification) {
+    notifyEventAdmins(eventId, {
+      type: "REGISTRATION",
+      title: "Registration Added",
+      setting: "notifyOnRegistration" as const,
+      message:
+        source === "mcp"
+          ? `${firstName} ${lastName} added via MCP`
+          : `${firstName} ${lastName} added by ${actorLabel}`,
+      link: `/events/${eventId}/registrations`,
+    }).catch((err) =>
+      apiLogger.error({ err }, "registration-service:notify-admins-failed"),
+    );
+  }
 
   // When to send the confirmation:
   //   • IN_PERSON: only when money is still owed (quote PDF auto-attaches) —

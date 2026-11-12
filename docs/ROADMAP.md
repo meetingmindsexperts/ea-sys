@@ -208,8 +208,24 @@ The Import from Contacts dialog hides Faculty types, so since the script ran, GC
 lands on a delegate type, or on none. **Done Nov 12, 2026: the button is back on the
 Speakers page** and makes the Faculty registration by itself; the team should use it
 (or Add Speaker) for faculty, and Registrations, Import from Contacts for delegates
-only. Not done: Registrations, Import from Contacts still lets a faculty contact be
-imported as a delegate with no hint that Speakers has its own door.
+only. Also done that day: Registrations, Import from Contacts offers "Faculty
+(speakers and committee)" itself, so the team's two-step habit now ends on a Faculty
+registration.
+
+**Decision waiting on the owner: one Faculty type per event** (owner, Nov 12, 2026:
+"why so many separate faculty, can we just keep one"). Two events hold two Faculty
+types, the 4th GCC Hematology Hub ("Faculty", 37 registrations, and "Faculty.", 6) and
+HEMNET 2026 (one empty and switched off, one with 7); thirty hold one. Both began with
+an ordinary "Faculty" type from the organisation's default list and got a built-in one
+beside it before Oct 22, 2026, when adopting the ordinary one replaced making a second.
+`ensureFacultyTicketType` returns the OLDEST, so on HEMNET new faculty now land on the
+empty type, apart from the other seven. Offered: a one-off script, dry run first, that
+moves the registrations onto one Faculty type per event and deletes the emptied one
+(first check what else points at a type: its rates and `Registration.pricingTierId`,
+promo code restrictions, the DTCM section map in `Event.settings.dtcm`, shared view and
+scheduled email filters), and a refusal to create a type named "Faculty" on an event
+that already has a Faculty type. Until then: Registrations, Import from Contacts and
+Add Registration both add Faculty on the oldest type, whichever that is.
 
 **From the review of `efb00d74` (0 BLOCKER, 0 HIGH, 2 MED, 12 LOW; Speakers, Import
 from Contacts).** Both MED fixed: the import reports who was given a Faculty

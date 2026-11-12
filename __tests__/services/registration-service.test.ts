@@ -1185,6 +1185,26 @@ describe("createRegistration — added as Faculty (Nov 10, 2026: Faculty is the 
     expect(mockDb.registration.create.mock.calls[0][0].data.status).toBe("CONFIRMED");
   });
 
+  // Found Nov 12, 2026: an ordinary "Faculty" type left switched off and later
+  // made the Faculty type (HEMNET 2026, Big Sky 2027) refused every Faculty
+  // registration with "not found or inactive". Active means on sale; a
+  // Faculty type never is.
+  it("does not ask for an active type on the Faculty path, and still does on every other", async () => {
+    await asFaculty();
+    expect(mockDb.ticketType.findFirst.mock.calls[0][0].where).toEqual({ id: "tt-faculty", eventId: BASE_INPUT.eventId });
+    vi.clearAllMocks();
+    mockDb.ticketType.findFirst.mockResolvedValue(PAID_TICKET);
+    await createRegistration({ ...BASE_INPUT });
+    expect(mockDb.ticketType.findFirst.mock.calls[0][0].where).toMatchObject({ isActive: true });
+  });
+
+  it("stays quiet when asked: no admin notification for a row of a bulk import", async () => {
+    await asFaculty({ suppressAdminNotification: true });
+    expect(mockNotifyAdmins).not.toHaveBeenCalled();
+    await asFaculty({ attendee: { ...BASE_INPUT.attendee, email: "second@x.com" } });
+    expect(mockNotifyAdmins).toHaveBeenCalledTimes(1);
+  });
+
   it("the audit entry says added as Faculty, with the badge", async () => {
     await asFaculty();
     expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ createdSource: "FACULTY_ADMIN", badgeType: "Scientific Committee" });

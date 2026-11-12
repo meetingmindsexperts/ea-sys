@@ -21,6 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { useCan } from "@/hooks/use-can";
+import { SPEAKERS_TYPE_LABEL } from "@/lib/faculty-filter";
 import { speakerContactImportNotice, type SpeakerContactImportResult } from "@/lib/speaker-registration-messages";
 import { Search, Users } from "lucide-react";
 
@@ -79,10 +81,17 @@ export function ImportContactsDialog({
   // silently mean typeless (the operator opts in).
   const UNCATEGORISED = "__uncategorised__";
   const isUncategorised = ticketTypeId === UNCATEGORISED;
+  // "Faculty (speakers and committee)": the same choice Add Registration has
+  // (Nov 12, 2026). A choice of its own, never a type id from the list: the
+  // server resolves the event's Faculty type and applies the Faculty terms.
+  const FACULTY_CHOICE = "__faculty__";
+  const isFacultyChoice = ticketTypeId === FACULTY_CHOICE;
+  const canAddFaculty = useCan("speakers.create", eventId) === "allowed";
 
-  // Faculty types are never offered — the hidden speaker-companion type is
-  // excluded from every delegate count, so a delegate imported onto it
-  // disappears from stats (the server refuses it too).
+  // A Faculty TYPE is never offered as a delegate type: it is left out of
+  // every delegate count, so a delegate imported onto it disappears from the
+  // stats (the server refuses it too). Faculty come in through the explicit
+  // choice above.
   const selectableTickets = tickets.filter((t) => !t.isFaculty);
   // Whether the event charges — decides the warning under the typeless choice.
   // Tiers count: the standard setup leaves the type's base price at 0 and
@@ -153,9 +162,20 @@ export function ImportContactsDialog({
 
       const result = await importToRegistrations.mutateAsync({
         contactIds: Array.from(selectedIds),
-        ticketTypeId: isUncategorised ? undefined : ticketTypeId,
-        pricingTierId: pricingTierId || undefined,
-      }) as { created: number; skipped: number; uncategorised?: number };
+        ticketTypeId: isUncategorised || isFacultyChoice ? undefined : ticketTypeId,
+        pricingTierId: isFacultyChoice ? undefined : pricingTierId || undefined,
+        asFaculty: isFacultyChoice || undefined,
+      }) as { created: number; skipped: number; uncategorised?: number; failed?: number };
+
+      if (isFacultyChoice) {
+        const failed = result.failed ?? 0;
+        const text = `Imported ${result.created} as Faculty${result.skipped > 0 ? `, ${result.skipped} skipped (already registered)` : ""}${failed > 0 ? `, ${failed} could not be added` : ""}.`;
+        if (failed > 0) toast.warning(text, { duration: 15000 });
+        else toast.success(text);
+        onSuccess?.(result);
+        onOpenChange(false);
+        return;
+      }
 
       toast.success(
         `Imported ${result.created} registration${result.created !== 1 ? "s" : ""}${result.skipped > 0 ? `, ${result.skipped} skipped (already exist)` : ""}${(result.uncategorised ?? 0) > 0 ? `, no registration type yet` : ""}`
@@ -216,6 +236,7 @@ export function ImportContactsDialog({
                           {t.name}
                         </SelectItem>
                       ))}
+                      {canAddFaculty && <SelectItem value={FACULTY_CHOICE}>{SPEAKERS_TYPE_LABEL}</SelectItem>}
                     </SelectContent>
                   </Select>
                 </div>
@@ -237,6 +258,13 @@ export function ImportContactsDialog({
                   </div>
                 )}
               </div>
+              {isFacultyChoice && (
+                <p className="text-xs text-muted-foreground">
+                  These people are added as Faculty: complimentary and confirmed, with no rate, no seat and a Faculty
+                  badge, and they are not counted as delegates. This does not make them speakers: to put someone on the
+                  programme, add them on the Speakers page afterwards (Import from Registrations).
+                </p>
+              )}
               {isUncategorised && (
                 <p className="text-xs text-muted-foreground">
                   These people import with no registration type (shown as &quot;—&quot;) and owe
