@@ -9,7 +9,7 @@ const { mockAuth, mockDb } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
-    zoomMeeting: { findFirst: vi.fn() },
+    externalStream: { findFirst: vi.fn(), updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn() },
   },
 }));
 
@@ -41,7 +41,7 @@ beforeEach(() => {
   delete process.env.HLS_CDN_BASE;
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "WEBINARS", organizationId: "org1" } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", settings: { webinar: { sessionId: "anchor1" } } });
-  mockDb.zoomMeeting.findFirst.mockResolvedValue({ streamKey: "sk1" });
+  mockDb.zoomMeeting.findFirst.mockResolvedValue({ liveStreamEnabled: true, streamKey: "sk1", streamStatus: "IDLE" });
 });
 
 describe("GET /webinar/livestream: preview address", () => {
@@ -53,7 +53,7 @@ describe("GET /webinar/livestream: preview address", () => {
       hlsPreviewUrl: "https://events.example.com/stream/live/sk1/index.m3u8",
     });
     expect(mockDb.zoomMeeting.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { sessionId: "anchor1", eventId: "ev1", liveStreamEnabled: true } }),
+      expect.objectContaining({ where: { sessionId: "anchor1", eventId: "ev1" } }),
     );
   });
 

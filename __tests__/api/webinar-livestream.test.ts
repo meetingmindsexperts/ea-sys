@@ -13,7 +13,7 @@ const { mockDb, zoomApiRequestSpy, enableWebinarSpy, enableMeetingSpy, MockZoomR
   },
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   mockDb: {
-    zoomMeeting: { findFirst: vi.fn(), update: vi.fn().mockResolvedValue({}) },
+    externalStream: { findFirst: vi.fn(), updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn(), update: vi.fn().mockResolvedValue({}) },
   },
   zoomApiRequestSpy: vi.fn(),
   enableWebinarSpy: vi.fn(),
@@ -49,6 +49,8 @@ const base = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // No partner's stream unless a test adds one (clearAllMocks keeps a mocked value).
+  mockDb.externalStream.findFirst.mockResolvedValue(null);
   mockDb.zoomMeeting.update.mockResolvedValue({});
 });
 
@@ -231,6 +233,20 @@ describe("MediaMTX publish authorisation webhook", () => {
     expect((await call({ action: "publish", path: `live/${KEY}` })).status).toBe(403);
     expect((await call({ action: "publish", path: `live/${KEY}`, user: "publisher", password: "wrong" })).status).toBe(403);
     expect((await call({ action: "publish", path: `live/${KEY}`, password: streamPublishPassword("f".repeat(32)) })).status).toBe(403);
+  });
+
+  it("refuses a partner's key for now, whatever password comes with it: its own check is the next step (fail closed)", async () => {
+    mockDb.externalStream.findFirst.mockResolvedValue({
+      id: "x1", eventId: "ev1", sessionId: "s1", secretVersion: 1, enabled: true,
+      validFrom: new Date(0), validUntil: null, session: { endTime: new Date(Date.now() + 3600_000) },
+    });
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    const res = await call({ action: "publish", path: `live/${KEY}`, user: "publisher", password: streamPublishPassword(KEY) });
+    expect(res.status).toBe(403);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "ev1" }),
+      "mediamtx-auth:publish-external-not-supported-yet",
+    );
   });
 
   it("refuses a publish on an unknown key", async () => {

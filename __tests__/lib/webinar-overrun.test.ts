@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const { mockDb, streamArrivingSpy } = vi.hoisted(() => ({
-  mockDb: { zoomMeeting: { findFirst: vi.fn() } },
+  mockDb: { externalStream: { findFirst: vi.fn(), updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn() } },
   streamArrivingSpy: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));

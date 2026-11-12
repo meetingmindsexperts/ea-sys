@@ -10,6 +10,7 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
+import { sessionStream } from "@/lib/webinar/session-stream";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
 import { updateEventSettings } from "@/lib/event-settings";
 import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
@@ -85,11 +86,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // viewing mode to Zoom, or enable the session's live stream) — better a
     // clear refusal now than a broken go-live.
     if (validated.data.open && webinar.viewingMode === "hls") {
-      const streamConfig = await db.zoomMeeting.findFirst({
-        where: { sessionId: webinar.sessionId, eventId },
-        select: { liveStreamEnabled: true, streamKey: true },
-      });
-      if (!streamConfig?.liveStreamEnabled || !streamConfig.streamKey) {
+      const streamConfig = await sessionStream(webinar.sessionId, eventId);
+      if (!streamConfig) {
         apiLogger.warn(
           { eventId, userId: session.user.id },
           "webinar:room-open-hls-not-configured",
@@ -182,11 +180,14 @@ export async function POST(req: Request, { params }: RouteParams) {
           where: { id: webinar.sessionId, eventId },
           select: { name: true },
         }),
-        db.zoomMeeting.findFirst({
-          where: { sessionId: webinar.sessionId, eventId },
-          select: { streamKey: true },
-        }),
+        sessionStream(webinar.sessionId, eventId),
       ]);
+      // A partner's stream is theirs to start and stop: there is nothing to
+      // ask Zoom, and asking would answer "This session has no Zoom webinar".
+      if (meeting?.source === "external") {
+        apiLogger.info({ eventId, sessionId: webinar.sessionId }, "webinar:room-external-stream-no-zoom-control");
+        return NextResponse.json({ open: validated.data.open, sessionId: webinar.sessionId, status: nextStatus });
+      }
       // The producer may have started the stream and checked it in the
       // console preview before opening the room (Oct 2, 2026). Asking Zoom to
       // start it again would at best be refused, so skip it when MediaMTX is

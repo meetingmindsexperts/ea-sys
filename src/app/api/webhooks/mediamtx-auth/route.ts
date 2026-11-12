@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { isValidPublishPassword } from "@/lib/webinar/livestream";
+import { streamKeyOwner } from "@/lib/webinar/session-stream";
 
 /**
  * MediaMTX publish authorisation (Oct 1, 2026).
@@ -12,8 +12,9 @@ import { isValidPublishPassword } from "@/lib/webinar/livestream";
  * 1935, so a stranger could push their own video into `live/<anything>`.
  * With `authMethod: http` MediaMTX asks this route before every action; a 2xx
  * allows it, anything else refuses. A publish is allowed only on
- * `live/<streamKey>` where the key belongs to a Zoom meeting with live
- * streaming switched on. Reading stays open as before (playback is gated by
+ * `live/<streamKey>` where the key belongs to a stream we know
+ * (session-stream.ts): a Zoom meeting with live streaming switched on, or a
+ * partner's external stream. Reading stays open as before (playback is gated by
  * the key's secrecy and by the stream-status route that hands it out).
  *
  * Lives under /api/webhooks/ because MediaMTX calls it server to server with
@@ -85,12 +86,19 @@ export async function POST(req: Request) {
   }
 
   try {
-    const meeting = await db.zoomMeeting.findFirst({
-      where: { streamKey: match[1], liveStreamEnabled: true },
-      select: { id: true, eventId: true },
-    });
+    const meeting = await streamKeyOwner(match[1]);
     if (!meeting) {
       apiLogger.warn({ ip, publisherIp: parsed.ip }, "mediamtx-auth:publish-unknown-key");
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // A partner's key needs its own check (its period, its switch, its password
+    // version), which is the next step of the plan. Until that exists no such
+    // row can be created, and one that somehow is refuses here: fail closed.
+    if (meeting.source === "external") {
+      apiLogger.warn(
+        { ip, publisherIp: parsed.ip, eventId: meeting.eventId },
+        "mediamtx-auth:publish-external-not-supported-yet",
+      );
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     if (!isValidPublishPassword(match[1], presentedPassword(parsed))) {

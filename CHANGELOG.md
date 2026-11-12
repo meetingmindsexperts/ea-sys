@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### External streams, step 1: one place that knows a session's stream (November 12)
+
+Owner: "giving our RTMP key to someone else so that they can stream into our platform". Plan: `docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md`. This first step changes nothing anyone can see.
+
+- **`src/lib/webinar/session-stream.ts` answers "what is this session's stream, and whose is it"**: our own Zoom webinar's (live streaming on and a key, the rule every reader applied before) or a partner's external stream. The attendee's stream status and join calls, the publish check, the room route, the console's preview and settings save, the stream watchdog and the overrun rule now ask it. A test fails if new code reads a stream key from a table directly
+- **A new table, `ExternalStream`** (additive migration `20261112120000`, with its row level security policy), where a partner's key will live. Nothing writes to it yet, so every webinar behaves as before
+- Ready for the next steps: a partner's stream is watched and its drops recorded but never restarted (it is not ours to restart), the room opens and closes without asking Zoom, and a partner's key is refused outright until its own check exists
+
 ### Speaker emails: a moderator who also speaks in their own session (November 11)
 
 Owner: "can one person be setup as moderator and speaker in session role. also email should pick up". Session Roles holds one role per person per session, so the way to do it is the Moderator (or Chairperson) role plus a topic in the same session. That saved fine, but the email only half followed.

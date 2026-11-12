@@ -8,7 +8,7 @@ const { mockDb, streamArrivingSpy } = vi.hoisted(() => ({
     event: { findUnique: vi.fn() },
     eventSession: { findFirst: vi.fn() },
     scheduledEmail: { updateMany: vi.fn() },
-    zoomMeeting: { findFirst: vi.fn() },
+    externalStream: { findFirst: vi.fn(), updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn() },
   },
   streamArrivingSpy: vi.fn(),
 }));

@@ -12,7 +12,7 @@ const { mockDbOperator, mockDb, probeSpy, controlSpy } = vi.hoisted(() => ({
     auditLog: { create: vi.fn(), findMany: vi.fn() },
     eventSession: { findFirst: vi.fn() },
     event: { findFirst: vi.fn() },
-    zoomMeeting: { findFirst: vi.fn() },
+    externalStream: { findFirst: vi.fn(), updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn() },
   },
   probeSpy: vi.fn(),
   controlSpy: vi.fn(),
@@ -35,7 +35,8 @@ const room = (extra: Record<string, unknown> = {}) => ({
   name: "Webinar",
   eventId: "ev1",
   event: { organizationId: "org1", slug: "web", settings: webinarSettings(extra) },
-  zoomMeeting: { streamKey: "sk-1" },
+  zoomMeeting: { liveStreamEnabled: true, streamKey: "sk-1", streamStatus: "ACTIVE" },
+  externalStream: null,
 });
 const kinds = () => mockDb.auditLog.create.mock.calls.map((c) => (c[0] as { data: { changes: { kind: string } } }).data.changes.kind);
 
@@ -51,6 +52,8 @@ const tick = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // No partner's stream unless a test adds one (clearAllMocks keeps a mocked value).
+  mockDb.externalStream.findFirst.mockResolvedValue(null);
   resetStreamWatchdog();
   sleeps.length = 0;
   clock = Date.parse("2026-11-05T08:40:00Z");
@@ -60,7 +63,7 @@ beforeEach(() => {
   // The re-check before acting sees the room unchanged.
   mockDb.eventSession.findFirst.mockResolvedValue({ status: "LIVE" });
   mockDb.event.findFirst.mockResolvedValue({ settings: webinarSettings() });
-  mockDb.zoomMeeting.findFirst.mockResolvedValue({ streamKey: "sk-1" });
+  mockDb.zoomMeeting.findFirst.mockResolvedValue({ liveStreamEnabled: true, streamKey: "sk-1", streamStatus: "ACTIVE" });
   controlSpy.mockResolvedValue({ ok: true, action: "start", streamKey: "sk-1" });
 });
 
@@ -93,6 +96,29 @@ describe("runStreamWatchdogTick", () => {
     expect(apiLogger.warn).toHaveBeenCalledWith(expect.anything(), "webinar-stream:dropped-while-live");
   });
 
+  it("a partner's stream that drops is recorded and logged, and Zoom is never asked to restart it", async () => {
+    const external = { ...room(), zoomMeeting: null, externalStream: { streamKey: "px-1", streamStatus: "ACTIVE" } };
+    mockDbOperator.eventSession.findMany.mockResolvedValue([external]);
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "ACTIVE" });
+    await liveThen("absent");
+    const r = await tick();
+    expect(r).toMatchObject({ dropped: 1, restartsRequested: 0 });
+    expect(kinds()).toEqual(["STREAM_LIVE", "STREAM_DROPPED"]);
+    expect(apiLogger.warn).toHaveBeenCalledWith(expect.anything(), "webinar-stream:dropped-while-live");
+    expect(controlSpy).not.toHaveBeenCalled();
+    // Already known to be down and nothing to restart: later ticks do not spend the 20 s second look.
+    sleeps.length = 0;
+    await tick();
+    await tick();
+    expect(sleeps).toEqual([]);
+    expect(controlSpy).not.toHaveBeenCalled();
+    // It comes back by itself (the partner reconnected): recorded as live again.
+    probeSpy.mockResolvedValue("live");
+    await tick();
+    expect(kinds()).toEqual(["STREAM_LIVE", "STREAM_DROPPED", "STREAM_LIVE"]);
+  });
+
   it("the confirm wait is under the worker's 25 s shutdown drain", () => {
     expect(CONFIRM_DELAY_MS).toBeLessThan(25_000);
   });
@@ -117,14 +143,14 @@ describe("runStreamWatchdogTick", () => {
       () => mockDb.event.findFirst.mockResolvedValue({ settings: webinarSettings({ streamStoppedAt: "2026-11-05T08:40:10Z" }) }),
       () => mockDb.eventSession.findFirst.mockResolvedValue({ status: "COMPLETED" }),
       () => mockDb.event.findFirst.mockResolvedValue({ settings: webinarSettings({ roomOpenedAt: "2026-11-05T08:40:15.000Z" }) }),
-      () => mockDb.zoomMeeting.findFirst.mockResolvedValue({ streamKey: "sk-2" }),
+      () => mockDb.zoomMeeting.findFirst.mockResolvedValue({ liveStreamEnabled: true, streamKey: "sk-2", streamStatus: "ACTIVE" }),
       () => mockDb.event.findFirst.mockResolvedValue({ settings: webinarSettings({ viewingMode: "zoom" }) }),
     ];
     for (const change of cases) {
       resetStreamWatchdog();
       mockDb.event.findFirst.mockResolvedValue({ settings: webinarSettings() });
       mockDb.eventSession.findFirst.mockResolvedValue({ status: "LIVE" });
-      mockDb.zoomMeeting.findFirst.mockResolvedValue({ streamKey: "sk-1" });
+      mockDb.zoomMeeting.findFirst.mockResolvedValue({ liveStreamEnabled: true, streamKey: "sk-1", streamStatus: "ACTIVE" });
       controlSpy.mockClear();
       await liveThen("absent");
       change();

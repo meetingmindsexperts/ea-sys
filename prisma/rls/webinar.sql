@@ -108,3 +108,12 @@ CREATE POLICY livepollvote_tenant_isolation ON "LivePollVote"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- ExternalStream (Nov 12, 2026): a partner's stream into a webinar. Born with
+-- the column (migration 20261112120000); every writer stamps it from the event.
+ALTER TABLE "ExternalStream" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS externalstream_tenant_isolation ON "ExternalStream";
+CREATE POLICY externalstream_tenant_isolation ON "ExternalStream"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

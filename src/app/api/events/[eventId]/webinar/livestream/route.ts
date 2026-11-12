@@ -9,6 +9,7 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream, rtmpIngestUrl } from "@/lib/webinar/livestream";
+import { hlsPlaybackUrls, sessionStream } from "@/lib/webinar/session-stream";
 import { recordStreamEvent } from "@/lib/webinar/stream-timeline";
 import { updateEventSettings } from "@/lib/event-settings";
 
@@ -54,17 +55,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
       // attendees get, so the producer can see the stream arrive before
       // opening the room. Null while the anchor session has no stream set up.
       const anchorId = readWebinarSettings(event.settings)?.sessionId;
-      const meeting = anchorId
-        ? await db.zoomMeeting.findFirst({
-            where: { sessionId: anchorId, eventId, liveStreamEnabled: true },
-            select: { streamKey: true },
-          })
-        : null;
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-      const cdnBase = process.env.HLS_CDN_BASE || appUrl;
+      const stream = anchorId ? await sessionStream(anchorId, eventId) : null;
       return NextResponse.json({
         rtmpIngestUrl: rtmpIngestUrl(),
-        hlsPreviewUrl: meeting?.streamKey ? `${cdnBase}/stream/live/${meeting.streamKey}/index.m3u8` : null,
+        hlsPreviewUrl: stream ? hlsPlaybackUrls(stream.streamKey).hlsUrl : null,
       });
     });
   } catch (error) {

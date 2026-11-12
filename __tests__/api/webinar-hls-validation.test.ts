@@ -16,7 +16,7 @@ const { mockAuth, mockDb, mockApiLogger, mockUpdateEventSettings } = vi.hoisted(
   mockDb: {
     event: { findFirst: vi.fn(), update: vi.fn().mockResolvedValue({}) },
     eventSession: { findFirst: vi.fn(), updateMany: vi.fn() },
-    zoomMeeting: { findFirst: vi.fn() },
+    externalStream: { findFirst: vi.fn(), updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn() },
     survey: { findFirst: vi.fn() },
     livePoll: { updateMany: vi.fn() },
   },
@@ -68,6 +68,8 @@ const STREAM_OFF = { liveStreamEnabled: false, streamKey: null };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // No partner's stream unless a test adds one (clearAllMocks keeps a mocked value).
+  mockDb.externalStream.findFirst.mockResolvedValue(null);
   mockUpdateEventSettings.mockResolvedValue({});
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN", organizationId: "org1" } });
   mockDb.event.findFirst.mockResolvedValue({
@@ -197,6 +199,14 @@ describe("PUT /webinar — hls mode requires a configured live stream", () => {
     expect(mockUpdateEventSettings).not.toHaveBeenCalled();
   });
 
+  it("accepts hls when the session's stream is a partner's, with no Zoom webinar at all", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "IDLE" });
+    const res = await callPut({ viewingMode: "hls" });
+    expect(res.status).toBe(200);
+    expect(mockControlLiveStream).not.toHaveBeenCalled();
+  });
+
   it("switching to zoom mode never checks the stream", async () => {
     mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     const res = await callPut({ viewingMode: "zoom" });
@@ -279,6 +289,17 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
     mockIsStreamArriving.mockResolvedValue(true);
     await callRoom({ open: false });
     expect(mockControlLiveStream).toHaveBeenCalledWith(expect.objectContaining({ action: "stop" }));
+  });
+
+  it("a partner's stream: the room opens and closes without asking Zoom anything", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "IDLE" });
+    const opened = await callRoom({ open: true });
+    expect(opened.status).toBe(200);
+    expect(await opened.json()).toEqual({ open: true, sessionId: "anchor1", status: "LIVE" });
+    const closed = await callRoom({ open: false });
+    expect(closed.status).toBe(200);
+    expect(mockControlLiveStream).not.toHaveBeenCalled();
   });
 
   it("zoom viewing mode opens without a stream check", async () => {

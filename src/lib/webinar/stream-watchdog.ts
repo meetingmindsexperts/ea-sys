@@ -26,6 +26,10 @@
  * a closed room. A run is one room opening; a producer's Start or Stop starts
  * a new one (stream-timeline.ts RUN_BOUNDARY_KINDS).
  *
+ * A partner's stream (session-stream.ts, source "external") is watched and its
+ * drops are recorded the same way, but never restarted: it is pushed from the
+ * partner's platform, and there is nobody for us to ask.
+ *
  * Not recognised: a host stopping the live stream from inside Zoom's own
  * client. That reads as a drop and is restarted; producers stop the stream
  * from the console (docs/WEBINAR_STREAMING.html).
@@ -35,6 +39,13 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
+import {
+  pickSessionStream,
+  SESSION_HAS_STREAM,
+  SESSION_STREAM_SELECT,
+  sessionStream,
+  type StreamSource,
+} from "@/lib/webinar/session-stream";
 import { probeStream } from "@/lib/webinar/stream-probe";
 import { lastStreamObservation, recordStreamEvent, runBoundarySince } from "@/lib/webinar/stream-timeline";
 
@@ -69,6 +80,8 @@ interface WatchedRoom {
   eventSlug: string;
   organizationId: string;
   streamKey: string;
+  /** Whose stream it is: only our own Zoom's can be asked to start again. */
+  source: StreamSource;
   roomOpenedAt: string | null;
   /** The in-memory state key: a reopened room is a new run, never the old one's "up". */
   runKey: string;
@@ -93,7 +106,7 @@ async function findOpenStreamRooms(): Promise<WatchedRoom[]> {
     where: {
       status: "LIVE",
       event: { eventType: "WEBINAR" },
-      zoomMeeting: { is: { liveStreamEnabled: true, streamKey: { not: null } } },
+      ...SESSION_HAS_STREAM,
     },
     // Newest first, so a long-forgotten open room never pushes today's webinar past the cap.
     orderBy: { startTime: "desc" },
@@ -103,13 +116,14 @@ async function findOpenStreamRooms(): Promise<WatchedRoom[]> {
       name: true,
       eventId: true,
       event: { select: { organizationId: true, slug: true, settings: true } },
-      zoomMeeting: { select: { streamKey: true } },
+      ...SESSION_STREAM_SELECT,
     },
   });
   const rooms: WatchedRoom[] = [];
   for (const row of rows) {
     const webinar = watchedWebinar(row.id, row.event.settings);
-    if (!webinar || !row.zoomMeeting?.streamKey) continue;
+    const stream = pickSessionStream(row);
+    if (!webinar || !stream) continue;
     const roomOpenedAt = webinar.roomOpenedAt ?? null;
     rooms.push({
       sessionId: row.id,
@@ -117,9 +131,10 @@ async function findOpenStreamRooms(): Promise<WatchedRoom[]> {
       eventId: row.eventId,
       eventSlug: row.event.slug,
       organizationId: row.event.organizationId,
-      streamKey: row.zoomMeeting.streamKey,
+      streamKey: stream.streamKey,
+      source: stream.source,
       roomOpenedAt,
-      runKey: `${row.zoomMeeting.streamKey}:${roomOpenedAt ?? ""}`,
+      runKey: `${stream.streamKey}:${roomOpenedAt ?? ""}`,
     });
   }
   return rooms;
@@ -145,9 +160,12 @@ async function stateFor(room: WatchedRoom): Promise<StreamState> {
 }
 
 /** Whether a missing stream is worth a second look and, if confirmed, an action. */
-function needsConfirmation(state: StreamState, now: number): boolean {
+function needsConfirmation(room: WatchedRoom, state: StreamState, now: number): boolean {
   if (state.up === true) return true; // a fresh drop to record
-  if (state.up === false) return state.restarts < MAX_AUTO_RESTARTS && now >= state.nextRestartAt;
+  // Already recorded as down. Only our own Zoom's stream has a restart worth the second look.
+  if (state.up === false) {
+    return room.source === "zoom" && state.restarts < MAX_AUTO_RESTARTS && now >= state.nextRestartAt;
+  }
   return false; // never live in this run
 }
 
@@ -159,7 +177,7 @@ async function roomStillWatched(room: WatchedRoom, tickStartedAt: Date): Promise
   const [session, event, meeting, boundary] = await Promise.all([
     db.eventSession.findFirst({ where: { id: room.sessionId, eventId: room.eventId }, select: { status: true } }),
     db.event.findFirst({ where: { id: room.eventId }, select: { settings: true } }),
-    db.zoomMeeting.findFirst({ where: { sessionId: room.sessionId, eventId: room.eventId }, select: { streamKey: true } }),
+    sessionStream(room.sessionId, room.eventId),
     runBoundarySince(room.eventId, room.sessionId, tickStartedAt),
   ]);
   const webinar = event ? watchedWebinar(room.sessionId, event.settings) : null;
@@ -256,6 +274,8 @@ async function onConfirmedMissing(
       source: "worker",
     });
   }
+  // A partner's push is not ours to restart; the drop above is on the timeline and in the log.
+  if (room.source !== "zoom") return;
   if (state.restarts >= MAX_AUTO_RESTARTS || now < state.nextRestartAt) return;
   await requestRestart(room, state, now, report);
 }
@@ -290,7 +310,7 @@ export async function runStreamWatchdogTick(
     await forRoom(room, async () => {
       const state = await stateFor(room);
       if (firstLook[i] === "live") await onArriving(room, state);
-      else if (firstLook[i] === "absent" && needsConfirmation(state, now())) toConfirm.push({ room, state });
+      else if (firstLook[i] === "absent" && needsConfirmation(room, state, now())) toConfirm.push({ room, state });
       // "unknown" (MediaMTX slow or unreachable): no evidence, nothing done.
     });
   }

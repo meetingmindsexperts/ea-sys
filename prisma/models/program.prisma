@@ -488,6 +488,7 @@ model EventSession {
   speakers         SessionSpeaker[]
   topics           SessionTopic[]
   zoomMeeting      ZoomMeeting?
+  externalStream   ExternalStream?
   zoomAttendances  ZoomAttendance[]
   webinarPresences WebinarPresence[]
   webinarViewerQuestions WebinarViewerQuestion[]
@@ -629,6 +630,46 @@ model ZoomMeeting {
   @@index([zoomMeetingId])
   @@index([recordingStatus])
   @@index([lastAttendanceSyncAt])
+}
+
+/// A stream a partner pushes to us from their own platform (Nov 12, 2026;
+/// docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md). A webinar produced elsewhere
+/// has no Zoom webinar of ours, so its stream key cannot live on ZoomMeeting.
+/// One row per session. While a row exists it IS the session's stream: readers
+/// ask src/lib/webinar/session-stream.ts and never read a key from a table.
+///
+/// The publish password is not stored: it is derived from the key and
+/// secretVersion (livestream.ts), so replacing it is adding one to the version
+/// and the address attendees watch on (the key) never changes.
+model ExternalStream {
+  id              String       @id @default(cuid())
+  sessionId       String       @unique
+  eventId         String
+  // Tenant key, stamped by every writer (see ZoomMeeting).
+  organizationId  String?
+  streamKey       String       @unique
+  secretVersion   Int          @default(1)
+  // Off = every new publish is refused. A push already running is cut separately.
+  enabled         Boolean      @default(true)
+  // The period the key works in; a publish outside it is refused. A null
+  // validUntil follows the session: 24 hours after its scheduled end, read at
+  // the moment of the check, so a moved webinar moves its key's period too.
+  validFrom       DateTime     @default(now())
+  validUntil      DateTime?
+  // Who the key was handed to (an agency, a technician). Free text.
+  issuedTo        String?
+  streamStatus    StreamStatus @default(IDLE)
+  lastPublishAt   DateTime?
+  lastPublisherIp String?
+  createdByUserId String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  session EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  event   Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([organizationId])
 }
 
 // ── Webinar polls (fetched from Zoom's /report/webinars/{id}/polls) ──

@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDbOperator, mockDb, getLastZoomEndTimeSpy, retimeSpy, streamArrivingSpy } = vi.hoisted(() => ({
   mockDbOperator: { eventSession: { findMany: vi.fn() } },
-  mockDb: { eventSession: { updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn() } },
+  mockDb: { eventSession: { updateMany: vi.fn() }, externalStream: { findFirst: vi.fn(), updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn() } },
   getLastZoomEndTimeSpy: vi.fn(),
   retimeSpy: vi.fn(),
   streamArrivingSpy: vi.fn(),

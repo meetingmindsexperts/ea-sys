@@ -15,7 +15,7 @@ const { mockAuth, mockDb, mockApiLogger } = vi.hoisted(() => ({
   mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   mockDb: {
     event: { findFirst: vi.fn() },
-    zoomMeeting: { findFirst: vi.fn(), updateMany: vi.fn() },
+    externalStream: { findFirst: vi.fn(), updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn(), updateMany: vi.fn() },
     registration: { findFirst: vi.fn() },
     eventSession: { findFirst: vi.fn() },
   },
@@ -59,6 +59,8 @@ function call() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // No partner's stream unless a test adds one (clearAllMocks keeps a mocked value).
+  mockDb.externalStream.findFirst.mockResolvedValue(null);
   fetchMock.mockResolvedValue({ ok: true });
   mockAuth.mockResolvedValue(null);
   resetRoomOpenCache();
@@ -72,6 +74,7 @@ beforeEach(() => {
   // The producer has opened the room (anchor session LIVE).
   mockDb.eventSession.findFirst.mockResolvedValue({ status: "LIVE" });
   mockDb.zoomMeeting.findFirst.mockResolvedValue({
+    liveStreamEnabled: true,
     streamKey: nextStreamKey(),
     streamStatus: "ACTIVE",
   });
@@ -122,6 +125,23 @@ describe("stream-status — M3 credential gating", () => {
         }),
       }),
     );
+  });
+
+  it("a partner's stream is served the same way, and its status is written on its own row", async () => {
+    const key = nextStreamKey();
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: key, streamStatus: "IDLE" });
+    mockAuth.mockResolvedValue({ user: { id: "u-reg-ext", role: "REGISTRANT", organizationId: null } });
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-ext" });
+    const body = await (await call()).json();
+    expect(body.status).toBe("active");
+    expect(body.hlsUrl).toContain(`/stream/live/${key}/index.m3u8`);
+    expect(body).not.toHaveProperty("streamKey");
+    expect(mockDb.externalStream.updateMany).toHaveBeenCalledWith({
+      where: { sessionId: "sess1", eventId: "ev1" },
+      data: { streamStatus: "ACTIVE", organizationId: "org1" },
+    });
+    expect(mockDb.zoomMeeting.updateMany).not.toHaveBeenCalled();
   });
 
   it("a registered attendee gets NO URLs while the room is closed: a rehearsal stream is not theirs (W-02)", async () => {

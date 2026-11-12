@@ -7,6 +7,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { can, principalFromUser } from "@/lib/permissions/can";
+import { hlsPlaybackUrls, sessionStream, setSessionStreamStatus } from "@/lib/webinar/session-stream";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
 import { isViewerRoomOpen, viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
 
@@ -90,38 +91,32 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(event.organizationId, async () => {
-    const zoomMeeting = await db.zoomMeeting.findFirst({
-      where: {
-        sessionId,
-        session: { eventId: event.id },
-        liveStreamEnabled: true,
-      },
-      select: { streamKey: true, streamStatus: true },
-    });
-
-    if (!zoomMeeting || !zoomMeeting.streamKey) {
+    // Our Zoom's stream or a partner's: session-stream.ts decides, bound to this event.
+    const stream = await sessionStream(sessionId, event.id);
+    if (!stream) {
       return NextResponse.json({ status: "unavailable" });
     }
 
     // Check if MediaMTX is actually serving the stream (cached probe — shared
     // across all pollers for this streamKey, see src/lib/webinar/stream-probe.ts).
-    const isLive = await isStreamArriving(zoomMeeting.streamKey);
+    const isLive = await isStreamArriving(stream.streamKey);
 
-    // Reflect the probed reality into ZoomMeeting.streamStatus. A write on a
+    // Reflect the probed reality into the stream's own streamStatus. A write on a
     // GET is deliberate here (M3-reviewed): it only fires on a REAL state
     // transition of the stream (probe-cached, so at most ~1 write per actual
     // ACTIVE↔ENDED flip), not per request — an attacker polling harder cannot
     // amplify it.
-    const newStatus = nextStreamStatus(isLive, zoomMeeting.streamStatus);
-    if (newStatus !== zoomMeeting.streamStatus) {
-      // The event binding in the where is load-bearing: this is a PUBLIC route,
-      // and without it a crafted sessionId flips streamStatus on another org's
-      // row. organizationId in the data self-heals blue-green-window NULLs.
-      await db.zoomMeeting.updateMany({
-        where: { sessionId, eventId: event.id, liveStreamEnabled: true },
-        data: { streamStatus: newStatus, organizationId: event.organizationId },
-      });
-      apiLogger.info({ sessionId, streamStatus: newStatus }, "zoom:stream-status-changed");
+    const newStatus = nextStreamStatus(isLive, stream.streamStatus);
+    if (newStatus !== stream.streamStatus) {
+      // Bound to the event inside setSessionStreamStatus: this is a PUBLIC
+      // route, and without that a crafted sessionId flips streamStatus on
+      // another org's row.
+      await setSessionStreamStatus(
+        stream,
+        { sessionId, eventId: event.id, organizationId: event.organizationId },
+        newStatus,
+      );
+      apiLogger.info({ sessionId, streamStatus: newStatus, source: stream.source }, "zoom:stream-status-changed");
     }
 
     const status = isLive ? "active" : newStatus.toLowerCase();
@@ -152,15 +147,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     // We return BOTH so the player can fail over CDN → origin if the edge
     // misbehaves. Unset HLS_CDN_BASE ⇒ both fall back to the app origin
     // (single-box dev / small events).
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const cdnBase = process.env.HLS_CDN_BASE || appUrl;
-    const path = `/stream/live/${zoomMeeting.streamKey}/index.m3u8`;
+    const urls = hlsPlaybackUrls(stream.streamKey);
 
     return NextResponse.json({
       status,
-      hlsUrl: isLive ? `${cdnBase}${path}` : null,
+      hlsUrl: isLive ? urls.hlsUrl : null,
       // Direct-origin URL for player fallback when the CDN edge fails.
-      hlsOriginUrl: isLive ? `${appUrl}${path}` : null,
+      hlsOriginUrl: isLive ? urls.hlsOriginUrl : null,
     });
     });
   } catch (error) {

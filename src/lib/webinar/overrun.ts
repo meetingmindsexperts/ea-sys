@@ -17,9 +17,9 @@
  * MEDIAMTX_HLS_URL in docker-compose.prod.yml (review of fb4459d0: without it
  * every probe hit the worker's own localhost and this never fired).
  */
-import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { readWebinarSettings } from "@/lib/webinar";
+import { sessionStream } from "@/lib/webinar/session-stream";
 import { probeStream } from "@/lib/webinar/stream-probe";
 
 /** Past this after the scheduled end, the room closes and the thank-you goes, stream or not. Matches the
@@ -54,13 +54,10 @@ export async function isWebinarStreamArriving(args: {
   now?: number;
 }): Promise<boolean> {
   if (readWebinarSettings(args.eventSettings)?.viewingMode !== "hls") return false;
-  const meeting = await db.zoomMeeting.findFirst({
-    where: { sessionId: args.sessionId, eventId: args.eventId },
-    select: { liveStreamEnabled: true, streamKey: true },
-  });
-  if (!meeting?.liveStreamEnabled || !meeting.streamKey) return false;
+  const stream = await sessionStream(args.sessionId, args.eventId);
+  if (!stream) return false;
 
-  const key = meeting.streamKey;
+  const key = stream.streamKey;
   const now = args.now ?? Date.now();
   const probe = await probeStream(key);
   if (probe === "live") {

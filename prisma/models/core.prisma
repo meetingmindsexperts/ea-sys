@@ -618,6 +618,7 @@ model Event {
   sessionProposalSerialCounter SessionProposalSerialCounter?
   billingAccounts              EventBillingAccount[]
   zoomMeetings                 ZoomMeeting[]
+  externalStreams               ExternalStream[]
   zoomAttendances              ZoomAttendance[]
   webinarPresences             WebinarPresence[]
   webinarViewerQuestions       WebinarViewerQuestion[]

@@ -6,6 +6,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { generateZoomSignatureForOrg } from "@/lib/zoom";
+import { hlsPlaybackUrls, pickSessionStream, SESSION_STREAM_SELECT } from "@/lib/webinar/session-stream";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import {
   isViewerRoomOpen,
@@ -127,6 +128,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             streamStatus: true,
           },
         },
+        externalStream: SESSION_STREAM_SELECT.externalStream,
       },
     });
 
@@ -134,6 +136,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "zoom:join-session-not-found");
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
+
+    // Our Zoom's stream or a partner's (session-stream.ts): what the player is given below.
+    const stream = pickSessionStream(session);
 
     if (!session.zoomMeeting) {
       apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "zoom:join-no-meeting");
@@ -193,7 +198,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         sessionName: session.name,
         userName: attendeeName,
         userEmail: attendeeEmail,
-        liveStreamEnabled: Boolean(session.zoomMeeting.liveStreamEnabled && session.zoomMeeting.streamKey),
+        liveStreamEnabled: Boolean(stream),
       });
     }
 
@@ -206,14 +211,13 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Build streaming info if live stream is enabled. HLS is CDN-served at
     // scale (HLS_CDN_BASE → CloudFront); falls back to the app origin when unset.
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const cdnBase = process.env.HLS_CDN_BASE || appUrl;
-    const streamingFields = session.zoomMeeting.liveStreamEnabled && session.zoomMeeting.streamKey
+    const urls = stream ? hlsPlaybackUrls(stream.streamKey) : null;
+    const streamingFields = stream && urls
       ? {
           liveStreamEnabled: true,
-          hlsPlaybackUrl: `${cdnBase}/stream/live/${session.zoomMeeting.streamKey}/index.m3u8`,
-          hlsOriginUrl: `${appUrl}/stream/live/${session.zoomMeeting.streamKey}/index.m3u8`,
-          streamStatus: session.zoomMeeting.streamStatus,
+          hlsPlaybackUrl: urls.hlsUrl,
+          hlsOriginUrl: urls.hlsOriginUrl,
+          streamStatus: stream.streamStatus,
         }
       : { liveStreamEnabled: false };
 

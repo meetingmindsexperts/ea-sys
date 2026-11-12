@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { can } from "@/lib/permissions/can";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
+import { sessionStream } from "@/lib/webinar/session-stream";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -261,14 +262,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // if Zoom does, with Zoom's reason. Enforced when the REQUEST sets hls;
     // the room-open POST stays the final gate.
     if (validated.data.viewingMode === "hls") {
-      const streamConfig = nextWebinar.sessionId
-        ? await db.zoomMeeting.findFirst({
-            where: { sessionId: nextWebinar.sessionId, eventId },
-            select: { liveStreamEnabled: true, streamKey: true },
-          })
-        : null;
-      if (!streamConfig?.liveStreamEnabled || !streamConfig.streamKey) {
-        if (!nextWebinar.sessionId || !streamConfig) {
+      const streamConfig = nextWebinar.sessionId ? await sessionStream(nextWebinar.sessionId, eventId) : null;
+      if (!streamConfig) {
+        // Nothing set up yet. With a Zoom webinar the save sets the stream up itself; without one it cannot.
+        const zoomWebinar = nextWebinar.sessionId
+          ? await db.zoomMeeting.findFirst({
+              where: { sessionId: nextWebinar.sessionId, eventId },
+              select: { id: true },
+            })
+          : null;
+        if (!nextWebinar.sessionId || !zoomWebinar) {
           apiLogger.warn({ eventId, userId: session.user.id }, "webinar:hls-mode-no-zoom-webinar");
           return NextResponse.json(
             {
