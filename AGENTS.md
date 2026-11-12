@@ -143,7 +143,7 @@ question, not a finding. The reviewer says "none" for a level when it found none
 | BLOCKER | Data loss, money or seats wrong, a permission or tenant boundary crossed, production down | Fix |
 | HIGH | A real bug a user can reach, or a payments, permissions or tenancy path that can go wrong under a race or a retry | Fix |
 | MED | Wrong in a rare or unreachable case, or a guard (test, check script) that can miss what it claims to catch | Fix, or record it in `docs/ROADMAP.md` with the reason |
-| LOW | Wording, a misleading comment, a cleanup | Optional |
+| LOW | Wording, a misleading comment, a cleanup | The author judges (owner, Nov 12, 2026): fix the ones that are best for the platform and its users, and list the rest in `docs/ROADMAP.md` with why they were left |
 
 Fixes land as their own commit after the reviewed one, never as an amend. An older defect the review
 turns up is reported separately from the change under review, so the owner decides it on its own.

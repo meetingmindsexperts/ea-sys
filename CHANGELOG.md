@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Abstracts: bulk reviewer assignment - the smaller review findings worth fixing (November 12)
+
+The low findings of the same review. From now on the author judges which low findings to fix (AGENTS.md rule 5, owner, November 12); these are the ones that cost a user something. The rest are in the ROADMAP with why they were left.
+
+- **The dialog no longer closes while it is saving** - Esc or a click outside during Assign or Remove closed it: the result line was never shown, and the next opening cleared the ticks
+- **A reviewer pool that fails to load says so**, in both dialogs, instead of "No reviewers on this event's pool yet"
+- **The pasted sheet survives a trip to the Reviewers page** - The link opens in a new tab, and a name follows the pool as it is now: someone added there is matched when you come back, without reading the sheet again. A pick you made is never overwritten
+- **Two reviewers in one cell** - "Dr Rahman / Prof Haddad", "Rahman & Haddad" and "Dr Rahman and Prof Haddad" are read as two people
+- **Every skip is explained** - A reason code the page does not know yet (a newer server, an older tab) gets its own line instead of an unexplained "4 skipped"
+- **Wording and polish** - Select by IDs says that it replaces the current ticks; up to three left-out lines are shown with their line numbers; the Remove dialog keeps its title while it closes
+
 ### Certificates: CC and BCC on a send from Communications now reach people (November 12)
 
 A certificate was sent to one registrant from Communications with two colleagues on CC and "Send me a copy" ticked. None of the three received anything.

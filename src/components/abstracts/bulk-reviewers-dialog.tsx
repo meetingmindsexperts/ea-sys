@@ -101,6 +101,7 @@ function BulkReviewersBody({
   abstracts,
   onClose,
   onChanged,
+  onBusy,
 }: {
   eventId: string;
   mode: BulkReviewerMode;
@@ -108,8 +109,10 @@ function BulkReviewersBody({
   onClose: () => void;
   /** The change went through: the page clears its selection when the dialog closes. */
   onChanged: () => void;
+  /** A request is in flight: the dialog must not close under it. */
+  onBusy: (busy: boolean) => void;
 }) {
-  const { data, isLoading } = useReviewers(eventId);
+  const { data, isLoading, isError } = useReviewers(eventId);
   const assign = useBulkAssignAbstractReviewers(eventId);
   const unassign = useBulkUnassignAbstractReviewers(eventId);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
@@ -144,6 +147,7 @@ function BulkReviewersBody({
   const run = async () => {
     const abstractIds = abstracts.map((a) => a.id);
     const groups = [...chosen].map((reviewerUserId) => ({ reviewerUserId, abstractIds }));
+    onBusy(true);
     try {
       if (mode === "assign") {
         const result = await assign.mutateAsync(groups);
@@ -156,6 +160,8 @@ function BulkReviewersBody({
     } catch (err) {
       console.error("abstracts:bulk-reviewers-failed", mode, err);
       toast.error(err instanceof Error && err.message ? err.message : "Could not update the reviewers");
+    } finally {
+      onBusy(false);
     }
   };
 
@@ -188,7 +194,13 @@ function BulkReviewersBody({
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           </div>
         )}
-        {!isLoading && people.length === 0 && (
+        {isError && (
+          <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            The reviewer pool could not be loaded. Close this and try again; if it keeps happening, your role may
+            not include the Reviewers page.
+          </p>
+        )}
+        {!isLoading && !isError && people.length === 0 && (
           <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
             No reviewers on this event&apos;s pool yet.{" "}
             <Link href={`/events/${eventId}/reviewers`} className="text-primary underline">
@@ -284,7 +296,11 @@ export function BulkReviewersDialog({
   // The selection is cleared on CLOSE, not on success: the result is read with
   // the ticked count still in the heading.
   const changed = useRef(false);
+  // Esc or a click outside while the request runs used to close the dialog:
+  // the result line was never shown, and the next opening cleared the ticks.
+  const inFlight = useRef(false);
   const handleOpenChange = (next: boolean) => {
+    if (!next && inFlight.current) return;
     if (!next && changed.current) {
       changed.current = false;
       onDone();
@@ -312,6 +328,9 @@ export function BulkReviewersDialog({
             onClose={() => handleOpenChange(false)}
             onChanged={() => {
               changed.current = true;
+            }}
+            onBusy={(busy) => {
+              inFlight.current = busy;
             }}
           />
         )}

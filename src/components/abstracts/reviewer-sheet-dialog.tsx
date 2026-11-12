@@ -45,7 +45,7 @@ import { toast } from "sonner";
 import { useReviewers, useBulkAssignAbstractReviewers } from "@/hooks/use-api";
 import {
   buildSheetPlan,
-  initialChoices,
+  choicesWith,
   parseReviewerSheet,
   sheetReviewerNames,
   type ParsedSheet,
@@ -168,8 +168,10 @@ function SheetWarnings({
     warnings.push(`Rows with an abstract number and no reviewer: line ${rowsWithoutReviewer.slice(0, 20).join(", ")}.`);
   }
   if (sheet.ignoredLines.length > 0) {
+    const count = sheet.ignoredLines.length;
+    const shown = sheet.ignoredLines.slice(0, 3).map((l) => `line ${l.line} "${l.text}"`).join("; ");
     warnings.push(
-      `${sheet.ignoredLines.length} line${sheet.ignoredLines.length === 1 ? "" : "s"} had no abstract number and ${sheet.ignoredLines.length === 1 ? "was" : "were"} left out (a header row is fine): "${sheet.ignoredLines[0].text}".`,
+      `${count} line${count === 1 ? "" : "s"} had no abstract number and ${count === 1 ? "was" : "were"} left out (a header row is fine): ${shown}${count > 3 ? `, and ${count - 3} more` : ""}.`,
     );
   }
   if (warnings.length === 0) return null;
@@ -222,16 +224,23 @@ function ReviewerSheetBody({
   abstracts: SheetAbstract[];
   onClose: () => void;
 }) {
-  const { data, isLoading } = useReviewers(eventId);
+  const { data, isLoading, isError } = useReviewers(eventId);
   const assign = useBulkAssignAbstractReviewers(eventId);
   const { pool } = useMemo(() => poolPeopleFrom(data), [data]);
 
   const [text, setText] = useState("");
-  // Set by "Read the sheet": the parsed rows and the organiser's choice per name.
+  // Set by "Read the sheet": the parsed rows.
   const [sheet, setSheet] = useState<ParsedSheet | null>(null);
-  const [choices, setChoices] = useState<Record<string, string | null>>({});
+  // Only what the organiser PICKED. Every other name follows the pool as it is
+  // now, so someone added on the Reviewers page (it opens in a new tab) is
+  // matched when this tab is looked at again, without reading the sheet twice.
+  const [picked, setPicked] = useState<Record<string, string | null>>({});
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
+  const choices = useMemo(
+    () => (sheet ? choicesWith(sheetReviewerNames(sheet, pool), picked) : {}),
+    [sheet, pool, picked],
+  );
   const plan = useMemo(
     () => (sheet ? buildSheetPlan(sheet, abstracts, pool, choices) : null),
     [sheet, abstracts, pool, choices],
@@ -248,7 +257,7 @@ function ReviewerSheetBody({
       return;
     }
     setSheet(parsed);
-    setChoices(initialChoices(sheetReviewerNames(parsed, pool)));
+    setPicked({});
   };
 
   const apply = async () => {
@@ -305,7 +314,7 @@ function ReviewerSheetBody({
                 name={name}
                 choice={choices[name.key] ?? null}
                 pool={pool}
-                onChoose={(userId) => setChoices((prev) => ({ ...prev, [name.key]: userId }))}
+                onChoose={(userId) => setPicked((prev) => ({ ...prev, [name.key]: userId }))}
                 disabled={assign.isPending}
               />
             ))}
@@ -319,10 +328,10 @@ function ReviewerSheetBody({
           />
           <p className="text-xs text-muted-foreground">
             This only adds assignments; it removes none. No email is sent. Someone missing from the list has to be{" "}
-            <Link href={`/events/${eventId}/reviewers`} className="text-primary underline">
+            <Link href={`/events/${eventId}/reviewers`} target="_blank" rel="noopener noreferrer" className="text-primary underline">
               added on the Reviewers page
             </Link>{" "}
-            first.
+            first (it opens in a new tab; this sheet stays here and picks them up).
           </p>
         </div>
         <DialogFooter>
@@ -358,10 +367,16 @@ function ReviewerSheetBody({
             are matched to the event&apos;s reviewer pool, and you check every match before anything is saved.
           </p>
         </div>
-        {!isLoading && pool.length === 0 && (
+        {isError && (
+          <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            The reviewer pool could not be loaded, so no name can be matched. Close this and try again; if it keeps
+            happening, your role may not include the Reviewers page.
+          </p>
+        )}
+        {!isLoading && !isError && pool.length === 0 && (
           <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
             No reviewers on this event&apos;s pool yet.{" "}
-            <Link href={`/events/${eventId}/reviewers`} className="text-primary underline">
+            <Link href={`/events/${eventId}/reviewers`} target="_blank" rel="noopener noreferrer" className="text-primary underline">
               Add the committee on the Reviewers page
             </Link>{" "}
             first: a name can only be matched to someone on the pool.
@@ -372,7 +387,7 @@ function ReviewerSheetBody({
         <Button variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button onClick={readSheet} disabled={!text.trim() || isLoading}>
+        <Button onClick={readSheet} disabled={!text.trim() || isLoading || isError}>
           Read the sheet
         </Button>
       </DialogFooter>

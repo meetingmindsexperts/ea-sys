@@ -125,6 +125,13 @@ const isAbstractNumber = (text: string) => abstractSerialFromToken(text) != null
 const cleanCell = (cell: string) => cell.trim().replace(/^"(.*)"$/, "$1").trim();
 
 /**
+ * Two reviewers written in one cell: "Dr Rahman / Prof Haddad", "Rahman &
+ * Haddad", "Dr Rahman and Prof Haddad". Chairs do this; read as one name it
+ * matched nobody and only one person could be picked for it.
+ */
+const reviewersIn = (cell: string) => cell.split(/\s*(?:\/|&|\band\b)\s*/i).map((name) => name.trim()).filter(Boolean);
+
+/**
  * A SPREADSHEET paste (tabs between cells) is read by column (review of
  * 87d819ee, Nov 12, 2026). The first version took every numeric cell as an
  * abstract, so a row-number column or a score column silently assigned
@@ -161,7 +168,11 @@ function parseColumns(lines: SheetLine[]): ParsedSheet {
     }
     const others = row.cells.filter((cell, column) => column !== abstractColumn && cell);
     for (const cell of others.filter(isAbstractNumber)) sheet.extraNumbers.push({ line: row.line, text: cell });
-    sheet.rows.push({ line: row.line, abstractTokens: [abstractCell], reviewerNames: others.filter((cell) => !isAbstractNumber(cell)) });
+    sheet.rows.push({
+      line: row.line,
+      abstractTokens: [abstractCell],
+      reviewerNames: others.filter((cell) => !isAbstractNumber(cell)).flatMap(reviewersIn),
+    });
   }
   return sheet;
 }
@@ -225,7 +236,7 @@ function parseTypedLines(lines: SheetLine[]): ParsedSheet {
       sheet.ignoredLines.push({ line, text: raw.trim().slice(0, 120) });
       continue;
     }
-    sheet.rows.push({ line, abstractTokens, reviewerNames: segments.map((segment) => segment.name).filter(Boolean) });
+    sheet.rows.push({ line, abstractTokens, reviewerNames: segments.flatMap((segment) => reviewersIn(segment.name)) });
   }
   return sheet;
 }
@@ -407,6 +418,19 @@ export function initialChoices(names: SheetReviewerName[]): Record<string, strin
   const choices: Record<string, string | null> = {};
   for (const n of names) choices[n.key] = n.match.kind === "matched" && !n.held ? n.match.userId : null;
   return choices;
+}
+
+/**
+ * The choice for every name: what the organiser picked, else the name's own
+ * match against the pool AS IT IS NOW. Kept apart so that someone added to the
+ * pool after the sheet was read is matched without reading it again, while a
+ * pick the organiser made is never overwritten.
+ */
+export function choicesWith(
+  names: SheetReviewerName[],
+  picked: Record<string, string | null>,
+): Record<string, string | null> {
+  return { ...initialChoices(names), ...picked };
 }
 
 /** The distinct reviewer names in a parsed sheet, each matched against the pool. */

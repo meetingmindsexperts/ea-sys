@@ -109,8 +109,8 @@ export function SelectAbstractsByIdsDialog({
             Select by IDs
           </DialogTitle>
           <DialogDescription>
-            Paste abstract numbers. The matching abstracts get ticked, across every theme and filter, so you can
-            assign or remove a reviewer for exactly those.
+            Paste abstract numbers. The matching abstracts become the selection, across every theme and filter, so
+            you can assign or remove a reviewer for exactly those. Anything ticked before is unticked.
           </DialogDescription>
         </DialogHeader>
         {/* Mounted only while open, so each opening starts empty. */}

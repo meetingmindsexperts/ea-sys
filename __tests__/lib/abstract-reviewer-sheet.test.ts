@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest";
 import {
   abstractSerialFromToken,
   buildSheetPlan,
+  choicesWith,
   initialChoices,
   matchReviewerName,
   parseReviewerSheet,
@@ -129,6 +130,14 @@ describe("parseReviewerSheet", () => {
     expect(parseReviewerSheet("012 to Dr Rahman").rows[0].reviewerNames).toEqual(["Dr Rahman"]);
     expect(parseReviewerSheet("012: To Lam").rows[0].reviewerNames).toEqual(["To Lam"]);
     expect(parseReviewerSheet("012\tTo Lam").rows[0].reviewerNames).toEqual(["To Lam"]);
+  });
+
+  it("two reviewers written in one cell are two reviewers", () => {
+    expect(parseReviewerSheet("012\tDr Rahman / Prof Haddad").rows[0].reviewerNames).toEqual(["Dr Rahman", "Prof Haddad"]);
+    expect(parseReviewerSheet("012\tDr Rahman & Prof Haddad").rows[0].reviewerNames).toEqual(["Dr Rahman", "Prof Haddad"]);
+    expect(parseReviewerSheet("012: Dr Rahman and Prof Haddad").rows[0].reviewerNames).toEqual(["Dr Rahman", "Prof Haddad"]);
+    // "and" inside a name is not a separator.
+    expect(parseReviewerSheet("012\tDr Anderson\tDr Sandra Brand").rows[0].reviewerNames).toEqual(["Dr Anderson", "Dr Sandra Brand"]);
   });
 
   it("several numbers on one row all go to that row's reviewer", () => {
@@ -298,5 +307,17 @@ describe("buildSheetPlan", () => {
     const plan = buildSheetPlan(parseReviewerSheet("012\t\n015\tDr Rahman"), ABSTRACTS, POOL);
     expect(plan.rowsWithoutReviewer).toEqual([1]);
     expect(plan.pairCount).toBe(1);
+  });
+
+  it("a name follows the pool as it is now; a pick the organiser made is never overwritten", () => {
+    const sheet = parseReviewerSheet("012\tDr Nobody\n015\tDr Rahman");
+    const picked = { [reviewerNameKey("Dr Rahman")]: null }; // deliberately left out
+
+    // Before Dr Nobody is on the pool: unmatched.
+    expect(choicesWith(sheetReviewerNames(sheet, POOL), picked)).toEqual({ "dr nobody": null, "dr rahman": null });
+
+    // Added on the Reviewers page meanwhile: matched without reading the sheet again.
+    const grown = [...POOL, { userId: "u-nobody", firstName: "Nora", lastName: "Nobody", email: "nora@example.test" }];
+    expect(choicesWith(sheetReviewerNames(sheet, grown), picked)).toEqual({ "dr nobody": "u-nobody", "dr rahman": null });
   });
 });

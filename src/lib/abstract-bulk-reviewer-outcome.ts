@@ -18,6 +18,7 @@ export type BulkReviewerSkipReason =
   | "OWN_ABSTRACT"
   | "HAS_REVIEW";
 
+/** A pair the server left alone. THE client-side shape: the hooks in use-api.ts use this type too. */
 export interface BulkReviewerSkipRow {
   abstractId: string;
   reviewerUserId: string;
@@ -31,7 +32,8 @@ export interface OutcomeLookups {
 }
 
 export interface SkipLine {
-  reason: BulkReviewerSkipReason;
+  /** A reason code. One the page does not know yet is still shown, under its code. */
+  reason: string;
   /** Why, as a sentence opener: "Their own abstract". */
   label: string;
   /** Pairs skipped for this reason. */
@@ -68,16 +70,22 @@ function skipItem(row: BulkReviewerSkipRow, lookups: OutcomeLookups): string {
   return `${abstract} (${reviewer})`;
 }
 
-/** The skipped pairs as one line per reason, each naming what it covers. */
+/**
+ * The skipped pairs as one line per reason, each naming what it covers. A
+ * reason the server sends that this page does not know yet (a newer server, an
+ * older tab) gets a line under its code: "4 skipped" must never go unexplained.
+ */
 export function describeBulkReviewerSkips(skipped: BulkReviewerSkipRow[], lookups: OutcomeLookups): SkipLine[] {
+  const known = new Set<string>(REASON_ORDER);
+  const unknown = Array.from(new Set(skipped.map((row) => row.reason as string).filter((reason) => !known.has(reason))));
   const lines: SkipLine[] = [];
-  for (const reason of REASON_ORDER) {
+  for (const reason of [...REASON_ORDER, ...unknown]) {
     const rows = skipped.filter((row) => row.reason === reason);
     if (rows.length === 0) continue;
     const named = Array.from(new Set(rows.map((row) => skipItem(row, lookups)))).sort((a, b) => a.localeCompare(b));
     lines.push({
       reason,
-      label: REASON_LABEL[reason],
+      label: REASON_LABEL[reason as BulkReviewerSkipReason] ?? `Not done (${reason})`,
       count: rows.length,
       items: named.slice(0, MAX_ITEMS_PER_REASON),
       more: Math.max(0, named.length - MAX_ITEMS_PER_REASON),

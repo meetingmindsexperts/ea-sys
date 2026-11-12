@@ -244,7 +244,14 @@ export default function AbstractsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [themeFilter, setThemeFilter] = useState<string>(ALL_THEMES);
   const [unassignedOnly, setUnassignedOnly] = useState(false);
-  const [bulkMode, setBulkMode] = useState<BulkReviewerMode | null>(null);
+  // Open and mode apart: the mode must outlive the close, or the Remove
+  // dialog's title read "Assign reviewers" while it faded out.
+  const [bulkMode, setBulkMode] = useState<BulkReviewerMode>("assign");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const openBulk = (mode: BulkReviewerMode) => {
+    setBulkMode(mode);
+    setBulkOpen(true);
+  };
   const [selectByIdsOpen, setSelectByIdsOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -1082,16 +1089,16 @@ export default function AbstractsPage() {
               selectedHiddenCount={selectedAbstracts.filter((a) => !shownIds.includes(a.id)).length}
               onSelectByIds={() => setSelectByIdsOpen(true)}
               onPasteSheet={() => setSheetOpen(true)}
-              onAssign={() => setBulkMode("assign")}
-              onRemove={() => setBulkMode("remove")}
+              onAssign={() => openBulk("assign")}
+              onRemove={() => openBulk("remove")}
               onClear={() => setSelectedIds(new Set())}
             />
             <BulkReviewersDialog
               eventId={eventId}
-              mode={bulkMode ?? "assign"}
+              mode={bulkMode}
               abstracts={selectedAbstracts}
-              open={bulkMode !== null}
-              onOpenChange={(open) => !open && setBulkMode(null)}
+              open={bulkOpen}
+              onOpenChange={setBulkOpen}
               onDone={() => setSelectedIds(new Set())}
             />
             <SelectAbstractsByIdsDialog

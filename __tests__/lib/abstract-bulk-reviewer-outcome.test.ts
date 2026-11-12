@@ -61,6 +61,18 @@ describe("describeBulkReviewerSkips", () => {
     expect(line.more).toBe(15);
   });
 
+  it("a reason this page does not know yet still gets a line: 'N skipped' is never left unexplained", () => {
+    const skipped = [
+      { abstractId: "ab12", reviewerUserId: "u1", reason: "SOMETHING_NEW" },
+      { abstractId: "ab3", reviewerUserId: "u2", reason: "OWN_ABSTRACT" },
+    ] as unknown as BulkReviewerSkipRow[];
+    const lines = describeBulkReviewerSkips(skipped, lookups);
+    expect(lines.map((l) => [l.reason, l.label, l.items])).toEqual([
+      ["OWN_ABSTRACT", "Their own abstract", ["A-003 (Omar Haddad)"]],
+      ["SOMETHING_NEW", "Not done (SOMETHING_NEW)", ["A-012 (Aisha Rahman)"]],
+    ]);
+  });
+
   it("nothing skipped is no lines", () => {
     expect(describeBulkReviewerSkips([], lookups)).toEqual([]);
   });

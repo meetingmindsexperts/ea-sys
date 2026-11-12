@@ -1360,8 +1360,11 @@ export async function unassignReviewersBulk(input: BulkReviewerInput): Promise<B
     }
 
     // A review can land between the read above and the delete. The delete
-    // itself refuses a row a review hangs on, and whatever survived is
-    // reported as skipped, so the count and the audit say what happened.
+    // refuses a row a COMMITTED review hangs on, and whatever survived is
+    // reported as skipped, so the count and the audit say what happened. What
+    // remains is a review committing in the same instant as the delete: its
+    // assignment goes, and the review itself is kept with no link (the same
+    // outcome as the single remove, which always allows it).
     const removed = toRemove.length === 0
       ? []
       : await tenantTransaction(async (tx) => {

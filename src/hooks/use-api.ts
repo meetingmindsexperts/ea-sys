@@ -15,6 +15,7 @@ import type { DetCredentialsStatus, DetEnvironment, DetPerformanceSummary } from
 import type { DtcmSectionMapping } from "@/lib/dtcm-eticket/sections";
 import type { CatalogueSettings } from "@/lib/catalogue";
 import type { RecommendedFormatValue } from "@/lib/recommended-formats";
+import type { BulkReviewerSkipRow } from "@/lib/abstract-bulk-reviewer-outcome";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
@@ -966,12 +967,8 @@ export interface BulkReviewerGroup {
   abstractIds: string[];
 }
 
-/** A pair the server left alone, and why (codes from abstract-service). */
-export interface BulkReviewerSkip {
-  abstractId: string;
-  reviewerUserId: string;
-  reason: "ABSTRACT_NOT_FOUND" | "NOT_ON_POOL" | "NOT_REVIEWABLE" | "OWN_ABSTRACT" | "HAS_REVIEW";
-}
+/** A pair the server left alone, and why: one shape, shared with the wording of the result. */
+export type BulkReviewerSkip = BulkReviewerSkipRow;
 
 export interface BulkAssignReviewersResponse {
   assigned: number;
