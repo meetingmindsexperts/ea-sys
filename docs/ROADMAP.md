@@ -212,8 +212,13 @@ only. Also done that day: Registrations, Import from Contacts offers "Faculty
 (speakers and committee)" itself, so the team's two-step habit now ends on a Faculty
 registration.
 
-**Decision waiting on the owner: one Faculty type per event** (owner, Nov 12, 2026:
-"why so many separate faculty, can we just keep one"). Two events hold two Faculty
+**~~Decision waiting on the owner: one Faculty type per event~~ DECIDED Nov 12, 2026:
+yes; built as `scripts/merge-faculty-types.ts`. Waiting on the owner: run it on
+production, first without `--write`:
+`docker exec ea-sys-worker npx tsx scripts/merge-faculty-types.ts --all`
+(expected: GCC Hub keeps "Faculty" and merges "Faculty." with its 6 registrations;
+HEMNET keeps the type with 7 and deletes the empty one). The owner's question:
+"why so many separate faculty, can we just keep one". Two events hold two Faculty
 types, the 4th GCC Hematology Hub ("Faculty", 37 registrations, and "Faculty.", 6) and
 HEMNET 2026 (one empty and switched off, one with 7); thirty hold one. Both began with
 an ordinary "Faculty" type from the organisation's default list and got a built-in one

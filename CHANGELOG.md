@@ -56,6 +56,16 @@ Found while checking the registrations export: the certificate **Recipients** ta
 - After review (`7b2160d8`, 1 high, 1 medium, 6 low): **invoice, receipt and credit note PDFs had the same fault**, through the invoice number, which starts with the event's code. Four downloads (staff, the registrant's portal, the group coordinator's, the public payer link) would have failed for an event whose code holds such a letter. No invoice in the local copy of production has one yet; one event's code does. Fixed, with the sales file (its name took a value from the web address) and the webinar handout download, which had its own weaker copy of the same logic
 - The guard test now reads **every** download header in the code: one that writes a value either goes through the helper or is listed with each value and why it can only be plain characters. The first version missed three of the eight headers it was written for
 
+### One-off script: one Faculty type per event (November 12)
+
+Owner: "why so many separate faculty, can we just keep one". Two events hold two Faculty types (the 4th GCC Hematology Hub and HEMNET 2026); thirty hold one. Both began with an ordinary "Faculty" type from the default list and got a built-in one beside it before Oct 22, when adopting the ordinary one replaced making a second.
+
+- **`scripts/merge-faculty-types.ts`** (dry run by default; `--all`, or `--event <id> [--keep <typeId>]`, then `--write`): keeps the Faculty type most people are on (on a tie the active one, then the oldest), moves the other type's registrations onto it, cancelled ones included, and deletes the emptied type with its unused rates. Nothing else on a registration changes: not its status, payment, badge, barcode, number or speaker link. No email
+- The emptied type's seat count moves with its registrations, and an attendee whose own type text was only the old type's name ("Faculty.") gets the kept type's name, so the Registrations list does not show it as a profession
+- **A type is left, and listed, when something else points at it**: one of its rates in use on a registration, a promo code limited to it, a shared view or scheduled email filtered on it, or its id in the event's settings (the DTCM section map). On production none of the four types has any of these
+- One transaction per type, one audit row (`FACULTY_TYPES_MERGED`) holding what the deleted type was and which registrations moved. Run on the local copy: GCC Hub ended with one type and 40 registrations, its totals unchanged; HEMNET with one type and 7. **Not yet run on production: the owner runs it**
+- No new guard was needed for the future: a second type with the name of an existing one is already refused, and the system adopts an ordinary "Faculty" type instead of making a second
+
 ### Registrations: Import from Contacts can add people as Faculty (November 12)
 
 Owner: "why we cannot give an importing contact a registration type faculty". The dialog hid every Faculty type, so a faculty contact could only be imported onto a delegate type with a rate. Add Registration has had a "Faculty (speakers and committee)" choice since Nov 10; the import never got it.
