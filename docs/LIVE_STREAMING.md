@@ -282,8 +282,10 @@ the same value sent to Zoom), no longer one built from the browser.
 **Publish authorisation (switched on in `mediamtx.yml` Nov 5, 2026; takes effect at the next MediaMTX recreate).** MediaMTX
 accepted a publish on any path from anyone who could reach port 1935.
 `POST /api/webhooks/mediamtx-auth` now answers MediaMTX's HTTP auth: a
-publish is allowed only on `live/<key>` for a Zoom meeting with streaming on;
-anything else is refused; a lookup error refuses. It lives under
+publish is allowed only on `live/<key>` for a Zoom meeting with streaming on,
+or (since Nov 12, 2026) for a partner's key that is switched on, inside its
+period and presented with its current password (§11b); anything else is
+refused; a lookup error refuses. It lives under
 `/api/webhooks/` because MediaMTX sends no Origin header, which the
 middleware's CSRF check refuses elsewhere. It does nothing until MediaMTX is
 configured to call it. The deploy script never restarts MediaMTX (it only
@@ -359,6 +361,102 @@ query and the path is unchanged, so streams work as before.
 
 On the platform instance the tenant-less key lookup is hidden by RLS, so a
 publish there is refused until the lookup moves to the operator lane.
+
+## 11b. A partner's stream, and cutting the feed (Nov 12, 2026)
+
+Plan and status: [EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md](EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md).
+Nothing here is in the console yet.
+
+**A partner's key.** A webinar produced on a partner's own platform has no Zoom
+webinar of ours, so its key lives in the `ExternalStream` table and
+`src/lib/webinar/session-stream.ts` tells every reader which stream a session
+has. The partner is handed the same two values Zoom's "custom live streaming"
+takes: the server address and `key?user=publisher&pass=<password>`. A publish
+on it is accepted only with the password of the key's current version, with the
+key switched on, and inside its period (from issue until 24 hours after the
+session's scheduled end, or the key's own end date). Each refusal is logged as
+`mediamtx-auth:publish-external-refused` with its reason: `BAD_PASSWORD`,
+`SWITCHED_OFF`, `NOT_YET_VALID` or `EXPIRED`.
+
+**Why a control API.** MediaMTX asks the publish check only when a stream
+starts. An encoder already connected keeps its connection when its key is
+replaced, switched off or expires. With our own Zoom we tell Zoom to stop; a
+partner's platform is not ours to tell. So `mediamtx.yml` now switches on
+MediaMTX's control API, and the app uses it for two things only: listing who is
+publishing, and disconnecting a publisher (`src/lib/webinar/mediamtx-control.ts`).
+
+- Replacing a key, switching it off and "cut the feed" save the change first
+  and then disconnect whoever is publishing on the key.
+- Once a minute the worker's stream watchdog job also disconnects any partner's
+  stream still running on a key that is switched off or past its period
+  (`external-stream-sweep.ts`). It never touches a stream whose key it cannot
+  find, and never our own Zoom's.
+
+**How the API is protected.** Port 9997 is not published on the box
+(`docker-compose.prod.yml`); only the app and worker containers reach it, by
+name. It has no password of its own: because `api` is not in `authHTTPExclude`,
+MediaMTX puts every API call to the same webhook as a publish, and the webhook
+allows it only when the call carries `MEDIAMTX_API_SECRET`. **Never add
+`action: api` to `authHTTPExclude`**: the API can also rewrite MediaMTX's
+configuration, and it would then answer anyone who can reach the port.
+
+**Owner steps, once, with no webinar live.** No partner's key can be issued
+until these are done (the app refuses, and says which is missing).
+
+1. Add two long random values to the box's `.env` (each from `openssl rand -hex 32`):
+
+   ```
+   STREAM_PUBLISH_SECRET=<64 hex characters>
+   MEDIAMTX_API_SECRET=<64 hex characters>
+   ```
+
+   `STREAM_PUBLISH_SECRET` signs every publish password. Until now they were
+   signed with `NEXTAUTH_SECRET`, so **setting it changes the password of every
+   Zoom custom stream**: afterwards press "Re-send stream settings to Zoom" on
+   each upcoming custom-stream webinar. A partner's key is never signed with
+   the sign-in secret, so rotating that no longer cancels it.
+
+2. Deploy as usual (`bash scripts/deploy.sh`), so the app and the worker read
+   the new values.
+
+3. Recreate MediaMTX so it reads the new `mediamtx.yml` (the deploy never
+   restarts it):
+
+   ```
+   docker compose -f docker-compose.prod.yml up -d --force-recreate mediamtx
+   docker logs --tail 30 ea-sys-mediamtx
+   ```
+
+   The log should show the API listener on `:9997`.
+
+4. Check that the API is not reachable from outside. From a laptop, this must
+   fail to connect:
+
+   ```
+   nc -vz events.meetingmindsgroup.com 9997
+   ```
+
+5. Check that a call without the secret is refused. On the box, this must print
+   `401`, and the app log must show `mediamtx-auth:api-refused`:
+
+   ```
+   docker exec ea-sys-worker node -e "fetch('http://ea-sys-mediamtx:9997/v3/rtmpconns/list').then(r=>console.log(r.status))"
+   ```
+
+6. Check that our own call is let in. This must print `200` and a line of JSON
+   with `"items"`:
+
+   ```
+   docker exec ea-sys-worker node -e "fetch('http://ea-sys-mediamtx:9997/v3/rtmpconns/list',{headers:{Authorization:'Basic '+Buffer.from('ea-sys:'+process.env.MEDIAMTX_API_SECRET).toString('base64')}}).then(async r=>console.log(r.status,await r.text()))"
+   ```
+
+**If step 6 prints 401, stop and say so.** The client was written from
+MediaMTX 1.17.1's published API description and has not been run against a
+server: step 6 is the first real test of the one assumption everything rests
+on, that MediaMTX passes the call's Basic credentials to the webhook. Nothing
+is broken if it fails (every piece refuses when unsure), but no partner's
+stream could be cut, so no key should be issued. Disconnecting itself is
+tested at the rehearsal, with a real stream.
 
 ## 12. Future work
 

@@ -72,10 +72,30 @@ export const STREAM_PUBLISH_USER = "publisher";
  * its settings sent again.
  */
 export function streamPublishPassword(streamKey: string, version?: number): string {
+  if (version !== undefined) return partnerPublishPassword(streamKey, version);
   const secret = process.env.STREAM_PUBLISH_SECRET || process.env.NEXTAUTH_SECRET;
   if (!secret) throw new Error("STREAM_PUBLISH_SECRET or NEXTAUTH_SECRET must be set to sign stream publishes");
-  const subject = version === undefined ? `stream-publish:${streamKey}` : `stream-publish:${streamKey}:v${version}`;
-  return createHmac("sha256", secret).update(subject).digest("hex").slice(0, 40);
+  return createHmac("sha256", secret).update(`stream-publish:${streamKey}`).digest("hex").slice(0, 40);
+}
+
+/** Whether a partner's key can be signed and checked at all on this server. */
+export function isPartnerPublishSecretSet(): boolean {
+  return Boolean(process.env.STREAM_PUBLISH_SECRET);
+}
+
+/**
+ * A partner's password is signed with STREAM_PUBLISH_SECRET and NEVER with the
+ * sign-in secret (review of 15f219c0). The fallback Zoom's password has would
+ * be silent here: on a server whose .env lost the variable (a restore from an
+ * older backup) the console would show a different value from the one the
+ * partner was handed, and their stream would be refused as a bad password
+ * with nothing saying why. Throwing makes that loud: the publish check answers
+ * 503 with an error line, and the service says PUBLISH_SECRET_NOT_SET.
+ */
+function partnerPublishPassword(streamKey: string, version: number): string {
+  const secret = process.env.STREAM_PUBLISH_SECRET;
+  if (!secret) throw new Error("STREAM_PUBLISH_SECRET must be set to sign or check a partner's stream key");
+  return createHmac("sha256", secret).update(`stream-publish:${streamKey}:v${version}`).digest("hex").slice(0, 40);
 }
 
 /** What Zoom is told to push to after the RTMP address: key plus credentials. */

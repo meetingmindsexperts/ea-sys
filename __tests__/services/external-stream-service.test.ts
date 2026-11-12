@@ -5,7 +5,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockDb, mockLogger } = vi.hoisted(() => ({
+const { mockDb, mockLogger, control } = vi.hoisted(() => ({
+  control: { isMediamtxControlConfigured: vi.fn(), disconnectPublishers: vi.fn() },
   mockDb: {
     eventSession: { findFirst: vi.fn() },
     externalStream: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
@@ -16,14 +17,17 @@ const { mockDb, mockLogger } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
+vi.mock("@/lib/webinar/mediamtx-control", () => control);
 
 process.env.STREAM_PUBLISH_SECRET = "test-stream-publish-secret";
 process.env.RTMP_INGEST_URL = "rtmp://box:1935/live/";
 
 import {
+  cutExternalStream,
   getExternalStream,
   issueExternalStream,
   replaceExternalStreamKey,
+  revealExternalStreamCredentials,
   setExternalStreamEnabled,
   updateExternalStreamDetails,
 } from "@/services/external-stream-service";
@@ -59,7 +63,11 @@ beforeEach(() => {
   mockDb.externalStream.findFirst.mockResolvedValue(row());
   mockDb.externalStream.updateMany.mockResolvedValue({ count: 1 });
   mockDb.auditLog.create.mockResolvedValue({});
+  control.isMediamtxControlConfigured.mockReturnValue(true);
+  control.disconnectPublishers.mockResolvedValue({ ok: true, disconnected: 0 });
 });
+
+const actions = () => mockDb.auditLog.create.mock.calls.map((c) => c[0].data.action);
 
 describe("externalPublishDecision", () => {
   const state = (extra: Record<string, unknown> = {}) => ({
@@ -150,7 +158,10 @@ describe("issueExternalStream", () => {
     if (!res.ok) return;
     expect(res.externalStream.validUntil).toEqual(new Date(SESSION_END.getTime() + 24 * 3600_000));
     expect(res.externalStream.validUntilIsOwn).toBe(false);
-    expect(res.externalStream.credentials.streamKey).toContain("?user=publisher&pass=");
+    // The answer carries the stream's state, never its key or password (review of 15f219c0).
+    expect(res.externalStream).not.toHaveProperty("credentials");
+    expect(JSON.stringify(res)).not.toContain(data.streamKey);
+    expect(JSON.stringify(res)).not.toContain("pass=");
     // The session is bound to the event.
     expect(mockDb.eventSession.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "s1", eventId: "ev1" } }));
   });
@@ -171,6 +182,18 @@ describe("issueExternalStream", () => {
     expect(res).toMatchObject({ ok: false, code: "PUBLISH_SECRET_NOT_SET" });
     expect(mockDb.externalStream.create).not.toHaveBeenCalled();
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ code: "PUBLISH_SECRET_NOT_SET" }), "external-stream:issue-refused");
+  });
+
+  it("refuses while a running stream could not be cut: the stream server's control address is not set up", async () => {
+    control.isMediamtxControlConfigured.mockReturnValue(false);
+    expect(await issueExternalStream({ ...caller, now: NOW })).toMatchObject({ ok: false, code: "CONTROL_API_NOT_SET" });
+    expect(mockDb.externalStream.create).not.toHaveBeenCalled();
+  });
+
+  it("the secret's refusal warns that setting it changes every Zoom custom stream's password too", async () => {
+    delete process.env.STREAM_PUBLISH_SECRET;
+    const res = await issueExternalStream({ ...caller, now: NOW });
+    expect(res.ok === false && res.message).toContain("Re-send stream settings to Zoom");
   });
 
   it("refuses a session that has our Zoom webinar: one source or the other", async () => {
@@ -209,10 +232,8 @@ describe("replaceExternalStreamKey", () => {
       where: { id: "x1", eventId: "ev1" },
       data: { secretVersion: { increment: 1 } },
     });
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.externalStream.credentials.streamKey).toBe(`${KEY}?user=publisher&pass=${streamPublishPassword(KEY, 2)}`);
-    expect(res.externalStream.credentials.streamKey).not.toContain(streamPublishPassword(KEY, 1));
+    expect(res).toMatchObject({ ok: true, externalStream: { secretVersion: 2 } });
+    expect(JSON.stringify(res)).not.toContain(KEY);
     expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({
       action: "EXTERNAL_STREAM_KEY_REPLACED",
       changes: expect.objectContaining({ fromVersion: 1, toVersion: 2 }),
@@ -258,11 +279,116 @@ describe("setExternalStreamEnabled and updateExternalStreamDetails", () => {
   });
 });
 
+describe("revealExternalStreamCredentials (the only place the key leaves the service)", () => {
+  it("returns the two values the partner types in, for the key's current version, and audits who looked", async () => {
+    mockDb.externalStream.findFirst.mockResolvedValue({ id: "x1", streamKey: KEY, secretVersion: 3 });
+    const res = await revealExternalStreamCredentials(caller);
+    expect(res).toEqual({
+      ok: true,
+      credentials: { serverUrl: "rtmp://box:1935/live/", streamKey: `${KEY}?user=publisher&pass=${streamPublishPassword(KEY, 3)}` },
+    });
+    expect(mockDb.externalStream.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { sessionId: "s1", eventId: "ev1" } }));
+    const audit = mockDb.auditLog.create.mock.calls[0][0].data;
+    expect(audit).toMatchObject({ action: "EXTERNAL_STREAM_KEY_SHOWN", userId: "u1", entityId: "x1" });
+    expect(JSON.stringify(audit)).not.toContain(KEY);
+    expect(JSON.stringify(mockLogger.info.mock.calls)).not.toContain(KEY);
+  });
+
+  it("refuses when nothing was issued, and when the dedicated secret is missing: never a value signed with the sign-in secret", async () => {
+    mockDb.externalStream.findFirst.mockResolvedValue(null);
+    expect(await revealExternalStreamCredentials(caller)).toMatchObject({ ok: false, code: "NOT_ISSUED" });
+    mockDb.externalStream.findFirst.mockResolvedValue({ id: "x1", streamKey: KEY, secretVersion: 3 });
+    delete process.env.STREAM_PUBLISH_SECRET;
+    process.env.NEXTAUTH_SECRET = "the-sign-in-secret";
+    expect(await revealExternalStreamCredentials(caller)).toMatchObject({ ok: false, code: "PUBLISH_SECRET_NOT_SET" });
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("no other function returns the key: issue, replace, switch, update and get answers never contain it", async () => {
+    mockDb.externalStream.findFirst.mockResolvedValue(row());
+    const answers = [
+      await replaceExternalStreamKey(caller),
+      await setExternalStreamEnabled({ ...caller, enabled: false }),
+      await setExternalStreamEnabled({ ...caller, enabled: true }),
+      await updateExternalStreamDetails({ ...caller, issuedTo: "x" }),
+      await cutExternalStream(caller),
+      await getExternalStream(caller),
+    ];
+    expect(JSON.stringify(answers)).not.toContain(KEY);
+    expect(JSON.stringify(answers)).not.toContain("pass=");
+  });
+});
+
+describe("a partner's password is never signed with the sign-in secret", () => {
+  it("streamPublishPassword with a version throws without STREAM_PUBLISH_SECRET; Zoom's (no version) keeps its fallback", () => {
+    delete process.env.STREAM_PUBLISH_SECRET;
+    process.env.NEXTAUTH_SECRET = "the-sign-in-secret";
+    expect(() => streamPublishPassword(KEY, 1)).toThrow(/STREAM_PUBLISH_SECRET/);
+    expect(streamPublishPassword(KEY)).toMatch(/^[a-f0-9]{40}$/);
+    process.env.STREAM_PUBLISH_SECRET = "test-stream-publish-secret";
+  });
+});
+
+describe("ending the running stream (cut the feed)", () => {
+  it("replacing disconnects whoever is publishing, AFTER the new version is saved, so a reconnect is refused", async () => {
+    const order: string[] = [];
+    mockDb.externalStream.findFirst
+      .mockResolvedValueOnce({ id: "x1", secretVersion: 1 })
+      .mockResolvedValueOnce(row({ secretVersion: 2 }));
+    mockDb.externalStream.updateMany.mockImplementation(async () => { order.push("saved"); return { count: 1 }; });
+    control.disconnectPublishers.mockImplementation(async () => { order.push("disconnected"); return { ok: true, disconnected: 1 }; });
+    const res = await replaceExternalStreamKey(caller);
+    expect(order).toEqual(["saved", "disconnected"]);
+    expect(control.disconnectPublishers).toHaveBeenCalledWith(KEY);
+    expect(res).toMatchObject({ ok: true, disconnect: { ok: true, disconnected: 1 } });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ disconnected: 1 });
+  });
+
+  it("switching off disconnects, after the switch is saved; switching on does not", async () => {
+    const order: string[] = [];
+    mockDb.externalStream.updateMany.mockImplementation(async () => { order.push("saved"); return { count: 1 }; });
+    control.disconnectPublishers.mockImplementation(async () => { order.push("disconnected"); return { ok: true, disconnected: 1 }; });
+    mockDb.externalStream.findFirst.mockResolvedValue(row({ enabled: false }));
+    expect(await setExternalStreamEnabled({ ...caller, enabled: false })).toMatchObject({ ok: true, disconnect: { ok: true, disconnected: 1 } });
+    expect(order).toEqual(["saved", "disconnected"]);
+    control.disconnectPublishers.mockClear();
+    const on = await setExternalStreamEnabled({ ...caller, enabled: true });
+    expect(control.disconnectPublishers).not.toHaveBeenCalled();
+    expect(on.ok && on.disconnect).toBeUndefined();
+  });
+
+  it("cut the feed is switching off: the key is off and the stream is disconnected", async () => {
+    mockDb.externalStream.findFirst.mockResolvedValue(row({ enabled: false }));
+    const res = await cutExternalStream(caller);
+    expect(mockDb.externalStream.updateMany).toHaveBeenCalledWith({ where: { sessionId: "s1", eventId: "ev1" }, data: { enabled: false } });
+    expect(control.disconnectPublishers).toHaveBeenCalledWith(KEY);
+    expect(res).toMatchObject({ ok: true, externalStream: { enabled: false } });
+    expect(actions()).toEqual(["EXTERNAL_STREAM_SWITCHED_OFF"]);
+  });
+
+  it("a disconnect that fails is returned for the producer to see, logged and audited; the key is still off", async () => {
+    control.disconnectPublishers.mockResolvedValue({ ok: false, code: "UNREACHABLE", message: "The stream server did not answer." });
+    mockDb.externalStream.findFirst.mockResolvedValue(row({ enabled: false }));
+    const res = await cutExternalStream(caller);
+    expect(res).toMatchObject({ ok: true, externalStream: { enabled: false }, disconnect: { ok: false, code: "UNREACHABLE" } });
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ code: "UNREACHABLE", op: "switch-off" }), "external-stream:disconnect-failed");
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ disconnectFailed: "UNREACHABLE" });
+  });
+
+  it("nothing to switch: nothing is disconnected", async () => {
+    mockDb.externalStream.updateMany.mockResolvedValue({ count: 0 });
+    expect(await cutExternalStream(caller)).toMatchObject({ ok: false, code: "NOT_ISSUED" });
+    expect(control.disconnectPublishers).not.toHaveBeenCalled();
+  });
+});
+
 describe("getExternalStream", () => {
   it("is bound to the event, and null when none was issued", async () => {
-    expect((await getExternalStream("ev1", "s1"))?.id).toBe("x1");
+    const view = await getExternalStream({ eventId: "ev1", sessionId: "s1" });
+    expect(view?.id).toBe("x1");
+    expect(JSON.stringify(view)).not.toContain(KEY);
     expect(mockDb.externalStream.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { sessionId: "s1", eventId: "ev1" } }));
     mockDb.externalStream.findFirst.mockResolvedValue(null);
-    expect(await getExternalStream("ev1", "s1")).toBeNull();
+    expect(await getExternalStream({ eventId: "ev1", sessionId: "s1" })).toBeNull();
   });
 });

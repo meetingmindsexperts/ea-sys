@@ -22,6 +22,9 @@ services:
       - PORT=3000
       - EA_SYS_SLOT=blue
       - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
+      # MediaMTX's control API, on the container network only (never published): who is
+      # publishing, and disconnecting a partner's stream. Needs MEDIAMTX_API_SECRET in .env.
+      - MEDIAMTX_API_URL=http://ea-sys-mediamtx:9997
     ports:
       - "3000:3000"
     # Steady state is ~230 MB. The cap exists to stop a runaway from taking the
@@ -82,6 +85,9 @@ services:
       - PORT=3000
       - EA_SYS_SLOT=green
       - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
+      # MediaMTX's control API, on the container network only (never published): who is
+      # publishing, and disconnecting a partner's stream. Needs MEDIAMTX_API_SECRET in .env.
+      - MEDIAMTX_API_URL=http://ea-sys-mediamtx:9997
     ports:
       - "3001:3000"
     # Steady state is ~230 MB. The cap exists to stop a runaway from taking the
@@ -161,6 +167,9 @@ services:
       # stream from here. Without it the probe falls back to the worker's own
       # localhost and always says "not streaming" (Nov 5, 2026).
       - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
+      # MediaMTX's control API, on the container network only (never published): who is
+      # publishing, and disconnecting a partner's stream. Needs MEDIAMTX_API_SECRET in .env.
+      - MEDIAMTX_API_URL=http://ea-sys-mediamtx:9997
       # ── The worker MUST use a SESSION-mode connection, not the pooler ──────
       # Every job is wrapped in a Postgres advisory lock so a job can never run
       # twice concurrently. Advisory locks are SESSION-scoped: the same backend
@@ -244,6 +253,9 @@ services:
       # reaches it by container name, so nothing outside the box needs it
       # (Nov 5, 2026 security review). WebRTC (8889) is off in mediamtx.yml.
       - "127.0.0.1:8888:8888"
+      # 9997, the control API, is deliberately NOT here: the app and the worker reach it
+      # by container name (MEDIAMTX_API_URL). Published, it would let anyone who can reach
+      # the box try the API's password against our webhook (Nov 12, 2026).
     # Idles at ~11 MB; a live stream is the only thing that moves it. Capped so a
     # misbehaving ingest can't compete with the app for host memory.
     mem_limit: 512m

@@ -36,6 +36,19 @@ authHTTPExclude:
   - action: read
   - action: playback
 
+# Control API (Nov 12, 2026): lets the app see who is publishing and disconnect
+# a publisher, which is the only way to end a PARTNER's stream (their platform
+# is not ours to tell to stop; src/lib/webinar/mediamtx-control.ts). Reached
+# only inside the box's container network: docker-compose.prod.yml never
+# publishes 9997. It has no password of its own. `api` is deliberately NOT in
+# authHTTPExclude above, so every API call is put to the app's webhook like a
+# publish is, and the webhook allows it only with MEDIAMTX_API_SECRET. Do not
+# add `action: api` to that list: the API can also rewrite this server's
+# configuration, and it would then answer anyone who can reach the port.
+# Takes effect at the next MediaMTX recreate (docs/LIVE_STREAMING.md, 11b).
+api: yes
+apiAddress: :9997
+
 # HLS settings — mpegts variant (fmp4 has known 404 issues)
 hlsVariant: mpegts
 hlsSegmentCount: 7

@@ -8,6 +8,7 @@
  * when a room needs a second look, inside the minute and the shutdown drain.
  */
 import { runStreamWatchdogTick } from "@/lib/webinar/stream-watchdog";
+import { sweepExternalPublishers } from "@/lib/webinar/external-stream-sweep";
 import { apiLogger } from "@/lib/logger";
 import { withJobLock } from "../lib/job-lease";
 import { JOB_IDS } from "../lib/job-ids";
@@ -25,6 +26,15 @@ export async function tick(): Promise<void> {
       }
     } catch (err) {
       apiLogger.error({ err, msg: "worker:tick-uncaught", job: JOB_NAME });
+    }
+    // A partner's stream still running on a key that is switched off or past its
+    // period is disconnected here (external-stream-sweep.ts). Its own try: a
+    // failure of either half never stops the other.
+    try {
+      const swept = await sweepExternalPublishers();
+      if (swept.disconnected > 0) apiLogger.info({ ...swept, job: JOB_NAME }, "webinar-stream-watchdog:external-sweep");
+    } catch (err) {
+      apiLogger.error({ err, msg: "worker:tick-uncaught", job: JOB_NAME, part: "external-sweep" });
     }
   });
 }

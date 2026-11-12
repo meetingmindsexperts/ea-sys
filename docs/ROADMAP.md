@@ -38,9 +38,42 @@ status of a registration whose code was entered after registering stays UNPAID (
   balance in the email, after checking what checkout charges a part-payer.
 - A bulk send from the dialog is queued before anyone is counted, so a send with nobody
   to send to (every recipient owes nothing, or a filter that matches no one) answers
-  "Email queued" and fails a minute later under Scheduled Emails. Refusing at the
-  route would need the audience worked out twice; the count in the dialog is the guard
-  today.
+  "Email queued" and a minute later shows under Scheduled Emails as sent to 0. The
+  dialog shows the count but does not stop a registrations send at 0.
+
+**From the review of `2ee430e4` (0 BLOCKER, 0 HIGH, 3 MED, 7 LOW).**
+- MED, recorded and not fixed: **a payment recorded by mistake still counts.** The
+  balance counts every Payment row with status PAID, and there is no way to void one. A
+  payment recorded on the wrong registration (or a bounced cheque) whose status is then
+  set back to Unpaid by hand reads as paid: the list shows it paid, and since Nov 12
+  the reminder leaves that person out, where before it chased them by status. Kept,
+  because the reminder now agrees with what the page shows; the fix is voiding a
+  payment, not a second definition of "owes". The left-out log names the registrations.
+- LOW, listed only: a reader without the money permission sees the reminder count by
+  status while the server sends by balance; someone 0.01 short is still chased;
+  a cancelled registration's single-send refusal gives the "already paid" reason; the
+  payments are loaded for every registrations bulk send, not only reminders; nothing
+  pins that the two page counts pass the balance.
+
+**Older, found by that review: payment emails that still reach someone who owes
+nothing. The first two are HIGH and waiting on the owner.**
+- HIGH: **the Chase Unpaid tile** (Communications) opens a CUSTOM email to Confirmed +
+  Unpaid, so no reminder rule applies: a registration covered by a code, and an unpaid
+  group member, are in its count and its send. The agent's `send_bulk_email` is always
+  Custom too, and its own description names it for the unpaid chase.
+- HIGH: **resending a Registration Confirmation** from a registration's sheet, or by the
+  registrant from their portal, passes the price with no balance or status check: a
+  paid, complimentary, sponsor-paid or group-covered registration gets "Payment
+  Pending", Pay Now and the quote. The bulk resend checks; these two do not.
+- MED: a VIRTUAL registration's confirmation carries the full price whatever its payment
+  status or code (`registration-service.ts`); the completion form's confirmation does
+  the same for an explicit Paid or sponsor-paid status.
+- MED: the agent's `list_unpaid_registrations` lists by status, zero balances included.
+- LOW: a send with email type "template" and the slug `payment-reminder` (API or a
+  scheduled row; the dialog does not offer it) fills the amount and skips every audience
+  rule. The bulk confirmation's payment box ignores part payments. A registration
+  charged to another account is still reminded personally (needs the owner's ruling). A
+  retry whose remaining audience now owes nothing is recorded as sent to 0.
 
 **Decision waiting on the owner: an event with BOTH an ordinary "Faculty" type and the
 built-in one.** An ordinary type named exactly "Faculty" becomes the built-in type by
@@ -204,6 +237,14 @@ the server-side waiting room, export headers, presence archive); see CHANGELOG, 
    (review of 12c4c8b8).
    Move the lookup to the operator lane (`dbOperator`, allowlisted in `check-tenant-als.sh`) and
    check the meeting's organisation. A precondition for streaming on platform, not for master.
+2a. **The publish check's rate limit is one bucket for all of MediaMTX** (review of 15f219c0,
+   Nov 12, 2026; not new). Every question arrives from MediaMTX's one address, so the 600 a
+   minute in `mediamtx-auth/route.ts` is shared by every publisher. About ten bogus RTMP publish
+   attempts a second against the open port 1935 use it up, and a real reconnect (Zoom's, or a
+   partner's) is then answered 429 and refused; each attempt also writes a warn line. Fix: count
+   by the publisher's address MediaMTX reports, but only when the caller is MediaMTX itself (a
+   shared secret on the webhook call, or a caller-address check), since a direct caller could
+   otherwise pick its own bucket. Worth doing before the first partner webinar.
 3. **Shareable HLS URLs (review W-04).** `/stream/live/{key}/index.m3u8` plays for anyone holding
    it while the stream is live. Plan: a short-lived signed HttpOnly cookie scoped to `/stream/`,
    set by zoom-join and renewed by the presence heartbeat, checked by nginx `secure_link` (no app

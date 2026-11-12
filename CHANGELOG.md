@@ -10,12 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Owner: "if someone is 0 or owes nothing, dont send any payment related emails". On the 4th GCC Hematology Hub five nurses entered a 100% code after registering (payment status UNPAID, nothing due), and a payment reminder would have asked them for 0.00.
 
-- **A payment reminder leaves out anyone whose balance is zero, whatever the payment status says**: a code that covers the whole fee, a free type or rate, a paid or refunded registration, one paid in full by parts. This holds for the bulk send, a scheduled one, the agent's `send_bulk_email` and the single send from a registration. Before, only complimentary, sponsor-paid, cancelled, group and typeless registrations were left out; a paid one was kept out only by the organiser's own filter. On the local copy of GCC Hub the reminder's audience went from 43 to 16
-- **One rule, one figure**: `excludedAsNoBalance` (bulk-email-audience.ts) now takes the balance, read from `computeRegistrationRowMoney`, the helper behind the list's Paid / Due column and the CSV. The dialog's recipient count asks the same question of the same figure, so the count and the send agree
+- **A payment reminder leaves out anyone whose balance is zero, whatever the payment status says**: a code that covers the whole fee, a free type or rate, a paid or refunded registration, one paid in full by parts. This holds for the bulk send, a scheduled one and the single send from a registration, wherever the email type is Payment Reminder. Before, only complimentary, sponsor-paid, cancelled, group and typeless registrations were left out; a paid one was kept out only by the organiser's own filter. On the local copy of GCC Hub the reminder's audience went from 43 to 16
+- **One rule, one figure**: `excludedAsNoBalance` (bulk-email-audience.ts) now takes the balance, read from `computeRegistrationRowMoney`, the helper behind the list's Paid / Due column and the CSV. The dialog's recipient count asks the same question of the same figure, so the count and the send agree for anyone who can see money (a reader without that permission is shown the count by status, and the server still decides the send)
 - **The single send says why**: `NO_BALANCE_DUE`, "This registration owes nothing: it is already paid, or a promo code or a free rate covers the fee"
 - **The confirmation email's payment box is left out when a code covers the whole fee** (`buildRegistrationPaymentBlock`): it showed "Total 0.00" beside Pay Now
-- A send whose whole audience owes nothing is refused ("No recipients"). From the dialog it is queued first, so it shows as failed under Scheduled Emails
+- A send whose whole audience owes nothing mails nobody. From the dialog it is queued first, so it shows under Scheduled Emails as sent to 0
 - Not changed: the reminder still prints the full fee to someone who has paid part (ROADMAP)
+- Review of `2ee430e4` (0 BLOCKER, 0 HIGH, 3 MED, 7 LOW): the confirmation no longer attaches a quote for 0.00 when a code covers the whole fee; the log names who was left out of a reminder, not only how many; the texts above no longer claim the agent's send or a "failed" row. Recorded in ROADMAP: a payment recorded by mistake and its status set back to Unpaid by hand reads as paid, so that person is not reminded
+- **Not covered, older, and reported to the owner (ROADMAP)**: the Communications page's Chase Unpaid tile and the agent's unpaid chase send a Custom email by payment status, so the rule above does not reach them; resending a Registration Confirmation from a registration shows "Payment Pending" to someone who has paid
 
 ### Registrations page: the summary card adds up and says what it is made of (November 12)
 
@@ -46,7 +48,18 @@ Still nothing in the console: this is the rule and the operations the console wi
 - **Replace the key** adds one to its version: the value the partner holds stops working at their next connection, and the address attendees watch on does not change. Our own Zoom's password is untouched, so no Zoom webinar needs its settings sent again
 - **`src/services/external-stream-service.ts`**: issue, replace, switch on or off, change who it was given to or its end date, each written to the audit log without the key or its password. Issuing is refused on a session that has our Zoom webinar (one source or the other), and **until `STREAM_PUBLISH_SECRET` is set on the server**: a key signed with the sign-in secret would die silently when that is rotated
 - What a partner is handed is the same two values Zoom's custom live streaming takes: the server address and `key?user=publisher&pass=...`
-- Not yet: replacing or switching off does not end a connection that is already running (MediaMTX asks only when a stream starts). That is "cut the feed", the next step, and no key can be issued from the console before it
+- The key and its password leave the service through one function only (`revealExternalStreamCredentials`), which writes who looked to the audit log; issuing, replacing and switching answer with the stream's state. A partner's password is signed with `STREAM_PUBLISH_SECRET` and never with the sign-in secret, also when checking and showing it (review of `15f219c0`)
+
+### External streams, step 3: cut the feed (November 12)
+
+Built, and inert until the owner's six steps in `docs/LIVE_STREAMING.md` §11b are done. Still nothing in the console.
+
+- **Why**: the stream server asks for the password only when a stream starts, so a partner's encoder that is already connected keeps streaming after its key is replaced, switched off or expires. Our own Zoom we can tell to stop; a partner's platform we cannot
+- **MediaMTX's control API is switched on in `mediamtx.yml`** and used for two things: listing who is publishing and disconnecting a publisher (`src/lib/webinar/mediamtx-control.ts`). Its port is never published on the box, and every call to it is put to our own webhook, which allows it only with `MEDIAMTX_API_SECRET`
+- **Replace the key, switch off and cut the feed** save the change first, then disconnect whoever is publishing on the key; a disconnect that fails is returned to the caller, logged and audited
+- **Once a minute** the worker disconnects any partner's stream still running on a key that is switched off or past its period. It never touches a stream whose key it cannot find, and never our own Zoom's
+- **A partner's key cannot be issued until this is set up**: the service refuses with the reason (`CONTROL_API_NOT_SET`, `PUBLISH_SECRET_NOT_SET`)
+- Not run against a live stream server yet: the client was written from MediaMTX 1.17.1's published API description, so every part refuses when it is unsure, and §11b step 6 is the first real test
 
 ### Speaker emails: a moderator who also speaks in their own session (November 11)
 

@@ -50,3 +50,29 @@ describe("MediaMTX listens only for RTMP in and HLS out", () => {
     expect(ports.sort()).toEqual(["127.0.0.1:8888:8888", "1935:1935"]);
   });
 });
+
+describe("MediaMTX's control API (Nov 12, 2026: disconnecting a partner's stream)", () => {
+  it("is on, and its questions go to the app's webhook: `api` is NOT excluded from the HTTP check", () => {
+    expect(setting("api")).toBe("yes");
+    expect(setting("apiAddress")).toBe(":9997");
+    const exclude = yml.slice(yml.indexOf("authHTTPExclude:")).split(/\n(?=\S)/)[0];
+    expect(exclude).not.toMatch(/action:\s*api/);
+    expect(read("src/app/api/webhooks/mediamtx-auth/route.ts")).toContain("isValidControlCaller");
+  });
+
+  it("is never published on the box: only the containers reach it", () => {
+    expect(ports.some((p) => p.includes("9997"))).toBe(false);
+    expect(mediamtxBlock.slice(0, mediamtxBlock.indexOf("mem_limit:"))).not.toMatch(/^\s*-\s*"[^"]*9997/m);
+  });
+
+  it("each container that calls it is given its address: both web slots and the worker", () => {
+    for (const service of ["ea-sys-blue", "ea-sys-green", "ea-sys-worker"]) {
+      const start = compose.indexOf(`\n  ${service}:`);
+      expect(start).toBeGreaterThan(-1);
+      const next = compose.slice(start + 1).search(/\n  [a-z][a-z-]*:\n/);
+      const block = compose.slice(start, start + 1 + next);
+      expect(block).toContain("- MEDIAMTX_API_URL=http://ea-sys-mediamtx:9997");
+      expect(block).toContain("env_file:");
+    }
+  });
+});

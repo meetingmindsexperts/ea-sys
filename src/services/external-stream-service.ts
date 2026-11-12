@@ -13,23 +13,39 @@
  *    and rotating that secret would then silently cancel every key a partner
  *    holds. Issuing is refused until the dedicated secret is set.
  *
+ *  - No key is issued until a running stream can be ended (MediaMTX's control
+ *    API, mediamtx-control.ts). MediaMTX asks for the password only when a
+ *    publish STARTS, so without that, replacing, switching off and the end of
+ *    the period would stop only the next connection.
+ *
  * Replacing the key adds one to secretVersion: the password the partner holds
  * stops matching, while the address attendees watch on (the stream key itself)
- * does not change. Neither replacing nor switching off ends a connection that
- * is already running: MediaMTX asks for the password only when a publish
- * starts. Ending it is "cut the feed" (step 3).
+ * does not change. Replacing, switching off and cutting the feed each also
+ * disconnect whoever is publishing on the key at that moment. The database
+ * write comes FIRST, so an encoder that reconnects at once is refused; when the
+ * disconnect itself fails the result says so (`disconnect`), the caller tells
+ * the producer, and the minute sweep tries again (external-stream-sweep.ts).
  *
- * Errors are values; never imports next/server. The caller has already
- * authorised the event (webinar.manage) and decides who may SEE the key
- * (zoomHost.view); this file returns it only from the functions that say so.
+ * WHO SEES THE KEY. Nothing here returns the key or its password except
+ * revealExternalStreamCredentials, which writes who looked to the audit log.
+ * Issuing, replacing and switching return the stream's state only (review of
+ * 15f219c0: they all returned the credentials, so a route for someone who may
+ * run the webinar but not see host details had to remember to strip them).
+ * The route calls reveal only for a holder of `zoomHost.view`.
+ *
+ * Errors are values for every expected refusal; a database error throws, to
+ * the route's own catch. Never imports next/server. The caller has already
+ * authorised the event (webinar.manage).
  */
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { externalStreamCredentials } from "@/lib/webinar/external-stream";
-import { newStreamKey } from "@/lib/webinar/livestream";
+import { isPartnerPublishSecretSet, newStreamKey } from "@/lib/webinar/livestream";
+import { disconnectPublishers, isMediamtxControlConfigured, type DisconnectResult } from "@/lib/webinar/mediamtx-control";
 import { externalStreamValidUntil } from "@/lib/webinar/session-stream";
 
-export type ExternalStreamSource = "rest" | "mcp" | "agent" | "api";
+/** Staff in the dashboard only. A partner's key is never issued or shown to the agent or an API key. */
+export type ExternalStreamSource = "rest";
 
 interface Caller {
   organizationId: string;
@@ -45,9 +61,10 @@ export type ExternalStreamErrorCode =
   | "ALREADY_ISSUED"
   | "NOT_ISSUED"
   | "PUBLISH_SECRET_NOT_SET"
+  | "CONTROL_API_NOT_SET"
   | "INVALID_PERIOD";
 
-/** What staff see of a partner's stream. `credentials` are a HOST secret: the caller redacts by permission. */
+/** What staff see of a partner's stream. Never the key or its password: see revealExternalStreamCredentials. */
 export interface ExternalStreamView {
   id: string;
   sessionId: string;
@@ -60,11 +77,28 @@ export interface ExternalStreamView {
   validUntilIsOwn: boolean;
   issuedTo: string | null;
   lastPublishAt: Date | null;
-  credentials: { serverUrl: string; streamKey: string };
 }
 
+/** The two values the partner types into their platform. A HOST secret. */
+export interface ExternalStreamCredentials {
+  serverUrl: string;
+  streamKey: string;
+}
+
+export type ExternalStreamCredentialsResult =
+  | { ok: true; credentials: ExternalStreamCredentials }
+  | { ok: false; code: ExternalStreamErrorCode; message: string };
+
+const PUBLISH_SECRET_MESSAGE =
+  "A partner's stream key needs STREAM_PUBLISH_SECRET set on the server: without it the key would stop working whenever the sign-in secret is rotated. Setting it also changes the password of every Zoom custom stream, so afterwards press Re-send stream settings to Zoom on each upcoming one.";
+
 export type ExternalStreamResult =
-  | { ok: true; externalStream: ExternalStreamView }
+  | {
+      ok: true;
+      externalStream: ExternalStreamView;
+      /** Present when the operation also tried to end the running stream: whether that worked. */
+      disconnect?: DisconnectResult;
+    }
   | { ok: false; code: ExternalStreamErrorCode; message: string };
 
 const ISSUED_TO_MAX = 200;
@@ -106,11 +140,15 @@ function toView(row: Row): ExternalStreamView {
     validUntilIsOwn: row.validUntil !== null,
     issuedTo: row.issuedTo,
     lastPublishAt: row.lastPublishAt,
-    credentials: externalStreamCredentials(row),
   };
 }
 
-function refuse(caller: Caller, op: string, code: ExternalStreamErrorCode, message: string): ExternalStreamResult {
+function refuse(
+  caller: Caller,
+  op: string,
+  code: ExternalStreamErrorCode,
+  message: string,
+): { ok: false; code: ExternalStreamErrorCode; message: string } {
   apiLogger.warn({ eventId: caller.eventId, sessionId: caller.sessionId, userId: caller.userId, code }, `external-stream:${op}-refused`);
   return { ok: false, code, message };
 }
@@ -139,10 +177,47 @@ function cleanIssuedTo(raw: string | null | undefined): string | null {
   return text ? text : null;
 }
 
-/** The session's partner stream as staff see it, or null when none was issued. */
-export async function getExternalStream(eventId: string, sessionId: string): Promise<ExternalStreamView | null> {
-  const row = await db.externalStream.findFirst({ where: { sessionId, eventId }, select: ROW_SELECT });
+/**
+ * End whoever is publishing on the key now. Called AFTER the database says no
+ * (a new version, or switched off), so a reconnect is refused. Never throws: a
+ * failure is returned for the caller to show, and logged here.
+ */
+async function endRunningStream(caller: Caller, op: string, streamKey: string): Promise<DisconnectResult> {
+  const result = await disconnectPublishers(streamKey);
+  const base = { eventId: caller.eventId, sessionId: caller.sessionId, userId: caller.userId, op };
+  if (!result.ok) {
+    apiLogger.warn({ ...base, code: result.code }, "external-stream:disconnect-failed");
+    return result;
+  }
+  if (result.disconnected > 0) apiLogger.info({ ...base, disconnected: result.disconnected }, "external-stream:running-stream-ended");
+  return result;
+}
+
+function disconnectAudit(result: DisconnectResult): Record<string, unknown> {
+  return result.ok ? { disconnected: result.disconnected } : { disconnectFailed: result.code };
+}
+
+/** The session's partner stream as staff see it (never its key), or null when none was issued. */
+export async function getExternalStream(at: { eventId: string; sessionId: string }): Promise<ExternalStreamView | null> {
+  const row = await db.externalStream.findFirst({ where: { sessionId: at.sessionId, eventId: at.eventId }, select: ROW_SELECT });
   return row ? toView(row) : null;
+}
+
+/**
+ * Show the key: the server address and the stream key with its password, as
+ * the partner types them. The ONLY function that returns them, and each look
+ * is written to the audit log (who, when), never the values themselves.
+ */
+export async function revealExternalStreamCredentials(input: Caller): Promise<ExternalStreamCredentialsResult> {
+  if (!isPartnerPublishSecretSet()) return refuse(input, "reveal", "PUBLISH_SECRET_NOT_SET", PUBLISH_SECRET_MESSAGE);
+  const row = await db.externalStream.findFirst({
+    where: { sessionId: input.sessionId, eventId: input.eventId },
+    select: { id: true, streamKey: true, secretVersion: true },
+  });
+  if (!row) return refuse(input, "reveal", "NOT_ISSUED", "This session has no partner stream.");
+  apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "external-stream:key-shown");
+  await audit(input, "EXTERNAL_STREAM_KEY_SHOWN", row.id, { version: row.secretVersion });
+  return { ok: true, credentials: externalStreamCredentials(row) };
 }
 
 /**
@@ -153,12 +228,13 @@ export async function getExternalStream(eventId: string, sessionId: string): Pro
 export async function issueExternalStream(
   input: Caller & { issuedTo?: string | null; validUntil?: Date | null; now?: Date },
 ): Promise<ExternalStreamResult> {
-  if (!process.env.STREAM_PUBLISH_SECRET) {
+  if (!isPartnerPublishSecretSet()) return refuse(input, "issue", "PUBLISH_SECRET_NOT_SET", PUBLISH_SECRET_MESSAGE);
+  if (!isMediamtxControlConfigured()) {
     return refuse(
       input,
       "issue",
-      "PUBLISH_SECRET_NOT_SET",
-      "A partner's stream key cannot be issued yet: STREAM_PUBLISH_SECRET is not set on the server. Without it the key would stop working whenever the sign-in secret is rotated.",
+      "CONTROL_API_NOT_SET",
+      "A partner's stream key cannot be issued yet: the stream server's control address (MEDIAMTX_API_URL and MEDIAMTX_API_SECRET) is not set up, so a running stream could not be cut.",
     );
   }
   const now = input.now ?? new Date();
@@ -235,11 +311,20 @@ export async function replaceExternalStreamKey(input: Caller): Promise<ExternalS
     { eventId: input.eventId, sessionId: input.sessionId, userId: input.userId, version: row.secretVersion },
     "external-stream:key-replaced",
   );
-  await audit(input, "EXTERNAL_STREAM_KEY_REPLACED", row.id, { fromVersion: current.secretVersion, toVersion: row.secretVersion });
-  return { ok: true, externalStream: toView(row) };
+  // The old password is already refused; now end the stream still running on it.
+  const disconnect = await endRunningStream(input, "replace", row.streamKey);
+  await audit(input, "EXTERNAL_STREAM_KEY_REPLACED", row.id, {
+    fromVersion: current.secretVersion,
+    toVersion: row.secretVersion,
+    ...disconnectAudit(disconnect),
+  });
+  return { ok: true, externalStream: toView(row), disconnect };
 }
 
-/** Switch the key on or off. Off refuses every NEW publish; it does not end one already running. */
+/**
+ * Switch the key on or off. Off refuses every new publish and disconnects the
+ * one running: this is also "cut the feed" (cutExternalStream below).
+ */
 export async function setExternalStreamEnabled(input: Caller & { enabled: boolean }): Promise<ExternalStreamResult> {
   const updated = await db.externalStream.updateMany({
     where: { sessionId: input.sessionId, eventId: input.eventId },
@@ -254,8 +339,22 @@ export async function setExternalStreamEnabled(input: Caller & { enabled: boolea
     { eventId: input.eventId, sessionId: input.sessionId, userId: input.userId, enabled: input.enabled },
     "external-stream:switched",
   );
-  await audit(input, input.enabled ? "EXTERNAL_STREAM_SWITCHED_ON" : "EXTERNAL_STREAM_SWITCHED_OFF", row.id, {});
-  return { ok: true, externalStream: toView(row) };
+  if (input.enabled) {
+    await audit(input, "EXTERNAL_STREAM_SWITCHED_ON", row.id, {});
+    return { ok: true, externalStream: toView(row) };
+  }
+  const disconnect = await endRunningStream(input, "switch-off", row.streamKey);
+  await audit(input, "EXTERNAL_STREAM_SWITCHED_OFF", row.id, disconnectAudit(disconnect));
+  return { ok: true, externalStream: toView(row), disconnect };
+}
+
+/**
+ * Cut the feed: the partner's stream stops and cannot come back until the key
+ * is switched on again. The same operation as switching off, under the name
+ * the producer's button carries, so there is one rule for ending a stream.
+ */
+export function cutExternalStream(input: Caller): Promise<ExternalStreamResult> {
+  return setExternalStreamEnabled({ ...input, enabled: false });
 }
 
 /**

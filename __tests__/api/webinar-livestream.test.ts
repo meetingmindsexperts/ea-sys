@@ -294,6 +294,44 @@ describe("MediaMTX publish authorisation webhook", () => {
     expect((await call({ action: "publish", path: `live/${KEY}` })).status).toBe(403);
   });
 
+  it("a refused path is logged by its length only: a mangled key could carry the password", async () => {
+    const mangled = `live/${KEY}?user=publisher&pass=${streamPublishPassword(KEY)}`;
+    expect((await call({ action: "publish", path: mangled })).status).toBe(403);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ pathLength: mangled.length, underLive: true }),
+      "mediamtx-auth:publish-bad-path",
+    );
+    expect(JSON.stringify(mockLogger.warn.mock.calls)).not.toContain("pass=");
+  });
+
+  describe("the control API's question (action api)", () => {
+    const SECRET = "c".repeat(40);
+    beforeEach(() => {
+      process.env.MEDIAMTX_API_SECRET = SECRET;
+    });
+
+    it("is allowed only for our user with the secret, without touching the database", async () => {
+      expect((await call({ action: "api", user: "ea-sys", password: SECRET, ip: "172.18.0.5" })).status).toBe(200);
+      expect(mockDb.zoomMeeting.findFirst).not.toHaveBeenCalled();
+      expect(mockDb.externalStream.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("is refused and logged for anyone else: no credentials, a wrong secret, another user, or no secret set", async () => {
+      expect((await call({ action: "api" })).status).toBe(403);
+      expect((await call({ action: "api", user: "ea-sys", password: "wrong" })).status).toBe(403);
+      expect((await call({ action: "api", user: "admin", password: SECRET })).status).toBe(403);
+      delete process.env.MEDIAMTX_API_SECRET;
+      expect((await call({ action: "api", user: "ea-sys", password: SECRET })).status).toBe(403);
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.anything(), "mediamtx-auth:api-refused");
+      expect(JSON.stringify(mockLogger.warn.mock.calls)).not.toContain(SECRET);
+    });
+
+    it("metrics and pprof stay refused", async () => {
+      expect((await call({ action: "metrics", user: "ea-sys", password: SECRET })).status).toBe(403);
+      expect((await call({ action: "pprof", user: "ea-sys", password: SECRET })).status).toBe(403);
+    });
+  });
+
   it("refuses a publish on any other path without touching the database", async () => {
     expect((await call({ action: "publish", path: "live/anything-goes" })).status).toBe(403);
     expect((await call({ action: "publish", path: "other/x" })).status).toBe(403);

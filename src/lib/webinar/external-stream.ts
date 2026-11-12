@@ -43,6 +43,22 @@ export interface ExternalKeyState {
   sessionEndTime: Date;
 }
 
+/**
+ * Why this key may not be used at `now`, whatever password comes with it, or
+ * null when it may: switched off, or outside its period. Also asked by the
+ * sweep that disconnects a stream still running on a key that has since
+ * stopped being usable (external-stream-sweep.ts).
+ */
+export function externalKeyRefusal(
+  key: Pick<ExternalKeyState, "enabled" | "validFrom" | "validUntil" | "sessionEndTime">,
+  now: Date,
+): Exclude<ExternalPublishRefusal, "BAD_PASSWORD"> | null {
+  if (!key.enabled) return "SWITCHED_OFF";
+  if (now.getTime() < key.validFrom.getTime()) return "NOT_YET_VALID";
+  if (now.getTime() > externalStreamValidUntil(key).getTime()) return "EXPIRED";
+  return null;
+}
+
 /** Whether a publish presenting `password` on this key is let in at `now`, and if not, why. */
 export function externalPublishDecision(
   key: ExternalKeyState,
@@ -50,10 +66,8 @@ export function externalPublishDecision(
   now: Date,
 ): ExternalPublishDecision {
   if (!isValidPublishPassword(key.streamKey, password, key.secretVersion)) return { allowed: false, reason: "BAD_PASSWORD" };
-  if (!key.enabled) return { allowed: false, reason: "SWITCHED_OFF" };
-  if (now.getTime() < key.validFrom.getTime()) return { allowed: false, reason: "NOT_YET_VALID" };
-  if (now.getTime() > externalStreamValidUntil(key).getTime()) return { allowed: false, reason: "EXPIRED" };
-  return { allowed: true };
+  const refusal = externalKeyRefusal(key, now);
+  return refusal ? { allowed: false, reason: refusal } : { allowed: true };
 }
 
 /**

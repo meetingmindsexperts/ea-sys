@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { externalPublishDecision } from "@/lib/webinar/external-stream";
 import { isValidPublishPassword } from "@/lib/webinar/livestream";
+import { isValidControlCaller } from "@/lib/webinar/mediamtx-control";
 import { streamKeyOwner, type StreamKeyOwner } from "@/lib/webinar/session-stream";
 
 /**
@@ -26,6 +27,9 @@ import { streamKeyOwner, type StreamKeyOwner } from "@/lib/webinar/session-strea
  *
  * Inert until MediaMTX is restarted with the auth settings: see
  * docs/LIVE_STREAMING.md, "Publish authorisation".
+ *
+ * The same question is asked for MediaMTX's control API (action "api", Nov 12,
+ * 2026): allowed only with MEDIAMTX_API_SECRET, refused otherwise.
  *
  * Fails CLOSED for publish: no match, a malformed body or a database error
  * all refuse. On the platform instance, RLS hides other tenants' rows from
@@ -93,6 +97,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // MediaMTX's control API (who is publishing, disconnect a publisher) has no
+  // password of its own: it asks here, like a publish. Only our own callers,
+  // which send MEDIAMTX_API_SECRET, are let in (mediamtx-control.ts). This
+  // route is a public address, so a wrong or missing secret is the common case.
+  if (parsed.action === "api") {
+    if (isValidControlCaller(parsed.user, parsed.password)) return NextResponse.json({ ok: true });
+    apiLogger.warn({ ip, callerIp: parsed.ip }, "mediamtx-auth:api-refused");
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   if (parsed.action !== "publish") {
     apiLogger.warn({ ip, action: parsed.action, path: parsed.path }, "mediamtx-auth:action-refused");
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -100,7 +114,12 @@ export async function POST(req: Request) {
 
   const match = STREAM_KEY.exec(parsed.path);
   if (!match) {
-    apiLogger.warn({ ip, path: parsed.path, publisherIp: parsed.ip }, "mediamtx-auth:publish-bad-path");
+    // Never the path itself: an encoder that mangles `key?user=..&pass=..` could
+    // put the password in it, and it would then sit in the log still valid.
+    apiLogger.warn(
+      { ip, pathLength: parsed.path.length, underLive: parsed.path.startsWith("live/"), publisherIp: parsed.ip },
+      "mediamtx-auth:publish-bad-path",
+    );
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
