@@ -109,6 +109,19 @@ the built-in one.** Two sides of one question.
   described above. Left: nobody registers on an ended event, and deleting or renaming
   the seven types is the owner's call (five of them hold registrations: 2, 3, 5, 2
   and 10).
+- Review of `01dced2b` (0 BLOCKER, 0 HIGH, 2 MED, 7 LOW). Fixed: the CSV import's
+  refusal told people to blank the cell (MED), the doors test only checked six named
+  files (MED), an older type stored as "Faculty " could not save, the Settings save
+  hid the reason, and three false sentences in the user guide. Left, with why:
+  - Cloning leaves an ordinary "Faculty" behind with an info log and no word to the
+    person. The seven that exist are free with no priced rate (read from production,
+    Nov 12), so nothing of value is dropped; a priced one cannot be created any more.
+  - The agent's refusal has no behavioural test, and `create_ticket_type("Faculty")`
+    on an event that has the type now returns the reserved error where it returned
+    `alreadyExists`. Left: the message tells the agent what to do instead.
+  - "Faculty (speakers)", the name the system falls back to beside an older ordinary
+    "Faculty", is not reserved. Older; needs a hand-made type of exactly that name on
+    one of the seven events.
 
 **MED, recorded, follows from an owner ruling: a faculty member's profession is no
 longer shown.** "Short Faculty everywhere" (owner, Nov 12) means the type column, the

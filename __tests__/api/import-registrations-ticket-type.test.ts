@@ -251,7 +251,9 @@ describe("CSV import — registration type resolution", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.created).toBe(0);
-    expect(body.errors[0]).toContain("reserved for speaker faculty");
+    expect(body.errors[0]).toContain("reserved for speakers and committee");
+    expect(body.errors[0]).toContain("Speakers page");
+    expect(body.errors[0]).not.toContain("leave the cell blank");
     expect(mockDb.registration.create).not.toHaveBeenCalled();
     // And it must NOT quietly mint a second type with the same name.
     expect(mockDb.ticketType.create).not.toHaveBeenCalled();
@@ -265,7 +267,9 @@ describe("CSV import — registration type resolution", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.created).toBe(0);
-    expect(body.errors[0]).toContain("reserved for speaker faculty");
+    expect(body.errors[0]).toContain("reserved for speakers and committee");
+    expect(body.errors[0]).toContain("Speakers page");
+    expect(body.errors[0]).not.toContain("leave the cell blank");
     expect(mockDb.ticketType.create).not.toHaveBeenCalled();
     expect(mockDb.registration.create).not.toHaveBeenCalled();
   });

@@ -462,9 +462,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           // "Faculty" on an event that has no such type yet (the import would
           // have made an ordinary type of that name). Refusing loudly beats
           // either miscategorising a delegate as faculty or minting a
-          // confusing second type with the same name.
+          // confusing second type with the same name. The message names
+          // where faculty ARE added: "leave the cell blank" sent them in as
+          // untyped delegates (review of 01dced2b).
           errors.push(
-            `Row ${rowNum}: registration type "${registrationType}" is reserved for speaker faculty — use a different name or leave the cell blank`,
+            `Row ${rowNum}: registration type "${registrationType}" is reserved for speakers and committee, and this import makes delegate registrations. Add faculty from the Speakers page (it has its own import), or with the Faculty choice in Add Registration. For a delegate, use another type`,
           );
           continue;
         } else {

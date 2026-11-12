@@ -351,6 +351,18 @@ describe("PUT /api/events/[eventId]/tickets/[ticketId]", () => {
     expect(mockDb.ticketType.update).not.toHaveBeenCalled();
   });
 
+  it.each([["Faculty ", "Faculty"], ["faculty", "Faculty"]])("an older ordinary type stored as %j still saves when the form sends %j", async (stored, sent) => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.ticketType.findFirst
+      .mockResolvedValueOnce({ ...sampleTicketType, name: stored, isFaculty: false })
+      .mockResolvedValueOnce(null);
+    mockDb.ticketType.update.mockResolvedValue({ ...sampleTicketType, name: sent, description: "x" });
+
+    const res = await UpdateTicket(makeRequest("PUT", { name: sent, description: "x" }), makeDetailParams("evt-1", "tt-1"));
+    expect(res.status).toBe(200);
+  });
+
   it("lets the built-in Faculty type take its own name back", async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });

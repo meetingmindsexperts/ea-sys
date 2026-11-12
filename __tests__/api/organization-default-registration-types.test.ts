@@ -52,6 +52,13 @@ describe("PUT /api/organization defaultRegistrationTypes", () => {
     expect(mockMerge).toHaveBeenCalledWith("org1", { defaultRegistrationTypes: [] });
   });
 
+  it("says in words why a list with the reserved name is refused", async () => {
+    const res = await put({ settings: { defaultRegistrationTypes: ["Delegate", "Faculty"] } });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("reserved name");
+    expect(mockMerge).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["a duplicate", ["Delegate", "delegate"]],
     ["the reserved name Faculty", ["Delegate", " faculty "]],

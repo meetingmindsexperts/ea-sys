@@ -6,8 +6,8 @@
  * delegate type called "Faculty" beside the system's own.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
 import { reservedTypeNameRefusal } from "@/lib/faculty-filter";
 import { defaultRegistrationTypesSchema, readDefaultRegistrationTypes } from "@/lib/default-registration-types";
 
@@ -47,5 +47,30 @@ describe("every door that creates or renames a registration type asks the rule",
   ];
   it.each(DOORS)("%s", (file) => {
     expect(readFileSync(join(process.cwd(), file), "utf8")).toContain("reservedTypeNameRefusal(");
+  });
+
+  // Files that make a type and are deliberately NOT doors, each with why.
+  const EXEMPT: Record<string, string> = {
+    "src/lib/speaker-companion.ts": "makes the built-in Faculty type itself",
+    "src/services/event-service.ts": "seeds from readDefaultRegistrationTypes, which drops the reserved name",
+  };
+
+  function sourceFiles(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) return sourceFiles(path);
+      return /\.tsx?$/.test(entry.name) ? [path] : [];
+    });
+  }
+
+  it("no other file under src/ or worker/ creates a registration type", () => {
+    const creators = ["src", "worker"]
+      .flatMap((root) => sourceFiles(join(process.cwd(), root)))
+      .filter((path) => /ticketType\.(create|createMany|upsert)\(/.test(readFileSync(path, "utf8")))
+      .map((path) => relative(process.cwd(), path).split("\\").join("/"))
+      .sort();
+    const known = [...DOORS.filter((d) => d !== "src/app/api/events/[eventId]/tickets/[ticketId]/route.ts" && d !== "src/lib/default-registration-types.ts"), ...Object.keys(EXEMPT)].sort();
+    // A new file here must ask reservedTypeNameRefusal and join DOORS, or be exempt with a reason.
+    expect(creators).toEqual(known);
   });
 });

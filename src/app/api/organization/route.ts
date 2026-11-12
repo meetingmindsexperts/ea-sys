@@ -134,8 +134,11 @@ export async function PUT(req: Request) {
 
     if (!validated.success) {
         apiLogger.warn({ msg: "organization:zod-validation-failed", errors: validated.error.flatten() });
+      // The starting list of registration types has rules a person must be
+      // told in words (a reserved name, a duplicate): say which one.
+      const listIssue = validated.error.issues.find((i) => i.path[0] === "settings" && i.path[1] === DEFAULT_REG_TYPES_SETTING);
       return NextResponse.json(
-        { error: "Invalid input", details: validated.error.flatten() },
+        { error: listIssue?.message ?? "Invalid input", details: validated.error.flatten() },
         { status: 400 }
       );
     }
