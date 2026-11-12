@@ -1,7 +1,7 @@
 "use client";
 
 import { templateUsesRsvpToken } from "@/lib/rsvp/button";
-import { bulkTemplateSlugFor } from "@/lib/bulk-email-audience";
+import { OWES_MONEY_FILTER, bulkTemplateSlugFor } from "@/lib/bulk-email-audience";
 import { bulkEmailTypeOptionsFor } from "@/lib/email-template-registry";
 
 import { Fragment, useState } from "react";
@@ -88,6 +88,8 @@ export interface BulkEmailEffectiveFilters {
   tags?: string[];
   /** Registrations recipient only — drop faculty companion registrations. */
   excludeFaculty?: boolean;
+  /** Registrations recipient only: "those who owe us", by the balance (never together with paymentStatus). */
+  owesMoney?: boolean;
   /** Registrations recipient only — who did / did not answer a survey (Phase 2). */
   surveyResponded?: SurveyRespondedFilter;
   /**
@@ -109,8 +111,12 @@ export interface BulkEmailEffectiveFilters {
 }
 
 /** Render a payment-filter value (single status, comma-list, or "all") as a label. */
+/** How the "those who owe us" choice reads in the picker and the summary. */
+const OWES_MONEY_LABEL = "Those who owe us (balance due)";
+
 function formatPaymentLabel(value: string): string {
   if (!value || value === "all") return "All payment statuses";
+  if (value === OWES_MONEY_FILTER) return OWES_MONEY_LABEL;
   return value
     .split(",")
     .map((s) => s.trim())
@@ -506,8 +512,11 @@ export function BulkEmailDialog({
     (localSurveyResponded ? 1 : 0);
   const effectiveFilters: BulkEmailEffectiveFilters = {
     status: statusFilter,
+    // "Those who owe us" rides in the payment picker but is not a payment
+    // status: it becomes owesMoney, and the status filter is left empty.
     paymentStatus:
-      isRegistrations && localPaymentFilter !== "all" ? localPaymentFilter : undefined,
+      isRegistrations && localPaymentFilter !== "all" && localPaymentFilter !== OWES_MONEY_FILTER ? localPaymentFilter : undefined,
+    owesMoney: isRegistrations && localPaymentFilter === OWES_MONEY_FILTER ? true : undefined,
     ticketTypeIds: isRegistrations && localTicketTypeIds.length ? localTicketTypeIds : undefined,
     badgeTypes: isRegistrations && localBadgeTypes.length ? localBadgeTypes : undefined,
     tags: isRegistrations && localTags.length ? localTags : undefined,
@@ -713,9 +722,10 @@ export function BulkEmailDialog({
         // W2-F4 — local Select drives the value; falls back to the prop
         // when the consumer pre-seeds it. Only meaningful for the
         // registrations recipient type.
-        ...(recipientType === "registrations" && localPaymentFilter && localPaymentFilter !== "all"
+        ...(recipientType === "registrations" && localPaymentFilter && localPaymentFilter !== "all" && localPaymentFilter !== OWES_MONEY_FILTER
           ? { paymentStatus: localPaymentFilter }
           : {}),
+        ...(recipientType === "registrations" && localPaymentFilter === OWES_MONEY_FILTER ? { owesMoney: true } : {}),
         // Registrations recipient only — ticket type / badge / tags, all
         // multi-select, driven by the in-dialog controls (seeded from the page).
         ...(recipientType === "registrations" && localTicketTypeIds.length > 0
@@ -1278,6 +1288,10 @@ export function BulkEmailDialog({
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All payment statuses</SelectItem>
+                        {/* By the balance, not the status (owner, Nov 12,
+                            2026): Unpaid alone includes a registration a promo
+                            code already covers. */}
+                        <SelectItem value={OWES_MONEY_FILTER}>{OWES_MONEY_LABEL}</SelectItem>
                         {/* Synthetic option for a multi-value filter (e.g. the
                             Welcome-Paid tile sends PAID,COMPLIMENTARY,INCLUSIVE).
                             Without it the trigger would render blank. */}
@@ -1294,8 +1308,9 @@ export function BulkEmailDialog({
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Send only to registrations with this payment status. Combines with the
-                      Status filter (e.g. CONFIRMED + UNPAID).
+                      {localPaymentFilter === OWES_MONEY_FILTER
+                        ? "Only people with a balance still to pay, after any promo code and payments. Leaves out complimentary and sponsor-paid registrations, anyone a code fully covers, group members (their company is invoiced) and cancelled registrations."
+                        : "Send only to registrations with this payment status. To chase payment, choose \"Those who owe us\": Unpaid alone includes people a promo code already covers."}
                     </p>
                   </div>
 

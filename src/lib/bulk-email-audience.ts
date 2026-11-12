@@ -52,11 +52,35 @@ export const CANCELLED_EXCLUDED_EMAIL_TYPES = [
  */
 export function excludesCancelledByDefault(
   emailType: string | undefined,
-  status: string | undefined
+  status: string | undefined,
+  owesMoney?: boolean,
 ): boolean {
+  const noStatusChosen = !status || status === "all";
+  // A cancelled registration owes nothing, so "those who owe us" never means it.
+  if (owesMoney === true) return noStatusChosen;
   if (!emailType) return false;
   if (!(CANCELLED_EXCLUDED_EMAIL_TYPES as readonly string[]).includes(emailType)) return false;
-  return !status || status === "all";
+  return noStatusChosen;
+}
+
+/**
+ * "Those who owe us" (owner, Nov 12, 2026): the recipient filter that goes by
+ * the BALANCE, not the payment status. The status alone cannot chase: a promo
+ * code entered after registering covers the fee and leaves the row Unpaid, and
+ * a free type is Unpaid at nothing. The Payment status picker carries this
+ * value on the client; it reaches the server as `filters.owesMoney: true`,
+ * never as a payment status.
+ */
+export const OWES_MONEY_FILTER = "__owes_money__";
+
+/**
+ * Does this send go only to people who still owe money? A payment reminder
+ * always does; any other send does when the organiser picks "those who owe
+ * us". One switch for the three rules below, so a Custom email to people who
+ * owe and a Payment Reminder reach exactly the same people.
+ */
+export function chasesBalance(emailType: string | undefined, owesMoney?: boolean): boolean {
+  return emailType === "payment-reminder" || owesMoney === true;
 }
 
 /**
@@ -71,9 +95,12 @@ export function excludesCancelledByDefault(
  * legitimate individual dunning of a group member; the payer is chased via
  * the group invoice.
  */
-export function excludesGroupMembers(emailType: string | undefined): boolean {
-  return emailType === "payment-reminder";
+export function excludesGroupMembers(emailType: string | undefined, owesMoney?: boolean): boolean {
+  return chasesBalance(emailType, owesMoney);
 }
+
+/** Statuses read as "nothing owed" when the balance itself cannot be known. */
+const SETTLED_WHEN_BALANCE_UNKNOWN: readonly string[] = ["PAID", "REFUNDED"];
 
 /** Payment statuses that owe nothing: the attendee is never asked to pay. */
 export const NO_BALANCE_PAYMENT_STATUSES: readonly string[] = ["COMPLIMENTARY", "INCLUSIVE"];
@@ -100,17 +127,25 @@ export const NO_BALANCE_PAYMENT_STATUSES: readonly string[] = ["COMPLIMENTARY", 
  * row the page shows as owing nothing. Required for the same reason as
  * `hasType`. Pass null ONLY where the balance cannot be known (a reader whose
  * rows have the money removed): the payment status and the type then decide
- * the count, and the server, which always knows, decides the send.
+ * the count (a Paid or Refunded row is read as owing nothing), and the
+ * server, which always knows, decides the send.
+ *
+ * `owesMoney` is the "those who owe us" recipient filter: with it the same
+ * rule applies to ANY email type (chasesBalance), which is what the Chase
+ * Unpaid tile needed: it sent a Custom email to Confirmed + Unpaid, code
+ * holders included.
  */
 export function excludedAsNoBalance(
   emailType: string | undefined,
   paymentStatus: string,
   hasType: boolean,
   amountDue: number | null,
+  owesMoney?: boolean,
 ): boolean {
-  if (emailType !== "payment-reminder") return false;
+  if (!chasesBalance(emailType, owesMoney)) return false;
   if (NO_BALANCE_PAYMENT_STATUSES.includes(paymentStatus) || !hasType) return true;
-  return amountDue !== null && !(amountDue > 0);
+  if (amountDue === null) return SETTLED_WHEN_BALANCE_UNKNOWN.includes(paymentStatus);
+  return !(amountDue > 0);
 }
 
 // ───────────────────────── Abstract email types ─────────────────────────

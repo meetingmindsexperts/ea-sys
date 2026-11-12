@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Bulk email: "Those who owe us", and Chase Unpaid goes by the balance (November 12)
+
+Owner: "Filter recipients, Payment Status: UNPAID will not work to chase unpaid registration because it would include those with promocode 100%. What is the alternative?" A payment reminder has skipped anyone who owes nothing since this morning; a Custom email filtered on Unpaid, and the Chase Unpaid tile that sends one, did not.
+
+- **A new choice in the payment picker of Filter recipients: "Those who owe us (balance due)".** It goes by the balance, after any promo code and payments, not by the payment status, and works with any email type. It leaves out complimentary and sponsor-paid registrations, anyone a code fully covers, a free type, anyone already paid, group members (their company is invoiced) and cancelled registrations
+- **Chase Unpaid uses it**, for its count and its send. It sent a Custom email to Confirmed + Unpaid. On the local copy of the 4th GCC Hematology Hub the tile went from 24 people to 17: seven owed nothing
+- **One rule**: `chasesBalance` in `src/lib/bulk-email-audience.ts` decides whether a send goes only to people who owe (a payment reminder always; any other send with the filter), and `excludedAsNoBalance` decides who that is, on the server and for the counts on both pages. A Custom email to "those who owe us" and a Payment Reminder reach the same people
+- It reaches the server as `filters.owesMoney`, kept by a scheduled send, never as a payment status. A reader who cannot see amounts gets a count by status (a Paid or Refunded row is read as owing nothing); the server always decides the send by the balance
+- Not changed: a Custom email carries no amount and no Pay Now link; choose the Payment Reminder type for those. The agent's `send_bulk_email` still filters by payment status only (ROADMAP)
+
 ### Bulk email: "Send me a copy" starts unticked (November 12)
 
 Owner: the tick is the sender's own choice, and organisers expect it off.

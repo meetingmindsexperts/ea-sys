@@ -66,7 +66,7 @@ import { SESSION_ROLE_OPTIONS } from "@/lib/session-enums";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { ABSTRACT_PICKER_FETCH_LIMIT, abstractStatusLabel, type AbstractPickerOption } from "@/lib/bulk-email-abstract-picker";
 import { AbstractPickerDialog, type AbstractSelection } from "@/components/abstracts/abstract-picker-dialog";
-import { excludedAsNoBalance, excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
+import { OWES_MONEY_FILTER, excludedAsNoBalance, excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { EmailActivityCard } from "@/components/communications/email-activity-card";
@@ -218,11 +218,18 @@ const REGISTRATION_TILES: RegistrationTile[] = [
   {
     id: "chase-unpaid",
     label: "Chase Unpaid",
-    description: "Confirmed but payment outstanding",
+    description: "Confirmed, with a balance still to pay",
     icon: CreditCard,
-    filters: { status: "CONFIRMED", paymentStatus: "UNPAID" },
+    // "Those who owe us", by the balance (owner, Nov 12, 2026). This tile
+    // sent a Custom email to Confirmed + Unpaid, so it reached people a promo
+    // code already covers, free types, and unpaid group members. The count
+    // below asks the same rule the send does.
+    filters: { status: "CONFIRMED", paymentStatus: OWES_MONEY_FILTER },
     defaultEmailType: "custom",
-    matches: (r) => r.status === "CONFIRMED" && r.paymentStatus === "UNPAID",
+    matches: (r) =>
+      r.status === "CONFIRMED" &&
+      !r.group &&
+      !excludedAsNoBalance("custom", r.paymentStatus, !!r.ticketType, r.rowMoney?.amountDue ?? null, true),
   },
   {
     id: "welcome-paid",
@@ -462,13 +469,13 @@ export default function CommunicationsPage() {
       if (f.status && f.status !== "all" && r.status !== f.status) return false;
       // Same rule the server applies to build the audience — imported, not
       // restated, so this count cannot drift from the actual send.
-      if (excludesCancelledByDefault(f.emailType, f.status) && r.status === "CANCELLED")
+      if (excludesCancelledByDefault(f.emailType, f.status, f.owesMoney) && r.status === "CANCELLED")
         return false;
       // Group members are never dunned individually (H2) — count matches send.
-      if (excludesGroupMembers(f.emailType) && r.group)
+      if (excludesGroupMembers(f.emailType, f.owesMoney) && r.group)
         return false;
       // Complimentary / sponsor-paid / no type yet / nothing left to pay: never sent a payment reminder.
-      if (excludedAsNoBalance(f.emailType, r.paymentStatus, !!r.ticketType, r.rowMoney?.amountDue ?? null)) return false;
+      if (excludedAsNoBalance(f.emailType, r.paymentStatus, !!r.ticketType, r.rowMoney?.amountDue ?? null, f.owesMoney)) return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
       if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;

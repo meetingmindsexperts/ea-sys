@@ -135,10 +135,14 @@ status of a registration whose code was entered after registering stays UNPAID (
 
 **Older, found by that review: payment emails that still reach someone who owes
 nothing. The first two are HIGH and waiting on the owner.**
-- HIGH: **the Chase Unpaid tile** (Communications) opens a CUSTOM email to Confirmed +
+- ~~HIGH: **the Chase Unpaid tile** (Communications) opens a CUSTOM email to Confirmed +
   Unpaid, so no reminder rule applies: a registration covered by a code, and an unpaid
-  group member, are in its count and its send. The agent's `send_bulk_email` is always
-  Custom too, and its own description names it for the unpaid chase.
+  group member, are in its count and its send.~~ FIXED Nov 12, 2026: the tile, and a new
+  "Those who owe us" choice in Filter recipients, go by the balance for any email type
+  (`chasesBalance`). **Still open, the agent's half:** `send_bulk_email` is always Custom
+  and filters by payment status only (its count for the size cap is by status too), and
+  its own description names it for the unpaid chase. It needs the same `owesMoney`
+  filter as a tool input, which is a tool change (connected clients must reconnect).
 - HIGH: **resending a Registration Confirmation** from a registration's sheet, or by the
   registrant from their portal, passes the price with no balance or status check: a
   paid, complimentary, sponsor-paid or group-covered registration gets "Payment

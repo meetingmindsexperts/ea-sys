@@ -448,13 +448,13 @@ export default function RegistrationsPage() {
       if (f.status && f.status !== "all" && r.status !== f.status) return false;
       // Same rule the server applies to build the audience — imported, not
       // restated, so this count cannot drift from the actual send.
-      if (excludesCancelledByDefault(f.emailType, f.status) && r.status === "CANCELLED")
+      if (excludesCancelledByDefault(f.emailType, f.status, f.owesMoney) && r.status === "CANCELLED")
         return false;
       // Group members are never dunned individually (H2) — count matches send.
-      if (excludesGroupMembers(f.emailType) && r.group)
+      if (excludesGroupMembers(f.emailType, f.owesMoney) && r.group)
         return false;
       // Complimentary / sponsor-paid / no type yet / nothing left to pay: never sent a payment reminder.
-      if (excludedAsNoBalance(f.emailType, r.paymentStatus, !!r.ticketType, r.rowMoney?.amountDue ?? null)) return false;
+      if (excludedAsNoBalance(f.emailType, r.paymentStatus, !!r.ticketType, r.rowMoney?.amountDue ?? null, f.owesMoney)) return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
       if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;

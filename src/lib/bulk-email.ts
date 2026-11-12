@@ -42,6 +42,7 @@ import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
   excludesGroupMembers,
   excludedAsNoBalance,
+  chasesBalance,
   NO_BALANCE_PAYMENT_STATUSES,
   excludesCancelledByDefault,
   PER_ABSTRACT_EMAIL_TYPES,
@@ -223,6 +224,12 @@ export interface BulkEmailFilters {
    * delegate types / null badges) via `EXCLUDE_FACULTY_WHERE`.
    */
   excludeFaculty?: boolean;
+  /**
+   * Registrations recipient only: "those who owe us". Only registrations
+   * with a balance still to pay, whatever the email type (the rule a payment
+   * reminder always applies; see chasesBalance in bulk-email-audience.ts).
+   */
+  owesMoney?: boolean;
   /**
    * Speakers recipient only — filter on signed agreement state.
    *   "signed"   → `Speaker.agreementAcceptedAt IS NOT NULL`
@@ -655,6 +662,7 @@ export const bulkEmailSchema = z.object({
       badgeTypes: z.array(z.string().max(255)).max(50).optional(),
       tagsInclude: z.array(z.string().max(100)).max(50).optional(),
       excludeFaculty: z.boolean().optional(),
+      owesMoney: z.boolean().optional(),
       agreementSigned: z.enum(["signed", "unsigned"]).optional(),
       hasSession: z.enum(["yes", "no"]).optional(),
       sessionRole: z.nativeEnum(SessionRole).optional(),
@@ -1525,6 +1533,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // paymentStatus may be a single value or a comma-separated multi-value
     // list (e.g. the Welcome-Paid tile → PAID,COMPLIMENTARY,INCLUSIVE).
     const paymentStatuses = parsePaymentStatusFilter(filters?.paymentStatus);
+    // "Those who owe us": the balance decides, for any email type.
+    const owesMoney = filters?.owesMoney === true;
     const paymentStatusWhere = () => {
       if (paymentStatuses.length === 1) return { paymentStatus: paymentStatuses[0] };
       if (paymentStatuses.length > 1) return { paymentStatus: { in: paymentStatuses } };
@@ -1544,16 +1554,17 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         // CANCELLED registration. The rule (and the reasoning per type) lives in
         // bulk-email-audience.ts, shared with the dashboard's recipient-count
         // predicates so the number the organizer reads is the number we mail.
-        ...(excludesCancelledByDefault(emailType, status)
+        ...(excludesCancelledByDefault(emailType, status, owesMoney)
           ? { status: { not: "CANCELLED" as const } }
           : {}),
         // Group members are never dunned individually (review H2) — the payer
         // owes via the consolidated invoice. Shared predicate with the counts.
-        ...(excludesGroupMembers(emailType) ? { groupId: null } : {}),
+        ...(excludesGroupMembers(emailType, owesMoney) ? { groupId: null } : {}),
         // Nothing owed, never chased (Oct 22, 2026), and no type means nothing
         // priced yet (Nov 9, 2026). AND, so a paymentStatus filter below cannot
         // re-admit them. Same rule as excludedAsNoBalance, which the counts use.
-        ...(emailType === "payment-reminder"
+        // A payment reminder, and any send to "those who owe us" (Nov 12, 2026).
+        ...(chasesBalance(emailType, owesMoney)
           ? { AND: [{ paymentStatus: { notIn: [...NO_BALANCE_PAYMENT_STATUSES] as PaymentStatus[] } }, { ticketTypeId: { not: null } }] }
           : {}),
         ...paymentStatusWhere(),
@@ -1607,7 +1618,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     const reminderMoneyCtx = { taxRate: event.taxRate ? Number(event.taxRate) : null, taxLabel: event.taxLabel ?? null };
     const chased = registrations.filter((r) => {
       const amountDue = computeRegistrationRowMoney(r, reminderMoneyCtx)?.amountDue ?? null;
-      return !excludedAsNoBalance(emailType, r.paymentStatus, !!r.ticketType, amountDue);
+      return !excludedAsNoBalance(emailType, r.paymentStatus, !!r.ticketType, amountDue, owesMoney);
     });
     if (chased.length !== registrations.length) {
       // Who, not only how many: "why was this person not reminded" must be
@@ -1615,7 +1626,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // and its status set back to Unpaid by hand reads as paid here).
       const keptIds = new Set(chased.map((r) => r.id));
       const leftOutIds = registrations.filter((r) => !keptIds.has(r.id)).map((r) => r.id);
-      apiLogger.info({ msg: "bulk-email:payment-reminder-nothing-due-left-out", eventId, leftOut: leftOutIds.length, kept: chased.length, registrationIds: leftOutIds.slice(0, 100) });
+      apiLogger.info({ msg: "bulk-email:payment-reminder-nothing-due-left-out", eventId, emailType, owesMoneyFilter: owesMoney, leftOut: leftOutIds.length, kept: chased.length, registrationIds: leftOutIds.slice(0, 100) });
     }
     recipients = chased.map((r) => ({
       id: r.id,
