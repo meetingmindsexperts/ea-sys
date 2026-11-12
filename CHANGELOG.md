@@ -15,6 +15,7 @@ Owner: "cme should handle 2 digits 3.75 or 5.25". Until now 3.75 was saved as 3.
 - The three columns that hold hours are widened from one decimal to two (migration `20261112130000`, acknowledged in `prisma/destructive-migrations-ack.txt` because it changes a column type; every stored value is unchanged). Certificates already issued keep the hours they were issued with
 - One rule for every door (`src/lib/certificates/cme-hours.ts`): the CME settings and template routes, the agent's three tools and the page's inputs each had their own limit (0 to 999 in some, 0 to 999.9 in others)
 - MCP clients reconnect to see the new limits (package 0.4.57)
+- **Re-enter hours that should have had two decimals.** A value typed as 3.75 before this change was saved as 3.8 and stays 3.8, on the event, on a template and on certificates already issued with it
 
 ### A payment email never goes to someone who owes nothing (November 12)
 

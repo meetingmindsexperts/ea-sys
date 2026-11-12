@@ -4,9 +4,28 @@
  * entered.
  */
 import { readFileSync } from "node:fs";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { z } from "zod";
+
+const { mockDb } = vi.hoisted(() => {
+  const model = () => ({
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    updateMany: vi.fn(),
+    count: vi.fn(),
+  });
+  return { mockDb: { certificateTemplate: model(), event: model(), auditLog: model() } };
+});
+vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: vi.fn() }));
+vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
+vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock("@/lib/event-settings", () => ({ updateEventSettings: vi.fn() }));
+
 import { CME_HOURS_MAX, cmeHoursField, formatCmeHours, isValidCmeHours } from "@/lib/certificates/cme-hours";
 import { mergeBody, resolveTokens } from "@/lib/certificates/template";
+import { CERTIFICATE_EXECUTORS } from "@/lib/agent/tools/certificates";
 import type { CertificateData } from "@/lib/certificates/types";
 
 describe("isValidCmeHours", () => {
@@ -18,6 +37,20 @@ describe("isValidCmeHours", () => {
 
   it("refuses a third decimal instead of letting the database round it", () => {
     for (const bad of [3.755, 0.001, 5.2501, 999.991]) expect(isValidCmeHours(bad), String(bad)).toBe(false);
+  });
+
+  it("the tolerance forgives floating point only: any real extra digit is refused, however small", () => {
+    for (const bad of [3.759, 3.751, 3.7501, 3.75001, 3.75000001, 1e-7, 1e-9, 0.005]) {
+      expect(isValidCmeHours(bad), String(bad)).toBe(false);
+    }
+  });
+
+  it("every hundredth from 0 to 999.99 is accepted, and prints as itself", () => {
+    for (let hundredths = 0; hundredths <= 99999; hundredths++) {
+      const value = hundredths / 100;
+      if (!isValidCmeHours(value)) throw new Error(`refused ${value}`);
+      if (Number(formatCmeHours(value)) !== value) throw new Error(`printed ${value} as ${formatCmeHours(value)}`);
+    }
   });
 
   it("refuses what is out of range or not a number", () => {
@@ -38,6 +71,12 @@ describe("cmeHoursField (the request schema every door uses)", () => {
     }
     expect(cmeHoursField.nullable().optional().safeParse(null).success).toBe(true);
   });
+
+  it("the schema the agent's tool list is generated from still shows the range and says two decimals", () => {
+    const schema = z.toJSONSchema(cmeHoursField) as { type?: string; minimum?: number; maximum?: number; description?: string };
+    expect(schema).toMatchObject({ type: "number", minimum: 0, maximum: 999.99 });
+    expect(schema.description).toContain("two decimal");
+  });
 });
 
 describe("formatCmeHours (the {{cmeHours}} token)", () => {
@@ -55,6 +94,13 @@ describe("formatCmeHours (the {{cmeHours}} token)", () => {
   it("3.75 is no longer printed as 3.8", () => {
     expect(formatCmeHours(3.75)).not.toBe("3.8");
   });
+
+  it("rounds to two decimals what arithmetic left inexact, so a certificate never prints a float's tail", () => {
+    expect(formatCmeHours(0.1 + 0.2)).toBe("0.3");
+    expect(formatCmeHours(1.1 + 2.65)).toBe("3.75");
+    expect(formatCmeHours(3.7500000001)).toBe("3.75");
+    expect(formatCmeHours(18.004)).toBe("18");
+  });
 });
 
 describe("the three columns hold two decimals", () => {
@@ -66,18 +112,52 @@ describe("the three columns hold two decimals", () => {
     for (const [, , precision, scale] of columns) expect([precision, scale]).toEqual(["5", "2"]);
   });
 
-  it("no door keeps its own limit: the old 999 and 999.9 caps on hours are gone", () => {
-    for (const file of [
-      "src/app/api/events/[eventId]/certificates/settings/route.ts",
-      "src/app/api/events/[eventId]/certificates/templates/route.ts",
-      "src/app/api/events/[eventId]/certificates/templates/[templateId]/route.ts",
-      "src/lib/agent/register-mcp-tools.ts",
-      "src/lib/agent/tools/certificates.ts",
-    ]) {
+  it("every request schema for hours is the shared field: none declares its own number", () => {
+    // file -> how many `cmeHours:` / `hours:` schema lines it must have, all of them cmeHoursField.
+    const doors: Record<string, number> = {
+      "src/app/api/events/[eventId]/certificates/settings/route.ts": 2,
+      "src/app/api/events/[eventId]/certificates/templates/route.ts": 1,
+      "src/app/api/events/[eventId]/certificates/templates/[templateId]/route.ts": 1,
+      "src/lib/agent/register-mcp-tools.ts": 4,
+    };
+    for (const [file, expected] of Object.entries(doors)) {
       const source = readFileSync(file, "utf8");
-      expect(source, file).not.toMatch(/(cmeHours|hours)[^\n]*(999\.9\b|max\(999\))/);
-      expect(source, file).toMatch(/cmeHoursField|isValidCmeHours/);
+      const schemaLines = source.split("\n").filter((line) => /^\s*(cmeHours|hours):\s*(z\.|cmeHoursField)/.test(line));
+      expect(schemaLines, file).toHaveLength(expected);
+      for (const line of schemaLines) expect(line, file).toMatch(/:\s*cmeHoursField\.(nullable\(\)\.)?optional\(\),/);
     }
+  });
+});
+
+describe("the agent's three tools refuse a third decimal before touching the database", () => {
+  const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1" } as never;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.certificateTemplate.findFirst.mockResolvedValue({ id: "t1" });
+  });
+
+  it("update_cme_settings: the event's hours, and an accrediting body's hours", async () => {
+    const tool = CERTIFICATE_EXECUTORS.update_cme_settings;
+    expect(await tool({ cmeHours: 3.755 }, ctx)).toMatchObject({ code: "INVALID_FIELD", error: expect.stringContaining("two decimal") });
+    expect(await tool({ cmeHours: 1000 }, ctx)).toMatchObject({ code: "INVALID_FIELD" });
+    expect(
+      await tool({ accreditations: [{ body: "DHA", reference: "REF-1", hours: 5.255 }] }, ctx),
+    ).toMatchObject({ code: "INVALID_FIELD", error: expect.stringContaining("two decimal") });
+    expect(mockDb.event.update).not.toHaveBeenCalled();
+    expect(mockDb.event.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("create_certificate_template and update_certificate_template: a template's own hours", async () => {
+    const created = await CERTIFICATE_EXECUTORS.create_certificate_template(
+      { name: "CME", category: "ATTENDANCE", cmeHours: 3.755 },
+      ctx,
+    );
+    expect(created).toMatchObject({ code: "INVALID_FIELD", error: expect.stringContaining("two decimal") });
+    const updated = await CERTIFICATE_EXECUTORS.update_certificate_template({ templateId: "t1", cmeHours: 5.255 }, ctx);
+    expect(updated).toMatchObject({ code: "INVALID_FIELD", error: expect.stringContaining("two decimal") });
+    expect(mockDb.certificateTemplate.create).not.toHaveBeenCalled();
+    expect(mockDb.certificateTemplate.update).not.toHaveBeenCalled();
+    expect(mockDb.certificateTemplate.updateMany).not.toHaveBeenCalled();
   });
 });
 

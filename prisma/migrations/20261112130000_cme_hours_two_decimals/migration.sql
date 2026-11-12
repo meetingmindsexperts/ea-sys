@@ -7,8 +7,8 @@
 --
 -- A WIDENING, and safe across the blue/green swap and a rollback:
 --   - every value already stored fits unchanged (18.5 stays 18.5);
---   - the old code reads a Decimal and writes at most one decimal, both of
---     which the wider column takes;
+--   - the old code reads a Decimal, and whatever it writes fits: it sent any
+--     number of decimals and Postgres rounded them to one, and now to two;
 --   - no index, constraint or view depends on these columns.
 -- Postgres rewrites the three tables for a change of scale. Event and
 -- CertificateTemplate hold hundreds of rows and IssuedCertificate thousands, so

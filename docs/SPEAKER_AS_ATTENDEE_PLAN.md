@@ -189,7 +189,7 @@ orthogonal — faculty are uncapped; P1.2 cert XSS is done).
 ## Phase 1 — Multi-role certificates (template = role)
 
 ### Schema
-- `CertificateTemplate.cmeHours Decimal? @db.Decimal(4,1)` — static per-template CME hours.
+- `CertificateTemplate.cmeHours Decimal? @db.Decimal(5,2)` (two decimals since Nov 12, 2026; `Decimal(4,1)` when this was written) — static per-template CME hours.
 - `CertificateTemplate.role String?` — designation label (e.g. "Speaker",
   "Moderator", "Organizing Committee"); drives a `{{role}}` token. (Template
   `name` can default it.)

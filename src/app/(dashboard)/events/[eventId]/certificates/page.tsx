@@ -342,15 +342,17 @@ export default function CertificatesPage() {
     mutationFn: async (body: SettingsResponse) => {
       // Said here in words, before the request: the server refuses a third
       // decimal too, but its answer reaches this toast only as "Invalid input".
-      const hours = [body.cmeHours, ...body.accreditations.map((a) => a.hours)];
+      // Only the rows that are sent: a blank row is dropped below, so a number left in it
+      // must not block the save (review of b2e1f3dd).
+      const sent = body.accreditations.filter((a) => a.body !== "" && a.reference.trim().length > 0);
+      const hours = [body.cmeHours, ...sent.map((a) => a.hours)];
       if (hours.some((h) => h != null && !isValidCmeHours(h))) throw new Error(CME_HOURS_MESSAGE);
       const res = await fetch(`/api/events/${eventId}/certificates/settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cmeHours: body.cmeHours,
-          accreditations: body.accreditations
-            .filter((a) => a.body !== "" && a.reference.trim().length > 0)
+          accreditations: sent
             .map((a) => ({
               body: a.body as AccreditorBody,
               reference: a.reference.trim(),
@@ -1668,7 +1670,7 @@ export default function CertificatesPage() {
                       </Label>
                       <Textarea
                         rows={2}
-                        placeholder="e.g. This activity has been designated for a maximum of 18.0 European CME credits (ECMECs®)."
+                        placeholder="e.g. This activity has been designated for a maximum of 18 European CME credits (ECMECs®)."
                         value={row.officialStatement ?? ""}
                         onChange={(e) =>
                           updateAccreditation(idx, {

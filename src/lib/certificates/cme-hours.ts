@@ -12,7 +12,8 @@
  * its own copy (0 to 999 here, 0 to 999.9 there), which is how the limit and
  * the database drifted apart. A value with a third decimal is REFUSED, not
  * rounded: the database would round it silently, and a certificate must print
- * what the accreditor awarded.
+ * what the accreditor awarded. (Hours typed with two decimals BEFORE this were
+ * rounded to one when they were saved, and stay so until re-entered.)
  *
  * Pure and client-safe.
  */
@@ -23,13 +24,17 @@ export const CME_HOURS_MAX = 999.99;
 export const CME_HOURS_MESSAGE =
   "CME hours must be a number from 0 to 999.99 with at most two decimal places, for example 3.75";
 
+const HUNDREDTHS_TOLERANCE = 1e-9;
+
 /** A number of hours we can store exactly: finite, 0 to 999.99, at most two decimals. */
 export function isValidCmeHours(value: unknown): value is number {
   if (typeof value !== "number" || !Number.isFinite(value)) return false;
   if (value < 0 || value > CME_HOURS_MAX) return false;
   // 3.75 * 100 is 375 exactly, but 1.15 * 100 is 114.99999999999999: compare with a tolerance.
+  // The tolerance only forgives floating point (about 1e-13 at this size). It is far below a
+  // real extra digit, so 3.7501 and 3.75000001 are refused like 3.755 (review of b2e1f3dd).
   const hundredths = value * 100;
-  return Math.abs(hundredths - Math.round(hundredths)) < 1e-6;
+  return Math.abs(hundredths - Math.round(hundredths)) < HUNDREDTHS_TOLERANCE;
 }
 
 /**
