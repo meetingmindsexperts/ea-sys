@@ -25,7 +25,10 @@ describe("pickableRegTypes", () => {
     expect(pickableRegTypes(TYPES, null).map((t) => t.id)).toEqual(["phys", "nurse"]);
   });
 
-  it("labels it so it cannot be mistaken for an ordinary Faculty", () => {
-    expect(SPEAKERS_TYPE_LABEL).toBe("Faculty (speakers and committee)");
+  // "Short faculty everywhere" (owner, Nov 12, 2026). The bracket that told
+  // it apart from an ordinary "Faculty" type is gone; a picker that offers the
+  // real choice leaves such a type out instead (isFacultyLookalikeName).
+  it("labels it with the one word used everywhere", () => {
+    expect(SPEAKERS_TYPE_LABEL).toBe("Faculty");
   });
 });

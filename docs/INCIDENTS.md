@@ -69,13 +69,15 @@ reads the column (API, exports, integrations), not only the screens.
 
 **Fix (all 12 Nov).**
 - The speaker page shows the registration's own type, read-only, with its number.
-- The speakers API serves "Faculty" for anyone whose registration is on a Faculty
-  type, whatever the speaker's own text says, and the stored text for everyone else
-  (`speakerApiRegistrationType`). Add Speaker and Speakers, Import from Contacts
-  save "Faculty" themselves.
+- One name for a registration's type on every surface (`displayRegistrationType`):
+  a Faculty registration reads "Faculty", anything else its type's own name. The
+  speakers API serves that same name (`speakerApiRegistrationType`), so it follows
+  the registration: change the registration's type and the screen, the exports and
+  the API change with it. The speaker's own text is served only while there is no
+  live, typed registration. Add Speaker and Speakers, Import from Contacts save
+  "Faculty" themselves.
 - Speakers has Import from Contacts again; Registrations, Import from Contacts has a
-  "Faculty (speakers and committee)" choice; Add Speaker states the Faculty type and
-  offers nothing to pick.
+  "Faculty" choice; Add Speaker states the Faculty type and offers nothing to pick.
 - A Faculty type that is switched off no longer refuses Faculty registrations.
 - A move to Confirmed settles the speaker's Faculty registration; a payment reminder
   and "Those who owe us" go by the balance, so nobody who owes nothing is chased.
@@ -94,9 +96,9 @@ reads the column (API, exports, integrations), not only the screens.
 **Action items.**
 - [x] Speaker screens, both imports, Add Speaker and the API as above (12 Nov).
 - [x] `docs/ROLLBACK.md`, ROADMAP and CHANGELOG record each change and what it left.
-- [ ] Owner: registrations 028, 043, 044 are still on Physician, Unpaid. Set them
-  Complimentary by hand, or decide on moving a speaker's registration to Faculty
-  (ROADMAP).
+- [x] Registrations 028, 043, 044: the team deleted them and gave the three speakers
+  Faculty registrations with Grant Registration (#78, #79, #80, 12 Nov). That is the
+  way to move a speaker off a wrong delegate registration that carries no money.
 - [ ] Owner: run `merge-faculty-types.ts --all` on production, dry run first.
 - [ ] Owner: the website picks up the corrected API values on its next full sync.
   If the n8n workflow skips rows whose "last modified" has not moved, run it once in

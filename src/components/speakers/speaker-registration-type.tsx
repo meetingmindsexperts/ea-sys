@@ -37,12 +37,7 @@ export function SpeakerRegistrationTypeRow({ eventId, ownType, registration }: P
       <Briefcase className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
       <div>
         <div className="text-xs text-muted-foreground">Registration Type</div>
-        <div className="text-sm">
-          {view.typeName}
-          {view.kind === "registration" && view.facultyTypeName && (
-            <span className="text-muted-foreground"> · on the {view.facultyTypeName} type</span>
-          )}
-        </div>
+        <div className="text-sm">{view.typeName}</div>
         {view.kind === "registration" && (
           <div className="mt-0.5 space-y-0.5">
             {view.note && <p className="text-xs text-amber-700">{view.note}</p>}
@@ -75,7 +70,6 @@ export function SpeakerRegistrationTypeField({
       <Label>Registration Type</Label>
       <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
         {view.typeName}
-        {view.facultyTypeName && <span className="text-muted-foreground"> · on the {view.facultyTypeName} type</span>}
         {view.serial && <span className="text-muted-foreground"> · registration #{view.serial}</span>}
       </div>
       <p className="text-xs text-muted-foreground">

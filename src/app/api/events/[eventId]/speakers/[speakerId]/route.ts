@@ -176,8 +176,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     const { sourceRegistration, ...rest } = speaker;
     const withoutCode = {
       ...rest,
-      // The same value the list serves (speakerApiRegistrationType): "Faculty"
-      // for a registration on a Faculty type, else the speaker's own text.
+      // The same value the list serves (speakerApiRegistrationType): the
+      // registration's own type, so the two cannot diverge.
       registrationType: speakerApiRegistrationType(speaker.registrationType, sourceRegistration),
       sourceRegistration: sourceRegistration
         ? (({ qrCode, ...reg }) => ({ ...reg, hasEntryBarcode: Boolean(qrCode) }))(sourceRegistration)

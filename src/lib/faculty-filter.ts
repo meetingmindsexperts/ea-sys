@@ -47,27 +47,22 @@ export const FACULTY_TYPE_FALLBACK = "Faculty";
 export const SPEAKER_API_REGISTRATION_TYPE = FACULTY_TYPE_FALLBACK;
 
 /**
- * The professional registration type to DISPLAY for a registration.
+ * How a registration's type is NAMED, everywhere a person or a program reads
+ * it: the Registrations list, the registration sheet, the speaker page, the
+ * exports, the shared views and (through speakerApiRegistrationType) the
+ * speakers API.
  *
- * For a faculty companion (the `isFaculty` ticket type) this returns the
- * person's profession (Physician / Allied Health / Nurse / Others) from the
- * attendee's `registrationType` when one is recorded. When none is (empty, or
- * just the type's own name or "Faculty"), it shows the speakers' type's OWN
- * name (owner, Oct 22, 2026), so an organisation that renamed it "Speakers"
- * sees "Speakers". It used to show a dash, which read as missing data. For
- * everyone else it's the ticket-type name, which IS the professional category
- * for a normal delegate. Pure + client-safe.
+ * One rule (owner, Nov 12, 2026: "short faculty everywhere", and "they should
+ * not diverge"):
+ *   - a registration on a Faculty type is "Faculty". The plain word, whatever
+ *     the type row is called, and never a profession: until that day this
+ *     showed the attendee's recorded profession ("Physician") for a Faculty
+ *     registration, so one person read Physician on one page and Faculty on
+ *     the next. The profession is the Role column's.
+ *   - any other registration is its type's own name.
+ * `attendeeRegistrationType` is accepted and ignored, so callers need not
+ * change; it no longer decides anything. Pure + client-safe.
  */
-/** A speaker's profession, or the speakers' type's own name when none is recorded. */
-function facultyTypeLabel(typeName: string | null | undefined, profession: string | null | undefined): string {
-  const label = typeName?.trim() || FACULTY_TYPE_FALLBACK;
-  const recorded = profession?.trim();
-  if (!recorded) return label;
-  // A stored "Faculty" or the type's own name is a placeholder, not a profession.
-  const placeholders = [label.toLowerCase(), FACULTY_TYPE_FALLBACK.toLowerCase()];
-  return placeholders.includes(recorded.toLowerCase()) ? label : recorded;
-}
-
 export function displayRegistrationType(
   input: {
     ticketTypeName?: string | null;
@@ -76,17 +71,29 @@ export function displayRegistrationType(
   },
   emptyLabel = "—",
 ): string {
-  if (input.isFaculty) return facultyTypeLabel(input.ticketTypeName, input.attendeeRegistrationType);
+  if (input.isFaculty) return FACULTY_TYPE_FALLBACK;
   return input.ticketTypeName ?? emptyLabel;
 }
 
 /**
- * How the Faculty type is named in a registration-type picker. Faculty is the
- * umbrella for invited speakers and committee (owner, Nov 9, 2026); the
- * bracket keeps it apart from an ordinary type some events still have that is
- * also called "Faculty".
+ * How the Faculty choice is named in a registration-type picker: the same
+ * plain word as everywhere else (owner, Nov 12, 2026). It was "Faculty
+ * (speakers and committee)", the bracket being what told it apart from an
+ * ordinary type also called "Faculty"; `isFacultyLookalikeName` now keeps such
+ * a type out of a picker that offers the real choice.
  */
-export const SPEAKERS_TYPE_LABEL = "Faculty (speakers and committee)";
+export const SPEAKERS_TYPE_LABEL = FACULTY_TYPE_FALLBACK;
+
+/**
+ * Is this ORDINARY type's name the Faculty choice's own word? A picker that
+ * offers the Faculty choice leaves such a type out: two entries reading
+ * "Faculty", one of them a delegate type, is how 34 people on the 4th GCC
+ * Hematology Hub were registered as delegates. Picking the Faculty choice
+ * adopts a free ordinary "Faculty" type anyway (ensureFacultyTicketType).
+ */
+export function isFacultyLookalikeName(name: string | null | undefined): boolean {
+  return (name ?? "").trim().toLowerCase() === FACULTY_TYPE_FALLBACK.toLowerCase();
+}
 
 /**
  * The registration types staff may pick for a registration (Oct 22, 2026).

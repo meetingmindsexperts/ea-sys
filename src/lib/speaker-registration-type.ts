@@ -21,7 +21,7 @@
  * person's recorded profession, when there is one. A second way of naming it
  * here would put the two pages out of step again (review of 4da1db66).
  */
-import { SPEAKER_API_REGISTRATION_TYPE, displayRegistrationType } from "@/lib/faculty-filter";
+import { displayRegistrationType } from "@/lib/faculty-filter";
 
 export interface SpeakerLinkedRegistration {
   serialId?: number | null;
@@ -40,8 +40,6 @@ export type SpeakerRegistrationTypeView =
       /** The registration's type as the Registrations page names it, or NO_TYPE_LABEL when it has none yet. */
       typeName: string;
       isFaculty: boolean;
-      /** The Faculty type's own name, when `typeName` is the person's profession instead; else null. */
-      facultyTypeName: string | null;
       /** "043", or null for a registration with no number. */
       serial: string | null;
       /** What an organiser should know about this type, or null. */
@@ -85,37 +83,39 @@ export function speakerRegistrationTypeView(
     kind: "registration",
     typeName,
     isFaculty,
-    facultyTypeName: isFaculty && ownName && ownName !== typeName ? ownName : null,
     serial: registration.serialId != null ? String(registration.serialId).padStart(3, "0") : null,
     note: noteFor(registration),
   };
 }
 
 /**
- * What the speakers API serves as `registrationType` (owner, Nov 12, 2026:
- * "check why ... reg type is PHYSICIAN instead of faculty, whereas they are
- * marked reg type as faculty in production ... in the api, when I fetch it").
+ * What the speakers API serves as `registrationType`: the registration's own
+ * type, by the same name the screens use (owner, Nov 12, 2026: "if reg type is
+ * changed to physician, then API should return physician, and faculty, then
+ * faculty, if nurse then nurse. They should not diverge").
  *
- * The API served the speaker's own text. For someone whose registration is on
- * a Faculty type that text could say anything: 12 speakers on the Middle East
- * Heart Failure Conference read "Physician" (typed on Oct 20) and 31 were
- * empty, while their registration, and the screen, said Faculty. The website
- * sync copies this field.
+ * The API served the speaker's own hand-edited text. On the Middle East Heart
+ * Failure Conference 12 speakers read "Physician" there and 31 nothing, while
+ * their registration, and the screen, said Faculty. The website sync (n8n to
+ * Webflow) copies this field.
  *
- *   - a live registration on a Faculty type: the plain word "Faculty"
- *     (SPEAKER_API_REGISTRATION_TYPE, never the type's own name or the longer
- *     picker label: the website shows it)
- *   - anyone else: the speaker's own text, exactly as stored. A speaker whose
- *     registration is on a delegate type keeps what the organiser saved for
- *     the website; the API never starts saying "Physician" for them.
+ *   - a live registration with a type: that type's name, "Faculty" for a
+ *     Faculty type (displayRegistrationType), trimmed
+ *   - no live registration, or one with no type yet: the speaker's own text,
+ *     as stored. There is nothing truer to say.
+ *
+ * So the value follows the registration: change the registration's type and
+ * the API, the screen and the export all change with it. It never follows the
+ * speaker's own text once a typed registration exists.
  */
 export function speakerApiRegistrationType(
   ownType: string | null | undefined,
-  registration: { status: string; ticketType?: { isFaculty?: boolean | null } | null } | null | undefined,
+  registration: { status: string; ticketType?: { name?: string | null; isFaculty?: boolean | null } | null } | null | undefined,
 ): string | null {
   const live = !!registration && registration.status !== "CANCELLED";
-  if (live && registration.ticketType?.isFaculty === true) return SPEAKER_API_REGISTRATION_TYPE;
-  return ownType ?? null;
+  if (!live || !registration.ticketType) return ownType ?? null;
+  const name = displayRegistrationType({ ticketTypeName: registration.ticketType.name, isFaculty: registration.ticketType.isFaculty }, "").trim();
+  return name || (ownType ?? null);
 }
 
 /** The one line an export or a list prints: the registration's type when there is a live one, else the speaker's own text. */

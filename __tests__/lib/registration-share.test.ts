@@ -103,9 +103,10 @@ describe("projection", () => {
     expect(json).not.toContain("+971");
   });
 
-  it("shows a faculty companion's profession, not 'Faculty'", () => {
+  // Owner, Nov 12, 2026: "short faculty everywhere" (it showed the profession).
+  it("names a Faculty registration Faculty, whatever profession the attendee carries", () => {
     const r = row({ ticketType: { name: "Faculty", isFaculty: true }, attendee: { ...row().attendee, registrationType: "Physician" } });
-    expect(projectRegistration(r, new Set(["registrationType"])).registrationType).toBe("Physician");
+    expect(projectRegistration(r, new Set(["registrationType"])).registrationType).toBe("Faculty");
   });
 });
 

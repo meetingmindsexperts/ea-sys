@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### One name for a registration's type, on every screen, export and the API (November 12)
+
+Owner: "short faculty everywhere", and of the API: "if reg type is changed to physician, then API should return physician, and faculty, then faculty, if nurse then nurse. They should not diverge."
+
+- **A registration on a Faculty type reads "Faculty" everywhere**: the Registrations list and sheet, the speaker page, the registrations and speakers exports, shared views, and the pickers in Add Registration, Import from Contacts and Add Speaker (which read "Faculty (speakers and committee)" since this morning). One function, `displayRegistrationType`
+- **The type column no longer shows a faculty member's profession.** Since Oct 22 a Faculty registration showed the attendee's recorded profession ("Physician") when there was one, so one person read Physician on the speaker page and Faculty on the registration sheet. The profession is in the Role column. A Faculty type's own name (33 are "Faculty", one "Faculty.") shows only on the Registration Types page
+- **The speakers API returns the registration's own type**: "Faculty" for a Faculty registration, "Physician" for a Physician one, "Nurse" for a Nurse one (`speakerApiRegistrationType`, built on the same function). It replaces the rule made an hour earlier (Faculty for a Faculty registration, the stored text otherwise), which still let a speaker on a delegate type return whatever had been typed. The speaker's own text is served only while there is no live, typed registration
+- **What changes for API readers**, beyond the entry below: a speaker whose registration is on a delegate type now returns that type's name where the stored text was served (on the Heart Failure Conference about 110 abstract presenters returned nothing and now return Student, Resident, Physician or Nurse). The three GCC Hub speakers who sat on Physician were given Faculty registrations by hand that afternoon and return "Faculty"
+- **A picker cannot show "Faculty" twice**: an ordinary type that is only called "Faculty" is left out of a picker that offers the Faculty choice (`isFacultyLookalikeName`). Seven events hold such a type, all ended; a clone of one would have shown two identical entries, one of them a delegate type
+
 ### Speakers API: `registrationType` says "Faculty" for a Faculty registration (November 12)
 
 Owner: "check why ahmad turk, ammar chaudhary reg type is PHYSICIAN instead of faculty, whereas they are marked reg type as faculty in production ... in the api, when I fetch it."

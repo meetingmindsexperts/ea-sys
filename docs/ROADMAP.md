@@ -181,8 +181,12 @@ them and a payment reminder will bill them. Not built: settling on a move to Con
 covers the status CHANGE only; a registration imported onto a Faculty type for a
 speaker who is already confirmed stays as imported until the script, or an edit.
 
-**Decision waiting on the owner: a speaker whose registration is on a delegate type
-cannot be moved onto Faculty.** Found Nov 12, 2026 on the 4th GCC Hematology Hub:
+**~~Decision waiting on the owner: a speaker whose registration is on a delegate type
+cannot be moved onto Faculty.~~ CLOSED Nov 12, 2026: the team fixed the three by hand
+(deleted the Physician registration, then Grant Registration on the speaker, which
+makes a Faculty one: #78, #79, #80). No "move to Faculty" on the registration sheet was
+built; that route (delete, then grant) is the answer for a registration with no money
+on it. The history:** Found Nov 12, 2026 on the 4th GCC Hematology Hub:
 registrations 028, 043 and 044 were imported from Contacts as Physician with the Early
 Bird rate (150) on Oct 16, each made a speaker seconds later, and "corrected" on the
 speaker's own Registration Type dropdown, which only wrote a label (fixed that day: the

@@ -34,27 +34,40 @@ vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () =>
 vi.mock("@/lib/api-auth", () => ({ getOrgContext: vi.fn(async () => null) }));
 vi.mock("@/services/speaker-service", () => ({ updateSpeaker: vi.fn(), createSpeaker: vi.fn() }));
 
-const FACULTY = { isFaculty: true };
-const PHYSICIAN = { isFaculty: false };
+const FACULTY = { name: "Faculty", isFaculty: true };
+const PHYSICIAN = { name: "Physician", isFaculty: false };
+const NURSE = { name: "Nurse ", isFaculty: false };
 
+// Owner, Nov 12, 2026: "if reg type is changed to physician, then API should
+// return physician, and faculty, then faculty, if nurse then nurse. They
+// should not diverge."
 describe("speakerApiRegistrationType", () => {
-  it("says Faculty for a live registration on a Faculty type, whatever the speaker's own text says", () => {
+  it("is the registration's own type, whatever the speaker's own text says", () => {
     // Ahmad Turk and Ammar Chaudhary: text "Physician", registration Faculty.
     expect(speakerApiRegistrationType("Physician", { status: "CONFIRMED", ticketType: FACULTY })).toBe("Faculty");
     expect(speakerApiRegistrationType(null, { status: "PENDING", ticketType: FACULTY })).toBe("Faculty");
-    expect(speakerApiRegistrationType("Faculty.", { status: "CHECKED_IN", ticketType: FACULTY })).toBe("Faculty");
+    // The other way round: text "Faculty", registration Physician.
+    expect(speakerApiRegistrationType("Faculty", { status: "PENDING", ticketType: PHYSICIAN })).toBe("Physician");
+    expect(speakerApiRegistrationType("Student", { status: "CONFIRMED", ticketType: NURSE })).toBe("Nurse");
+    expect(speakerApiRegistrationType(null, { status: "CHECKED_IN", ticketType: PHYSICIAN })).toBe("Physician");
   });
 
-  it("keeps the speaker's own text, untouched, for everyone else", () => {
-    // The three GCC Hub speakers on a Physician registration: saved as Faculty for the website.
-    expect(speakerApiRegistrationType("Faculty", { status: "PENDING", ticketType: PHYSICIAN })).toBe("Faculty");
-    expect(speakerApiRegistrationType("Student", { status: "CONFIRMED", ticketType: PHYSICIAN })).toBe("Student");
+  it("follows a change of the registration's type and nothing else", () => {
+    const speakerText = "Faculty";
+    const asType = (ticketType: { name: string; isFaculty: boolean }) => speakerApiRegistrationType(speakerText, { status: "CONFIRMED", ticketType });
+    expect([PHYSICIAN, FACULTY, NURSE].map(asType)).toEqual(["Physician", "Faculty", "Nurse"]);
+  });
+
+  it("says the one word Faculty for a Faculty type, whatever the type row is called", () => {
+    for (const name of ["Faculty.", "Speakers", "Faculty (speakers)"]) {
+      expect(speakerApiRegistrationType("x", { status: "CONFIRMED", ticketType: { name, isFaculty: true } })).toBe("Faculty");
+    }
+  });
+
+  it("falls back to the speaker's own text only while there is no typed, live registration", () => {
     expect(speakerApiRegistrationType(" Nurse ", null)).toBe(" Nurse ");
     expect(speakerApiRegistrationType(null, null)).toBeNull();
-    expect(speakerApiRegistrationType(undefined, { status: "CONFIRMED", ticketType: null })).toBeNull();
-  });
-
-  it("does not count a cancelled Faculty registration", () => {
+    expect(speakerApiRegistrationType("Faculty", { status: "PENDING", ticketType: null })).toBe("Faculty");
     expect(speakerApiRegistrationType("Physician", { status: "CANCELLED", ticketType: FACULTY })).toBe("Physician");
   });
 });
@@ -68,7 +81,7 @@ describe("the two reads", () => {
     mockDb.event.findFirst.mockResolvedValue({ id: "e1", organizationId: "org1", eventType: "CONFERENCE", staffAssignments: [] });
   });
 
-  it("GET /speakers serves Faculty for a Faculty registration and sends on only the registration's number", async () => {
+  it("GET /speakers serves each registration's own type and sends on only the registration's number", async () => {
     mockDb.speaker.findMany.mockResolvedValue([
       { id: "turk", firstName: "Ahmad", registrationType: "Physician", abstracts: [], sessionProposals: [], sourceRegistration: { serialId: 75, status: "CONFIRMED", ticketType: FACULTY } },
       { id: "malallah", firstName: "Fatima", registrationType: "Faculty", abstracts: [], sessionProposals: [], sourceRegistration: { serialId: 43, status: "PENDING", ticketType: PHYSICIAN } },
@@ -79,12 +92,14 @@ describe("the two reads", () => {
     const res = await GET(new Request("http://x/api/events/e1/speakers"), { params: Promise.resolve({ eventId: "e1" }) });
     expect(res.status).toBe(200);
     const rows = (await res.json()) as { id: string; registrationType: string | null; sourceRegistration: unknown }[];
-    expect(rows.map((r) => [r.id, r.registrationType])).toEqual([["turk", "Faculty"], ["malallah", "Faculty"], ["student", "Student"], ["none", null]]);
+    // The registration decides: Faculty, Physician (her text said Faculty),
+    // Physician (his text said Student); the text only where there is none.
+    expect(rows.map((r) => [r.id, r.registrationType])).toEqual([["turk", "Faculty"], ["malallah", "Physician"], ["student", "Physician"], ["none", null]]);
     // The status and the type flag were read to decide; neither is sent.
     expect(rows[0].sourceRegistration).toEqual({ serialId: 75 });
     expect(rows[3].sourceRegistration).toBeNull();
     const select = mockDb.speaker.findMany.mock.calls[0][0].include.sourceRegistration.select;
-    expect(select).toEqual({ serialId: true, status: true, ticketType: { select: { isFaculty: true } } });
+    expect(select).toEqual({ serialId: true, status: true, ticketType: { select: { name: true, isFaculty: true } } });
   });
 
   it("GET /speakers/{id} serves the same value", async () => {

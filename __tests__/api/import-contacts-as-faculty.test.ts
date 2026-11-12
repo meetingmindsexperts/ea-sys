@@ -150,7 +150,9 @@ describe("the dialog offers the choice", () => {
   it("as its own entry, to someone who may add faculty, and never as a type from the list", () => {
     expect(src).toContain("{canAddFaculty && <SelectItem value={FACULTY_CHOICE}>{SPEAKERS_TYPE_LABEL}</SelectItem>}");
     expect(src).toContain('useCan("speakers.create", eventId)');
-    expect(src).toContain("const selectableTickets = tickets.filter((t) => !t.isFaculty);");
+    // A Faculty TYPE is never listed, and an ordinary type that is only called
+    // "Faculty" is not listed beside the real choice under the same word.
+    expect(src).toContain("const selectableTickets = tickets.filter((t) => !t.isFaculty && !(canAddFaculty && isFacultyLookalikeName(t.name)));");
   });
 
   it("sends the choice, with no type and no rate", () => {

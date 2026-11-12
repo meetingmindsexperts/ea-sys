@@ -153,12 +153,14 @@ describe("buildRegistrationExportRow", () => {
     expect(col(r, "Total Paid")).toBe("0.00"); // visible, and genuinely zero
   });
 
-  it("shows a faculty companion's profession, never the literal 'Faculty'", () => {
+  // Owner, Nov 12, 2026: "short faculty everywhere". It printed the attendee's
+  // profession ("Physician") for a Faculty registration until then.
+  it("names a Faculty registration Faculty, whatever profession the attendee carries", () => {
     const r = buildRegistrationExportRow(
       row({ ticketType: { id: "tt_f", name: "Faculty", isFaculty: true, currency: "USD", price: 0 } }),
       ctx,
     );
-    expect(col(r, "Registration Type")).toBe("Physician");
+    expect(col(r, "Registration Type")).toBe("Faculty");
   });
 
   it("tolerates a row with every optional field missing", () => {

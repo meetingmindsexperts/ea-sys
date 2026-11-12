@@ -83,7 +83,8 @@ describe("the speakers sheet's type column", () => {
       speaker({ id: "cancelled", sourceRegistration: { status: "CANCELLED", ticketType: { name: "Physician", isFaculty: false }, attendee: null } }),
       speaker({ id: "none", sourceRegistrationId: null, sourceRegistration: null }),
     ]);
-    expect(await typeColumn()).toEqual(["Physician", "Nurse", "Faculty", "Faculty"]);
+    // The Faculty registration reads Faculty, not the attendee's "Nurse".
+    expect(await typeColumn()).toEqual(["Physician", "Faculty", "Faculty", "Faculty"]);
   });
 
   // The speakers CSV import reads a "Registration Type" column into the

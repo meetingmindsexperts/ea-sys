@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useCan } from "@/hooks/use-can";
-import { SPEAKERS_TYPE_LABEL } from "@/lib/faculty-filter";
+import { SPEAKERS_TYPE_LABEL, isFacultyLookalikeName } from "@/lib/faculty-filter";
 import { speakerContactImportNotice, type SpeakerContactImportResult } from "@/lib/speaker-registration-messages";
 import { Search, Users } from "lucide-react";
 
@@ -92,7 +92,7 @@ export function ImportContactsDialog({
   // every delegate count, so a delegate imported onto it disappears from the
   // stats (the server refuses it too). Faculty come in through the explicit
   // choice above.
-  const selectableTickets = tickets.filter((t) => !t.isFaculty);
+  const selectableTickets = tickets.filter((t) => !t.isFaculty && !(canAddFaculty && isFacultyLookalikeName(t.name)));
   // Whether the event charges — decides the warning under the typeless choice.
   // Tiers count: the standard setup leaves the type's base price at 0 and
   // puts the real money on the tiers.

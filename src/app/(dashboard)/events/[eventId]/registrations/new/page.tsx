@@ -25,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import type { TicketType } from "../types";
 import { COMMITTEE_ROLES, COMMITTEE_ROLE_LABELS, type CommitteeRole } from "@/lib/faculty-registration";
-import { SPEAKERS_TYPE_LABEL } from "@/lib/faculty-filter";
+import { SPEAKERS_TYPE_LABEL, isFacultyLookalikeName } from "@/lib/faculty-filter";
 
 /** The Type picker's value for "Faculty": the route resolves the event's Faculty type itself. */
 const FACULTY_CHOICE = "__faculty__";
@@ -342,7 +342,7 @@ export default function NewRegistrationPage() {
                         delegate. Inactive types are left out: the create path
                         refuses them, so offering one only failed on save. */}
                     {canAddFaculty && <SelectItem value={FACULTY_CHOICE}>{SPEAKERS_TYPE_LABEL}</SelectItem>}
-                    {(ticketTypes as TicketType[]).filter((t) => !t.isFaculty && t.isActive !== false).map((regType) => {
+                    {(ticketTypes as TicketType[]).filter((t) => !t.isFaculty && t.isActive !== false && !(canAddFaculty && isFacultyLookalikeName(t.name))).map((regType) => {
                       // Hide the "- $X" suffix when the type has ANY pricing
                       // tiers (active or inactive) — the Pricing Tier dropdown
                       // is the source of truth on the admin manual-add path,
