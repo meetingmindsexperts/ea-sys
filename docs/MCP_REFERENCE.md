@@ -2,7 +2,7 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** November 11, 2026. **123 tools** across 18 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
+**Last updated:** November 12, 2026. **125 tools** across 18 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
 
 ### July 29, 2026 — Optional registration type + Faculty guard (`0.4.27`)
 
@@ -127,7 +127,7 @@ Two authentication methods are supported on `/api/mcp`, checked in order:
 
 Both return the same `{ organizationId }` context, so downstream tools don't care which method authenticated the request. Tools are automatically scoped to the authenticated org.
 
-## Tools (123 total)
+## Tools (125 total)
 
 ### Organization-level (6)
 
@@ -315,13 +315,13 @@ No tool opens, edits or deletes a survey, or submits an answer.
 |---|---|
 | `list_media` | Org media library (upload stays dashboard-only) |
 
-### CRM (26)
+### CRM (28)
 
 | Tool | Description |
 |---|---|
-| `list_crm_deals` | List CRM sponsorship deals. |
+| `list_crm_deals` | List CRM deals, filterable by the event they count under or by corporate project. |
 | `get_crm_deal` | Full detail for ONE deal: fields, its line-item products (with a currency-aware products total), the contacts on the deal (with roles), recent notes/activity, and open tasks. |
-| `create_crm_deal` | Create a sponsorship deal. |
+| `create_crm_deal` | Create a deal for an event (`eventId`) or for a corporate project (`projectId`): exactly one of the two. |
 | `update_crm_deal` | Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId (re-point to another event; clearing is refused — a deal must stay on a project), pipeline (deal CATEGORY CORPORATE |
 | `move_crm_deal_stage` | Move a deal to another pipeline stage (by stage name or id). |
 | `close_crm_deal` | Close a deal as WON or LOST. |
@@ -331,6 +331,8 @@ No tool opens, edits or deletes a survey, or submits an answer.
 | `get_crm_company` | Full detail for ONE CRM account: profile, per-currency Open/Won/Lost/Total deal value (LOST separate, never in Total), its deals, and its people. |
 | `create_crm_company` | Create a CRM account (company) — or link to the existing one if the name already exists (deduped on the normalized name; a near-duplicate is created but flagged for human review). |
 | `update_crm_company` | Update a CRM account's fields: name, industry, website, phone, country, city, notes, tags (REPLACES the whole list), needsReview (set false once you've confirmed a flagged near-duplicate is distinct). |
+| `list_crm_projects` | List corporate projects (work that is not an event in the system): client, days, place, owner, deal counts and per-currency value, and the event a project is linked to when it was entered by mistake for one. |
+| `create_crm_project` | Create a corporate project, so a deal can be created on it (`create_crm_deal` with `projectId`). One name per organisation. |
 | `list_crm_contacts` | List CRM business contacts (the people at accounts). |
 | `create_crm_contact` | Create a CRM business contact — or link to the existing one if the email already exists (deduped on the normalized email). |
 | `update_crm_contact` | Update a CRM contact's fields: firstName, lastName, email (kept deduped), companyId (re-point to another account; null unlinks), jobTitle, phone, mobile, country, notes, ownerEmail (reassign; null uno |

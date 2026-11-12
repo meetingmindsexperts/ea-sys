@@ -38,17 +38,20 @@ export function CreateDealDialog({
   onOpenChange,
   stages,
   defaultEventId,
+  defaultProject,
   defaultCompany,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   stages: CrmStage[];
   defaultEventId?: string | null;
+  /** Start the deal on this corporate project (its own page, or the board filtered to it). */
+  defaultProject?: { id: string; name: string } | null;
   /** Pre-select the account — the "New deal" button on a company page. */
   defaultCompany?: CompanySelection | null;
 }) {
   const [form, setForm] = useState<CrmDealFormState>(() =>
-    emptyCrmDealForm({ eventId: defaultEventId, company: defaultCompany }),
+    emptyCrmDealForm({ eventId: defaultEventId, project: defaultProject, company: defaultCompany }),
   );
   const [stageId, setStageId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -63,7 +66,7 @@ export function CreateDealDialog({
   const effectiveStage = stageId || firstOpenStage;
 
   function reset() {
-    setForm(emptyCrmDealForm({ eventId: defaultEventId, company: defaultCompany }));
+    setForm(emptyCrmDealForm({ eventId: defaultEventId, project: defaultProject, company: defaultCompany }));
     setStageId("");
   }
 
@@ -103,7 +106,7 @@ export function CreateDealDialog({
         <DialogHeader>
           <DialogTitle>New deal</DialogTitle>
           <DialogDescription asChild>
-            <span>Track a sponsorship or exhibitor opportunity against an event.</span>
+            <span>Track a sponsorship or exhibitor opportunity against an event, or a deal for a corporate project.</span>
           </DialogDescription>
         </DialogHeader>
 

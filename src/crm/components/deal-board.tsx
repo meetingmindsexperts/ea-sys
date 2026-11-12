@@ -336,6 +336,18 @@ function DealCard({
               </Badge>
             </div>
           )}
+          {/* A deal is for an event OR a corporate project: the same row, a different tint. */}
+          {deal.project && (
+            <div className="mt-1.5 flex">
+              <Badge
+                variant="outline"
+                className="min-w-0 max-w-full overflow-hidden border-violet-200 bg-violet-50 text-[10px] text-violet-700"
+                title={deal.project.event ? `${deal.project.name} (counts under ${deal.project.event.name})` : `${deal.project.name} (corporate project)`}
+              >
+                <span className="truncate">{deal.project.name}</span>
+              </Badge>
+            </div>
+          )}
 
           <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <span className="flex min-w-0 items-center gap-1.5">

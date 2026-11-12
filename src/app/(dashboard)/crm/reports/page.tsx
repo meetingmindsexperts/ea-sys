@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EventCombobox } from "@/crm/components/event-combobox";
+import { ProjectCombobox } from "@/crm/components/project-combobox";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { useCrmReport, useCrmDealTypes } from "@/crm/hooks/use-crm-api";
@@ -45,7 +46,7 @@ import {
   parseReportDimension,
 } from "@/crm/lib/reports";
 
-const REPORT_FILTER_KEYS = ["event", "owner", "pipeline", "dealType", "dateField", "from", "to"];
+const REPORT_FILTER_KEYS = ["event", "project", "owner", "pipeline", "dealType", "dateField", "from", "to"];
 const ALL_PIPELINE = "__all__";
 const ALL_DEAL_TYPE = "__all__";
 /** The breakdown shown when the URL names no dimension: pipeline, the first split a manager asks for. */
@@ -75,6 +76,7 @@ function ReportsInner() {
   const groupBy = parseReportDimension(get("groupBy")) ?? DEFAULT_GROUP_BY;
   const filters = {
     eventId: get("event") || undefined,
+    projectId: get("project") || undefined,
     ownerId: get("owner") || undefined,
     pipeline: get("pipeline") || undefined,
     dealTypeId: get("dealType") || undefined,
@@ -93,6 +95,7 @@ function ReportsInner() {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries({
       event: get("event"),
+      project: get("project"),
       owner: get("owner"),
       status: get("status"),
       pipeline: get("pipeline"),
@@ -132,6 +135,12 @@ function ReportsInner() {
           value={get("event") || null}
           onChange={(v) => set({ event: v })}
           clearLabel="All events"
+          className="w-[14rem]"
+        />
+        <ProjectCombobox
+          value={get("project") || null}
+          onChange={(v) => set({ project: v })}
+          clearLabel="All projects"
           className="w-[14rem]"
         />
         <OwnerFilter value={get("owner")} onChange={(v) => set({ owner: v })} />
@@ -461,6 +470,7 @@ function ReportSkeleton() {
 /** The export endpoint names its id filters differently from the page's URL keys. */
 function exportParamName(key: string): string {
   if (key === "event") return "eventId";
+  if (key === "project") return "projectId";
   if (key === "owner") return "ownerId";
   if (key === "dealType") return "dealTypeId";
   return key;

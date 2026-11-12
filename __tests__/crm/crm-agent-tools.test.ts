@@ -82,6 +82,9 @@ describe("registerCrmMcpTools — the discoverable surface", () => {
         "create_crm_company",
         "get_crm_company",
         "update_crm_company",
+        // Corporate projects
+        "list_crm_projects",
+        "create_crm_project",
         // Contacts
         "list_crm_contacts",
         "create_crm_contact",

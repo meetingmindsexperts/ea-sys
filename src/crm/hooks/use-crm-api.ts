@@ -16,7 +16,7 @@
  *      the colleague moved it somewhere else entirely.
  * An optimistic update with no rollback path is a lie the UI tells the user.
  */
-import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { BreakdownRow, CrmReportDimension } from "@/crm/lib/reports";
 import { toast } from "sonner";
 import { ApiError, apiFetch, apiPostJson, apiPatchJson, apiPutJson, apiDelete } from "@/lib/api-fetch";
@@ -41,6 +41,8 @@ import type {
   CrmDealProductRow,
   CrmDealDocumentRow,
   CrmInboxThreadRow,
+  CrmProjectRow,
+  CrmProjectDetail,
   CrmInboxThreadDetail,
   SponsorRecipient,
 } from "@/crm/lib/crm-types";
@@ -48,7 +50,9 @@ import type { CrmQuoteDraft, CrmQuoteRow, QuoteInput } from "@/crm/lib/quote-rul
 import type { CrmQuickBooksSettings, QuickBooksProblem } from "@/crm/lib/quickbooks-rules";
 
 export interface CrmDealFilters {
+  /** The event the deals count under: its own and a linked corporate project's. */
   eventId?: string;
+  projectId?: string;
   ownerId?: string;
   status?: string;
   pipeline?: string;
@@ -97,6 +101,8 @@ export const crmKeys = {
   quickBooksLookup: (kind: "customers" | "items" | "tax-codes", search: string) => ["crm", "quickbooks", kind, search] as const,
   quoteQuickBooks: (dealId: string, quoteId: string) => ["crm", "quickbooks", "quote", dealId, quoteId] as const,
   notifications: ["crm", "notifications"] as const,
+  projects: (filters?: CrmProjectFilters) => ["crm", "projects", filters ?? {}] as const,
+  project: (id: string) => ["crm", "project", id] as const,
   inbox: (dealId?: string) => ["crm", "inbox", dealId ?? ""] as const,
   inboxThread: (threadId: string) => ["crm", "inbox-thread", threadId] as const,
   // Invalidation prefixes — match every variant of the corresponding full key.
@@ -110,7 +116,21 @@ export const crmKeys = {
   emailTemplatesPrefix: ["crm", "email-templates"] as const,
   productsPrefix: ["crm", "products"] as const,
   inboxPrefix: ["crm", "inbox"] as const,
+  projectsPrefix: ["crm", "projects"] as const,
+  projectPrefix: ["crm", "project"] as const,
+  reportsPrefix: ["crm", "report"] as const,
 };
+
+/**
+ * A corporate project's page and the Projects list are built from its deals
+ * (the count, the open and won totals, the deal list), so every deal change
+ * refreshes them too. Found Nov 12, 2026: a deal created from a project's own
+ * page did not appear on it until a reload.
+ */
+function invalidateProjectViews(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: crmKeys.projectsPrefix });
+  qc.invalidateQueries({ queryKey: crmKeys.projectPrefix });
+}
 
 // ── Pipeline ─────────────────────────────────────────────────────────────────
 
@@ -284,6 +304,7 @@ export function useCreateDeal() {
       apiPostJson<{ deal: CrmBoardDeal }>("/api/crm/deals", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
+      invalidateProjectViews(qc);
       qc.invalidateQueries({ queryKey: crmKeys.companiesPrefix });
       qc.invalidateQueries({ queryKey: crmKeys.companyPrefix }); // detail pages (deal list)
     },
@@ -297,6 +318,7 @@ export function useUpdateDeal(dealId: string) {
       apiPatchJson<{ deal: CrmBoardDeal }>(`/api/crm/deals/${dealId}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
+      invalidateProjectViews(qc);
       qc.invalidateQueries({ queryKey: crmKeys.deal(dealId) });
     },
   });
@@ -348,6 +370,8 @@ export function useMoveDealStage(filters: CrmDealFilters = {}) {
 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: key });
+      // A move into Won or Lost changes its project's totals.
+      invalidateProjectViews(qc);
     },
   });
 }
@@ -359,6 +383,7 @@ export function useCloseDeal(dealId: string) {
       apiPostJson<{ deal: CrmBoardDeal }>(`/api/crm/deals/${dealId}/close`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
+      invalidateProjectViews(qc);
       qc.invalidateQueries({ queryKey: crmKeys.deal(dealId) });
     },
   });
@@ -1004,6 +1029,7 @@ export function useSetDealArchived(dealId: string) {
         : apiPatchJson(`/api/crm/deals/${dealId}`, { archived: false }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
+      invalidateProjectViews(qc);
       qc.invalidateQueries({ queryKey: crmKeys.deal(dealId) });
       qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", dealId) });
     },
@@ -1052,6 +1078,67 @@ export function useCrmEvents() {
     queryKey: ["crm", "events-lite"],
     queryFn: () =>
       apiFetch<{ events: Array<{ id: string; name: string }> }>("/api/crm/events-lite").then((r) => r.events),
+  });
+}
+
+// ── Corporate projects (Nov 12, 2026) ────────────────────────────────────────
+
+export interface CrmProjectFilters {
+  q?: string;
+  companyId?: string;
+  ownerId?: string;
+  archived?: string;
+}
+
+/** The organisation's corporate projects, each with its deal counts and totals. */
+export function useCrmProjects(filters: CrmProjectFilters = {}) {
+  const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => !!v) as [string, string][]);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return useQuery({
+    queryKey: crmKeys.projects(filters),
+    queryFn: () => apiFetch<{ projects: CrmProjectRow[] } & CrmListMeta>(`/api/crm/projects${suffix}`),
+  });
+}
+
+export function useCrmProject(projectId: string | null | undefined) {
+  return useQuery({
+    queryKey: crmKeys.project(projectId ?? ""),
+    queryFn: () => apiFetch<{ project: CrmProjectDetail }>(`/api/crm/projects/${projectId}`).then((r) => r.project),
+    enabled: !!projectId,
+  });
+}
+
+/**
+ * A project change reaches further than its own page: its name is on deal
+ * cards, and linking it to an event moves its deals under that event on the
+ * board's filter and in every report. So each mutation refreshes all four.
+ */
+function useInvalidateProjects() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: crmKeys.projectsPrefix });
+    qc.invalidateQueries({ queryKey: crmKeys.projectPrefix });
+    qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
+    qc.invalidateQueries({ queryKey: crmKeys.dealPrefix });
+    qc.invalidateQueries({ queryKey: crmKeys.reportsPrefix });
+  };
+}
+
+export function useCreateProject() {
+  const invalidate = useInvalidateProjects();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiPostJson<{ project: { id: string; name: string } }>("/api/crm/projects", body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateProject(projectId: string) {
+  const invalidate = useInvalidateProjects();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiPatchJson<{ project: { id: string } }>(`/api/crm/projects/${projectId}`, body),
+    onSuccess: invalidate,
   });
 }
 

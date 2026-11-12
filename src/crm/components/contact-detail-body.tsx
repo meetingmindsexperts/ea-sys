@@ -350,7 +350,7 @@ export function ContactDetailBody({
                       <div className="min-w-0">
                         <p className="truncate font-medium">{deal.name}</p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {deal.event ? `${deal.event.name} · ` : ""}
+                          {(deal.event ?? deal.project) ? `${(deal.event ?? deal.project)!.name} · ` : ""}
                           {role.charAt(0) + role.slice(1).toLowerCase()}
                         </p>
                       </div>

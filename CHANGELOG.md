@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM: corporate projects - the screens, the agent and the guide (November 12)
+
+The second half of corporate projects (the data, rules and API are the entry below).
+
+- **Projects tab** - `/crm/projects`: every corporate project with its client, days, place, owner, deal counts and its open and won value, one figure per currency. Search, an owner filter and an Archived view, kept in the web address like the other CRM lists. `/crm/projects/[projectId]`: the project, its deals, **New deal** on it, Edit, Archive
+- **A deal is for an event or a corporate project** - The deal form's event picker became a choice between **An event** and **A corporate project**; choosing a project on an uncategorised deal files it under Corporate. The project picker creates a project from a typed name, as the account picker does. Deal cards, the deal page, account and contact pages show the project where there is no event
+- **"Is this really an event?"** - On a project's page: link it to the event it duplicates, with what that changes spelled out (its deals count under that event in the reports and in the event's budget revenue; nothing is moved; Unlink puts them back)
+- **Board and reports** - A project filter beside the event filter on both; Reports gains the Corporate project and Event or project breakdowns
+- **Agent and MCP** - `create_crm_deal` and `update_crm_deal` take `projectId`; `list_crm_deals` and `get_crm_report` filter by it; new `list_crm_projects` and `create_crm_project` (125 tools, package version 0.4.58). **Connected MCP clients must disconnect and reconnect to see the new tools**
+- **Found by the browser check** - A deal created from a project's own page did not appear on it until a reload: deal changes did not refresh project queries. Every deal mutation now does
+- **Verified** - On a production build (the running dev server held the old database client): 19 checks through the Projects tab, the deal form, the board, the deal page, the reports before and after linking and unlinking, and archive; no console warnings, no failed requests. Screenshots in `screenshots/2026-11-12_crm-corporate-projects/`
+
 ### CRM: corporate projects, and a deal is for an event or a project (November 12) - data and API
 
 Asked for by the sales team: they sell corporate work that is not an event in EA-SYS (a client's own meeting, an advisory board), and a deal could not be entered without an event. Owner decisions the same day: a list of corporate projects inside the CRM; a deal is for an event OR a project, never both and never neither; anyone who creates deals may create a project; a project records its client account, days, place and owner. This entry is the data model, the rules and the API; the screens follow.

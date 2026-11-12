@@ -409,7 +409,7 @@ export function CompanyDetailBody({
                     >
                       <div className="min-w-0">
                         <p className="truncate font-medium">{d.name}</p>
-                        {d.event && <p className="truncate text-xs text-muted-foreground">{d.event.name}</p>}
+                        {(d.event ?? d.project) && <p className="truncate text-xs text-muted-foreground">{(d.event ?? d.project)!.name}</p>}
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         <span className="font-medium tabular-nums">{value ?? <Dash />}</span>

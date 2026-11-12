@@ -40,6 +40,8 @@ import {
   closeDeal,
 } from "@/crm/services/deal-service";
 import { findOrCreateCompany, updateCompany } from "@/crm/services/company-service";
+import { createProject } from "@/crm/services/project-service";
+import { PROJECT_SELECT, parseDay, projectRow } from "@/crm/lib/project-rows";
 import { findOrCreateCrmContact, updateCrmContact } from "@/crm/services/crm-contact-service";
 import {
   ensureCrmProducts,
@@ -101,6 +103,12 @@ function valueBreakdownLine(deals: RollupDeal[]): string {
         ` · total ${fmtNum(b.total)}`,
     )
     .join("; ");
+}
+
+/** A corporate project's days as text: one day, a range, or "no dates". */
+function projectDaysText(startDate: string | null, endDate: string | null): string {
+  if (!startDate) return "no dates";
+  return endDate && endDate !== startDate ? `${startDate} to ${endDate}` : startDate;
 }
 
 /**
@@ -285,9 +293,10 @@ export function registerCrmMcpTools(
 
   server.tool(
     "list_crm_deals",
-    "List CRM sponsorship deals. Filters: eventId, status (OPEN/WON/LOST), pipeline (CORPORATE/CONFERENCE — the deal CATEGORY, distinct from the pipeline STAGES in list_crm_pipeline), dealType (the org-configurable business line — name or id, call list_crm_deal_types), stage (name or id), search (deal name contains), includeArchived, limit (default 50, max 200).",
+    "List CRM deals. Filters: eventId (the event the deals count under: its own deals and those of a corporate project linked to it), projectId (a corporate project's deals, call list_crm_projects), status (OPEN/WON/LOST), pipeline (CORPORATE/CONFERENCE — the deal CATEGORY, distinct from the pipeline STAGES in list_crm_pipeline), dealType (the org-configurable business line — name or id, call list_crm_deal_types), stage (name or id), search (deal name contains), includeArchived, limit (default 50, max 200).",
     {
       eventId: z.string().optional(),
+      projectId: z.string().optional().describe("Corporate project id (list_crm_projects)"),
       status: z.enum(["OPEN", "WON", "LOST"]).optional(),
       pipeline: z.nativeEnum(CrmDealPipeline).optional().describe("Deal category: CORPORATE or CONFERENCE"),
       dealType: z.string().optional().describe("Deal type name or id (list_crm_deal_types)"),
@@ -296,11 +305,12 @@ export function registerCrmMcpTools(
       includeArchived: z.boolean().optional(),
       limit: z.number().optional(),
     },
-    async ({ eventId, status, pipeline, dealType, stage, search, includeArchived, limit }) =>
+    async ({ eventId, projectId, status, pipeline, dealType, stage, search, includeArchived, limit }) =>
       safeTool("list_crm_deals", async () => {
         const where = buildDealWhere(
           {
             eventId: eventId ?? null,
+            projectId: projectId ?? null,
             status: status ?? null,
             pipeline: pipeline ?? null,
             archived: includeArchived ? "1" : null,
@@ -369,10 +379,11 @@ export function registerCrmMcpTools(
 
   writeServer.tool(
     "create_crm_deal",
-    "Create a sponsorship deal. Required: name, eventId (the project the deal is sold against — a deal without an event is refused). Optional: companyName (the account — found or created, deduped on the normalized name), stage (name or id; defaults to the first open stage), pipeline (deal CATEGORY — CORPORATE or CONFERENCE; NOT a pipeline stage), dealType (the org-configurable business line — name or id, call list_crm_deal_types), tags (free-form labels, normalized), dealValue, currency (default USD), expectedClose (ISO date). Project date + location are derived from the event, not set here.",
+    "Create a deal. Required: name, and EXACTLY ONE of eventId (the event the deal is sold against) or projectId (a corporate project, for work that is not an event in the system: call list_crm_projects, or create_crm_project first). Both, or neither, is refused. Optional: companyName (the account — found or created, deduped on the normalized name), stage (name or id; defaults to the first open stage), pipeline (deal CATEGORY — CORPORATE or CONFERENCE; NOT a pipeline stage), dealType (the org-configurable business line — name or id, call list_crm_deal_types), tags (free-form labels, normalized), dealValue, currency (default USD), expectedClose (ISO date). Project date + location are derived from the event, not set here.",
     {
       name: z.string().min(1).max(255),
-      eventId: z.string().min(1),
+      eventId: z.string().min(1).optional().describe("The event the deal is for. Give this OR projectId, never both"),
+      projectId: z.string().min(1).optional().describe("The corporate project the deal is for, instead of an event"),
       companyName: z.string().optional(),
       stage: z.string().optional(),
       pipeline: z.nativeEnum(CrmDealPipeline).optional().describe("Deal category: CORPORATE or CONFERENCE"),
@@ -418,7 +429,8 @@ export function registerCrmMcpTools(
           name: input.name,
           stageId: stageRow.id,
           companyId,
-          eventId: input.eventId,
+          eventId: input.eventId ?? null,
+          projectId: input.projectId ?? null,
           pipeline: input.pipeline ?? null,
           dealTypeId,
           tags: input.tags,
@@ -436,7 +448,7 @@ export function registerCrmMcpTools(
 
   writeServer.tool(
     "update_crm_deal",
-    "Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId (re-point to another event; clearing is refused — a deal must stay on a project), pipeline (deal CATEGORY CORPORATE/CONFERENCE; pass null to clear), dealType (business line — name or id; pass null to clear), tags (REPLACES the whole tag list, normalized). Stage moves go through move_crm_deal_stage; closing through close_crm_deal.",
+    "Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId or projectId (move the deal to another event or to a corporate project; naming one clears the other, and a deal cannot be left on neither), pipeline (deal CATEGORY CORPORATE/CONFERENCE; pass null to clear), dealType (business line — name or id; pass null to clear), tags (REPLACES the whole tag list, normalized). Stage moves go through move_crm_deal_stage; closing through close_crm_deal.",
     {
       dealId: z.string().min(1),
       name: z.string().optional(),
@@ -444,6 +456,7 @@ export function registerCrmMcpTools(
       currency: z.string().length(3).optional(),
       expectedClose: z.string().nullable().optional(),
       eventId: z.string().optional(),
+      projectId: z.string().optional().describe("Move the deal to this corporate project (clears its event)"),
       pipeline: z.nativeEnum(CrmDealPipeline).nullable().optional().describe("Deal category CORPORATE/CONFERENCE; null clears it"),
       dealType: z.string().nullable().optional().describe("Deal type name or id (list_crm_deal_types); null clears it"),
       tags: z.array(z.string().min(1).max(50)).max(25).optional().describe("Replaces the entire tag list"),
@@ -470,6 +483,7 @@ export function registerCrmMcpTools(
           currency: input.currency,
           expectedClose: optionalDate(input.expectedClose),
           eventId: input.eventId,
+          projectId: input.projectId,
           pipeline: input.pipeline,
           tags: input.tags,
         });
@@ -598,6 +612,87 @@ export function registerCrmMcpTools(
         return res.created
           ? `Company created: ${res.company.name} (${res.company.id})${res.needsReview ? " — flagged as a possible duplicate for review" : ""}`
           : `Linked to the existing company: ${res.company.name} (${res.company.id})`;
+      }),
+  );
+
+  // ── Corporate projects (Nov 12, 2026) ────────────────────────────────────────
+
+  server.tool(
+    "list_crm_projects",
+    "List corporate projects: work the team sells that is not an event in the system (a client's own meeting, an advisory board). A deal is for an event OR one of these. Each row: id, client account, days, place, owner, deal counts and per-currency deal value, and the event it is linked to if it was entered by mistake for an event (its deals then count under that event). Filters: search (name contains), includeArchived, limit (default 50, max 200).",
+    {
+      search: z.string().optional(),
+      includeArchived: z.boolean().optional(),
+      limit: z.number().optional(),
+    },
+    async ({ search, includeArchived, limit }) =>
+      safeTool("list_crm_projects", async () => {
+        const rows = await db.crmProject.findMany({
+          where: {
+            organizationId,
+            ...(includeArchived ? {} : { archivedAt: null }),
+            ...(search ? { name: { contains: search, mode: "insensitive" } } : {}),
+          },
+          select: PROJECT_SELECT,
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: Math.min(limit || 50, 200),
+        });
+        if (rows.length === 0) return "No corporate projects match.";
+        return rows
+          .map((raw) => {
+            const p = projectRow(raw);
+            const days = projectDaysText(p.startDate, p.endDate);
+            return (
+              `${p.name}${p.archivedAt ? " (archived)" : ""}` +
+              `\n  ID: ${p.id} | Client: ${p.company?.name ?? "none"} | ${days}${p.location ? ` | ${p.location}` : ""}` +
+              ` | Owner: ${p.owner ? `${p.owner.firstName} ${p.owner.lastName}` : "none"}` +
+              `\n  Deals: ${p.dealCount} (${p.openDealCount} open, ${p.wonDealCount} won)` +
+              // Money only for a caller who may see deal values.
+              (canSeeValues ? ` | Value: ${valueBreakdownLine(raw.deals)}` : "") +
+              (p.event ? `\n  Linked to the event "${p.event.name}" (${p.event.id}): its deals count under that event` : "")
+            );
+          })
+          .join("\n\n");
+      }),
+  );
+
+  writeServer.tool(
+    "create_crm_project",
+    "Create a corporate project (work that is not an event in the system), so a deal can be created on it with create_crm_deal's projectId. Required: name (one per organisation, whatever its case; an existing name is refused and its id returned). Optional: companyName (the client account, found or created), startDate and endDate (YYYY-MM-DD), location. Linking a project to an event is a correction made by a person in the CRM, not here.",
+    {
+      name: z.string().min(1).max(255),
+      companyName: z.string().optional(),
+      startDate: z.string().optional().describe("YYYY-MM-DD"),
+      endDate: z.string().optional().describe("YYYY-MM-DD"),
+      location: z.string().max(255).optional(),
+    },
+    async (input) =>
+      safeTool("create_crm_project", async () => {
+        const startDate = input.startDate ? parseDay(input.startDate) : null;
+        const endDate = input.endDate ? parseDay(input.endDate) : null;
+        if ((input.startDate && !startDate) || (input.endDate && !endDate)) fail("Dates must be real days, as YYYY-MM-DD");
+
+        let companyId: string | null = null;
+        if (input.companyName?.trim()) {
+          const company = await findOrCreateCompany({ organizationId, userId: systemUserId, source: auditSource, name: input.companyName });
+          if (!company.ok) fail(company.message);
+          companyId = company.company.id;
+        }
+        const res = await createProject({
+          organizationId,
+          userId: systemUserId,
+          source: auditSource,
+          name: input.name,
+          companyId,
+          startDate,
+          endDate,
+          location: input.location ?? null,
+        });
+        if (!res.ok) {
+          const existing = res.meta?.existingProjectId;
+          fail(existing ? `${res.message} (ID: ${String(existing)})` : res.message);
+        }
+        return `Corporate project created: ${res.project.name}\n  ID: ${res.project.id}`;
       }),
   );
 
@@ -732,9 +827,9 @@ export function registerCrmMcpTools(
 
   server.tool(
     "get_crm_report",
-    "Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional eventId filter. Optional groupBy adds a breakdown by ONE dimension: pipeline, owner, event, dealType, lostReason, expectedCloseMonth or closedMonth (each row: deals, open/won/lost counts and values, win rate). Money is currency-aware — a bucket mixing currencies reports 'mixed' rather than a fake sum.",
-    { eventId: z.string().optional(), groupBy: z.enum(CRM_REPORT_DIMENSIONS).optional() },
-    async ({ eventId, groupBy }) =>
+    "Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional eventId filter (the event's own deals and those of a corporate project linked to it) or projectId filter. Optional groupBy adds a breakdown by ONE dimension: pipeline, owner, event (the event a deal counts under), project (corporate project), attribution (event or project: every deal under exactly one heading), dealType, lostReason, expectedCloseMonth or closedMonth (each row: deals, open/won/lost counts and values, win rate). Money is currency-aware — a bucket mixing currencies reports 'mixed' rather than a fake sum.",
+    { eventId: z.string().optional(), projectId: z.string().optional(), groupBy: z.enum(CRM_REPORT_DIMENSIONS).optional() },
+    async ({ eventId, projectId, groupBy }) =>
       safeTool("get_crm_report", async () => {
         // ONE report implementation (R2-M9): this tool used to compose its own
         // thinner groupBy shaping, which had already drifted from the REST
@@ -746,7 +841,7 @@ export function registerCrmMcpTools(
           organizationId,
           canSeeValues,
           groupBy: groupBy ?? null,
-          filters: { eventId: eventId ?? null },
+          filters: { eventId: eventId ?? null, projectId: projectId ?? null },
         });
 
         const bucket = (b: { count: number; value: number | null; currency: string | null; mixed: boolean }) =>

@@ -16,6 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TagInput } from "@/components/ui/tag-input";
 import { CompanyCombobox, type CompanySelection } from "@/crm/components/company-combobox";
 import { EventCombobox } from "@/crm/components/event-combobox";
+import { ProjectCombobox } from "@/crm/components/project-combobox";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCrmDealTypes } from "@/crm/hooks/use-crm-api";
 import {
   CRM_DEAL_PIPELINES,
@@ -24,6 +26,8 @@ import {
   type CrmBoardDeal,
   type CrmDealPipeline,
 } from "@/crm/lib/crm-types";
+
+export type DealTargetKind = "event" | "project";
 
 /** Sentinel for the "no category" Select option (Radix forbids an empty value). */
 const NO_PIPELINE = "__none__";
@@ -36,7 +40,16 @@ export interface CrmDealFormState {
   /** Raw input text — parsed by validateDealForm/dealFormPayload. */
   dealValue: string;
   currency: string;
+  /**
+   * What the deal is for: an event or a corporate project, never both and
+   * never neither (deal-attribution.ts). The side not chosen keeps what was
+   * picked, so switching back and forth loses nothing; only the chosen side is sent.
+   */
+  target: DealTargetKind;
   eventId: string | null;
+  projectId: string | null;
+  /** The stored project's name, shown when it is no longer in the picker's list (archived). */
+  projectName: string | null;
   /** yyyy-mm-dd (date input) or "". */
   expectedClose: string;
   /** "" = unclassified. */
@@ -48,6 +61,8 @@ export interface CrmDealFormState {
 
 export function emptyCrmDealForm(defaults?: {
   eventId?: string | null;
+  /** Start the deal on this corporate project (the "New deal" button on a project's page). */
+  project?: { id: string; name: string } | null;
   company?: CompanySelection | null;
 }): CrmDealFormState {
   return {
@@ -55,9 +70,13 @@ export function emptyCrmDealForm(defaults?: {
     company: defaults?.company ?? null,
     dealValue: "",
     currency: "USD",
+    target: defaults?.project ? "project" : "event",
     eventId: defaults?.eventId ?? null,
+    projectId: defaults?.project?.id ?? null,
+    projectName: defaults?.project?.name ?? null,
     expectedClose: "",
-    pipeline: "",
+    // A deal for a corporate project starts in the Corporate category.
+    pipeline: defaults?.project ? "CORPORATE" : "",
     dealTypeId: null,
     tags: [],
   };
@@ -75,7 +94,10 @@ export function crmDealToForm(deal: CrmBoardDeal): CrmDealFormState {
     company: deal.company ? { id: deal.company.id, name: deal.company.name } : null,
     dealValue: deal.dealValue != null ? String(deal.dealValue) : "",
     currency: deal.currency || "USD",
+    target: deal.project ? "project" : "event",
     eventId: deal.event?.id ?? null,
+    projectId: deal.project?.id ?? null,
+    projectName: deal.project?.name ?? null,
     expectedClose: toDateInput(deal.expectedClose),
     pipeline: deal.pipeline ?? "",
     dealTypeId: deal.dealTypeId ?? deal.dealType?.id ?? null,
@@ -86,7 +108,8 @@ export function crmDealToForm(deal: CrmBoardDeal): CrmDealFormState {
 /** First failing rule as a toast-ready message, or null when the form is sound. */
 export function validateDealForm(f: CrmDealFormState): string | null {
   if (!f.name.trim()) return "Give the deal a name";
-  if (!f.eventId) return "Select the event (project) this deal is for";
+  if (f.target === "event" && !f.eventId) return "Select the event this deal is for";
+  if (f.target === "project" && !f.projectId) return "Select the corporate project this deal is for";
   const v = f.dealValue.trim();
   if (v && !Number.isFinite(Number(v))) return "Deal value must be a number";
   return null;
@@ -101,7 +124,10 @@ export function crmDealFormPayload(f: CrmDealFormState, companyId: string | null
   return {
     name: f.name.trim(),
     companyId,
-    eventId: f.eventId,
+    // Exactly one side is sent as an id, the other as null: on an edit that
+    // moves the deal across, the service clears the side it left.
+    eventId: f.target === "event" ? f.eventId : null,
+    projectId: f.target === "project" ? f.projectId : null,
     dealValue: f.dealValue.trim() ? Number(f.dealValue) : null,
     currency: f.currency,
     expectedClose: f.expectedClose || null,
@@ -172,19 +198,52 @@ export function CrmDealFormFields({
     </div>
   );
 
+  // Choosing "a corporate project" on an uncategorised deal also files it under Corporate.
+  function chooseTarget(target: DealTargetKind) {
+    onChange({ target, ...(target === "project" && !f.pipeline ? { pipeline: "CORPORATE" as const } : {}) });
+  }
+
   const eventField = (
     <div className="space-y-2">
       <Label>
-        Event (project) <span className="text-destructive">*</span>
+        This deal is for <span className="text-destructive">*</span>
       </Label>
-      <EventCombobox
-        value={f.eventId}
-        onChange={(eventId) => onChange({ eventId })}
-        allowClear={false}
-        placeholder="Select an event…"
-        className="w-full"
-      />
-      {eventHint}
+      <Tabs value={f.target} onValueChange={(v) => chooseTarget(v as DealTargetKind)}>
+        <TabsList className="w-full">
+          <TabsTrigger value="event" className="flex-1">
+            An event
+          </TabsTrigger>
+          <TabsTrigger value="project" className="flex-1">
+            A corporate project
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {f.target === "event" ? (
+        <EventCombobox
+          value={f.eventId}
+          onChange={(eventId) => onChange({ eventId })}
+          allowClear={false}
+          placeholder="Select an event…"
+          className="w-full"
+        />
+      ) : (
+        <ProjectCombobox
+          value={f.projectId}
+          onChange={(projectId) => onChange({ projectId, projectName: null })}
+          allowClear={false}
+          allowCreate
+          fallbackName={f.projectName}
+          placeholder="Select or create a corporate project…"
+          className="w-full"
+        />
+      )}
+      {f.target === "event" ? (
+        eventHint
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          For work that is not an event in the system: a client&rsquo;s own meeting, an advisory board.
+        </p>
+      )}
     </div>
   );
 

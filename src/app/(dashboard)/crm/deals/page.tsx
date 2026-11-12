@@ -22,6 +22,7 @@ import { Archive, Columns3, Handshake, Mail, Plus, Tag, Upload, X } from "lucide
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EventCombobox } from "@/crm/components/event-combobox";
+import { ProjectCombobox } from "@/crm/components/project-combobox";
 import { DealBoard } from "@/crm/components/deal-board";
 import { ListTruncationBanner } from "@/crm/components/list-truncation-banner";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
@@ -33,6 +34,7 @@ import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { ValueRangeFilter } from "@/crm/components/filters/value-range-filter";
 import {
   useCrmDeals,
+  useCrmProjects,
   useCrmDealsMeta,
   useCrmDealTypes,
   useCrmStages,
@@ -58,7 +60,7 @@ const DATE_FIELDS = [
 
 // The query keys this page owns — for the "Clear" affordance and the server query.
 const ALL_DEAL_TYPE = "__all__";
-const FILTER_KEYS = ["event", "owner", "status", "pipeline", "dealType", "dateField", "from", "to", "min", "max", "archived"];
+const FILTER_KEYS = ["event", "project", "owner", "status", "pipeline", "dealType", "dateField", "from", "to", "min", "max", "archived"];
 
 function DealsPageInner() {
   const canWrite = useCan("crm.write") === "allowed";
@@ -75,8 +77,10 @@ function DealsPageInner() {
 
   const eventId = get("event");
   const archivedView = !!get("archived");
+  const projectId = get("project");
   const filters = {
     eventId: eventId || undefined,
+    projectId: projectId || undefined,
     ownerId: get("owner") || undefined,
     status: get("status") || undefined,
     pipeline: get("pipeline") || undefined,
@@ -94,6 +98,10 @@ function DealsPageInner() {
   const { data: stages = [], isLoading: stagesLoading, isError: stagesError, refetch: refetchStages } = useCrmStages();
   const { data: dealTypes = [] } = useCrmDealTypes();
   const { data: deals = [], isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useCrmDeals(filters);
+  // A board filtered to one corporate project starts a new deal on that project.
+  const { data: projectList } = useCrmProjects();
+  const filteredProject = projectId ? projectList?.projects.find((p) => p.id === projectId) : undefined;
+  const boardProject = filteredProject ? { id: filteredProject.id, name: filteredProject.name } : null;
   // Same cache entry as the list above — no second fetch.
   const { data: dealsMeta } = useCrmDealsMeta(filters);
   const move = useMoveDealStage(filters);
@@ -147,6 +155,12 @@ function DealsPageInner() {
           value={eventId || null}
           onChange={(v) => set({ event: v })}
           clearLabel="All events"
+          className="w-[14rem]"
+        />
+        <ProjectCombobox
+          value={projectId || null}
+          onChange={(v) => set({ project: v })}
+          clearLabel="All projects"
           className="w-[14rem]"
         />
 
@@ -288,10 +302,13 @@ function DealsPageInner() {
       )}
 
       <CreateDealDialog
+        // Remounted when what the board is filtered to changes: the form takes its defaults once.
+        key={`${eventId ?? ""}|${boardProject?.id ?? ""}`}
         open={createOpen}
         onOpenChange={setCreateOpen}
         stages={stages}
         defaultEventId={eventId || null}
+        defaultProject={boardProject}
       />
 
       <ManageStagesDialog stages={stages} open={manageStagesOpen} onOpenChange={setManageStagesOpen} />

@@ -16,7 +16,7 @@
 import Link from "next/link";
 import { useCan } from "@/hooks/use-can";
 import { usePathname } from "next/navigation";
-import { Activity, BarChart3, Building2, CheckSquare, FileText, Handshake, Home, Inbox, Package, Users } from "lucide-react";
+import { Activity, BarChart3, BriefcaseBusiness, Building2, CheckSquare, FileText, Handshake, Home, Inbox, Package, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CrmNotificationBell } from "@/crm/components/crm-notification-bell";
 
@@ -25,6 +25,7 @@ const TABS = [
   { href: "/crm", label: "Home", icon: Home, exact: true },
   { href: "/crm/deals", label: "Deals", icon: Handshake },
   { href: "/crm/accounts", label: "Accounts", icon: Building2 },
+  { href: "/crm/projects", label: "Projects", icon: BriefcaseBusiness },
   // Business contacts — reps, exhibitor sales, procurement. NOT the event HCP store.
   { href: "/crm/contacts", label: "Contacts", icon: Users },
   // Staff-only (canViewCrmInbox) — hidden for MEMBER; the API is the real gate.

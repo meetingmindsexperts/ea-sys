@@ -146,6 +146,8 @@ export interface CrmContactDetail extends Omit<CrmContactRow, "score"> {
       currency: string;
       status: CrmDealStatus;
       event?: { id: string; name: string } | null;
+      /** The corporate project, for a deal that is not for an event. */
+      project?: { id: string; name: string } | null;
     };
   }>;
 }
@@ -315,6 +317,62 @@ export interface CrmDealContactRef {
   };
 }
 
+/** A deal's corporate project, as the deal routes return it. Days arrive as ISO strings at UTC midnight. */
+export interface CrmDealProjectRef {
+  id: string;
+  name: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  location?: string | null;
+  archivedAt?: string | null;
+  eventId?: string | null;
+  event?: { id: string; name: string } | null;
+  project?: { id: string; name: string } | null;
+}
+
+/** Per-currency deal value on a project; absent for a caller who may not see deal values. */
+export interface CrmProjectDealTotal {
+  currency: string;
+  open: number;
+  won: number;
+  lost: number;
+  total: number;
+}
+
+/** One corporate project as returned by GET /api/crm/projects. Days are YYYY-MM-DD. */
+export interface CrmProjectRow {
+  id: string;
+  name: string;
+  startDate: string | null;
+  endDate: string | null;
+  location: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  company: { id: string; name: string } | null;
+  owner: CrmPersonRef | null;
+  /** The event this project duplicates, when someone linked one. */
+  event: { id: string; name: string } | null;
+  dealCount: number;
+  openDealCount: number;
+  wonDealCount: number;
+  dealTotals?: CrmProjectDealTotal[];
+}
+
+/** GET /api/crm/projects/[projectId]: the project and its live deals. */
+export interface CrmProjectDetail extends CrmProjectRow {
+  deals: Array<{
+    id: string;
+    name: string;
+    status: CrmDealStatus;
+    dealValue?: string | number | null;
+    currency: string;
+    expectedClose: string | null;
+    stage: { id: string; name: string } | null;
+    company: { id: string; name: string } | null;
+    owner: CrmPersonRef | null;
+  }>;
+}
+
 export interface CrmBoardDeal {
   id: string;
   name: string;
@@ -354,6 +412,12 @@ export interface CrmBoardDeal {
     city?: string | null;
     country?: string | null;
   } | null;
+  /**
+   * The corporate project this deal is for, INSTEAD of an event (a deal has one
+   * or the other). `event` is set only when the project was linked to the event
+   * it duplicates: the deal then counts under that event (deal-attribution.ts).
+   */
+  project?: CrmDealProjectRef | null;
   owner?: CrmPersonRef | null;
   _count?: { tasks: number; notes: number };
 }
@@ -661,6 +725,7 @@ export const CRM_FIELD_LABELS: Record<string, string> = {
   expectedClose: "Expected close",
   companyId: "Account",
   eventId: "Event",
+  projectId: "Corporate project",
   ownerId: "Owner",
   industry: "Industry",
   website: "Website",

@@ -89,6 +89,18 @@ function projectLocation(event: CrmBoardDeal["event"]): string | null {
   return parts.length ? parts.join(", ") : null;
 }
 
+/**
+ * A corporate project's days. They are calendar days stored at UTC midnight,
+ * so they are read in UTC: local time would show the day before, west of it.
+ */
+function corporateProjectDates(project: CrmBoardDeal["project"]): string | null {
+  if (!project?.startDate) return null;
+  const day = (v: string) => new Date(v).toLocaleDateString(undefined, { timeZone: "UTC" });
+  const start = day(project.startDate);
+  const end = project.endDate ? day(project.endDate) : null;
+  return end && end !== start ? `${start} – ${end}` : start;
+}
+
 export function DealDetailBody({
   deal,
   canWrite,
@@ -205,6 +217,11 @@ export function DealDetailBody({
               </Badge>
             )}
             {deal.event && <Badge variant="outline">{deal.event.name}</Badge>}
+            {deal.project && (
+              <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700">
+                {deal.project.name}
+              </Badge>
+            )}
             {deal.archivedAt && (
               <Badge variant="outline" className="border-rose-200 bg-rose-100 text-rose-700">
                 Archived
@@ -327,14 +344,25 @@ export function DealDetailBody({
                     <Dash />
                   )}
                 </Fact>
-                <Fact label="Event">{deal.event?.name ?? <Dash />}</Fact>
+                {deal.project ? (
+                  <Fact label="Corporate project">
+                    <Link href={`/crm/projects/${deal.project.id}`} className="text-sky-700 hover:underline">
+                      {deal.project.name}
+                    </Link>
+                    {deal.project.event && (
+                      <span className="block text-xs text-muted-foreground">Counts under {deal.project.event.name}</span>
+                    )}
+                  </Fact>
+                ) : (
+                  <Fact label="Event">{deal.event?.name ?? <Dash />}</Fact>
+                )}
                 <Fact label="Pipeline">
                   {deal.pipeline ? CRM_DEAL_PIPELINE_LABELS[deal.pipeline] : <Dash />}
                 </Fact>
                 <Fact label="Deal type">{deal.dealType?.name ?? <Dash />}</Fact>
                 {/* Derived from the linked event — read-only. */}
-                <Fact label="Project dates">{projectDates(deal.event) ?? <Dash />}</Fact>
-                <Fact label="Project location">{projectLocation(deal.event) ?? <Dash />}</Fact>
+                <Fact label="Project dates">{(deal.project ? corporateProjectDates(deal.project) : projectDates(deal.event)) ?? <Dash />}</Fact>
+                <Fact label="Project location">{(deal.project ? deal.project.location : projectLocation(deal.event)) ?? <Dash />}</Fact>
                 <Fact label="Created">{new Date(deal.createdAt).toLocaleDateString()}</Fact>
                 {deal.status === "LOST" && deal.lostReason && (
                   <Fact label="Lost because">{deal.lostReason}</Fact>
