@@ -114,8 +114,28 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Ensure each imported speaker gets a companion registration (badge /
     // barcode / DTCM / check-in / survey). Awaited; per-item failure-isolated.
+    // The summary is the answer, not a detail (review of efb00d74): "linked"
+    // is someone who was already registered and keeps that registration, on
+    // whatever type and payment it stands, and "failed" is a speaker with no
+    // registration. Neither heals on a second import, because the person is a
+    // speaker by then and is skipped, so both go back to the organiser.
+    let registrations = { created: 0, linked: 0, failed: 0 };
     if (toCreate.length > 0) {
-      await ensureCompanionsForSpeakerEmails(eventId, toCreate.map((c) => c.email));
+      registrations = await ensureCompanionsForSpeakerEmails(eventId, toCreate.map((c) => c.email));
+      if (registrations.linked > 0 || registrations.failed > 0) {
+        apiLogger.warn({ msg: "events/speakers/import-contacts:registrations-not-all-made", eventId, speakers: toCreate.length, ...registrations });
+      }
+      // The event goes on each contact, as Add Speaker and the speakers CSV
+      // import do through syncToContact: it is what the central contacts table
+      // reads to say which events a person was part of. Only the stamp: the
+      // contact is where these details came from. A failure here must not
+      // undo an import that has already happened.
+      await db.contact
+        .updateMany({
+          where: { id: { in: toCreate.map((c) => c.id) }, organizationId: orgGuard.orgId, NOT: { eventIds: { has: eventId } } },
+          data: { eventIds: { push: eventId } },
+        })
+        .catch((err) => apiLogger.error({ err, msg: "events/speakers/import-contacts:contact-event-stamp-failed", eventId }));
     }
 
     // Audit trail (fire-and-forget) — bulk speaker import from contacts.
@@ -151,7 +171,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       format: "contacts",
     });
 
-    return NextResponse.json({ created: toCreate.length, skipped });
+    return NextResponse.json({
+      created: toCreate.length,
+      skipped,
+      facultyRegistrations: registrations.created,
+      linkedRegistrations: registrations.linked,
+      failedRegistrations: registrations.failed,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing contacts as speakers" });

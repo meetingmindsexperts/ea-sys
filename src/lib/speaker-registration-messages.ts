@@ -25,3 +25,40 @@ export function registrationSettleNotice(outcome: string | null | undefined): Re
   // "none" (no registration) and "unchanged" (already settled, cancelled, or money is involved): nothing to say.
   return null;
 }
+
+/**
+ * What Speakers, Import from Contacts says when it is done (review of
+ * efb00d74). The dialog promises a complimentary Faculty registration for each
+ * person; this is where the organiser learns when that is not what happened:
+ * someone already registered was linked to the registration they had, on
+ * whatever type and payment it stands, and someone whose registration could
+ * not be made has none. Neither heals by importing again (the person is a
+ * speaker now and is skipped), so both are said once, here.
+ */
+export interface SpeakerContactImportResult {
+  created: number;
+  skipped: number;
+  /** New complimentary Faculty registrations. */
+  facultyRegistrations?: number;
+  /** Speakers linked to a registration the person already had. */
+  linkedRegistrations?: number;
+  /** Speakers whose registration could not be made. */
+  failedRegistrations?: number;
+}
+
+const people = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+export function speakerContactImportNotice(result: SpeakerContactImportResult): { kind: "success" | "warning"; text: string } {
+  const linked = result.linkedRegistrations ?? 0;
+  const failed = result.failedRegistrations ?? 0;
+  const parts = [`Imported ${people(result.created, "speaker", "speakers")}`];
+  if (result.skipped > 0) parts.push(`${result.skipped} skipped (already a speaker)`);
+  if ((result.facultyRegistrations ?? 0) > 0) parts.push(`${result.facultyRegistrations} given a Faculty registration`);
+  if (linked > 0) {
+    parts.push(`${linked} already registered: linked to the registration they had, so check its type and payment on the speaker`);
+  }
+  if (failed > 0) {
+    parts.push(`${failed} have no registration yet: open the speaker and use Grant Registration`);
+  }
+  return { kind: linked > 0 || failed > 0 ? "warning" : "success", text: `${parts.join(". ")}.` };
+}

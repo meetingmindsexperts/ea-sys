@@ -215,6 +215,33 @@ Speakers page** and makes the Faculty registration by itself; the team should us
 only. Not done: Registrations, Import from Contacts still lets a faculty contact be
 imported as a delegate with no hint that Speakers has its own door.
 
+**From the review of `efb00d74` (0 BLOCKER, 0 HIGH, 2 MED, 12 LOW; Speakers, Import
+from Contacts).** Both MED fixed: the import reports who was given a Faculty
+registration, who was linked to one they already had and who has none, and it puts the
+event on each contact. LOW, listed only: the address is stored as the contact holds it
+(the siblings lowercase; a legacy mixed-case contact could later become a second
+speaker at the abstract door); `created` is the number attempted, not inserted (a race
+only); no cap on `contactIds` and no rate limit (import-registrations caps at 500);
+no `refreshEventStats`, so the agent's speaker count lags; "keeps it, linked as it is"
+is not true of a CANCELLED registration (a new Faculty one is made beside it) and a
+linked one with no barcode gets one; the contact's organisation-wide tags are copied
+onto the speaker (a contact tagged `Committee` becomes a committee speaker on that
+event, which the Webflow sync reads) and not onto the registration; the route asks for
+`speakers.import` only, the button also for `contacts.read`, so a custom role with the
+first alone can pull a contact in by id; the dialog loads registration types in
+speaker mode (a 404 and a log line for a role without them); only the speakers list is
+refreshed, not Registrations; the 404 is silent and the audit row holds counts, not
+who; the tests mock the registration step whole. Docs: the registration behind the
+speaker does not carry bio, custom specialty, tags or member and student ids. Older,
+found on the way: **`linkExistingRegistration` and the lookup beside it match by
+`{ equals, mode: "insensitive" }`, where `_` is a wildcard, and this decides whose
+registration a speaker is linked to** (already listed above; a bulk import from
+contacts is the door most likely to meet it); Registrations, Import from Contacts
+checks duplicates in exact case and never puts the event on the contact; a Faculty
+registration claims no DTCM code (D-1, open); the first import on an event with no
+Faculty type adopts or creates one; a malformed body is a 500; the dialog lists the
+first 50 contacts only and its select-all misbehaves after a search.
+
 **From the review of `4da1db66` (0 BLOCKER, 0 HIGH, 2 MED, 9 LOW; the speaker shows the
 registration's type).** Both MED fixed: the type is named by `displayRegistrationType`,
 as on the Registrations page, and the export column is "Type On Registration" so the
@@ -5132,7 +5159,7 @@ org-bound `findFirst`). New findings: **0 BLOCKER / 2 HIGH / 8 MED / 12 LOW**.
 | R2-L4 | LOW | Contact emails logged on failure paths (contact-sync warn, import-eventsair error, create-route studentIdExpiry warn) — same PII-in-logs class as M11; needs the owner's no-emails-in-logs policy call. |
 | R2-L5 | LOW | `.supabase.co` **substring** check in [storage.ts:235](../src/lib/storage.ts) returns a crafted external URL verbatim (`https://evil.example/x?p=.supabase.co/storage/`) → stored as `Contact.photo`, rendered as an `<img>` beacon. Parse hostname + path prefix instead. |
 | R2-L6 | LOW | `import-eventsair` has **no rate limit** (CSV sibling: 10/hr/org) — each call is ≤100 contacts × an outbound photo fetch. |
-| R2-L7 | LOW | `speakers/import-contacts` dedup compares emails **case-sensitively** against `Speaker.email` (legacy mixed-case rows) → possible duplicate Speaker + duplicate companion registration for one person. |
+| R2-L7 | LOW | ~~`speakers/import-contacts` dedup compares emails **case-sensitively** against `Speaker.email` (legacy mixed-case rows) → possible duplicate Speaker + duplicate companion registration for one person.~~ FIXED Nov 12, 2026 (`efb00d74`): the check ignores case and takes one address once. The address is still stored as the contact holds it. |
 | R2-L8 | LOW | Export failure **navigates** the browser (`window.location.href`) to raw JSON on 429/403/500 instead of toasting. |
 | R2-L9 | LOW | EventsAir **foreground** import toasts success even when every batch failed (the background variant branches correctly); delete-error toasts discard the server's reason (the protected-contact 403 message never reaches the operator). |
 | R2-L10 | LOW | Single-contact tag edit is a client-side read-modify-write over possibly-stale React Query cache (concurrent tag writers clobbered) + case-sensitive remove (M4's pain, one more surface). |

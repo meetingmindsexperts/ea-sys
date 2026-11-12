@@ -772,7 +772,7 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 - `DELETE /api/contacts/[contactId]` — Delete contact
 - `POST /api/contacts/import` — CSV bulk import via multipart/form-data; returns `{ created, skipped, errors[] }`
 - `GET /api/contacts/export` — Downloads CSV attachment with all org contacts
-- `POST /api/events/[eventId]/speakers/import-contacts` — `{ contactIds }` → creates speakers skipping duplicates (legacy, replaced by import-registrations on UI)
+- `POST /api/events/[eventId]/speakers/import-contacts`: `{ contactIds }` → creates speakers skipping duplicates, each with a Faculty registration (back on the Speakers page since Nov 12, 2026, beside import-registrations; answers with who was given, linked to, or left without a registration)
 - `POST /api/events/[eventId]/speakers/import-registrations` — `{ registrationIds }` → imports event registrations as speakers, deduplicates by email
 - `POST /api/events/[eventId]/registrations/import-contacts` — `{ contactIds, ticketTypeId }` → creates attendees + registrations in transaction
 

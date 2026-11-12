@@ -53,6 +53,7 @@ Owner: "go ahead with it". The Speakers page lost this button in March 2026, rep
 - Shown to someone who may import speakers and read contacts
 - **The speaker gets every person field the contact holds**: role, tags, additional email, photo, state, postal code, bio and custom specialty were dropped by the old route, so a speaker brought in here was thinner than one brought in through a registration
 - Someone who is already a speaker is skipped whatever the case of the address, and two contacts sharing an address make one speaker
+- After its review (`efb00d74`: 0 BLOCKER, 0 HIGH, 2 MED, 12 LOW), both MED fixed. **The import says what happened to each registration**: how many were given a Faculty registration, how many were already registered and were linked to the registration they had (a warning: check its type and payment on the speaker), and how many have none (use Grant Registration on the speaker). The route threw that summary away, so "Imported 20 speakers" hid a speaker linked to an Unpaid delegate registration, and importing again does not heal it. **The event is put on each imported contact**, as Add Speaker and the speakers CSV import do: the central contacts table reads it to say which events a person was part of
 
 ### Speakers: "Registration Type" shows the registration's own type (November 12)
 

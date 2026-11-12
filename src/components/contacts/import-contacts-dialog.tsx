@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { speakerContactImportNotice, type SpeakerContactImportResult } from "@/lib/speaker-registration-messages";
 import { Search, Users } from "lucide-react";
 
 interface ImportContactsDialogProps {
@@ -138,20 +139,26 @@ export function ImportContactsDialog({
     }
 
     try {
-      let result: { created: number; skipped: number; uncategorised?: number };
-
       if (mode === "speaker") {
-        result = await importToSpeakers.mutateAsync(Array.from(selectedIds)) as { created: number; skipped: number };
-      } else {
-        result = await importToRegistrations.mutateAsync({
-          contactIds: Array.from(selectedIds),
-          ticketTypeId: isUncategorised ? undefined : ticketTypeId,
-          pricingTierId: pricingTierId || undefined,
-        }) as { created: number; skipped: number; uncategorised?: number };
+        const imported = await importToSpeakers.mutateAsync(Array.from(selectedIds)) as SpeakerContactImportResult;
+        // Its own wording: who was given a Faculty registration, who was
+        // linked to one they already had, and who has none.
+        const notice = speakerContactImportNotice(imported);
+        if (notice.kind === "warning") toast.warning(notice.text, { duration: 15000 });
+        else toast.success(notice.text);
+        onSuccess?.(imported);
+        onOpenChange(false);
+        return;
       }
 
+      const result = await importToRegistrations.mutateAsync({
+        contactIds: Array.from(selectedIds),
+        ticketTypeId: isUncategorised ? undefined : ticketTypeId,
+        pricingTierId: pricingTierId || undefined,
+      }) as { created: number; skipped: number; uncategorised?: number };
+
       toast.success(
-        `Imported ${result.created} ${mode === "speaker" ? "speaker" : "registration"}${result.created !== 1 ? "s" : ""}${result.skipped > 0 ? `, ${result.skipped} skipped (already exist)` : ""}${(result.uncategorised ?? 0) > 0 ? ` — no registration type yet` : ""}`
+        `Imported ${result.created} registration${result.created !== 1 ? "s" : ""}${result.skipped > 0 ? `, ${result.skipped} skipped (already exist)` : ""}${(result.uncategorised ?? 0) > 0 ? `, no registration type yet` : ""}`
       );
       onSuccess?.(result);
       onOpenChange(false);
