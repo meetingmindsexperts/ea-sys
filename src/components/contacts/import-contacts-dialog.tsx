@@ -176,6 +176,16 @@ export function ImportContactsDialog({
         </DialogHeader>
 
         <div className="space-y-3 flex-1 overflow-hidden flex flex-col min-h-0">
+          {/* What importing a speaker also makes: there is no type or rate to
+              pick here, which is the point of this door (Nov 12, 2026). */}
+          {mode === "speaker" && (
+            <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              Each person is added as a speaker (Invited) with a complimentary Faculty registration, so there is no
+              registration type or rate to pick. Someone who already has a registration for this event keeps it, linked
+              as it is.
+            </p>
+          )}
+
           {/* Ticket type + pricing tier selectors for registrations */}
           {mode === "registration" && (
             <div className="space-y-1.5">

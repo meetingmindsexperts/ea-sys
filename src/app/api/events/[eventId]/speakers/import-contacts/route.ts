@@ -51,7 +51,15 @@ export async function POST(req: Request, { params }: RouteParams) {
           id: { in: contactIds },
           organizationId: orgGuard.orgId,
         },
-        select: { id: true, title: true, email: true, firstName: true, lastName: true, organization: true, jobTitle: true, phone: true, city: true, country: true, specialty: true, registrationType: true },
+        // Every person column a Speaker also has: the same set Import from
+        // Registrations copies, so a speaker brought in here is not thinner
+        // than one brought in through a registration (tags and role were
+        // dropped before Nov 12, 2026).
+        select: {
+          id: true, title: true, role: true, email: true, additionalEmail: true, firstName: true, lastName: true,
+          organization: true, jobTitle: true, phone: true, photo: true, city: true, state: true, zipCode: true,
+          country: true, bio: true, specialty: true, customSpecialty: true, registrationType: true, tags: true,
+        },
       }),
       db.speaker.findMany({
         where: { eventId },
@@ -63,8 +71,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const existingEmails = new Set(existingSpeakers.map((s) => s.email));
-    const toCreate = contacts.filter((c) => !existingEmails.has(c.email));
+    // Ignoring case, and once per address within the batch: the Speaker
+    // unique is on the address as stored, so "A@x.com" beside "a@x.com" would
+    // otherwise become a second speaker for one person.
+    const seen = new Set(existingSpeakers.map((s) => s.email.toLowerCase()));
+    const toCreate = contacts.filter((c) => {
+      const key = c.email.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     const skipped = contacts.length - toCreate.length;
 
     if (toCreate.length > 0) {
@@ -73,16 +89,24 @@ export async function POST(req: Request, { params }: RouteParams) {
           eventId,
           organizationId: orgGuard.orgId, // multi-tenancy: Speaker sweep
           title: c.title ?? undefined,
+          role: c.role ?? undefined,
           email: c.email,
+          additionalEmail: c.additionalEmail ?? undefined,
           firstName: c.firstName,
           lastName: c.lastName,
           organization: c.organization ?? undefined,
           jobTitle: c.jobTitle ?? undefined,
           phone: c.phone ?? undefined,
+          photo: c.photo ?? undefined,
           city: c.city ?? undefined,
+          state: c.state ?? undefined,
+          zipCode: c.zipCode ?? undefined,
           country: c.country ?? undefined,
+          bio: c.bio ?? undefined,
           specialty: c.specialty ?? undefined,
+          customSpecialty: c.customSpecialty ?? undefined,
           registrationType: c.registrationType ?? undefined,
+          tags: c.tags.length > 0 ? c.tags : undefined,
         })),
         skipDuplicates: true,
       });

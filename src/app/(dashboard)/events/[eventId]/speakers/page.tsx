@@ -33,6 +33,7 @@ import { formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { formatAttendeeRole } from "@/lib/schemas";
 import { ImportRegistrationsButton } from "@/components/speakers/import-registrations-button";
+import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { useSpeakers, useEvent, useBulkTagSpeakers } from "@/hooks/use-api";
@@ -129,6 +130,8 @@ export default function SpeakersPage() {
   const isReviewer = userSession?.user?.role === "REVIEWER";
   const canCreateSpeaker = useCan("speakers.create", eventId) === "allowed";
   const canImportSpeakers = useCan("speakers.import", eventId) === "allowed";
+  // The dialog lists the organisation's contacts, so it needs the key that reads them.
+  const canReadContacts = useCan("contacts.read") === "allowed";
   const canTagSpeakers = useCan("speakers.update", eventId) === "allowed";
   const canSendEmail = useCan("communications.send", eventId) === "allowed";
   // Who receives an appreciation certificate is decided by assigning it here.
@@ -290,6 +293,13 @@ export default function SpeakersPage() {
                 </Button>
               )}
               {canImportSpeakers && <CSVImportButton eventId={eventId} entityType="speakers" />}
+              {/* Back since Nov 12, 2026 (it was replaced by Import from
+                  Registrations in March, before the Faculty type existed):
+                  without it, a contact became a speaker only by first being
+                  imported as a registration, which asks for a delegate type
+                  and a rate. Three faculty ended up Physician at 150 that way.
+                  This makes the Faculty registration by itself. */}
+              {canImportSpeakers && canReadContacts && <ImportContactsButton eventId={eventId} mode="speaker" />}
               {canImportSpeakers && <ImportRegistrationsButton eventId={eventId} />}
               {canCreateSpeaker && (
                 <Button asChild>

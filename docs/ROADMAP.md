@@ -187,8 +187,11 @@ are all still in the code), so the team imports the contact as a registration, w
 asks for a delegate type and a rate, and then imports that registration as a speaker.
 The Import from Contacts dialog hides Faculty types, so since the script ran, GCC Hub's
 "Faculty" is no longer offered there: the next faculty contact brought in that way
-lands on a delegate type, or on none. Offered to the owner: put the button back on the
-Speakers page (it makes the Faculty registration by itself).
+lands on a delegate type, or on none. **Done Nov 12, 2026: the button is back on the
+Speakers page** and makes the Faculty registration by itself; the team should use it
+(or Add Speaker) for faculty, and Registrations, Import from Contacts for delegates
+only. Not done: Registrations, Import from Contacts still lets a faculty contact be
+imported as a delegate with no hint that Speakers has its own door.
 
 **From the review of `4da1db66` (0 BLOCKER, 0 HIGH, 2 MED, 9 LOW; the speaker shows the
 registration's type).** Both MED fixed: the type is named by `displayRegistrationType`,

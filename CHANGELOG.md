@@ -15,6 +15,15 @@ Found while checking the registrations export: the certificate **Recipients** ta
 - After review (`7b2160d8`, 1 high, 1 medium, 6 low): **invoice, receipt and credit note PDFs had the same fault**, through the invoice number, which starts with the event's code. Four downloads (staff, the registrant's portal, the group coordinator's, the public payer link) would have failed for an event whose code holds such a letter. No invoice in the local copy of production has one yet; one event's code does. Fixed, with the sales file (its name took a value from the web address) and the webinar handout download, which had its own weaker copy of the same logic
 - The guard test now reads **every** download header in the code: one that writes a value either goes through the helper or is listed with each value and why it can only be plain characters. The first version missed three of the eight headers it was written for
 
+### Speakers: Import from Contacts is back (November 12)
+
+Owner: "go ahead with it". The Speakers page lost this button in March 2026, replaced by Import from Registrations, before the Faculty type existed. From then on a contact became a speaker only in two steps: imported as a registration, which asks for a delegate type and a rate, then imported from registrations. Three faculty on the 4th GCC Hematology Hub were given Physician at 150 that way, and since that event's "Faculty" type became a Faculty type the dialog no longer offers it at all.
+
+- **Speakers, Import from Contacts**: pick people from the organisation's contacts; each is added as a speaker (Invited) with a complimentary Faculty registration, made by the system. There is no registration type or rate to pick, and the dialog says so. Someone who already has a registration for the event keeps it, linked as it is. No email is sent
+- Shown to someone who may import speakers and read contacts
+- **The speaker gets every person field the contact holds**: role, tags, additional email, photo, state, postal code, bio and custom specialty were dropped by the old route, so a speaker brought in here was thinner than one brought in through a registration
+- Someone who is already a speaker is skipped whatever the case of the address, and two contacts sharing an address make one speaker
+
 ### Speakers: "Registration Type" shows the registration's own type (November 12)
 
 Owner: "looks like reg type in registration and speakers are not in sync". On the 4th GCC Hematology Hub three speakers (registrations 028, 043, 044) read "Faculty" on the Speakers page while their registration was Physician at 150, Unpaid. Each was imported from Contacts with Physician and the Early Bird rate picked (18 others that day were given Faculty), and the organiser then changed "Registration Type" on the speaker to Faculty, believing that fixed it.
