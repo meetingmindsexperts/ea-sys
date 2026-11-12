@@ -374,6 +374,15 @@ export interface CreateRegistrationInput {
   suppressAdminNotification?: boolean;
 
   /**
+   * Take no code from the event's spare DTCM pool for this row. The pool is
+   * the desk's, for walk-ups; an import of forty faculty would empty it without
+   * a word (review of 3212f4c7). The other imports and a speaker's own
+   * registration claim none either; codes for these people come from the
+   * organiser's DTCM run.
+   */
+  suppressDtcmClaim?: boolean;
+
+  /**
    * Which entry path minted this row, when it cannot be inferred from `source`.
    *
    * `source` answers "which transport called me" (rest/mcp/api) and is derived
@@ -438,8 +447,10 @@ export interface CreateRegistrationInput {
    * speakers AND committee members). ONLY the admin Add Registration route
    * sets it, with `ticketTypeId` = the event's isFaculty type. It is the one
    * way past TICKET_TYPE_IS_FACULTY: comp only, no rate, no promo code, no
-   * seat (createdSource FACULTY_ADMIN, seatless), no speaker record. Every
-   * other caller (public forms, imports, bulk changes, MCP) stays refused.
+   * seat (createdSource FACULTY_ADMIN, seatless), no speaker record. Since
+   * Nov 12, 2026 Registrations, Import from Contacts sets it too, for its own
+   * Faculty choice. Every other caller (public forms, the CSV import, bulk
+   * changes, MCP) stays refused.
    */
   asFaculty?: boolean;
 
@@ -1141,7 +1152,10 @@ export async function createRegistration(
     bio,
     specialty,
     customSpecialty,
-    registrationType: ticketType?.name || null,
+    // The contact's category is a profession. For a delegate that is the
+    // type's name; Faculty is not one, so a Faculty registration leaves the
+    // contact's own category as it is (a blank is never written over it).
+    registrationType: input.asFaculty ? null : ticketType?.name || null,
     associationName,
     memberId,
     studentId,
@@ -1161,7 +1175,7 @@ export async function createRegistration(
   const dtcm = await claimSpareDtcmCode({
     eventId,
     registrationId: registration.id,
-    requiresDtcm: !!event.requiresDtcmBarcode,
+    requiresDtcm: !!event.requiresDtcmBarcode && !input.suppressDtcmClaim,
   });
 
   // Refresh denormalized event stats (fire-and-forget).

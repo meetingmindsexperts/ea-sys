@@ -71,9 +71,9 @@ describe("POST registrations/import-contacts as Faculty", () => {
     expect(input.attendee).toMatchObject({ email: "fatima@x.com", firstName: "Fatima", role: "PHYSICIAN", city: "Manama", tags: ["Hematology"] });
   });
 
-  it("sends no email and no notification per row: an import never has", async () => {
+  it("sends no email and no notification per row, and takes no spare DTCM code: an import never has", async () => {
     await POST(req({ contactIds: ["c1"], asFaculty: true }), { params });
-    expect(mockCreate.mock.calls[0][0]).toMatchObject({ suppressConfirmationEmail: true, suppressAdminNotification: true });
+    expect(mockCreate.mock.calls[0][0]).toMatchObject({ suppressConfirmationEmail: true, suppressAdminNotification: true, suppressDtcmClaim: true });
     const service = readFileSync(join(process.cwd(), "src/services/registration-service.ts"), "utf8");
     expect(service).toMatch(/if \(!input\.suppressAdminNotification\) \{\s+notifyEventAdmins\(/);
   });
@@ -87,6 +87,33 @@ describe("POST registrations/import-contacts as Faculty", () => {
     const body = await (await POST(req({ contactIds: ["c1", "c2", "c3"], asFaculty: true }), { params })).json();
     expect(body).toMatchObject({ created: 1, skipped: 1, failed: 1 });
     expect(mockCreate).toHaveBeenCalledTimes(3);
+  });
+
+  // Review of 3212f4c7: a throw on person 18 of 40 answered 500 with 17 made
+  // and no counts.
+  it("counts a row that throws as not added, and carries on with the rest", async () => {
+    mockDb.contact.findMany.mockResolvedValue([contact(), contact({ email: "b@x.com" }), contact({ email: "c@x.com" })]);
+    mockCreate
+      .mockResolvedValueOnce({ ok: true, registration: { id: "r1" } })
+      .mockRejectedValueOnce(new Error("pool timeout"))
+      .mockResolvedValueOnce({ ok: true, registration: { id: "r3" } });
+    const res = await POST(req({ contactIds: ["c1", "c2", "c3"], asFaculty: true }), { params });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ created: 2, skipped: 0, failed: 1 });
+  });
+
+  // Review of 3212f4c7: the key is held per event. The event must be inside
+  // the Faculty grant as well as the import grant, or a role holding
+  // speakers.create on webinars only could add Faculty on a conference.
+  it("looks the event up inside BOTH grants for Faculty, and inside the import grant alone otherwise", async () => {
+    await POST(req({ contactIds: ["c1"], asFaculty: true }), { params });
+    const where = mockDb.event.findFirst.mock.calls[0][0].where;
+    expect(Array.isArray(where.AND)).toBe(true);
+    expect(where.AND).toHaveLength(2);
+    for (const part of where.AND) expect(part).toMatchObject({ id: "ev1" });
+    const src = readFileSync(join(process.cwd(), "src/app/api/events/[eventId]/registrations/import-contacts/route.ts"), "utf8");
+    expect(src).toContain("const eventWhere = facultyGate ? { AND: [gate.eventWhere, facultyGate.eventWhere] } : gate.eventWhere;");
+    expect(src).not.toMatch(/db\.event\.findFirst\(\{\s+where: gate\.eventWhere/);
   });
 
   it("refuses Faculty together with a registration type or a rate, and creates nothing", async () => {

@@ -5,6 +5,8 @@
  * for this service.
  */
 
+import { readFileSync } from "fs";
+import { join } from "path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 // The per-person lock is an advisory lock in Postgres; a mocked transaction
 // cannot take it. Its behaviour is pinned against the real database in
@@ -1196,6 +1198,23 @@ describe("createRegistration — added as Faculty (Nov 10, 2026: Faculty is the 
     mockDb.ticketType.findFirst.mockResolvedValue(PAID_TICKET);
     await createRegistration({ ...BASE_INPUT });
     expect(mockDb.ticketType.findFirst.mock.calls[0][0].where).toMatchObject({ isActive: true });
+  });
+
+  // Review of 3212f4c7: the contact's category is a profession, and "Faculty"
+  // was written over it ("Physician" became "Faculty" for every imported
+  // contact). A blank is never written over a contact's own value.
+  it("does not write the Faculty type's name over the contact's own category, and still does for a delegate", async () => {
+    await asFaculty();
+    expect(mockSyncToContact.mock.calls[0][0].registrationType).toBeNull();
+    vi.clearAllMocks();
+    mockDb.ticketType.findFirst.mockResolvedValue(PAID_TICKET);
+    await createRegistration({ ...BASE_INPUT });
+    expect(mockSyncToContact.mock.calls[0][0].registrationType).toBe(PAID_TICKET.name);
+  });
+
+  it("takes no spare DTCM code when asked not to (the pool is the desk's)", () => {
+    const src = readFileSync(join(process.cwd(), "src/services/registration-service.ts"), "utf8");
+    expect(src).toContain("requiresDtcm: !!event.requiresDtcmBarcode && !input.suppressDtcmClaim,");
   });
 
   it("stays quiet when asked: no admin notification for a row of a bulk import", async () => {

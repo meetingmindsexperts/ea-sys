@@ -212,6 +212,28 @@ only. Also done that day: Registrations, Import from Contacts offers "Faculty
 (speakers and committee)" itself, so the team's two-step habit now ends on a Faculty
 registration.
 
+**From the review of `3212f4c7` (0 BLOCKER, 0 HIGH, 4 MED, 10 LOW; Import from
+Contacts as Faculty).** All four MED fixed (the event is inside both grants; no spare
+DTCM code is taken; the contact's category is not overwritten; a row that throws is
+counted). **Older, MED, waiting on the owner: Add Registration, Faculty has the same
+scope gap** (`registrations/route.ts`, the `speakers.create` gate's `eventWhere` is not
+used for the event lookup): a role with "add registrations" everywhere and "add
+speakers" on webinars only can add Faculty on a conference. No built-in role has that
+shape; a custom role could (check the live "Corporate" role's grants). LOW, listed
+only: each row refreshes the event's stats, which exclude Faculty; no cap on
+`contactIds` and no rate limit (about fifteen round trips a row); the audit row counts
+a failed row as skipped; the Faculty type is adopted or made before any contact is
+known to exist; someone with a CANCELLED registration is skipped by the delegate
+choice and given a second row by the Faculty one; committee members come in with the
+plain Faculty badge and no committee tags (Add Registration asks for the role); an
+imported Faculty row is marked details-complete though nobody typed the details; an
+existing speaker with no registration is not linked to the new row (only Grant
+Registration links by address); only the registrations list is refreshed. Older, LOW:
+the service's duplicate check is `{ equals, mode: "insensitive" }` (the `_` wildcard);
+the delegate half of this route does no contact sync, audit row or stats refresh; a
+404 with no log; a declined speaker's FACULTY_ADMIN registration is never offered for
+cancelling.
+
 **~~Decision waiting on the owner: one Faculty type per event~~ DECIDED Nov 12, 2026:
 yes; built as `scripts/merge-faculty-types.ts`. Waiting on the owner: run it on
 production, first without `--write`:

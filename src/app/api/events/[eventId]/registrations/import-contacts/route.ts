@@ -69,7 +69,27 @@ async function importAsFaculty(input: {
   const facultyTypeId = await ensureFacultyTicketType(input.eventId);
   const summary = { created: 0, skipped: 0, failed: 0 };
   for (const contact of input.contacts) {
-    const result = await createRegistration({
+    // One person's failure is that person's: the rows before it exist, so a
+    // throw here must not turn the answer into a 500 with no counts.
+    const result = await createFacultyRow(input, facultyTypeId, contact).catch((err: unknown) => {
+      apiLogger.error({ err, msg: "import-contacts:faculty-row-threw", eventId: input.eventId, email: contact.email });
+      return null;
+    });
+    if (!result) { summary.failed += 1; continue; }
+    if (result.ok) { summary.created += 1; continue; }
+    if (result.code === "ALREADY_REGISTERED") { summary.skipped += 1; continue; }
+    summary.failed += 1;
+    apiLogger.warn({ msg: "import-contacts:faculty-row-refused", eventId: input.eventId, email: contact.email, code: result.code, message: result.message });
+  }
+  return summary;
+}
+
+function createFacultyRow(
+  input: { eventId: string; organizationId: string; userId: string; actorFirstName: string | null; requestIp: string },
+  facultyTypeId: string,
+  contact: FacultyContact,
+) {
+  return createRegistration({
       eventId: input.eventId,
       organizationId: input.organizationId,
       userId: input.userId,
@@ -92,13 +112,9 @@ async function importAsFaculty(input: {
       actorFirstName: input.actorFirstName,
       suppressConfirmationEmail: true,
       suppressAdminNotification: true,
+      // The spare codes are the desk's, for walk-ups.
+      suppressDtcmClaim: true,
     });
-    if (result.ok) { summary.created += 1; continue; }
-    if (result.code === "ALREADY_REGISTERED") { summary.skipped += 1; continue; }
-    summary.failed += 1;
-    apiLogger.warn({ msg: "import-contacts:faculty-row-refused", eventId: input.eventId, code: result.code, message: result.message });
-  }
-  return summary;
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -134,11 +150,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
     // Adding Faculty is an organiser's call (free, no seat, out of the
-    // delegate counts): the same key Add Registration, Faculty asks for.
-    if (asFaculty) {
-      const facultyGate = requirePermission(session, "speakers.create", { route: "events/[eventId]/registrations/import-contacts:POST:faculty", eventId });
-      if (!facultyGate.ok) return facultyGate.response;
-    }
+    // delegate counts): the same key Add Registration, Faculty asks for. The
+    // key is held per event, so the event below must be within THIS grant too
+    // (review of 3212f4c7): holding it on webinars only is not holding it here.
+    const facultyGate = asFaculty
+      ? requirePermission(session, "speakers.create", { route: "events/[eventId]/registrations/import-contacts:POST:faculty", eventId })
+      : null;
+    if (facultyGate && !facultyGate.ok) return facultyGate.response;
+    const eventWhere = facultyGate ? { AND: [gate.eventWhere, facultyGate.eventWhere] } : gate.eventWhere;
 
     // A tier belongs to a type — a tier with no type is a client bug, not
     // "price the typeless rows anyway".
@@ -154,7 +173,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // org already knows about the contact is silently dropped on import.
     const [event, contacts] = await Promise.all([
       db.event.findFirst({
-        where: gate.eventWhere,
+        where: eventWhere,
         select: { id: true },
       }),
       db.contact.findMany({
