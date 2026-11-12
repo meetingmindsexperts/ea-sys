@@ -173,6 +173,59 @@ describe("buildRegistrationExportRow", () => {
     expect(r).toHaveLength(REGISTRATION_EXPORT_HEADERS.length);
     expect(col(r, "Tags")).toBe("");
     expect(col(r, "Checked In Date")).toBe("");
+    expect(col(r, "Certificate Assigned")).toBe("");
+    expect(col(r, "Certificate Status")).toBe("");
+  });
+});
+
+// ── Certificates (Nov 12, 2026) ───────────────────────────────────────────
+describe("the certificate columns", () => {
+  it("are the last two, so every earlier column keeps its place", () => {
+    expect(REGISTRATION_EXPORT_HEADERS.slice(-2)).toEqual(["Certificate Assigned", "Certificate Status"]);
+  });
+
+  it("name the certificate a registration is assigned and say where it stands, in the Recipients tab's words", () => {
+    const certificatesByRegistrationId = new Map([["reg_1", [{ templateName: "CME Certificate", state: "SENT" as const }]]]);
+    const r = buildRegistrationExportRow(row(), { ...ctx, certificatesByRegistrationId });
+    expect(col(r, "Certificate Assigned")).toBe("CME Certificate");
+    expect(col(r, "Certificate Status")).toBe("Sent");
+  });
+
+  it("assigned and not issued yet is told apart from issued", () => {
+    const held = (state: "READY" | "WAITING_FOR_SURVEY" | "ISSUED_NOT_SENT") =>
+      col(
+        buildRegistrationExportRow(row(), {
+          ...ctx,
+          certificatesByRegistrationId: new Map([["reg_1", [{ templateName: "CME", state }]]]),
+        }),
+        "Certificate Status",
+      );
+    expect(held("READY")).toBe("Ready to issue");
+    expect(held("WAITING_FOR_SURVEY")).toBe("Waiting for survey");
+    expect(held("ISSUED_NOT_SENT")).toBe("Issued, not sent yet");
+  });
+
+  it("two certificates are listed in the same order in both cells", () => {
+    const certificatesByRegistrationId = new Map([
+      ["reg_1", [
+        { templateName: "CME", state: "SENT" as const },
+        { templateName: "Workshop", state: "READY" as const },
+      ]],
+    ]);
+    const r = buildRegistrationExportRow(row(), { ...ctx, certificatesByRegistrationId });
+    expect(col(r, "Certificate Assigned")).toBe("CME; Workshop");
+    expect(col(r, "Certificate Status")).toBe("Sent; Ready to issue");
+  });
+
+  it("are blank for a registration assigned nothing, and for a caller given no certificates at all", () => {
+    const other = new Map([["reg_other", [{ templateName: "CME", state: "SENT" as const }]]]);
+    const unassigned = buildRegistrationExportRow(row(), { ...ctx, certificatesByRegistrationId: other });
+    expect(col(unassigned, "Certificate Assigned")).toBe("");
+    expect(col(unassigned, "Certificate Status")).toBe("");
+    const noAccess = buildRegistrationExportRow(row(), ctx);
+    expect(col(noAccess, "Certificate Assigned")).toBe("");
+    expect(col(noAccess, "Certificate Status")).toBe("");
+    expect(noAccess).toHaveLength(REGISTRATION_EXPORT_HEADERS.length);
   });
 });
 

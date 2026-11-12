@@ -37,6 +37,7 @@ import {
 } from "@/lib/registration-export";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { getSponsorNameMap } from "@/lib/sponsors";
+import { certificatesByRegistration, loadRecipientReport } from "@/lib/certificates/recipients-report";
 import { parseSerialQuery } from "@/lib/registration-search";
 import { completionWhereFor } from "@/lib/registration-completion";
 import { ensureFacultyTicketType } from "@/lib/speaker-companion";
@@ -349,7 +350,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         // rather than the raw id the row holds.
         // organizationId, eventType and the desk staff: the facts the
         // event-bound keys asked below are judged on.
-        select: { id: true, taxRate: true, taxLabel: true, settings: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
+        // timezone and cmeHours: what the certificate recipients report asks
+        // of an event, for the full export's two certificate columns.
+        select: { id: true, taxRate: true, taxLabel: true, settings: true, organizationId: true, eventType: true, timezone: true, cmeHours: true, staffAssignments: { select: { userId: true } } },
       }),
       db.registration.findMany({
         where: {
@@ -714,11 +717,21 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     if (searchParams.get("export") === "csv") {
+      // "Certificate Assigned" and "Certificate Status" (Nov 12, 2026), from
+      // the certificate recipients report, so the file and the Recipients tab
+      // cannot disagree. Certificates have their own key, asked on THIS event:
+      // a role that exports registrations without it (the desk, a marketing
+      // role) gets the two cells blank, like a redacted amount.
+      const seesCertificates = eventFacts !== null && can(gate.principal, "certificates.read", { event: eventFacts });
+      const certificatesByRegistrationId = seesCertificates
+        ? certificatesByRegistration(await loadRecipientReport(event))
+        : undefined;
       const rows = (payload as unknown as RegistrationExportRow[]).map((r) =>
         buildRegistrationExportRow(r, {
           taxRate: event.taxRate != null ? Number(event.taxRate) : null,
           taxLabel: event.taxLabel ?? null,
           sponsorNameById,
+          certificatesByRegistrationId,
         }),
       );
       const csv = [REGISTRATION_EXPORT_HEADERS.join(","), ...rows.map((row) => toCsvRow(row))].join("\n");

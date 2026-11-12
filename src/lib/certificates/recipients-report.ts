@@ -587,6 +587,34 @@ export async function loadCertificatePeople(
   };
 }
 
+/**
+ * What each registration is assigned and where it stands, for a file with one
+ * line per registration (the Registrations page's "Full details" export,
+ * Nov 12, 2026). Built from the report's own rows, so a status there can never
+ * read differently from the Recipients tab or its CSV. In the report's
+ * template order.
+ *
+ * Registrations only: an appreciation certificate is assigned to the speaker
+ * record, which the registrations file does not list, so a speaker's own
+ * registration shows only what the registration itself is assigned.
+ */
+export function certificatesByRegistration(
+  report: RecipientReport,
+): Map<string, Array<{ templateName: string; state: RecipientState }>> {
+  const order = new Map(report.templates.map((t, i) => [t.id, i]));
+  const rows = report.rows
+    .filter((r) => r.registrationId !== null)
+    .sort((a, b) => (order.get(a.templateId) ?? 0) - (order.get(b.templateId) ?? 0));
+  const byRegistration = new Map<string, Array<{ templateName: string; state: RecipientState }>>();
+  for (const row of rows) {
+    if (!row.registrationId) continue;
+    const held = byRegistration.get(row.registrationId) ?? [];
+    held.push({ templateName: row.templateName, state: row.state });
+    byRegistration.set(row.registrationId, held);
+  }
+  return byRegistration;
+}
+
 /** The CSV the report exports: one line per assigned person per certificate. */
 export const RECIPIENT_REPORT_HEADERS = [
   "Certificate",

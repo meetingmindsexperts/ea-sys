@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations export: which certificate each person is assigned, and whether it was issued (November 12)
+
+Asked by the events team: once certificates are assigned, see it against each registration in the export.
+
+- **Two new columns in Export, Full details**, the file's last two: **Certificate Assigned** (the certificate's name; blank when the registration is assigned none) and **Certificate Status** (Sent, Issued not sent yet, Sending, Ready to issue, Waiting for survey, Could not send, Revoked, Registration cancelled). A registration assigned two certificates lists both, in the same order in the two cells ("CME; Workshop" and "Sent; Ready to issue")
+- **The same words as the Recipients tab**: the cells are built from the certificate recipients report (`certificatesByRegistration` in `recipients-report.ts`), so the two files cannot disagree. Checked on the local copy of production: on two events every line of the Recipients CSV matched the registrations file (111 of 111, 149 of 149)
+- **Who sees them**: anyone who may see certificates on the event. A role that exports registrations without it (onsite desk staff, a marketing custom role) gets the two cells blank, like the money columns. The sales file is unchanged
+- **Not included**: a speaker's appreciation certificate is assigned to the speaker record, so it is not on their registration's line; the Recipients tab's export has it
+
 ### CRM: corporate projects - what the review of the screens found (November 12)
 
 Review of `e92d660f`: no blocker, no high, 5 medium, 14 low. The five medium are fixed here.

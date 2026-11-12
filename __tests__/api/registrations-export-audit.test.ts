@@ -25,6 +25,7 @@ const {
   mockCanViewBarcode,
   mockRedactBarcode,
   mockCheckRateLimit,
+  mockLoadRecipientReport,
 } = vi.hoisted(() => ({
   mockGetOrgContext: vi.fn(),
   mockDb: {
@@ -40,6 +41,7 @@ const {
   mockCanViewBarcode: vi.fn(() => true),
   mockRedactBarcode: vi.fn((p: unknown) => p),
   mockCheckRateLimit: vi.fn(() => ({ allowed: true, retryAfterSeconds: 0 })),
+  mockLoadRecipientReport: vi.fn(),
 }));
 
 // Sponsors moved from Event.settings JSON to their own table (Sep 2 2026). These
@@ -49,6 +51,12 @@ vi.mock("@/lib/sponsors", () => ({
   getSponsors: vi.fn(async () => []),
   getSponsorNameMap: vi.fn(async () => new Map()),
   sponsorExistsOnEvent: vi.fn(async () => false),
+}));
+// The certificate columns: the report's loader is stubbed (it is proven on a
+// real Postgres elsewhere); the per-registration summary built from it is real.
+vi.mock("@/lib/certificates/recipients-report", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/certificates/recipients-report")>()),
+  loadRecipientReport: mockLoadRecipientReport,
 }));
 vi.mock("next/server", () => ({
   NextResponse: class {
@@ -261,6 +269,66 @@ describe("registrations CSV export", () => {
     const res = (await call("export=csv")) as unknown as { body: string };
     expect(mockRedactBarcode).toHaveBeenCalled();
     expect(res.body).not.toContain("DTCM-9");
+  });
+
+  // ── Certificate Assigned / Certificate Status (Nov 12, 2026) ─────────────
+  const EVENT_WITH_FACTS = {
+    id: "evt_1",
+    taxRate: 5,
+    taxLabel: "VAT",
+    organizationId: "org_1",
+    eventType: "CONFERENCE",
+    timezone: "Asia/Dubai",
+    cmeHours: null,
+    staffAssignments: [{ userId: "usr_1" }],
+  };
+  const REPORT = {
+    timezone: "Asia/Dubai",
+    templates: [{ id: "t1", name: "CME Certificate" }],
+    answeredNotAssigned: [],
+    rows: [{ templateId: "t1", templateName: "CME Certificate", registrationId: "reg_1", speakerId: null, state: "SENT" }],
+  };
+  // The two columns are the file's last (pinned in registration-export.test.ts),
+  // so they are read from the end: an earlier cell (a date) holds a comma.
+  const cells = (body: string) => {
+    const [header, line] = body.split("\n").map((l) => l.split(","));
+    expect(header.slice(-2)).toEqual(["Certificate Assigned", "Certificate Status"]);
+    const [assigned, status] = line.slice(-2);
+    return { assigned, status };
+  };
+
+  it("says which certificate each registration is assigned and where it stands", async () => {
+    mockDb.event.findFirst.mockResolvedValue(EVENT_WITH_FACTS);
+    mockLoadRecipientReport.mockResolvedValue(REPORT);
+    const res = (await call("export=csv")) as unknown as { body: string };
+    expect(mockLoadRecipientReport).toHaveBeenCalledWith(expect.objectContaining({ id: "evt_1", timezone: "Asia/Dubai" }));
+    expect(cells(res.body)).toEqual({ assigned: "CME Certificate", status: "Sent" });
+  });
+
+  it("leaves both cells blank, and reads no certificates, for a role that exports without seeing certificates (the desk)", async () => {
+    mockGetOrgContext.mockResolvedValue({ organizationId: "org_1", userId: "usr_1", role: "ONSITE", fromApiKey: false });
+    mockDb.event.findFirst.mockResolvedValue(EVENT_WITH_FACTS);
+    mockLoadRecipientReport.mockResolvedValue(REPORT);
+    const res = (await call("export=csv")) as unknown as { body: string };
+    expect(res.body).toContain("jane@example.com");
+    expect(mockLoadRecipientReport).not.toHaveBeenCalled();
+    expect(cells(res.body)).toEqual({ assigned: "", status: "" });
+  });
+
+  it("the sales file has no certificate columns and reads no certificates", async () => {
+    mockDb.event.findFirst.mockResolvedValue(EVENT_WITH_FACTS);
+    mockLoadRecipientReport.mockResolvedValue(REPORT);
+    const res = (await call("export=sales")) as unknown as { body: string };
+    expect(res.body).not.toContain("Certificate");
+    expect(mockLoadRecipientReport).not.toHaveBeenCalled();
+  });
+
+  it("a certificate read that fails fails the export: a file with the cells blank would read as nobody assigned", async () => {
+    mockDb.event.findFirst.mockResolvedValue(EVENT_WITH_FACTS);
+    mockLoadRecipientReport.mockRejectedValue(new Error("boom"));
+    const res = (await call("export=csv")) as unknown as { status: number };
+    expect(res.status).toBe(500);
+    expect(mockRecordExport).not.toHaveBeenCalled();
   });
 
   it("takes several registration types, comma-separated, as the page's multi-select sends them (Oct 27)", async () => {

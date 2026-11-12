@@ -14,6 +14,7 @@ import {
   RECIPIENT_STATES,
   RECIPIENT_STATE_HINTS,
   RECIPIENT_STATE_LABELS,
+  certificatesByRegistration,
   recipientReportCsv,
   recipientState,
   type RecipientReport,
@@ -141,5 +142,71 @@ describe("recipientReportCsv", () => {
       "Speaker", "Appreciation", "Sam Lee", "", "", "Waiting for survey",
       "", "", "", "", "2026-11-01", "", "Carried over from a tag",
     ]);
+  });
+});
+
+describe("certificatesByRegistration (the Registrations export's two columns, Nov 12, 2026)", () => {
+  const line = (over: Partial<RecipientReport["rows"][number]>): RecipientReport["rows"][number] => ({
+    assignmentId: "a",
+    templateId: "t1",
+    templateName: "CME",
+    category: "ATTENDANCE",
+    kind: "registration",
+    registrationId: "r1",
+    speakerId: null,
+    name: "Jane Doe",
+    email: "jane@x.com",
+    registrationType: "Physician",
+    source: "MANUAL",
+    assignedAt: new Date("2026-11-01T06:00:00Z"),
+    assignedByName: null,
+    surveyAnsweredAt: null,
+    state: "READY",
+    cmeHours: null,
+    certificate: null,
+    ...over,
+  });
+  const template = (id: string, name: string): RecipientReport["templates"][number] => ({
+    id,
+    name,
+    category: "ATTENDANCE",
+    autoIssueOnSurvey: false,
+    assigned: 0,
+    counts: Object.fromEntries(RECIPIENT_STATES.map((s) => [s, 0])) as RecipientReport["templates"][number]["counts"],
+  });
+  const reportOf = (rows: RecipientReport["rows"]): RecipientReport => ({
+    timezone: "Asia/Dubai",
+    templates: [template("t1", "CME"), template("t2", "Workshop")],
+    answeredNotAssigned: [],
+    rows,
+  });
+
+  it("gives each registration what it is assigned, with the report's own state", () => {
+    const map = certificatesByRegistration(
+      reportOf([line({ state: "SENT" }), line({ assignmentId: "b", registrationId: "r2", state: "WAITING_FOR_SURVEY" })]),
+    );
+    expect(map.get("r1")).toEqual([{ templateName: "CME", state: "SENT" }]);
+    expect(map.get("r2")).toEqual([{ templateName: "CME", state: "WAITING_FOR_SURVEY" }]);
+    expect(map.has("r3")).toBe(false);
+  });
+
+  it("lists two certificates in the page's template order, whichever was assigned first", () => {
+    const map = certificatesByRegistration(
+      reportOf([
+        line({ assignmentId: "w", templateId: "t2", templateName: "Workshop", state: "READY" }),
+        line({ assignmentId: "c", state: "SENT" }),
+      ]),
+    );
+    expect(map.get("r1")).toEqual([
+      { templateName: "CME", state: "SENT" },
+      { templateName: "Workshop", state: "READY" },
+    ]);
+  });
+
+  it("leaves a speaker's certificate out: it belongs to the speaker record, not to a registration", () => {
+    const map = certificatesByRegistration(
+      reportOf([line({ kind: "speaker", registrationId: null, speakerId: "s1", category: "APPRECIATION" })]),
+    );
+    expect(map.size).toBe(0);
   });
 });

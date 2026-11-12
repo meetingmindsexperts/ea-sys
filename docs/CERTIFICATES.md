@@ -1035,6 +1035,13 @@ of people than a stale page showed.
   every speaker), with a cell per certificate they hold. The Recipients tab, through
   `GET .../certificates/recipients?view=people`. It is built from the first, so a state never
   reads differently on the two.
+- `certificatesByRegistration`: what each registration is assigned and where it stands, for
+  the Registrations page's "Full details" export (Nov 12, 2026): its last two columns,
+  "Certificate Assigned" and "Certificate Status", in the Recipients tab's own words. Built
+  from the first as well. The route asks `certificates.read` on the event; a role that
+  exports registrations without it (the desk, a marketing role) gets both cells blank. Only
+  what the REGISTRATION is assigned: a speaker's appreciation certificate is not on their
+  registration's line.
 
 The tab loads both kinds in one request and filters on the page
 (`src/lib/certificates/people-filter.ts`, pure and tested): search, registration type,

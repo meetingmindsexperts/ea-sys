@@ -28,6 +28,7 @@
  */
 
 import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
+import { RECIPIENT_STATE_LABELS, type RecipientState } from "@/lib/certificates/recipient-states";
 import { displayRegistrationType } from "@/lib/faculty-filter";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatSerialId } from "@/lib/registration-serial";
@@ -75,6 +76,10 @@ export const REGISTRATION_EXPORT_HEADERS = [
   "Medium",
   "Campaign",
   "Referrer",
+  // The certificates this registration is assigned and where each stands
+  // (Nov 12, 2026). Last, so a reader that counts columns keeps its place.
+  "Certificate Assigned",
+  "Certificate Status",
 ] as const;
 
 /**
@@ -138,6 +143,36 @@ export interface RegistrationExportContext {
    * its own.
    */
   sponsorNameById?: Map<string, string>;
+  /**
+   * Registration id to the certificates it is assigned, each with where it
+   * stands, from the certificate recipients report
+   * (`certificatesByRegistration` in certificates/recipients-report.ts), so
+   * this file and the Recipients tab can never disagree. A registration that
+   * is not in the map is assigned nothing.
+   *
+   * Absent for a caller who may not see certificates (`certificates.read`) and
+   * for the sales file: both cells are then blank, like a redacted amount.
+   */
+  certificatesByRegistrationId?: ReadonlyMap<string, ReadonlyArray<RegistrationExportCertificate>>;
+}
+
+/** One certificate a registration is assigned, and where it stands. */
+export interface RegistrationExportCertificate {
+  templateName: string;
+  state: RecipientState;
+}
+
+/**
+ * "Certificate Assigned" and "Certificate Status". Two certificates read
+ * "CME; Workshop" and "Sent; Ready to issue", in the same order. The status
+ * words are the Recipients tab's own.
+ */
+function certificateCells(r: RegistrationExportRow, ctx: RegistrationExportContext): [string, string] {
+  const held = ctx.certificatesByRegistrationId?.get(r.id) ?? [];
+  return [
+    held.map((c) => c.templateName).join("; "),
+    held.map((c) => RECIPIENT_STATE_LABELS[c.state]).join("; "),
+  ];
 }
 
 /**
@@ -275,6 +310,7 @@ export function buildRegistrationExportRow(
     r.utmMedium || "",
     r.utmCampaign || "",
     r.referrer || "",
+    ...certificateCells(r, ctx),
   ];
 }
 
@@ -284,7 +320,7 @@ export function buildRegistrationExportRow(
  *
  * Deliberately a PROJECTION of the full export rather than a second row
  * builder: the values are produced by `buildRegistrationExportRow` exactly as
- * they are for the 31-column file, so the two can never disagree about what a
+ * they are for the full file, so the two can never disagree about what a
  * person paid or which code they used. Adding a column here is picking an
  * existing header, not writing new logic.
  */
