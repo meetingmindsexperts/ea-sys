@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { GCC_COUNTRIES } from "@/constants/countries";
+import { PARTNER_STREAM_CHOICE_OFFERED } from "@/lib/webinar/partner-stream-availability";
 
 /** Convert a `datetime-local` value (assumed Dubai/GST) to UTC ISO string */
 function fromDatetimeLocal(value: string): string {
@@ -83,7 +84,8 @@ export default function NewEventPage() {
     },
   });
 
-  const isWebinar = useWatch({ control: form.control, name: "eventType" }) === "WEBINAR";
+  // The partner-stream choice stays hidden until a partner's key can be issued (partner-stream-availability.ts).
+  const isWebinar = useWatch({ control: form.control, name: "eventType" }) === "WEBINAR" && PARTNER_STREAM_CHOICE_OFFERED;
 
   async function onSubmit(data: EventForm) {
     setIsLoading(true);
@@ -96,7 +98,7 @@ export default function NewEventPage() {
           ...data,
           // Only a webinar has a video source. It is sent WITH the create: the Zoom webinar is made
           // within seconds of the event, so this cannot be chosen afterwards.
-          webinarSource: data.eventType === "WEBINAR" ? data.webinarSource : undefined,
+          webinarSource: isWebinar ? data.webinarSource : undefined,
           startDate: fromDatetimeLocal(data.startDate),
           endDate: fromDatetimeLocal(data.endDate),
         }),

@@ -77,6 +77,11 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
  * webinar provisioner on the clone from the console).
  */
 const CLONEABLE_WEBINAR_KEYS: readonly string[] = [
+  // The video source (webinar/video-source.ts) copies WITH autoProvisionZoom and viewingMode: a clone
+  // of a partner-produced webinar that lost it kept "no Zoom, custom stream" and was then given a
+  // Zoom webinar by "Run provisioner", with no stream set up and no way to make it external (review
+  // of 8bcf9cf8).
+  "source",
   "autoProvisionZoom",
   "autoRecording",
   "automationEnabled",

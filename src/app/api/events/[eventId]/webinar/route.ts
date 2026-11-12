@@ -277,7 +277,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    if (validated.data.viewingMode === "hls") {
+    // Not asked of a partner-produced webinar: its mode is always the custom
+    // stream and there is no Zoom to set one up in. The console sends the mode
+    // with every lobby save, so asking would refuse a new lobby message until
+    // a key exists (review of 8bcf9cf8).
+    if (validated.data.viewingMode === "hls" && webinarVideoSource(event.settings) !== "external") {
       const streamConfig = nextWebinar.sessionId ? await sessionStream(nextWebinar.sessionId, eventId) : null;
       if (!streamConfig) {
         // Nothing set up yet. With a Zoom webinar the save sets the stream up itself; without one it cannot.

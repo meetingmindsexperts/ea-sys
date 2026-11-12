@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { PARTNER_STREAM_CHOICE_OFFERED, PARTNER_STREAM_NOT_OFFERED_MESSAGE } from "@/lib/webinar/partner-stream-availability";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { resolveActingOrgId } from "@/lib/platform-operator";
@@ -155,6 +156,14 @@ export async function POST(req: Request) {
     // a silent coercion.
     const outOfScope = refuseOutOfScope(gate.principal, "events.create", { eventType: eventType ?? "" }, { route: "events:POST" });
     if (outOfScope) return outOfScope;
+
+    // A partner-produced webinar is fixed at creation and cannot stream until
+    // its key can be issued, so it is refused until that exists
+    // (partner-stream-availability.ts). Refused, not quietly made a Zoom webinar.
+    if (webinarSource === "external" && !PARTNER_STREAM_CHOICE_OFFERED) {
+      apiLogger.warn({ msg: "events:partner-stream-not-offered", userId: session.user.id });
+      return NextResponse.json({ error: PARTNER_STREAM_NOT_OFFERED_MESSAGE, code: "PARTNER_STREAMS_NOT_AVAILABLE" }, { status: 400 });
+    }
 
     const result = await createEvent({
       organizationId: orgGuard.orgId,

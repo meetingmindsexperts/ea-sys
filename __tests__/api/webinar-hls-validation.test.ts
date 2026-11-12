@@ -220,6 +220,19 @@ describe("PUT /webinar — hls mode requires a configured live stream", () => {
     expect((await callPut({ lobbyMessage: "Starting soon" })).status).toBe(200);
   });
 
+  it("a partner-produced webinar saves its lobby settings before any key exists: the console sends the mode with every save", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1",
+      settings: { webinar: { sessionId: "anchor1", viewingMode: "hls", source: "external" } },
+    });
+    // No Zoom meeting and no partner key yet: for our own Zoom this is HLS_STREAM_NOT_CONFIGURED.
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    const res = await callPut({ viewingMode: "hls", lobbyMessage: "Starting soon" });
+    expect(res.status).toBe(200);
+    expect(mockControlLiveStream).not.toHaveBeenCalled();
+    expect(mockUpdateEventSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("switching to zoom mode never checks the stream", async () => {
     mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     const res = await callPut({ viewingMode: "zoom" });

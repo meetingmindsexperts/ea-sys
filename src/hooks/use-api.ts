@@ -3241,7 +3241,7 @@ export function useProvisionWebinar(eventId: string) {
         ok: boolean;
         sessionId?: string;
         zoomMeetingId?: string | null;
-        zoomStatus?: "created" | "already-attached" | "not-configured" | "failed";
+        zoomStatus?: "created" | "already-attached" | "not-configured" | "failed" | "external-source";
         durationMs?: number;
         reason?: string;
       }>(

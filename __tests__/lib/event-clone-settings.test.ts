@@ -34,6 +34,15 @@ describe("cloneEventSettings", () => {
     expect((out.webinar as Record<string, unknown>).provisioningAt).toBeUndefined();
   });
 
+  it("a clone of a partner-produced webinar stays partner-produced: the source copies with its no-Zoom settings (Nov 12, 2026)", () => {
+    const cloned = cloneEventSettings({
+      webinar: { source: "external", sessionId: "anchor1", autoCreated: true, autoProvisionZoom: false, viewingMode: "hls" },
+    });
+    // Without the source, "Run provisioner" on the clone made a Zoom webinar for it.
+    expect(cloned.webinar).toEqual({ source: "external", autoProvisionZoom: false, viewingMode: "hls" });
+    expect(cloneEventSettings({ webinar: { viewingMode: "zoom" } }).webinar).toEqual({ viewingMode: "zoom" });
+  });
+
   it("a clone never carries the source webinar's replay or its recording switch (Nov 10, 2026)", () => {
     // The replay is one past webinar's video; on a clone it would be offered as the NEW webinar's.
     const out = cloneEventSettings({
