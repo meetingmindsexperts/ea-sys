@@ -380,13 +380,12 @@ describe("MCP create_speaker — REST parity", () => {
 
   beforeEach(() => {
     mockDb.speaker.findFirst.mockResolvedValue(null);
-    mockDb.speaker.create.mockResolvedValue({
+    // The row Prisma returns holds what was written; the contact sync reads it.
+    mockDb.speaker.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: "spk-1",
-      firstName: "Alice",
-      lastName: "Smith",
-      email: "alice@example.com",
       status: "INVITED",
-    });
+      ...data,
+    }));
   });
 
   it("creates speaker and returns success", async () => {

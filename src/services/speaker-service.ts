@@ -25,6 +25,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromSpeaker } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { ensureSpeakerCompanionRegistration, settleFacultyRegistration, type FacultyRegistrationSettleResult } from "@/lib/speaker-companion";
@@ -260,28 +261,7 @@ export async function createSpeaker(
   // errors are caught inside syncToContact, never thrown here). Contact
   // model mirrors Speaker 1:1 on the shared attendee fields so the new
   // role / additionalEmail / state / zipCode / customSpecialty all land.
-  await syncToContact({
-    organizationId,
-    eventId,
-    email: normalizedEmail,
-    additionalEmail: normAdditionalEmail,
-    firstName,
-    lastName,
-    title: normTitle,
-    role: normRole,
-    organization: normOrg,
-    jobTitle: normJobTitle,
-    phone: normPhone,
-    photo: normPhoto,
-    city: normCity,
-    state: normState,
-    zipCode: normZipCode,
-    country: normCountry,
-    bio: normBio,
-    specialty: normSpecialty,
-    customSpecialty: normCustomSpecialty,
-    registrationType: contactCategoryOf(normRegType),
-  });
+  await syncToContact(contactSyncFromSpeaker(speaker, { organizationId, eventId }));
 
   // Ensure the companion registration (the "attendee facet") so this speaker
   // receives badge / entry barcode / DTCM / check-in / survey via the normal
@@ -753,37 +733,28 @@ export async function updateSpeaker(
 
     // Copy the personal details this edit changed onto the person's
     // registration in the same event (best-effort; the helper logs, never throws).
+    const detailsDelta = computeDetailsDelta(existing, speaker);
     await syncSpeakerDetailsToRegistrations({
       eventId,
       speakerId,
       email: existing.email,
       sourceRegistrationId: existing.sourceRegistrationId,
-      delta: computeDetailsDelta(existing, speaker),
+      delta: detailsDelta,
       actorUserId,
     });
 
-    // FULL contact sync — this is the H4 fix. Read straight off the freshly
-    // updated row so it already reflects the empty-to-null collapse above.
+    // The contact hears what this edit changed, read off the freshly updated
+    // row (so it reflects the empty-to-null collapse above), and nothing else
+    // (Nov 13, 2026). Until then every edit, a status change included, re-sent
+    // thirteen fields of the row, which could put this speaker's older photo
+    // or phone over a newer one the contact got from another event, and it
+    // never sent State, Zip or the free-text specialty.
     // Awaited; `syncToContact` catches its own errors and never throws.
-    await syncToContact({
+    await syncToContact(contactSyncFromSpeaker(speaker, {
       organizationId,
       eventId,
-      email: speaker.email,
-      additionalEmail: speaker.additionalEmail,
-      firstName: speaker.firstName,
-      lastName: speaker.lastName,
-      title: speaker.title,
-      role: speaker.role,
-      organization: speaker.organization,
-      jobTitle: speaker.jobTitle,
-      phone: speaker.phone,
-      photo: speaker.photo,
-      city: speaker.city,
-      country: speaker.country,
-      bio: speaker.bio,
-      specialty: speaker.specialty,
-      registrationType: contactCategoryOf(speaker.registrationType),
-    });
+      only: [...Object.keys(detailsDelta), ...(speaker.registrationType !== existing.registrationType ? ["registrationType"] : [])],
+    }));
 
     refreshEventStats(eventId);
 

@@ -75,7 +75,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
   mockDb.speaker.findFirst.mockResolvedValue(null);
-  mockDb.speaker.create.mockResolvedValue(CREATED_SPEAKER);
+  // The row Prisma returns holds what was written; the contact sync reads it.
+  mockDb.speaker.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...CREATED_SPEAKER, ...data }));
   mockDb.auditLog.create.mockResolvedValue({});
   mockSyncToContact.mockResolvedValue(undefined);
   mockNotifyAdmins.mockResolvedValue(undefined);
@@ -127,7 +128,7 @@ describe("createSpeaker — happy path", () => {
     expect(mockDb.speaker.create.mock.calls[0][0].data.registrationType).toBe("Faculty");
     expect(mockSyncToContact.mock.calls[0][0].registrationType).toBeNull();
     vi.clearAllMocks();
-    mockDb.speaker.create.mockResolvedValue({ id: "sp-2", eventId: BASE_INPUT.eventId, email: "b@x.com" });
+    mockDb.speaker.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "sp-2", ...data }));
     await createSpeaker({ ...BASE_INPUT, registrationType: "Physician" });
     expect(mockSyncToContact.mock.calls[0][0].registrationType).toBe("Physician");
   });

@@ -209,14 +209,18 @@ beforeEach(() => {
   mockDb.event.findFirst.mockResolvedValue(PAID_EVENT);
   mockDb.ticketType.findFirst.mockResolvedValue(PAID_TICKET);
   mockDb.registration.findFirst.mockResolvedValue(null);
-  mockDb.attendee.create.mockResolvedValue({ id: "att-1" });
+  // The row Prisma returns holds what was written; the contact sync reads it.
+  mockDb.attendee.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "att-1", ...data }));
   // `claimSeats` reads the cap, then does the guarded increment.
   mockDb.ticketType.findUnique.mockResolvedValue({ quantity: PAID_TICKET.quantity });
   mockDb.ticketType.updateMany.mockResolvedValue({ count: 1 });
   mockDb.pricingTier.findUnique.mockResolvedValue({ quantity: 999999, ticketTypeId: "tt-1" });
   mockDb.$executeRaw.mockImplementation(seatRawExecutor());
   mockDb.pricingTier.updateMany.mockResolvedValue({ count: 1 });
-  mockDb.registration.create.mockResolvedValue(CREATED_REGISTRATION_PAID);
+  mockDb.registration.create.mockImplementation(async () => ({
+    ...CREATED_REGISTRATION_PAID,
+    attendee: { ...CREATED_REGISTRATION_PAID.attendee, ...(mockDb.attendee.create.mock.calls.at(-1)?.[0]?.data ?? {}) },
+  }));
   mockDb.auditLog.create.mockResolvedValue({});
   mockSyncToContact.mockResolvedValue(undefined);
   mockNotifyAdmins.mockResolvedValue(undefined);

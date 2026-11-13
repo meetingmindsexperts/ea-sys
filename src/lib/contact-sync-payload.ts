@@ -138,6 +138,16 @@ const ON_SPEAKER = new Set<string>(personFieldsOn("speaker"));
 const SPEAKER_COPIED_FIELDS = COPIED_FIELDS.filter((field) => ON_SPEAKER.has(field));
 type SpeakerContactField = Extract<CopiedField, keyof Speaker>;
 
+export interface SpeakerContactOptions extends ContactSyncTarget {
+  /**
+   * Send only these fields (the ones this edit changed), for the same reason
+   * as the attendee builder's `only`. "registrationType" among them sends the
+   * category; without it an edit leaves the contact's category unsaid. Left
+   * out, every field goes: right for a row just created.
+   */
+  only?: readonly string[];
+}
+
 /** The columns a contact sync needs from a Speaker row. */
 export type SpeakerContactSource = Pick<Speaker, "email" | "firstName" | "lastName" | "registrationType" | SpeakerContactField>;
 
@@ -146,16 +156,19 @@ export type SpeakerContactSource = Pick<Speaker, "email" | "firstName" | "lastNa
  * `contactCategoryOf`: a speaker's type is "Faculty" for the speakers API, and
  * only a different word (an older speaker typed "Physician") is a category.
  */
-export function contactSyncFromSpeaker(speaker: SpeakerContactSource, target: ContactSyncTarget): ContactSyncData {
-  const copied = Object.fromEntries(SPEAKER_COPIED_FIELDS.map((field) => [field, speaker[field as SpeakerContactField]])) as Partial<Pick<SpeakerContactSource, SpeakerContactField>>;
+export function contactSyncFromSpeaker(speaker: SpeakerContactSource, options: SpeakerContactOptions): ContactSyncData {
+  const only = options.only ? new Set(options.only) : null;
+  const fields = only ? SPEAKER_COPIED_FIELDS.filter((field) => only.has(field)) : SPEAKER_COPIED_FIELDS;
+  const copied = Object.fromEntries(fields.map((field) => [field, speaker[field as SpeakerContactField]])) as Partial<Pick<SpeakerContactSource, SpeakerContactField>>;
+  const saysCategory = !only || only.has("registrationType");
   return {
-    organizationId: target.organizationId,
-    eventId: target.eventId,
+    organizationId: options.organizationId,
+    eventId: options.eventId,
     email: speaker.email,
     firstName: speaker.firstName,
     lastName: speaker.lastName,
     ...copied,
-    registrationType: contactCategoryOf(speaker.registrationType),
+    ...(saysCategory && { registrationType: contactCategoryOf(speaker.registrationType) }),
   };
 }
 

@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Contacts: a staff edit tells the contact what changed, and never "Faculty" (November 13)
+
+Step 0b of `docs/ORG_FIELDS_PLAN.md`, the staff group: creating and editing a
+registration or a speaker (dashboard, API and agent tools, which all go through
+the two services).
+
+Editing a registration re-sent the whole attendee row to the contact, with the
+type the row held before the edit as the contact's category. On a Faculty
+registration that wrote "Faculty" over the contact's own category, which feeds
+Mailchimp: on production 116 contacts hold "Faculty" as their category. Editing
+a speaker re-sent thirteen fields on every save, a status change included, and
+never State, Zip or the typed-in specialty.
+
+Both now send only the fields the edit changed, read off the saved row. The
+category is said only when the edit moved the registration to another type,
+and never for the Faculty type. Creating a registration or a speaker sends
+what it always did, now built from the created row.
+
+Verified on the local app: a staff edit of the phone on a Faculty registration
+changed the contact's phone and left its category as "Physician". Nothing
+existing is repaired: the 116 contacts keep "Faculty" until someone sets their
+category.
+
 ### Contacts: an import now copies Role (and a speaker's State, Zip and additional email) to the contact (November 13)
 
 Step 0b of `docs/ORG_FIELDS_PLAN.md`, the imports group. The registrations CSV

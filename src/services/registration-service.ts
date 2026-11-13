@@ -31,6 +31,7 @@ import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
 import { claimSpareDtcmCode, type ClaimDtcmOutcome } from "@/lib/dtcm-pool";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -1132,35 +1133,14 @@ export async function createRegistration(
   // Sync to org contact store (awaited; errors caught inside syncToContact).
   // Threads the full attendee payload — Contact model mirrors Attendee
   // so none of these drop on the other side.
-  await syncToContact({
+  await syncToContact(contactSyncFromAttendee(registration.attendee, {
     organizationId,
     eventId,
-    email,
-    firstName,
-    lastName,
-    title: attendeeTitle,
-    role: attendeeRole,
-    additionalEmail,
-    organization,
-    jobTitle,
-    phone,
-    photo,
-    city,
-    state,
-    zipCode,
-    country,
-    bio,
-    specialty,
-    customSpecialty,
     // The contact's category is a profession. For a delegate that is the
     // type's name; Faculty is not one, so a Faculty registration leaves the
     // contact's own category as it is (a blank is never written over it).
-    registrationType: input.asFaculty ? null : ticketType?.name || null,
-    associationName,
-    memberId,
-    studentId,
-    studentIdExpiry,
-  });
+    category: input.asFaculty ? null : ticketType?.name || null,
+  }));
 
   // Hand this registration a spare DTCM code, if the event is a Dubai one and
   // the organiser has imported a pool.
@@ -1440,10 +1420,6 @@ export type UpdateRegistrationResult =
       repricingCode?: string;
       httpStatus?: number;
     };
-
-function toDateOrNull(value: string | Date | null): Date | null {
-  return value ? new Date(value) : null;
-}
 
 /**
  * Update a registration — statuses, payer, type/tier (repriced), attendance
@@ -1870,36 +1846,20 @@ export async function updateRegistration(
         ]);
       }
 
-      // Full-merge Contact sync (REST's shape — MCP used to sync name+email
-      // only). `undefined` preserves what the Contact already had.
-      const a = existing.attendee;
-      await syncToContact({
+      // The contact hears what this edit changed, as the row now holds it, and
+      // nothing else (Nov 13, 2026). Until then the whole row was re-sent on
+      // every edit, with the type it held BEFORE the edit as the category: on a
+      // Faculty registration that wrote "Faculty" over the contact's own
+      // category, and it never sent State, Zip or the free-text specialty.
+      // The category is said only when this edit moved the registration to
+      // another type (never the Faculty type: that move is refused above).
+      const edited = Object.entries(attendee).filter(([, value]) => value !== undefined).map(([key]) => key);
+      await syncToContact(contactSyncFromAttendee(registration.attendee, {
         organizationId,
         eventId,
-        email: a.email,
-        additionalEmail: attendee.additionalEmail !== undefined
-          ? (attendee.additionalEmail?.trim() || null)
-          : a.additionalEmail,
-        firstName: attendee.firstName || a.firstName,
-        lastName: attendee.lastName || a.lastName,
-        title: attendee.title !== undefined ? ((attendee.title || null) as never) : a.title,
-        role: attendee.role !== undefined ? ((attendee.role || null) as never) : a.role,
-        organization: attendee.organization !== undefined ? (attendee.organization || null) : a.organization,
-        jobTitle: attendee.jobTitle !== undefined ? (attendee.jobTitle || null) : a.jobTitle,
-        phone: attendee.phone !== undefined ? (attendee.phone || null) : a.phone,
-        photo: attendee.photo !== undefined ? (attendee.photo || null) : a.photo,
-        city: attendee.city !== undefined ? (attendee.city || null) : a.city,
-        country: attendee.country !== undefined ? (attendee.country || null) : a.country,
-        bio: attendee.bio !== undefined ? (attendee.bio || null) : a.bio,
-        specialty: attendee.specialty !== undefined ? (attendee.specialty || null) : a.specialty,
-        registrationType: a.registrationType,
-        associationName: attendee.associationName !== undefined ? (attendee.associationName || null) : a.associationName,
-        memberId: attendee.memberId !== undefined ? (attendee.memberId || null) : a.memberId,
-        studentId: attendee.studentId !== undefined ? (attendee.studentId || null) : a.studentId,
-        studentIdExpiry: attendee.studentIdExpiry !== undefined
-          ? toDateOrNull(attendee.studentIdExpiry)
-          : a.studentIdExpiry,
-      });
+        category: newTicketTypeName,
+        only: edited,
+      }));
     }
 
     refreshEventStats(eventId);

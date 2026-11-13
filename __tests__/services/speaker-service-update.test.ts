@@ -154,6 +154,7 @@ describe("H4 — the contact sync carries the FULL profile (was name+email on MC
   it("reads the sync payload from the UPDATED row, not the caller's input", async () => {
     // The service must mirror what was actually persisted (incl. the
     // empty-to-null collapse), not echo the request body back at the CRM.
+    mockDb.speaker.findFirst.mockResolvedValue({ ...EXISTING, phone: "+971 4 000" });
     mockDb.speaker.findUniqueOrThrow.mockResolvedValue({ ...UPDATED, phone: null });
 
     await updateSpeaker({ ...BASE, fields: { phone: "" } });
@@ -161,6 +162,40 @@ describe("H4 — the contact sync carries the FULL profile (was name+email on MC
     expect(mockSyncToContact).toHaveBeenCalledWith(
       expect.objectContaining({ phone: null }),
     );
+  });
+});
+
+describe("the contact hears only what the edit changed (Nov 13, 2026)", () => {
+  const profileKeys = (payload: Record<string, unknown>) =>
+    Object.keys(payload).filter((k) => !["organizationId", "eventId", "email", "firstName", "lastName"].includes(k)).sort();
+
+  it("a status change sends no profile field: an old photo must not go over a newer one on the contact", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ ...UPDATED, status: "INVITED" });
+    mockDb.speaker.findUniqueOrThrow.mockResolvedValue({ ...UPDATED, status: "CONFIRMED" });
+    await updateSpeaker({ ...BASE, fields: { status: "CONFIRMED" } });
+    expect(profileKeys(mockSyncToContact.mock.calls[0][0])).toEqual([]);
+  });
+
+  it("an edit of State and Zip sends exactly those, which the old payload never sent", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ ...UPDATED, state: null, zipCode: null });
+    mockDb.speaker.findUniqueOrThrow.mockResolvedValue({ ...UPDATED, state: "Dubai", zipCode: "00000" });
+    await updateSpeaker({ ...BASE, fields: { state: "Dubai", zipCode: "00000" } });
+    const payload = mockSyncToContact.mock.calls[0][0];
+    expect(profileKeys(payload)).toEqual(["state", "zipCode"]);
+    expect(payload).toMatchObject({ state: "Dubai", zipCode: "00000" });
+  });
+
+  it("the category is said only when the speaker's type changed, and Faculty is never one", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ ...UPDATED, registrationType: "Physician" });
+    mockDb.speaker.findUniqueOrThrow.mockResolvedValue({ ...UPDATED, registrationType: "Allied Health" });
+    await updateSpeaker({ ...BASE, fields: { registrationType: "Allied Health" } });
+    expect(mockSyncToContact.mock.calls[0][0].registrationType).toBe("Allied Health");
+
+    mockSyncToContact.mockClear();
+    mockDb.speaker.findFirst.mockResolvedValue({ ...UPDATED, registrationType: "Physician" });
+    mockDb.speaker.findUniqueOrThrow.mockResolvedValue({ ...UPDATED, registrationType: "Faculty" });
+    await updateSpeaker({ ...BASE, fields: { registrationType: "Faculty" } });
+    expect(mockSyncToContact.mock.calls[0][0].registrationType).toBeNull();
   });
 });
 

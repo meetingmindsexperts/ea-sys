@@ -70,7 +70,8 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
-vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn().mockResolvedValue(undefined) }));
+const contactSyncSpy = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock("@/lib/contact-sync", () => ({ syncToContact: contactSyncSpy }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn() }));
 vi.mock("@/lib/email", () => ({ sendRegistrationConfirmation: vi.fn() }));
 vi.mock("@/lib/registration-confirmation", () => ({ buildEventConfirmationFields: vi.fn(() => ({})) }));
@@ -120,6 +121,36 @@ beforeEach(() => {
   mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
   mockDb._tx.registration.findUniqueOrThrow.mockResolvedValue(UPDATED_ROW);
   mockDb._tx.ticketType.findUnique.mockResolvedValue({ quantity: 100, name: "Nurse" });
+});
+
+describe("the contact hears only what the edit changed (Nov 13, 2026)", () => {
+  const AFTER = {
+    id: "att1", email: "a@b.com", firstName: "A", lastName: "B", role: "PHYSICIAN", state: "Dubai", phone: "+971 1",
+    photo: "/uploads/old.jpg", bio: "Old bio", organization: "Clinic", registrationType: "Faculty",
+  };
+  const profileKeys = (payload: Record<string, unknown>) =>
+    Object.keys(payload).filter((k) => !["organizationId", "eventId", "email", "firstName", "lastName", "registrationType"].includes(k)).sort();
+
+  it("sends the edited fields as the row now holds them, and not the rest of the row", async () => {
+    mockDb._tx.registration.findUniqueOrThrow.mockResolvedValue({ ...UPDATED_ROW, attendee: AFTER });
+    await updateRegistration({ ...base, attendee: { role: "PHYSICIAN", state: "Dubai" } });
+    const payload = contactSyncSpy.mock.calls[0][0];
+    expect(profileKeys(payload)).toEqual(["role", "state"]);
+    expect(payload).toMatchObject({ organizationId: "org1", eventId: "ev1", email: "a@b.com", role: "PHYSICIAN", state: "Dubai" });
+  });
+
+  it("an edit on a Faculty registration never writes Faculty as the contact's category", async () => {
+    // The old payload sent the type the row held before the edit, raw.
+    mockDb.registration.findFirst.mockResolvedValue(existing({ attendee: { id: "att1", firstName: "A", lastName: "B", email: "a@b.com", tags: [], registrationType: "Faculty" } }));
+    mockDb._tx.registration.findUniqueOrThrow.mockResolvedValue({ ...UPDATED_ROW, attendee: AFTER });
+    await updateRegistration({ ...base, attendee: { phone: "+971 1" } });
+    expect(contactSyncSpy.mock.calls[0][0].registrationType).toBeNull();
+  });
+
+  it("an edit that touches no attendee field does not sync at all, as before", async () => {
+    await updateRegistration({ ...base, notes: "x" });
+    expect(contactSyncSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("M1 — event-bound lookup", () => {
