@@ -42,6 +42,35 @@ export interface ContactSyncData {
 }
 
 /**
+ * The Contact columns a sync may fill, beside the name and email it always
+ * writes. A list, not an object literal inside the function, so
+ * person-field-contract.test.ts can hold it against the declared person
+ * fields: a field the Attendee and the Contact both have cannot be left out of
+ * here without a named exception.
+ */
+export const CONTACT_SYNC_OPTIONAL_FIELDS = [
+  "title",
+  "role",
+  "additionalEmail",
+  "organization",
+  "jobTitle",
+  "phone",
+  "photo",
+  "city",
+  "state",
+  "zipCode",
+  "country",
+  "bio",
+  "specialty",
+  "customSpecialty",
+  "registrationType",
+  "associationName",
+  "memberId",
+  "studentId",
+  "studentIdExpiry",
+] as const satisfies readonly (keyof ContactSyncData)[];
+
+/**
  * Enrich-only field filter. Drops `undefined`, `null`, AND `""` so a write can
  * fill in or update a field with real data but **never clears** an already-
  * populated field. This prevents a sparse write (e.g. a new-event registration
@@ -73,27 +102,7 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
     const email = data.email.toLowerCase().trim();
     if (!email) return;
 
-    const optional = omitBlankFields({
-      title: data.title,
-      role: data.role,
-      additionalEmail: data.additionalEmail,
-      organization: data.organization,
-      jobTitle: data.jobTitle,
-      phone: data.phone,
-      photo: data.photo,
-      city: data.city,
-      state: data.state,
-      zipCode: data.zipCode,
-      country: data.country,
-      bio: data.bio,
-      specialty: data.specialty,
-      customSpecialty: data.customSpecialty,
-      registrationType: data.registrationType,
-      associationName: data.associationName,
-      memberId: data.memberId,
-      studentId: data.studentId,
-      studentIdExpiry: data.studentIdExpiry,
-    });
+    const optional = omitBlankFields(Object.fromEntries(CONTACT_SYNC_OPTIONAL_FIELDS.map((field) => [field, data[field]])));
 
     const compositeKey = {
       organizationId_email: {

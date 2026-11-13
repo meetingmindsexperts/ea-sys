@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Person fields: one declaration of what the four records share (November 13)
+
+Owner, preparing for other organisations and other industries: the
+organisation will own Role, Specialty, Title and its own fields
+(`docs/ORG_FIELDS_PLAN.md`). This is the groundwork, and it changes nothing a
+user sees.
+
+A person is stored on up to four records (the registration's attendee, a
+speaker, the organisation's contact, the account's profile), and the fields
+they share were typed out by hand wherever details are copied between them.
+`src/lib/person-field-contract.ts` now declares each field and the records
+that hold it. `person-field-contract.test.ts` fails when a column is added to
+one of the four models and not declared, and holds the three copy lists
+(speaker and registration sync, contact sync, the account's details) and the
+public form's fields against the declaration. The contact sync's field list
+became a named list so the test can read it; what it writes is unchanged.
+
 ### Registrations: a type change is refused while a promo code is on an unpaid registration (November 13)
 
 Owner, after the door fix above turned up the cause: "ok do it."

@@ -1,11 +1,12 @@
 # Person fields owned by the organisation
 
-> Status: **PLANNED, NOT BUILT.** Written Nov 13, 2026.
+> Status: **IN BUILD.** Written Nov 13, 2026; the owner said to proceed with
+> step 0 the same day. Step 0a is built (the declaration and its tests).
 > Why now: preparation for multi-tenancy (owner, Nov 13, 2026). No event is
 > waiting on it. A second organisation on the platform cannot launch while
 > every form demands a medical profession and a medical specialty.
-> The pre-build review of this plan against the code is owed before step 0
-> starts.
+> An independent review of this plan against the code is run on step 0a's
+> commit, before step 0b.
 
 ## 1. What the owner decided (Nov 13, 2026)
 
@@ -17,6 +18,9 @@
 | D4 | Admins AND organisers may create and edit fields and answer lists. Not admins only. |
 | D5 | A field the organisation has follows the person everywhere: registration, speaker, contact and account. Not the registration alone. |
 | D6 | "Add a new field" is reachable from the event's form settings and saves into the organisation's list, so there is one list. |
+| D7 | A starter set (Medical, Technology, Education, General) is offered when an organisation is set up, and is OPTIONAL: "even if they dont it is fine, because some small event agency does all industries events". |
+| D8 | Title is on or off only, for now. |
+| D9 | The event's topic uses the same list as the person's Specialty. |
 
 Follows from D1 and D6, not yet said by the owner in these words: required or
 not, and the order on the form, are the event's choice.
@@ -56,6 +60,25 @@ by hand at:
 When Role was added in July it had to be wired into each by hand, and a missed
 one is silent: the answer is simply not saved. Every step below adds or changes
 a person field, so that older plan is this plan's step 0.
+
+### 3a. What the contact sync drops today (found Nov 13, 2026)
+
+`syncToContact` can fill 19 optional columns. Its callers each build the
+payload by hand, and of about 20 call sites exactly one sends all 19. Some
+gaps are right (a speaker has no member ID). These are not:
+
+| Caller | Dropped, although the record it copies from holds them |
+|---|---|
+| A person's own edit (`registrant-details.ts`, My Details and the event's self-edit) | Role, State, Zip, the free-text specialty, photo, bio |
+| Staff edit of a registration (`registration-service.ts`, update) | State, Zip, the free-text specialty |
+| Staff edit of a speaker (`speaker-service.ts`, update) | State, Zip, the free-text specialty |
+| Registrations CSV import | Role, additional email, photo, the free-text specialty, student ID expiry |
+| Adding a reviewer from a speaker | Role, additional email, State, Zip, the free-text specialty |
+| Agent tool that updates a speaker | Additional email, State, Zip, the free-text specialty |
+
+The sync only ever fills, never clears, so the effect is a contact that stays
+emptier or older than the record it came from, and the contacts feed to
+Mailchimp carries that. Step 0b closes it.
 
 ## 4. Design
 
@@ -116,7 +139,10 @@ Sizes are estimates, not measurements.
 
 | Step | What | Changes behaviour? | Size |
 |---|---|---|---|
-| 0 | The one definition of a person's fields (`ATTENDEE_FIELDS_REFACTOR_PLAN.md`), extended to speaker, contact and account. A test fails when a column is added and the definition is not. | No | About 1 week |
+| 0a | BUILT Nov 13, 2026. The one declaration of a person's fields and which of the four records hold each (`src/lib/person-field-contract.ts`). `person-field-contract.test.ts` fails when a column is added to Attendee, Speaker, Contact or AccountProfile and not declared, and holds the three hand-written copy lists (speaker and registration sync, contact sync, the account's details) and the public form's fields against it. | No | Done |
+| 0b | The callers of the contact sync stop building its payload by hand (section 3a): one builder per source record, so every caller sends every field the record has. | Yes: fields that were dropped start reaching the contact | Days |
+| 0c | The create paths: one all-required input, so a create that does not account for a field fails to compile (`ATTENDEE_FIELDS_REFACTOR_PLAN.md`, phase A). One caller per commit. | No | Days |
+| 0d | The update paths, same treatment (phase B of that plan). | No | Days |
 | 1a | `person-fields.ts` with today's lists as the default; every door validates through it; the hand-copied role lists and the ten "Others" rules are deleted. | No | Days |
 | 1b | Role storage (A or B above). | No for MM Group | Days |
 | 1c | The settings screen for labels and answers, the permission key, the audit entries. | Yes, new screen | Days |
@@ -159,7 +185,7 @@ Not found anywhere: a list filter or a bulk email segment on Role or Specialty.
 
 | # | Question | Recommendation |
 |---|---|---|
-| O1 | What does a NEW organisation start with: empty lists, or a starter set it picks (Medical, Technology, Education, General)? | A starter set at onboarding; MM Group keeps today's lists without touching anything |
-| O2 | Title: switch on or off only, or the organisation's own titles (Eng., H.E.)? | Switch only in step 1; own titles in step 3 if a tenant asks |
-| O3 | Does the event's topic (`Event.specialty`, the catalogue) use the same list as the person's Specialty? | Yes, one list |
-| O4 | When does step 0 start, against the hardening work already queued? | Owner's call |
+| O4 | An agency that runs every industry under one organisation (D7) has ONE Role list and ONE Specialty list for all its events, because an event only uses a field or not (D1). Is that enough, or should an event later be able to pick which answers it offers? | Enough for now; "an event narrows the answers" is a small later addition and the abstract presentation types already work that way |
+
+Answered on Nov 13, 2026 and moved to section 1: the starter set (D7), Title
+(D8), the event's topic (D9), and when step 0 starts (now).
