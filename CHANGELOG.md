@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Settings, Form fields: the organisation's own Specialty list (November 13)
+
+Step 1 of `docs/ORG_FIELDS_PLAN.md`, the first piece anyone can see. Owner:
+"now proceed with the plan."
+
+A new **Form fields** tab in Settings edits the answers every Specialty picker
+offers: the registration forms, the dashboard forms, an event's topic. Add an
+answer, retire one, restore it, reorder, switch "Others" on or off. Each
+answer shows how many people hold it.
+
+- **Who:** a new permission, `formFields.manage`, held by admins and organisers
+  (owner, Nov 13: "give the option to organizer too") and tickable on a custom
+  role. Members and the other roles do not see the tab.
+- **The rules, enforced by the server:** an answer's wording is never edited
+  (it is stored on everyone who chose it); an answer people hold can be retired
+  but not removed, and the refusal says how many hold it; "Others" is a switch,
+  not an answer.
+- **Where the forms read it:** `GET /api/public/person-fields`, no sign-in
+  (the answers are what the public form shows). Whose list: the event's
+  organisation on an event's public pages, else the signed-in person's, else
+  the one the address belongs to. If it cannot be read, the form shows the
+  list as it was before, never an empty picker.
+- **Nothing changes until someone saves a list.** With nothing saved, every
+  picker offers the same 45 answers as before.
+
+Not in this piece: the field's name ("Specialty") and its on/off switch, and
+the Title and Role lists.
+
+Found by checking on screen, and fixed before this was committed: the browser
+kept the old list for a minute after a save, so the form showed the old
+answers straight after Settings said "saved"; and a visitor who was not signed
+in got the default list on the local app, because the list was looked up by
+the page's address alone. Verified on the local app: added "Sleep Medicine"
+and retired an answer in Settings, and both the Add Registration form and the
+public registration form offered the new one and not the retired one.
+
 ### Contacts: "changed" is the difference in the row, for every edit (November 13)
 
 Review of the public forms, the last callers and the fill-blanks rule

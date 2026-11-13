@@ -15,10 +15,12 @@
  *     as they stood, so reading through this module changes nothing for an
  *     organisation that has saved nothing.
  *
- * What it does NOT do yet (later slices of step 1): no screen writes the
- * setting, the forms and validators still read their own lists, and Role is
- * still a fixed database list. Wired today: the specialty and title pickers
- * take their default answers from here, so there is one copy of each list.
+ * Wired today (Nov 13, 2026): the Specialty ANSWERS. Settings, Form fields
+ * saves them (src/services/person-field-service.ts), and every specialty
+ * picker reads the organisation's list (src/hooks/use-person-fields.ts).
+ * Not yet: the field's label and its on/off switch are stored and read but no
+ * form obeys them, Title and Role still offer their fixed lists, and Role is
+ * still a fixed database list (docs/ORG_FIELDS_PLAN.md, the later slices).
  *
  * Pure and client-safe: no database import. The server reads the setting and
  * hands the parsed result to whoever needs it.
@@ -187,6 +189,30 @@ export function answerLabel(field: PersonFieldConfig, stored: string | null | un
   if (!stored) return "";
   return field.options.find((o) => o.key === stored)?.label ?? stored;
 }
+
+/**
+ * What a form needs of a field, and nothing more: safe to hand to a public
+ * page. Retired answers are left out; "Others" is the last answer where the
+ * field allows it.
+ */
+export interface PublicPersonField {
+  enabled: boolean;
+  label: string;
+  answers: { key: string; label: string }[];
+}
+export type PublicPersonFields = Record<ConfigurablePersonField, PublicPersonField>;
+
+export function publicPersonFields(config: PersonFieldsConfig): PublicPersonFields {
+  const one = (field: PersonFieldConfig): PublicPersonField => ({
+    enabled: field.enabled,
+    label: field.label,
+    answers: offeredAnswers(field).map(({ key, label }) => ({ key, label })),
+  });
+  return { title: one(config.title), role: one(config.role), specialty: one(config.specialty) };
+}
+
+/** Today's form, as a public page gets it while the organisation's own is loading or cannot be read. */
+export const DEFAULT_PUBLIC_PERSON_FIELDS: PublicPersonFields = publicPersonFields(defaultPersonFields());
 
 /** Whether a NEWLY chosen answer is one the field offers. A stored answer is never judged by this. */
 export function isOfferedAnswer(field: PersonFieldConfig, chosen: string): boolean {

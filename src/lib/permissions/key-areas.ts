@@ -92,7 +92,7 @@ export const ORG_PAGE_KEYS: Readonly<Record<string, readonly string[]>> = {
   "/activity": ["activity.org.read", "loginActivity.read"],
   "/agent": ["agent.use"],
   "/settings": [
-    "org.settings", "org.credentials", "users.read", "users.invite", "users.manage", "roles.manage",
+    "org.settings", "formFields.manage", "org.credentials", "users.read", "users.invite", "users.manage", "roles.manage",
     "billingAccounts.read", "billingAccounts.manage", "apiKeys.manage",
   ],
 };

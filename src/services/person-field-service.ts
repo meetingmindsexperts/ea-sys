@@ -1,0 +1,198 @@
+/**
+ * The organisation's own answers for a person field (Nov 13, 2026; step 1 of
+ * docs/ORG_FIELDS_PLAN.md). Today: Specialty. The list is replaced as a whole,
+ * like the organisation's sponsor tiers.
+ *
+ * Rules, all enforced here and not only on the screen:
+ *   - An answer's text is what is stored on every registration, speaker and
+ *     contact that chose it, so it is never edited. To change one, retire it
+ *     and add another.
+ *   - An answer somebody holds cannot be removed, only retired: a retired one
+ *     is no longer offered and still reads correctly wherever it is stored.
+ *   - "Others" is not an answer on the list: it is the switch that offers
+ *     free text beside the list.
+ *
+ * Read, plan, in-use check and write happen in ONE transaction holding the
+ * organisation row lock, the same lock every other settings writer takes, so
+ * two people saving at once cannot drop each other's answers. The caller must
+ * be inside the organisation's tenant lane (the route enters it).
+ */
+import type { Prisma } from "@prisma/client";
+import { db, tenantTransaction } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
+import {
+  MAX_PERSON_FIELD_ANSWER,
+  MAX_PERSON_FIELD_OPTIONS,
+  OTHER_ANSWER,
+  PERSON_FIELDS_SETTING,
+  readPersonFields,
+  type PersonFieldConfig,
+  type PersonFieldOption,
+} from "@/lib/person-fields";
+
+export type SaveSpecialtyAnswersErrorCode =
+  | "ORGANIZATION_NOT_FOUND"
+  | "TOO_MANY"
+  | "INVALID_ANSWER"
+  | "RESERVED_ANSWER"
+  | "DUPLICATE_ANSWER"
+  | "ANSWER_IN_USE"
+  | "UNKNOWN";
+
+export interface AnswerInUse {
+  answer: string;
+  people: number;
+}
+
+export type SaveSpecialtyAnswersResult =
+  | { ok: true; field: PersonFieldConfig }
+  | { ok: false; code: SaveSpecialtyAnswersErrorCode; message: string; inUse?: AnswerInUse[] };
+
+const fail = (code: SaveSpecialtyAnswersErrorCode, message: string, inUse?: AnswerInUse[]): SaveSpecialtyAnswersResult => ({
+  ok: false,
+  code,
+  message,
+  ...(inUse ? { inUse } : {}),
+});
+
+export interface SpecialtyAnswerInput {
+  answer: string;
+  retired?: boolean;
+}
+
+/** The next list, or the reason the input cannot become one. Pure: no database. */
+export function planSpecialtyAnswers(
+  input: SpecialtyAnswerInput[],
+): { ok: true; next: PersonFieldOption[] } | { ok: false; result: SaveSpecialtyAnswersResult } {
+  if (input.length > MAX_PERSON_FIELD_OPTIONS) {
+    return { ok: false, result: fail("TOO_MANY", `At most ${MAX_PERSON_FIELD_OPTIONS} answers.`) };
+  }
+  const seen = new Set<string>();
+  const next: PersonFieldOption[] = [];
+  for (const entry of input) {
+    const text = typeof entry.answer === "string" ? entry.answer.trim() : "";
+    if (!text || text.length > MAX_PERSON_FIELD_ANSWER) {
+      return { ok: false, result: fail("INVALID_ANSWER", `An answer needs 1 to ${MAX_PERSON_FIELD_ANSWER} characters.`) };
+    }
+    if (text.toLowerCase() === OTHER_ANSWER.toLowerCase()) {
+      return { ok: false, result: fail("RESERVED_ANSWER", `"${OTHER_ANSWER}" is not an answer on the list. Switch "Offer ${OTHER_ANSWER}" on to let people type their own.`) };
+    }
+    if (seen.has(text.toLowerCase())) {
+      return { ok: false, result: fail("DUPLICATE_ANSWER", `"${text}" is in the list twice.`) };
+    }
+    seen.add(text.toLowerCase());
+    next.push({ key: text, label: text, retired: entry.retired === true });
+  }
+  return { ok: true, next };
+}
+
+type Tx = Prisma.TransactionClient;
+
+/**
+ * How many people in this organisation hold each of these answers, counted
+ * where a specialty is stored against the organisation: its contacts, and the
+ * attendees and speakers of its events. An event's own topic counts too.
+ */
+export async function countSpecialtyUse(tx: Tx | typeof db, organizationId: string, answers: string[]): Promise<Map<string, number>> {
+  const use = new Map<string, number>();
+  if (answers.length === 0) return use;
+  const add = (rows: { specialty: string | null; _count: { _all: number } }[]) => {
+    for (const row of rows) {
+      if (row.specialty) use.set(row.specialty, (use.get(row.specialty) ?? 0) + row._count._all);
+    }
+  };
+  const [contacts, attendees, speakers, events] = await Promise.all([
+    tx.contact.groupBy({ by: ["specialty"], where: { organizationId, specialty: { in: answers } }, _count: { _all: true } }),
+    tx.attendee.groupBy({
+      by: ["specialty"],
+      where: { specialty: { in: answers }, registrations: { some: { event: { organizationId } } } },
+      _count: { _all: true },
+    }),
+    tx.speaker.groupBy({ by: ["specialty"], where: { specialty: { in: answers }, event: { organizationId } }, _count: { _all: true } }),
+    tx.event.groupBy({ by: ["specialty"], where: { organizationId, specialty: { in: answers } }, _count: { _all: true } }),
+  ]);
+  add(contacts);
+  add(attendees);
+  add(speakers);
+  add(events);
+  return use;
+}
+
+type SaveOutcome =
+  | { saved: false; result: SaveSpecialtyAnswersResult }
+  | { saved: true; before: PersonFieldConfig; after: PersonFieldConfig; removed: string[] };
+
+export async function saveSpecialtyAnswers(input: {
+  organizationId: string;
+  actorUserId: string;
+  answers: SpecialtyAnswerInput[];
+  allowOther: boolean;
+}): Promise<SaveSpecialtyAnswersResult> {
+  try {
+    const plan = planSpecialtyAnswers(input.answers);
+    if (!plan.ok) return plan.result;
+
+    // In the caller's tenant lane: the in-use count reads contacts, attendees
+    // and speakers, which sit behind a row policy on the platform. Outside the
+    // lane those reads come back empty, and a held answer would look unused.
+    const outcome = await tenantTransaction(async (tx): Promise<SaveOutcome> => {
+      const rows = await tx.$queryRaw<{ settings: Prisma.JsonValue | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${input.organizationId} FOR UPDATE`;
+      if (rows.length === 0) return { saved: false, result: fail("ORGANIZATION_NOT_FOUND", "Organisation not found") };
+      const settings = (rows[0].settings ?? {}) as Record<string, unknown>;
+      const before = readPersonFields(settings).specialty;
+
+      const kept = new Set(plan.next.map((o) => o.key));
+      const removed = before.options.map((o) => o.key).filter((key) => !kept.has(key));
+      const use = await countSpecialtyUse(tx, input.organizationId, removed);
+      const inUse = removed.flatMap((answer) => {
+        const people = use.get(answer) ?? 0;
+        return people > 0 ? [{ answer, people }] : [];
+      });
+      if (inUse.length > 0) {
+        const names = inUse.map((a) => `${a.answer} (${a.people})`).join(", ");
+        return {
+          saved: false,
+          result: fail("ANSWER_IN_USE", `These answers are held by people, so they can be retired and not removed: ${names}.`, inUse),
+        };
+      }
+
+      // The label and the on/off switch are kept as they are: this save is the answers.
+      const after: PersonFieldConfig = { enabled: before.enabled, label: before.label, options: plan.next, allowOther: input.allowOther };
+      const saved = (settings[PERSON_FIELDS_SETTING] && typeof settings[PERSON_FIELDS_SETTING] === "object" ? settings[PERSON_FIELDS_SETTING] : {}) as Record<string, unknown>;
+      await tx.organization.update({
+        where: { id: input.organizationId },
+        data: { settings: { ...settings, [PERSON_FIELDS_SETTING]: { ...saved, specialty: after } } as unknown as Prisma.InputJsonValue },
+      });
+      return { saved: true, before, after, removed };
+    });
+
+    if (!outcome.saved) return outcome.result;
+    const texts = (field: PersonFieldConfig) => field.options.map((o) => (o.retired ? `${o.key} (retired)` : o.key));
+    db.auditLog
+      .create({
+        data: {
+          userId: input.actorUserId,
+          action: "UPDATE",
+          entityType: "Organization",
+          entityId: input.organizationId,
+          changes: {
+            specialtyAnswers: {
+              before: texts(outcome.before),
+              after: texts(outcome.after),
+              allowOtherBefore: outcome.before.allowOther,
+              allowOtherAfter: outcome.after.allowOther,
+            },
+          } as unknown as Prisma.InputJsonValue,
+        },
+      })
+      .catch((err) => apiLogger.warn({ err, organizationId: input.organizationId }, "person-fields:audit-failed"));
+    apiLogger.info(
+      { organizationId: input.organizationId, by: input.actorUserId, count: outcome.after.options.length, removed: outcome.removed },
+      "person-fields:specialty-saved",
+    );
+    return { ok: true, field: outcome.after };
+  } catch (err) {
+    apiLogger.error({ err, organizationId: input.organizationId }, "person-fields:specialty-save-failed");
+    return fail("UNKNOWN", "Failed to save the specialty answers");
+  }
+}

@@ -154,3 +154,18 @@ describe("a setting that cannot be used falls back whole, never half", () => {
     });
   });
 });
+
+describe("what a public form is handed", () => {
+  it("only the answers on offer, with their labels, Others last: no retired answer, no settings", async () => {
+    const { publicPersonFields } = await import("@/lib/person-fields");
+    const fields = publicPersonFields(
+      readPersonFields({
+        [PERSON_FIELDS_SETTING]: {
+          specialty: { label: "Area", options: [{ key: "Cloud", label: "Cloud" }, { key: "Legacy", label: "Legacy", retired: true }], allowOther: true },
+        },
+      }),
+    );
+    expect(fields.specialty).toEqual({ enabled: true, label: "Area", answers: [{ key: "Cloud", label: "Cloud" }, { key: "Others", label: "Others" }] });
+    expect(Object.keys(fields).sort()).toEqual(["role", "specialty", "title"]);
+  });
+});

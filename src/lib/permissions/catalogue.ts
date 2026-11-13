@@ -218,6 +218,7 @@ export const PERMISSION_KEYS = [
   "blueprints.approve",
   // Organisation
   "org.settings",
+  "formFields.manage",
   "org.credentials",
   "users.read",
   "users.invite",
@@ -660,6 +661,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
 
   // ── Organisation ──
   app("org.settings", "Organisation", "Organisation settings", "Change the organisation's name, branding and defaults."),
+  app("formFields.manage", "Organisation", "Form fields", "Change the answers the organisation's forms offer, such as the Specialty list. They show on every event."),
   app("org.credentials", "Organisation", "Integrations", "Hold and test the AI, Stripe, Zoom and EventsAir credentials.", S),
   app("users.read", "Organisation", "See the team", "List the organisation's team members and open their records. Everyone sees their own."),
   app("users.invite", "Organisation", "Invite users", "Invite team members, no wider than your own access."),

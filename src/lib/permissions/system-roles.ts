@@ -285,6 +285,9 @@ const ORGANIZER_ORG: PermissionKey[] = [
   // `denyReviewer` gates (custom roles Phase 2, Oct 5, 2026).
   "emailLogs.org.read",
   "media.library.manage",
+  // The answers the organisation's forms offer (the Specialty list): admins
+  // and organisers (owner, Nov 13, 2026: "give the option to organizer too").
+  "formFields.manage",
   // The team list and a colleague's record (Settings, the Onsite Staff card,
   // the activity feed's people filter). Owner, Oct 5, 2026: staff whose screens
   // use it; ONSITE, WEBINARS, CRM_USER and HR_USER no longer read it.

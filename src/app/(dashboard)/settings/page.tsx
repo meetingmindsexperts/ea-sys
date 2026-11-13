@@ -68,6 +68,7 @@ import {
   Palette,
   Receipt,
   CalendarClock,
+  ListChecks,
   X as XIcon,
   UserX,
   UserCheck,
@@ -93,6 +94,7 @@ import { BillingSettingsCard } from "@/components/settings/billing-settings-card
 import { NewEventDefaultsCard } from "@/components/settings/new-event-defaults-card";
 import { BillingAccountsCard } from "@/components/settings/billing-accounts-card";
 import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
+import { FormFieldsCard } from "@/components/settings/form-fields-card";
 import { CatalogueSettingsCard } from "@/components/settings/catalogue-settings-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { OrgStripeCredentials } from "@/components/settings/org-stripe-credentials";
@@ -255,6 +257,8 @@ export default function SettingsPage() {
   // Onsite Staff and Billing follow their routes' keys (Organizers hold both;
   // Billing's org details stay read-only below Admin).
   const canManageOnsiteStaff = useCan("events.staff.assign") === "allowed";
+  // The answers the organisation's forms offer (the Specialty list): admins and organisers.
+  const canManageFormFields = useCan("formFields.manage") === "allowed";
   const canManageBilling = useCan("billingAccounts.manage") === "allowed";
   // QuickBooks answers to the Budgets guard, not org.credentials: the module
   // must be on and linking it is ADMIN and SUPER_ADMIN by role only, so a
@@ -272,6 +276,7 @@ export default function SettingsPage() {
   if (isSuperAdmin && rolesTabEnabled) visibleTabs.add("roles");
   if (isSuperAdmin && procurementEnabled) visibleTabs.add("approvals");
   if (canManageOnsiteStaff) visibleTabs.add("onsite");
+  if (canManageFormFields) visibleTabs.add("form-fields");
   if (canManageBilling) visibleTabs.add("billing");
   if (canUseIntegrations) visibleTabs.add("integrations");
   if (canManageApiKeys) visibleTabs.add("api-keys");
@@ -741,6 +746,13 @@ export default function SettingsPage() {
             <TabsTrigger value="onsite" className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4" />
               Onsite Staff
+            </TabsTrigger>
+          )}
+          {/* The answers the organisation's forms offer (Nov 13, 2026). */}
+          {canManageFormFields && (
+            <TabsTrigger value="form-fields" className="flex items-center gap-2">
+              <ListChecks className="h-4 w-4" />
+              Form fields
             </TabsTrigger>
           )}
           {canManageBilling && (
@@ -1467,6 +1479,12 @@ export default function SettingsPage() {
         {canManageOnsiteStaff && (
           <TabsContent value="onsite">
             <OnsiteStaffCard />
+          </TabsContent>
+        )}
+
+        {canManageFormFields && (
+          <TabsContent value="form-fields">
+            <FormFieldsCard />
           </TabsContent>
         )}
 
