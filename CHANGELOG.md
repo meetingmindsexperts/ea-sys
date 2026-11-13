@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Contacts: the public forms tell the contact what the form wrote (November 13)
+
+Step 0b of `docs/ORG_FIELDS_PLAN.md`, the public forms group: public
+registration, the completion form, and the abstract and proposal sign-up.
+
+- **Public registration** sends what it always did, now read off the saved
+  row and limited to the form's fields: a reused attendee row's old photo and
+  bio are not sent.
+- **The completion form** never sent the additional email it saves; it does
+  now. It also re-sent the row's own type as the contact's category when the
+  form had not picked one; the category is now said only when the form or its
+  link set the type.
+- **Abstract and proposal sign-up** builds from what the form submitted, and
+  "Faculty" is no longer written as a contact's category from this door.
+
+Verified on the local app with a real public registration; the completion
+form and the sign-up door are covered by their tests.
+
 ### Contacts: a staff edit tells the contact what changed, and never "Faculty" (November 13)
 
 Step 0b of `docs/ORG_FIELDS_PLAN.md`, the staff group: creating and editing a

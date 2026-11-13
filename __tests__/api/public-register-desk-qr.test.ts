@@ -59,7 +59,8 @@ vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: vi.fn(
 vi.mock("@/lib/registration-serial", () => ({ getNextSerialId: vi.fn(async () => 7) }));
 vi.mock("@/lib/email", () => ({ sendRegistrationConfirmation: sendConfirmation }));
 vi.mock("@/lib/webinar-email-sequence", () => ({ sendWebinarConfirmationForRegistration: vi.fn() }));
-vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn(async () => undefined) }));
+const contactSyncSpy = vi.hoisted(() => vi.fn(async (_payload: Record<string, unknown>) => undefined));
+vi.mock("@/lib/contact-sync", () => ({ syncToContact: contactSyncSpy }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn(async () => undefined) }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/dtcm-pool", () => ({ claimSpareDtcmCode: vi.fn(async () => undefined) }));
@@ -141,12 +142,15 @@ beforeEach(() => {
   mockDb.auditLog.create.mockResolvedValue({});
   tx.registration.findFirst.mockResolvedValue(null);
   tx.attendee.findFirst.mockResolvedValue(null);
-  tx.attendee.create.mockResolvedValue({ id: "att-1" });
+  // The row Prisma returns holds what was written; the route reads it back through the registration.
+  tx.attendee.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "att-1", ...data }));
   tx.registration.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: "reg-1", serialId: 7, status: "CONFIRMED", qrCode: "BC", sponsorId: data.sponsorId ?? null,
     paymentStatus: data.paymentStatus, billingFirstName: null, billingLastName: null, billingEmail: null,
     billingPhone: null, billingAddress: null, billingCity: null, billingState: null, billingZipCode: null,
     billingCountry: null, taxNumber: null,
+    // The create's `include: { attendee: true }`.
+    attendee: { id: "att-1", ...(tx.attendee.create.mock.calls.at(-1)?.[0]?.data ?? {}) },
   }));
   on(PHYSICIAN, COMP);
 });
@@ -345,6 +349,35 @@ describe("a token that does not hold", () => {
     expect(rateKeys.some((k) => k.startsWith("public-register:burst:"))).toBe(true);
     expect(ensureAccount).toHaveBeenCalledWith(expect.objectContaining({ withoutPassword: false }));
     expect(sendConfirmation.mock.calls[0][0].setPasswordUrl).toBeNull();
+  });
+});
+
+describe("what the contact is told (Nov 13, 2026)", () => {
+  it("the form's fields from the saved row, with the type's name as the category", async () => {
+    const r = await post();
+    expect(r.status).toBe(201);
+    const payload = contactSyncSpy.mock.calls[0][0];
+    const written = tx.attendee.create.mock.calls[0][0].data as Record<string, unknown>;
+    expect(payload).toMatchObject({ email: written.email, firstName: written.firstName, role: written.role, registrationType: PHYSICIAN.name });
+    expect(payload).not.toHaveProperty("dietaryReqs");
+  });
+
+  it("a reused attendee row's old photo and bio are not sent: only what the form wrote", async () => {
+    // An attendee left behind by a deleted registration is reused, and still
+    // holds what an earlier event copied onto it.
+    tx.attendee.findFirst.mockResolvedValue({ id: "att-old" });
+    tx.attendee.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "att-old", photo: "/uploads/old.jpg", bio: "Old bio", ...data }));
+    const base = tx.registration.create.getMockImplementation()!;
+    tx.registration.create.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+      ...(await base(args)),
+      attendee: await tx.attendee.update.mock.results.at(-1)?.value,
+    }));
+    const r = await post();
+    expect(r.status).toBe(201);
+    const payload = contactSyncSpy.mock.calls[0][0];
+    expect(payload).not.toHaveProperty("photo");
+    expect(payload).not.toHaveProperty("bio");
+    expect(payload.phone).toBe((tx.attendee.update.mock.calls[0][0].data as Record<string, unknown>).phone);
   });
 });
 

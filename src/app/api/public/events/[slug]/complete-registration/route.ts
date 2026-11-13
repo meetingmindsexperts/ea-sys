@@ -1,7 +1,7 @@
 import { readFormFields } from "@/lib/registration-form-fields";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import type { PaymentStatus, Prisma } from "@prisma/client";
+import type { Attendee, PaymentStatus, Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { apiLogger } from "@/lib/logger";
@@ -12,6 +12,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
@@ -958,6 +959,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // A barcode for an in-person registration that has none, set in the tx.
     let mintedQrCode: string | null = null;
+    // The attendee row as this request saved it, and the fields it wrote: what the contact is told below.
+    const completed: { attendee: Attendee | null; written: string[] } = { attendee: null, written: [] };
 
     // Update attendee + delete token in transaction
     try {
@@ -1050,9 +1053,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         }
         if (holdsEventSeat(seatState) && !(await claimEventSeats(tx, registration.event.id))) throw new EventFullError();
       }
-      await tx.attendee.update({
-        where: { id: registration.attendeeId },
-        data: {
+      const attendeeWrite = {
           title: title || null,
           role,
           jobTitle,
@@ -1075,8 +1076,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           // export and the contact store agree with the registration.
           ...(resolvedType && { registrationType: resolvedType.name }),
           ...(ratedPlan && { registrationType: ratedPlan.type.name }),
-        },
-      });
+      };
+      completed.attendee = await tx.attendee.update({ where: { id: registration.attendeeId }, data: attendeeWrite });
+      completed.written = Object.keys(attendeeWrite);
 
       // The entry barcode, if this in-person registration never got one. The
       // where keeps it to rows still without one, so nothing is replaced.
@@ -1204,29 +1206,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     // Sync to contact store
-    await syncToContact({
-      organizationId: registration.event.organizationId,
-      eventId: registration.event.id,
-      email,
-      firstName,
-      lastName,
-      title: title || null,
-      role: role || null,
-      organization,
-      jobTitle,
-      phone,
-      city,
-      state: state || null,
-      zipCode: zipCode || null,
-      country,
-      specialty,
-      customSpecialty: customSpecialty || null,
-      registrationType: ratedPlan?.type.name ?? resolvedType?.name ?? registration.attendee.registrationType,
-      associationName: associationName || registration.attendee.associationName,
-      memberId: memberId || registration.attendee.memberId,
-      studentId: studentId || registration.attendee.studentId,
-      studentIdExpiry: studentIdExpiry ? new Date(studentIdExpiry) : registration.attendee.studentIdExpiry,
-    });
+    // What this form wrote, read off the saved row (Nov 13, 2026). The
+    // hand-typed payload this replaced never sent the additional email, and it
+    // re-sent the row's own type as the category when this request had not
+    // picked one. The category is said only when the form (or its link) set
+    // the type, and those are never the Faculty type.
+    if (completed.attendee) {
+      await syncToContact(contactSyncFromAttendee(completed.attendee, {
+        organizationId: registration.event.organizationId,
+        eventId: registration.event.id,
+        category: ratedPlan?.type.name ?? resolvedType?.name ?? null,
+        only: completed.written,
+      }));
+    }
 
     // The type and price this request settled on: the link's rate, the type
     // just picked, or what the row already held. The loaded `registration`

@@ -16,6 +16,7 @@ import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequ
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { personalDetailsFields } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
@@ -784,6 +785,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       return {
         registration,
+        // What the form wrote on the attendee, for the contact sync below.
+        attendeeFieldsWritten: Object.keys(attendeeData),
         discountAmount,
         originalPrice,
         finalPrice,
@@ -794,6 +797,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const {
       registration,
+      attendeeFieldsWritten,
       discountAmount: appliedDiscount,
       finalPrice: registrationFinalPrice,
       originalPrice: registrationOriginalPrice,
@@ -842,30 +846,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log for public registration" }));
 
     // Sync to org contact store (awaited — errors caught internally)
-    await syncToContact({
+    // What the form wrote, read off the saved row. Not the whole row: the
+    // attendee may be a reused one (above) that still holds an old photo or
+    // bio, and those must not go over newer ones on the contact. The public
+    // form cannot pick the Faculty type, so the type's name is the category.
+    await syncToContact(contactSyncFromAttendee(registration.attendee, {
       organizationId: event.organizationId,
       eventId: event.id,
-      email,
-      firstName,
-      lastName,
-      title: title || null,
-      role: role || null,
-      additionalEmail: additionalEmail || null,
-      organization: organization || null,
-      jobTitle: jobTitle || null,
-      phone: phone || null,
-      city: city || null,
-      state: state || null,
-      zipCode: zipCode || null,
-      country: country || null,
-      specialty: specialty || null,
-      customSpecialty: customSpecialty || null,
-      registrationType,
-      associationName: associationName || null,
-      memberId: memberId || null,
-      studentId: studentId || null,
-      studentIdExpiry: studentIdExpiry ? new Date(studentIdExpiry) : null,
-    });
+      category: registrationType,
+      only: attendeeFieldsWritten,
+    }));
 
     // Hand this registration a spare DTCM code, if the event is a Dubai one and
     // the organiser has imported a pool. Awaited (the confirmation email and the

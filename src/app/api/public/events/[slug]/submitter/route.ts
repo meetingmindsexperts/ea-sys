@@ -12,6 +12,7 @@ import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { presenterDetailsSchema, refinePresenterSpecialty } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromSpeakerInput } from "@/lib/contact-sync-payload";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { upsertEventSpeaker, SpeakerLinkedElsewhereError } from "@/lib/speaker-companion";
 import { ensureSubmitterRegistration, checkPresenterRateSelection, presenterEvidenceShape } from "@/lib/presenter-signup";
@@ -253,6 +254,34 @@ export async function POST(req: Request, { params }: RouteParams) {
     // account has not proven it (upsertEventSpeaker): the account is still
     // made, so the person can sign in and confirm, and nothing else is touched.
     let speakerId: string | null = null;
+    // What the form submitted about the person: written on the speaker record
+    // below, and what the organisation's contact is told afterwards.
+    const submittedProfile = {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      title: data.title,
+      role: data.role,
+      additionalEmail: data.additionalEmail || null,
+      organization: data.organization,
+      jobTitle: data.jobTitle,
+      phone: data.phone,
+      city: data.city,
+      state: data.state || null,
+      zipCode: data.zipCode || null,
+      country: data.country,
+      specialty: data.specialty,
+      customSpecialty: data.customSpecialty || null,
+      registrationType: data.registrationType || undefined,
+      // Surface separation: which flow this signup came through
+      // ("abstract" | "proposal"; a door widens to "both" on an existing
+      // speaker).
+      submitterSource: data.source,
+      // A fresh self-signup (abstract presenter OR proposer) is NOT a
+      // confirmed speaker — the team reviews the submission and confirms
+      // by hand (owner decision Aug 5, 2026). Only applies on CREATE; an
+      // existing (invited) speaker keeps their organizer-set status.
+      status: "INVITED" as const,
+    };
     await tenantTransaction(async (tx) => {
       let user: { id: string };
 
@@ -301,32 +330,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         userId: user.id,
         overwriteExisting: true,
         accountConfirmed: !!existingUser?.emailConfirmedAt,
-        profile: {
-          firstName: data.firstName,
-          lastName: data.lastName,
-          title: data.title,
-          role: data.role,
-          additionalEmail: data.additionalEmail || null,
-          organization: data.organization,
-          jobTitle: data.jobTitle,
-          phone: data.phone,
-          city: data.city,
-          state: data.state || null,
-          zipCode: data.zipCode || null,
-          country: data.country,
-          specialty: data.specialty,
-          customSpecialty: data.customSpecialty || null,
-          registrationType: data.registrationType || undefined,
-          // Surface separation: which flow this signup came through
-          // ("abstract" | "proposal"; a door widens to "both" on an existing
-          // speaker).
-          submitterSource: data.source,
-          // A fresh self-signup (abstract presenter OR proposer) is NOT a
-          // confirmed speaker — the team reviews the submission and confirms
-          // by hand (owner decision Aug 5, 2026). Only applies on CREATE; an
-          // existing (invited) speaker keeps their organizer-set status.
-          status: "INVITED",
-        },
+        profile: submittedProfile,
       });
     });
 
@@ -344,26 +348,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Sync submitter to org contact store (awaited — errors caught internally)
-    await syncToContact({
-      organizationId: event.organizationId,
-      eventId: event.id,
-      email: emailLower,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      title: data.title,
-      role: data.role,
-      additionalEmail: data.additionalEmail || null,
-      organization: data.organization,
-      jobTitle: data.jobTitle,
-      phone: data.phone,
-      city: data.city,
-      state: data.state || null,
-      zipCode: data.zipCode || null,
-      country: data.country,
-      specialty: data.specialty,
-      customSpecialty: data.customSpecialty || null,
-      registrationType: data.registrationType || null,
-    });
+    // Built from what the form submitted, not from the speaker row: the row may
+    // be an existing speaker's, holding an older photo and bio. The category
+    // goes through the Faculty rule, which the hand-typed payload this replaced
+    // did not apply (Nov 13, 2026).
+    await syncToContact(contactSyncFromSpeakerInput({ eventId: event.id, email: emailLower, ...submittedProfile }, { organizationId: event.organizationId, eventId: event.id }));
 
     apiLogger.info({
       msg: "Submitter account created",

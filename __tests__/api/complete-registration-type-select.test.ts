@@ -72,7 +72,8 @@ vi.mock("@/lib/public-event", () => ({
 vi.mock("@/lib/api-errors", () => ({
   rateLimited: vi.fn(),
 }));
-vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));
+const contactSyncSpy = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/contact-sync", () => ({ syncToContact: contactSyncSpy }));
 vi.mock("@/lib/email", () => ({ sendRegistrationConfirmation: vi.fn() }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/registrant-account", () => ({ ensureRegistrantAccount: vi.fn() }));
@@ -210,6 +211,23 @@ describe("completion type-set — base behavior", () => {
         }),
       }),
     );
+  });
+
+  it("tells the contact what the form wrote, the additional email included, and the picked type as its category (Nov 13, 2026)", async () => {
+    mockTtFindFirst.mockResolvedValue(makeChosenType());
+    mockTxAttendeeUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: "att-1", email: "a@example.com", firstName: "A", lastName: "B", photo: "/uploads/old.jpg", bio: "Old bio", ...data,
+    }));
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1", additionalEmail: "pa@example.com" })), makeParams());
+    expect(res.status).toBe(200);
+    const payload = contactSyncSpy.mock.calls[0][0];
+    const written = mockTxAttendeeUpdate.mock.calls[0][0].data as Record<string, unknown>;
+    expect(payload.additionalEmail).toBe("pa@example.com");
+    expect(payload.registrationType).toBe(written.registrationType);
+    expect(payload.registrationType).toBeTruthy();
+    // The row's older photo and bio are not the form's to send.
+    expect(payload).not.toHaveProperty("photo");
+    expect(payload).not.toHaveProperty("bio");
   });
 
   it("sets the type, claims the seat, stamps the tier price, and leaves an owing status as it is", async () => {

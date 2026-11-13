@@ -54,7 +54,8 @@ vi.mock("@/lib/security", () => ({
 const { sendVerifySpy } = vi.hoisted(() => ({ sendVerifySpy: vi.fn().mockResolvedValue("sent") }));
 vi.mock("@/lib/email-verification", () => ({ sendEmailVerification: sendVerifySpy }));
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed"), compare: vi.fn().mockResolvedValue(true) } }));
-vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn().mockResolvedValue(undefined) }));
+const contactSyncSpy = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock("@/lib/contact-sync", () => ({ syncToContact: contactSyncSpy }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/email", () => ({
   sendEmail: vi.fn().mockResolvedValue(undefined),
@@ -181,6 +182,22 @@ describe("submitter route — presenter rate is required when the event charges"
 
     expect(res.status).toBeLessThan(400);
     expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("submitter route: what the contact is told (Nov 13, 2026)", () => {
+  it("the submitted profile, State and the additional email included, and never Faculty as the category", async () => {
+    const res = await POST(makeReq({ ...validBody, state: "Dubai", additionalEmail: "pa@example.com", registrationType: "Faculty" }), { params });
+    expect(res.status).toBeLessThan(400);
+    const payload = contactSyncSpy.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      organizationId: "org1", eventId: "ev1", email: "jane@example.com", firstName: "Jane", lastName: "Doe",
+      role: "ACADEMIA", organization: "Acme", state: "Dubai", additionalEmail: "pa@example.com",
+    });
+    expect(payload.registrationType).toBeNull();
+    // The speaker's own fields are not a contact's.
+    expect(payload).not.toHaveProperty("status");
+    expect(payload).not.toHaveProperty("submitterSource");
   });
 });
 
