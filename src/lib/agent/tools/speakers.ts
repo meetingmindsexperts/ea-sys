@@ -3,10 +3,10 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { contactCategoryOf } from "@/lib/faculty-filter";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromSpeaker } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -576,10 +576,13 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
               : [],
             status: (status as never) ?? "INVITED",
           },
+          // Every column the contact sync copies from a speaker: the builder
+          // below does not compile with fewer.
           select: {
             id: true, email: true, firstName: true, lastName: true, title: true,
-            role: true, organization: true, jobTitle: true, phone: true, photo: true,
-            city: true, country: true, bio: true, specialty: true, registrationType: true,
+            role: true, additionalEmail: true, organization: true, jobTitle: true, phone: true, photo: true,
+            city: true, state: true, zipCode: true, country: true, bio: true, specialty: true,
+            customSpecialty: true, registrationType: true,
           },
         });
         created.push({ index: i, id: speaker.id, email: speaker.email, firstName: speaker.firstName, lastName: speaker.lastName });
@@ -587,24 +590,9 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
         // Contact-store sync — parity with the single-create service (review
         // M9: the bulk path skipped it entirely, so bulk-imported people never
         // reached the org CRM). Never throws by contract.
-        await syncToContact({
-          organizationId: ctx.organizationId,
-          eventId: ctx.eventId,
-          email: speaker.email,
-          firstName: speaker.firstName,
-          lastName: speaker.lastName,
-          title: speaker.title,
-          role: speaker.role,
-          organization: speaker.organization,
-          jobTitle: speaker.jobTitle,
-          phone: speaker.phone,
-          photo: speaker.photo,
-          city: speaker.city,
-          country: speaker.country,
-          bio: speaker.bio,
-          specialty: speaker.specialty,
-          registrationType: contactCategoryOf(speaker.registrationType),
-        });
+        // From the created row; the hand-typed payload this replaced left out
+        // the additional email, State and Zip (Nov 13, 2026).
+        await syncToContact(contactSyncFromSpeaker(speaker, { organizationId: ctx.organizationId, eventId: ctx.eventId }));
       } catch (err) {
         const email = (items[i] as { email?: string }).email;
         const message = err instanceof Error ? err.message : "Unknown error";

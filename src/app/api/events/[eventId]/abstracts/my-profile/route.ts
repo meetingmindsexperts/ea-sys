@@ -7,6 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromSpeaker } from "@/lib/contact-sync-payload";
 import { computeDetailsDelta, syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { suggestSpeakerDetails } from "@/lib/submitter-profile-suggestions";
@@ -271,28 +272,13 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         })
         .catch((err) => apiLogger.error({ err, msg: "my-profile:audit-failed", speakerId: existing.id }));
 
-      // Keep the org contact store current (enrich-only — never clears).
-      await syncToContact({
-        organizationId: event.organizationId,
-        eventId,
-        email: speaker.email,
-        additionalEmail: speaker.additionalEmail,
-        firstName: speaker.firstName,
-        lastName: speaker.lastName,
-        title: speaker.title,
-        role: speaker.role,
-        organization: speaker.organization,
-        jobTitle: speaker.jobTitle,
-        phone: speaker.phone,
-        city: speaker.city,
-        state: speaker.state,
-        zipCode: speaker.zipCode,
-        country: speaker.country,
-        specialty: speaker.specialty,
-        customSpecialty: speaker.customSpecialty,
-        bio: speaker.bio,
-        photo: speaker.photo,
-      });
+      // The contact hears what this save touched, off the saved row, and no
+      // category: a person's own edit does not decide it (Nov 13, 2026). The
+      // whole row used to be re-sent, so saving a phone number put this
+      // record's photo and bio over newer ones on the contact.
+      // The profile's select does not read the speaker's type, and `only` keeps
+      // the category unsaid whatever it holds.
+      await syncToContact(contactSyncFromSpeaker({ ...speaker, registrationType: null }, { organizationId: event.organizationId, eventId, only: touched }));
 
       // Keep the same-event registration's personal details in step.
       await syncSpeakerDetailsToRegistrations({

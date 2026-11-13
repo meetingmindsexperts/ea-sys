@@ -61,6 +61,7 @@ import {
 } from "@/services/registration-service";
 import { createGroupInvoice, sendGroupInvoiceEmail, cancelInvoice } from "@/lib/invoice-service";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromAttendee, type AttendeeContactSource } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
@@ -200,6 +201,8 @@ export type CreatedMemberRow = {
   ticketTypeName: string;
   price: number;
   attendee: GroupMemberAttendeeInput;
+  /** The attendee row as created: what the contact sync is built from. */
+  attendeeRow: AttendeeContactSource;
   qrCode: string;
   ticketTypeId: string;
   currency: string;
@@ -389,7 +392,6 @@ async function claimSeatsAndCreateMembers(
         customSpecialty: a.customSpecialty || null,
         registrationType: pricing.name,
       },
-      select: { id: true },
     });
     const serialId = await getNextSerialId(tx, eventId, organizationId);
     const qrCode = generateBarcode();
@@ -430,6 +432,7 @@ async function claimSeatsAndCreateMembers(
       ticketTypeName: pricing.name,
       price: pricing.price,
       attendee: a,
+      attendeeRow: attendeeRecord,
       qrCode,
       ticketTypeId: m.ticketTypeId,
       currency: pricing.currency,
@@ -891,26 +894,9 @@ export async function createGroupRegistration(
 
   // Contact sync per member (enrich-only; never throws upstream).
   for (const m of createdMembers) {
-    await syncToContact({
-      organizationId,
-      eventId,
-      email: m.email,
-      firstName: m.firstName,
-      lastName: m.lastName,
-      title: m.attendee.title ?? null,
-      role: m.attendee.role ?? null,
-      additionalEmail: m.attendee.additionalEmail ?? null,
-      organization: m.attendee.organization ?? null,
-      jobTitle: m.attendee.jobTitle ?? null,
-      phone: m.attendee.phone ?? null,
-      city: m.attendee.city ?? null,
-      state: m.attendee.state ?? null,
-      zipCode: m.attendee.zipCode ?? null,
-      country: m.attendee.country ?? null,
-      specialty: m.attendee.specialty ?? null,
-      customSpecialty: m.attendee.customSpecialty ?? null,
-      registrationType: m.ticketTypeName,
-    });
+    // From the created row. A group member is never on the Faculty type
+    // (refused above), so the type's name is the category.
+    await syncToContact(contactSyncFromAttendee(m.attendeeRow, { organizationId, eventId, category: m.ticketTypeName }));
   }
 
   // Audit (fire-and-forget with logged catch) + admin notify + stats.
@@ -1504,26 +1490,9 @@ export async function addGroupMembers(
       logKey: "group-add-members:member-confirmation-failed",
     });
 
-    await syncToContact({
-      organizationId,
-      eventId,
-      email: m.email,
-      firstName: m.firstName,
-      lastName: m.lastName,
-      title: m.attendee.title ?? null,
-      role: m.attendee.role ?? null,
-      additionalEmail: m.attendee.additionalEmail ?? null,
-      organization: m.attendee.organization ?? null,
-      jobTitle: m.attendee.jobTitle ?? null,
-      phone: m.attendee.phone ?? null,
-      city: m.attendee.city ?? null,
-      state: m.attendee.state ?? null,
-      zipCode: m.attendee.zipCode ?? null,
-      country: m.attendee.country ?? null,
-      specialty: m.attendee.specialty ?? null,
-      customSpecialty: m.attendee.customSpecialty ?? null,
-      registrationType: m.ticketTypeName,
-    });
+    // From the created row. A group member is never on the Faculty type
+    // (refused above), so the type's name is the category.
+    await syncToContact(contactSyncFromAttendee(m.attendeeRow, { organizationId, eventId, category: m.ticketTypeName }));
   }
 
   db.auditLog

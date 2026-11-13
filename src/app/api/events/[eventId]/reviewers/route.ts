@@ -9,7 +9,6 @@ import { db } from "@/lib/db";
 import { findUserByEmail, userEmailScope, isUniqueViolation } from "@/lib/tenant/user-lookup";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { contactCategoryOf } from "@/lib/faculty-filter";
 import { isLinkedRole, requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings } from "@/lib/event-settings";
 import { getClientIp } from "@/lib/security";
@@ -290,33 +289,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       reviewerUserIds: Array.from(new Set([...((cur.reviewerUserIds as string[]) ?? []), userId])),
     }));
 
-    // Sync reviewer to org contact store (fire-and-forget)
+    // The contact learns that this person came through the event, and their
+    // name. Nothing else: adding a reviewer changes nothing about the person.
+    // Picking a speaker used to re-send eleven fields of the speaker's row
+    // (photo, bio, phone) as it stood, which could be older than what the
+    // contact already held from another event (Nov 13, 2026).
     if (validated.data.type === "speaker") {
-      // Speaker data already has rich fields — fetch them
       const spk = await db.speaker.findFirst({
         where: { id: validated.data.speakerId, eventId },
-        select: { email: true, firstName: true, lastName: true, title: true, organization: true, jobTitle: true, phone: true, photo: true, city: true, country: true, bio: true, specialty: true, registrationType: true },
+        select: { email: true, firstName: true, lastName: true },
       });
       if (spk) {
-        await syncToContact({
-          organizationId: orgGuard.orgId,
-          eventId,
-          email: spk.email,
-          firstName: spk.firstName,
-          lastName: spk.lastName,
-          title: spk.title,
-          organization: spk.organization,
-          jobTitle: spk.jobTitle,
-          phone: spk.phone,
-          photo: spk.photo,
-          city: spk.city,
-          country: spk.country,
-          bio: spk.bio,
-          specialty: spk.specialty,
-          // "Faculty" is not a profession: never written over the contact's
-          // own category (contactCategoryOf).
-          registrationType: contactCategoryOf(spk.registrationType),
-        });
+        await syncToContact({ organizationId: orgGuard.orgId, eventId, email: spk.email, firstName: spk.firstName, lastName: spk.lastName });
       }
     } else {
       await syncToContact({

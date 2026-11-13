@@ -278,7 +278,8 @@ describe("create_registrations_bulk — M8 parity", () => {
     (mockDb as MockDb).event.findFirst = vi.fn().mockResolvedValue({ id: "ev1", slug: "ev", name: "Ev", organization: {} });
     (mockDb as MockDb).registration.findFirst = vi.fn().mockResolvedValue(null);
     const tx = {
-      attendee: { create: vi.fn().mockResolvedValue({ id: "att1", email: "a@b.com" }) },
+      // The row Prisma returns holds what was written; the contact sync reads it.
+      attendee: { create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "att1", ...data })) },
       // The guarded seat claim (claimSeat) is one raw statement; 1 row = it fits.
       $executeRaw: vi.fn(async () => 1),
       // Event-wide cap: bulk creates use the unguarded overselling increment.

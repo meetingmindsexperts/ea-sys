@@ -20,6 +20,7 @@ import {
   releaseSeats,
 } from "@/lib/registration-seat-db";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { checkInGate, executeCheckIn, CheckInCancelledError } from "@/lib/check-in";
 import { refreshEventStats } from "@/lib/event-stats";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
@@ -1056,7 +1057,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
               // `rawTitle` is already validated against TITLE_VALUES above.
               title: (attendeeFields.title as never) ?? null,
             },
-            select: { id: true, email: true },
+            // The whole row: the contact sync below is built from it.
           });
 
           // Guarded claim, the one every path uses — prevents overbooking under
@@ -1098,7 +1099,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
             },
             select: { id: true, serialId: true, qrCode: true },
           });
-          return { attendeeId: attendee.id, registrationId: registration.id, serialId: registration.serialId, qrCode: registration.qrCode };
+          return { attendee, attendeeId: attendee.id, registrationId: registration.id, serialId: registration.serialId, qrCode: registration.qrCode };
         });
 
         created.push({ index: i, email, attendeeId: result.attendeeId, registrationId: result.registrationId });
@@ -1138,14 +1139,13 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
         // husk CRM rows while the Attendee rows held the full data. Same class
         // as H4 (MCP update_speaker); the bulk paths are deliberately not
         // service-backed, so the single-create service's fix didn't reach here.
-        syncToContact({
+        // Built from the created row (Nov 13, 2026). The type is never the
+        // Faculty type here (refused above), so its name is the category.
+        syncToContact(contactSyncFromAttendee(result.attendee, {
           organizationId: ctx.organizationId,
           eventId: ctx.eventId,
-          email,
-          firstName,
-          lastName,
-          ...attendeeFields,
-        }).catch((err) => apiLogger.error({ err, index: i, email }, "agent:create_registrations_bulk contact-sync-failed"));
+          category: ticketType.name,
+        })).catch((err) => apiLogger.error({ err, index: i, email }, "agent:create_registrations_bulk contact-sync-failed"));
       } catch (err) {
         const rowEmail = (items[i] as { email?: string }).email;
         if (err instanceof BulkRowDuplicate) {

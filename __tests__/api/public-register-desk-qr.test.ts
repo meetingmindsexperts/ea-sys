@@ -59,7 +59,7 @@ vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: vi.fn(
 vi.mock("@/lib/registration-serial", () => ({ getNextSerialId: vi.fn(async () => 7) }));
 vi.mock("@/lib/email", () => ({ sendRegistrationConfirmation: sendConfirmation }));
 vi.mock("@/lib/webinar-email-sequence", () => ({ sendWebinarConfirmationForRegistration: vi.fn() }));
-const contactSyncSpy = vi.hoisted(() => vi.fn(async (_payload: Record<string, unknown>) => undefined));
+const contactSyncSpy = vi.hoisted(() => vi.fn<(payload: Record<string, unknown>) => Promise<undefined>>(async () => undefined));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: contactSyncSpy }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn(async () => undefined) }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
