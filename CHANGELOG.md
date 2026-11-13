@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The operator can read recent warnings and errors through the connector (November 13)
+
+Owner: "add the tool". A cloud routine could not check production's log,
+because the log table was reachable only from one laptop.
+
+- New MCP tool `get_system_log_summary`: for the last 1 to 72 hours, each
+  warning and error message with its count, first and last time, and up to
+  three sample lines. Email addresses and phone numbers are masked in the
+  samples. Read-only.
+- **Who gets it:** the platform operator (SUPER_ADMIN) signed in to the
+  connector as themselves, the same wall as the `/logs` page. It is not listed
+  for an admin or organiser, and never for an API key. It is not part of the
+  shared tool set, so the in-app agent does not have it and no custom role can
+  be given it.
+- **To see it:** disconnect and reconnect the EA-SYS connector in claude.ai
+  after the deploy (clients keep the tool list they connected with). The
+  package version is bumped to 0.4.62 as the usual hint.
+
 ### Form fields: the review of the event's choice (November 13)
 
 Review of `5dd9cd5f` (1 HIGH, 2 MED, 10 LOW), fixed before it was pushed.

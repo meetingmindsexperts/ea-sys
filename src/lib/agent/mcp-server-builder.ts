@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerAllMcpTools } from "./register-mcp-tools";
 import pkg from "../../../package.json";
 import { gateMcpServerForKey } from "./mcp-key-gate";
+import { registerOperatorLogTool } from "./operator-log-tool";
 import type { Principal } from "@/lib/permissions/can";
 
 // Re-export so existing callers don't break
@@ -37,5 +38,9 @@ export function buildMcpServer(
   const server = new McpServer({ name: "ea-sys", version: MCP_SERVER_VERSION });
   const target = keyPrincipal ? gateMcpServerForKey(server, keyPrincipal, organizationId) : server;
   registerAllMcpTools(target, organizationId, actor ? { actor, keyPrincipal } : { keyPrincipal });
+  // The platform operator's read of the log (operator-log-tool.ts): listed
+  // only for an OAuth grant whose granting user is the operator, never for an
+  // API key. An omitted `actor` is an API key, so it is refused like one.
+  registerOperatorLogTool(server, { role: actor?.role ?? null, fromApiKey: actor?.fromApiKey ?? true, organizationId });
   return server;
 }
