@@ -26,7 +26,25 @@ function isDeadlock(err: unknown): boolean {
 /** How many times a reset's TRUNCATE lost a deadlock and was run again (read by reset-deadlock.db.test.ts). */
 export const resetStats = { deadlockRetries: 0 };
 
-const TRUNCATE_ATTEMPTS = 6;
+const DEADLOCK_ATTEMPTS = 6;
+
+/**
+ * Run a statement again when Postgres aborts it as the victim of a deadlock.
+ * Only 40P01 is retried, up to six attempts; every other error is thrown as it
+ * was, at once. Exported for reset-deadlock.db.test.ts, which pins it against
+ * the error a real Postgres sends back through Prisma.
+ */
+export async function retryOnDeadlock<T>(run: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run();
+    } catch (err) {
+      if (attempt >= DEADLOCK_ATTEMPTS || !isDeadlock(err)) throw err;
+      resetStats.deadlockRetries += 1;
+      await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+    }
+  }
+}
 
 /**
  * TRUNCATE Organization + User CASCADE, run again when it loses a deadlock.
@@ -41,21 +59,12 @@ const TRUNCATE_ATTEMPTS = 6;
  * by it on Nov 12, 2026, in crm-contact-score).
  *
  * Fixed here once, for every suite, rather than by each test waiting for its
- * own stragglers (two files do, and the third had not): the write finishes as
+ * own stragglers (four files do, and crm-contact-score did not): the write finishes as
  * soon as the TRUNCATE is aborted, so the second attempt finds nothing in the
- * way. Only 40P01 is retried; every other error is thrown as it was.
+ * way.
  */
 async function truncateEverything(): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await db.$executeRawUnsafe('TRUNCATE TABLE "Organization", "User" RESTART IDENTITY CASCADE');
-      return;
-    } catch (err) {
-      if (attempt >= TRUNCATE_ATTEMPTS || !isDeadlock(err)) throw err;
-      resetStats.deadlockRetries += 1;
-      await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
-    }
-  }
+  await retryOnDeadlock(() => db.$executeRawUnsafe('TRUNCATE TABLE "Organization", "User" RESTART IDENTITY CASCADE'));
 }
 
 export async function resetCrm(): Promise<CrmSeed> {

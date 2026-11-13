@@ -25,8 +25,8 @@ Owner, after asking who was copied on a faculty follow-up and having to be told 
 The deploy of the CRM change above was blocked by a test that had not failed on its own merits: `crm-contact-score` lost a Postgres deadlock (`40P01`) in its `beforeEach`.
 
 - **Why**: the per-test reset (`resetCrm()` in `tests/integration-db/helper.ts`) truncates Organization and User with CASCADE. A service that had returned with one of its fire-and-forget writes still running (a History line, an audit row) left a statement holding a child table and about to lock its parent, while the TRUNCATE held the parent and waited for the child. Postgres aborts one of the two; when it was the TRUNCATE, the next test failed
-- **Fix, once for all 22 callers**: the reset runs its TRUNCATE again when it loses a deadlock (only `40P01`, up to six attempts). Two suites already waited for their own stragglers; the third had not, and a per-file wait is the kind of rule the next file forgets
-- **Pinned on a real Postgres**: `reset-deadlock.db.test.ts` builds the same deadlock on purpose (the same two locks in the same order as the CI failure) and fails with a single attempt
+- **Fix, once for all 22 callers**: the reset runs its TRUNCATE again when it loses a deadlock (only `40P01`, up to six attempts). Four suites already waited for their own stragglers and `crm-contact-score` did not: a per-file wait is the kind of rule the next file forgets
+- **Pinned on a real Postgres**: `reset-deadlock.db.test.ts` builds the same deadlock on purpose (the same two locks in the same order as the CI failure) and checks the reset finishes whichever side Postgres aborts; it waits until Postgres shows the TRUNCATE queued, not for a fixed pause, so a slow CI machine cannot turn it into a flake of its own. The retry itself is pinned without a race, against an error Postgres really raises with SQLSTATE 40P01
 
 ### CRM: the product catalogue and Reports are for admins (November 12)
 
