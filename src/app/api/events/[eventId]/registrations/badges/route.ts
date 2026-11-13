@@ -160,6 +160,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // checkedInAt and deliberately never touches `paymentStatus`, so an
       // admitted attendee is still refused here until the payment is recorded.
       const refusal = badgeRefusal({
+        asked: requested,
         matched: allRegistrations.length,
         paymentDue: leftOutForPayment.length,
         cancelled: allRegistrations.filter((r) => r.status === "CANCELLED").length,

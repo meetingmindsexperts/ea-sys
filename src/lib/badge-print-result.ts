@@ -117,7 +117,7 @@ function noBadgeSentence(result: BadgePrintResult): string {
   // "other" only beside someone already named as left out.
   const who = result.paymentDue > 0 ? plural(result.noBadge, "other", "others") : "";
   const verb = plural(result.noBadge, "gets", "get");
-  return ` ${[result.noBadge, who].filter(Boolean).join(" ")} in the selection ${verb} no badge (virtual, cancelled or refunded).`;
+  return ` ${[result.noBadge, who].filter(Boolean).join(" ")} in the selection ${verb} no badge (${NO_BADGE_KINDS}).`;
 }
 
 /**
@@ -141,8 +141,10 @@ export interface BadgeRefusal {
   blocked?: number;
 }
 
-function paymentRefusal(matched: number, paymentDue: number): BadgeRefusal {
-  if (matched === 1) {
+const NO_BADGE_KINDS = "virtual, cancelled or refunded";
+
+function paymentRefusal(asked: number, paymentDue: number): BadgeRefusal {
+  if (asked === 1) {
     return {
       error:
         "This registration still owes payment, so its badge can't be printed. Record the payment under Billing & Payments, or set the payment status to Complimentary, then print.",
@@ -150,10 +152,20 @@ function paymentRefusal(matched: number, paymentDue: number): BadgeRefusal {
       blocked: 1,
     };
   }
-  const others = matched - paymentDue;
-  const rest = others > 0 ? ` The other ${others} ${plural(others, "is", "are")} cancelled or refunded.` : "";
+  // The remedy points at the owing ones only: "set them to Complimentary" beside
+  // a cancelled row read as advice for that row too (review of d8552af9).
+  const remedy = plural(
+    paymentDue,
+    "Record that payment, or set that registration to Complimentary, then print.",
+    "Record the payment, or set them to Complimentary, then print.",
+  );
+  const others = asked - paymentDue;
+  const rest =
+    others > 0
+      ? ` ${plural(others, "The other one gets", `The other ${others} get`)} no badge (${NO_BADGE_KINDS}).`
+      : "";
   return {
-    error: `None of the ${matched} selected registrations can be badged: ${paymentDue} still ${plural(paymentDue, "owes", "owe")} payment (unpaid or pending). Record the payment, or set them to Complimentary, then print.${rest}`,
+    error: `None of the ${asked} selected registrations can be badged: ${paymentDue} still ${plural(paymentDue, "owes", "owe")} payment (unpaid or pending). ${remedy}${rest}`,
     code: "BADGE_PAYMENT_REQUIRED",
     blocked: paymentDue,
   };
@@ -161,17 +173,28 @@ function paymentRefusal(matched: number, paymentDue: number): BadgeRefusal {
 
 /**
  * Why nothing was printed, in words that name the true reason (owner, Nov 13,
- * 2026: a cancelled registration gets no badge). `matched` is what the query
- * found, `paymentDue` those who really owe, `cancelled` the cancelled among
- * them. A cancelled or refunded registration is never told to record a payment.
+ * 2026: a cancelled registration gets no badge). A cancelled or refunded
+ * registration is never told to record a payment.
+ *
+ * - `asked`: the distinct registrations asked for. The query leaves out the
+ *   virtual and the vanished, so `matched` alone undercounts a selection and
+ *   "None of the 2 selected" answered a press of "Print 3 Selected" (review of
+ *   d8552af9). Print All passes what it matched.
+ * - `matched`: what the query found. `paymentDue`: those who really owe.
+ *   `cancelled`: the cancelled among the matched.
  */
-export function badgeRefusal(counts: { matched: number; paymentDue: number; cancelled: number }): BadgeRefusal {
+export function badgeRefusal(counts: { asked: number; matched: number; paymentDue: number; cancelled: number }): BadgeRefusal {
   const { matched, paymentDue, cancelled } = counts;
-  if (matched <= 0) return { error: "No registrations matched. Check the selection and try again.", code: "BADGE_NO_MATCH" };
-  if (paymentDue > 0) return paymentRefusal(matched, paymentDue);
-  if (matched > 1) {
+  const asked = Math.max(counts.asked, matched);
+  if (asked <= 0) return { error: "No registrations matched. Check the selection and try again.", code: "BADGE_NO_MATCH" };
+  if (paymentDue > 0) return paymentRefusal(asked, paymentDue);
+  if (matched <= 0) {
+    // Asked for by id and not one came back: a virtual attendee, or a row gone since the list loaded.
+    return { error: "Nothing to print: the selection is virtual, or no longer on this event.", code: "BADGE_NO_MATCH" };
+  }
+  if (asked > 1) {
     return {
-      error: `None of the ${matched} selected registrations can have a badge: they are cancelled or refunded.`,
+      error: `None of the ${asked} selected registrations can have a badge: they are ${NO_BADGE_KINDS}.`,
       code: "BADGE_NOT_AVAILABLE",
     };
   }

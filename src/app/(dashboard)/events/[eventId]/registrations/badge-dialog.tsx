@@ -39,7 +39,8 @@ export function BadgeDialog({ eventId, selectedIds, totalCount }: BadgeDialogPro
 
       if (!res.ok) {
         const data = await res.json();
-        toast.error(data.error || "Badge generation failed");
+        // A refusal here is an instruction (who owes, what to do): long enough to read.
+        toast.error(data.error || "Badge generation failed", { duration: 10000 });
         return;
       }
 

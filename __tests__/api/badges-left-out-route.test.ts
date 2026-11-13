@@ -158,7 +158,8 @@ describe("POST badges: a mixed selection", () => {
     expect(res.status).toBe(200);
     expect((generateSpy.mock.calls[0][0] as { id: string }[]).map((r) => r.id)).toEqual(["paid"]);
     expect(readBadgePrintResult(res.headers)).toEqual({ printed: 1, paymentDue: 0, paymentDueNumbers: [], noBadge: 2 });
-    // Not stamped as printed either.
+    // Not stamped as printed either: both writes ran, and both name only the printed row.
+    expect(stampSpy).toHaveBeenCalledTimes(2);
     for (const call of stampSpy.mock.calls) expect(call[0].where.id).toEqual({ in: ["paid"] });
   });
 
@@ -170,6 +171,30 @@ describe("POST badges: a mixed selection", () => {
     expect(generateSpy).not.toHaveBeenCalled();
     expect(stampSpy).not.toHaveBeenCalled();
     expect(warnSpy.mock.calls.some((c) => c[0]?.msg === "badges:no-eligible-registrations" && c[0]?.code === "BADGE_NOT_AVAILABLE")).toBe(true);
+  });
+
+  it("nothing prints from an owing, a cancelled and a virtual one: the refusal counts the three asked for", async () => {
+    // The query returns two of the three ids (the virtual one is left out of it).
+    mockDb.registration.findMany.mockResolvedValue([
+      row("owes", 76, { paymentStatus: "UNPAID" }),
+      row("cancelled-paid", 1, { status: "CANCELLED" }),
+    ]);
+    const res = await post({ registrationIds: ["owes", "cancelled-paid", "virtual"] });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error:
+        "None of the 3 selected registrations can be badged: 1 still owes payment (unpaid or pending). Record that payment, or set that registration to Complimentary, then print. The other 2 get no badge (virtual, cancelled or refunded).",
+      code: "BADGE_PAYMENT_REQUIRED",
+      blocked: 1,
+    });
+    expect(generateSpy).not.toHaveBeenCalled();
+  });
+
+  it("Print All with only a refunded registration whose place no longer stands", async () => {
+    mockDb.registration.findMany.mockResolvedValue([row("refunded-pending", 2, { status: "PENDING", paymentStatus: "REFUNDED" })]);
+    const res = await post({ all: true });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "BADGE_NOT_AVAILABLE" });
   });
 
   it("everyone owes: still the refusal with its remedy, and nothing is printed", async () => {

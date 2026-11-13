@@ -191,6 +191,18 @@ included, and whatever filter the list has), while Print All prints the whole ev
 `window.open` after two awaits; if the browser blocks it the toast still says the badges are
 ready and the rows are already stamped as printed.
 
+**From the review of `d8552af9` (a cancelled registration gets no badge; 0 BLOCKER, 0 HIGH,
+0 MED, 4 LOW, all four fixed), older and left for the owner:**
+- A speaker who declined and was confirmed again keeps a CANCELLED Faculty registration
+  (`planFacultySettle` in `speaker-companion.ts` never revives it). The door always refused
+  it; since the badge fix so does Print Badge, so this is where "This registration is
+  cancelled" will meet someone who is attending. The fix is to reactivate the registration
+  when the speaker is confirmed again.
+- A WAITLISTED registration that is paid, complimentary or free gets a badge (the query
+  leaves out CANCELLED only, and the door's rule does not look at the waiting list either).
+- Both barcode image routes serve the entry barcode of a CANCELLED registration; the door
+  refuses the scan.
+
 **LOW, left: the warning toast looks like the success one** (only the error toast is
 coloured, `ui/sonner.tsx`), and nothing tests the dialog itself: removing its read of the
 headers fails no test (there is no component test for it).

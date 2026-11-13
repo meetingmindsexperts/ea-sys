@@ -106,44 +106,69 @@ describe("badgeLeftOutMessage", () => {
 });
 
 describe("badgeRefusal: nothing was printed, and the reason is the true one", () => {
-  it("nothing matched", () => {
-    expect(badgeRefusal({ matched: 0, paymentDue: 0, cancelled: 0 })).toEqual({
+  it("nothing asked for and nothing matched (Print All on an empty event)", () => {
+    expect(badgeRefusal({ asked: 0, matched: 0, paymentDue: 0, cancelled: 0 })).toEqual({
       error: "No registrations matched. Check the selection and try again.",
       code: "BADGE_NO_MATCH",
     });
   });
 
+  it("asked for by id and none came back: virtual, or gone since the list loaded", () => {
+    expect(badgeRefusal({ asked: 2, matched: 0, paymentDue: 0, cancelled: 0 })).toEqual({
+      error: "Nothing to print: the selection is virtual, or no longer on this event.",
+      code: "BADGE_NO_MATCH",
+    });
+  });
+
   it("one person who owes: the remedy, as before", () => {
-    const refusal = badgeRefusal({ matched: 1, paymentDue: 1, cancelled: 0 });
+    const refusal = badgeRefusal({ asked: 1, matched: 1, paymentDue: 1, cancelled: 0 });
     expect(refusal).toMatchObject({ code: "BADGE_PAYMENT_REQUIRED", blocked: 1 });
     expect(refusal.error).toContain("still owes payment");
   });
 
   it("a cancelled registration is never told to record a payment (owner, Nov 13, 2026)", () => {
-    expect(badgeRefusal({ matched: 1, paymentDue: 0, cancelled: 1 })).toEqual({
+    expect(badgeRefusal({ asked: 1, matched: 1, paymentDue: 0, cancelled: 1 })).toEqual({
       error: "This registration is cancelled, so it has no badge.",
       code: "BADGE_NOT_AVAILABLE",
     });
-    expect(badgeRefusal({ matched: 3, paymentDue: 0, cancelled: 2 })).toEqual({
-      error: "None of the 3 selected registrations can have a badge: they are cancelled or refunded.",
+    expect(badgeRefusal({ asked: 3, matched: 3, paymentDue: 0, cancelled: 2 })).toEqual({
+      error: "None of the 3 selected registrations can have a badge: they are virtual, cancelled or refunded.",
       code: "BADGE_NOT_AVAILABLE",
     });
   });
 
+  it("counts the selection, not what the query matched (review of d8552af9)", () => {
+    // "Print 3 Selected": one virtual (the query drops it) and two cancelled.
+    expect(badgeRefusal({ asked: 3, matched: 2, paymentDue: 0, cancelled: 2 }).error).toBe(
+      "None of the 3 selected registrations can have a badge: they are virtual, cancelled or refunded.",
+    );
+    // Two selected, one virtual and one cancelled: not the singular "This registration".
+    expect(badgeRefusal({ asked: 2, matched: 1, paymentDue: 0, cancelled: 1 }).error).toBe(
+      "None of the 2 selected registrations can have a badge: they are virtual, cancelled or refunded.",
+    );
+    // One owing and one virtual: the owing one is not "This registration" either.
+    expect(badgeRefusal({ asked: 2, matched: 1, paymentDue: 1, cancelled: 0 })).toMatchObject({ blocked: 1 });
+    expect(badgeRefusal({ asked: 2, matched: 1, paymentDue: 1, cancelled: 0 }).error).toContain("None of the 2 selected");
+  });
+
   it("refunded and not cancelled: its place no longer stands", () => {
-    expect(badgeRefusal({ matched: 1, paymentDue: 0, cancelled: 0 }).error).toBe(
+    expect(badgeRefusal({ asked: 1, matched: 1, paymentDue: 0, cancelled: 0 }).error).toBe(
       "This registration was refunded and its place no longer stands, so it has no badge.",
     );
   });
 
-  it("several, some owing and some cancelled: only the owing are counted as blocked", () => {
-    expect(badgeRefusal({ matched: 5, paymentDue: 3, cancelled: 2 })).toEqual({
+  it("several, some owing and some not: only the owing are blocked, and only they get the remedy", () => {
+    expect(badgeRefusal({ asked: 5, matched: 5, paymentDue: 3, cancelled: 2 })).toEqual({
       error:
-        "None of the 5 selected registrations can be badged: 3 still owe payment (unpaid or pending). Record the payment, or set them to Complimentary, then print. The other 2 are cancelled or refunded.",
+        "None of the 5 selected registrations can be badged: 3 still owe payment (unpaid or pending). Record the payment, or set them to Complimentary, then print. The other 2 get no badge (virtual, cancelled or refunded).",
       code: "BADGE_PAYMENT_REQUIRED",
       blocked: 3,
     });
-    expect(badgeRefusal({ matched: 2, paymentDue: 2, cancelled: 0 }).error).toBe(
+    // One owing beside one cancelled: "that registration", never "them".
+    expect(badgeRefusal({ asked: 2, matched: 2, paymentDue: 1, cancelled: 1 }).error).toBe(
+      "None of the 2 selected registrations can be badged: 1 still owes payment (unpaid or pending). Record that payment, or set that registration to Complimentary, then print. The other one gets no badge (virtual, cancelled or refunded).",
+    );
+    expect(badgeRefusal({ asked: 2, matched: 2, paymentDue: 2, cancelled: 0 }).error).toBe(
       "None of the 2 selected registrations can be badged: 2 still owe payment (unpaid or pending). Record the payment, or set them to Complimentary, then print.",
     );
   });
