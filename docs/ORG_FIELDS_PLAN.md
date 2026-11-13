@@ -163,6 +163,31 @@ registration does. State is missing on 1 and Zip on 4. Step 0b stops new gaps;
 it does not fill these. Owner, Nov 13, 2026: no bulk fill; it blocks nothing.
 They fill as people are re-imported or edit their own details.
 
+### 3c. The create sites and what each leaves out (scan of Nov 13, 2026)
+
+The inventory for step 0c. A blank is right where the source has no such
+value (a CSV with no photo column); it is a gap where the source record holds
+it.
+
+| Site | Record | Leaves out |
+|---|---|---|
+| `registration-service.ts` create | attendee | Nothing |
+| `speaker-service.ts` create | speaker | Nothing |
+| Public register | attendee | Photo, bio, tags (the form has none) |
+| Registrations CSV import | attendee | Additional email, photo, typed-in specialty, student ID expiry (no columns) |
+| EventsAir import | attendee | Everything EventsAir does not give: title, role, State, Zip, specialty and the rest |
+| Group registration | attendee | Photo, bio, tags, dietary needs, association, member and student IDs |
+| Registrations from contacts | attendee | The type, dietary needs |
+| A speaker's companion registration (`speaker-companion.ts`) | attendee | **Bio and the typed-in specialty, which the speaker holds**; and the type and tags, on purpose |
+| Speaker from a registration (`speaker-companion.ts`) | speaker | **Photo and bio, which the attendee holds**; tags, website |
+| Event clone | speaker | **Role, additional email, State, Zip, typed-in specialty, which the source speaker holds** |
+| Agent bulk create (speakers) | speaker | Typed-in specialty, website, social links |
+| Contacts page create | contact | Additional email, State, Zip, typed-in specialty |
+| Agent create contact | contact | Most fields |
+
+The three in bold are real gaps: a record made from another record that does
+not carry what the source holds.
+
 ## 4. Design
 
 One module decides, and every form, validator, table, export and tool asks it.
@@ -264,9 +289,9 @@ Sizes are estimates, not measurements.
 |---|---|---|---|
 | 0a | BUILT Nov 13, 2026. The one declaration of a person's fields and which of the four records hold each (`src/lib/person-field-contract.ts`). `person-field-contract.test.ts` fails when a column is added to Attendee, Speaker, Contact or AccountProfile and not declared, and holds the three hand-written copy lists (speaker and registration sync, contact sync, the account's details) and the public form's fields against it. | No | Done |
 | 0b | BUILT Nov 13, 2026. No caller of the contact sync types its payload by hand: each builds it with `contactSyncFromAttendee`, `contactSyncFromSpeaker` or `contactSyncFromSpeakerInput` (`src/lib/contact-sync-payload.ts`), typed so that a row with fewer columns does not compile. Rules the builders and the sync hold: the category is said by the caller and is never "Faculty"; an edit replaces the fields whose value it changed and sends the rest of the row as fill-only (`fillBlanks`: written only where the contact's column is empty); a contact that does not exist is created with the whole row. `contact-sync-callers.test.ts` fails on a new hand-written payload. By hand on purpose: the evidence form (`verify-details`) and adding a reviewer (name and event only). | Yes: fields that were dropped reach the contact, and an old row no longer overwrites a newer contact | Done |
-| 0c | The create paths: one all-required input, so a create that does not account for a field fails to compile (`ATTENDEE_FIELDS_REFACTOR_PLAN.md`, phase A). One caller per commit. | No | Days |
-| 0d | The update paths, same treatment (phase B of that plan). | No | Days |
-| 1a | `person-fields.ts` with today's lists as the default; every door, and the two rules in section 2 that are not forms, ask the one refusal function; the hand-copied role lists and the scattered "Others" rules are deleted. No new check on a stored value (section 4). | No | Days |
+| 0c | NOT BUILT, and needed for step 2, not for step 1. The create paths: one all-required input, so a create that does not account for a field fails to compile (`ATTENDEE_FIELDS_REFACTOR_PLAN.md`, phase A). One caller per commit. A scan of Nov 13 (section 3c) lists every create site and what it leaves out. A test that reads the source instead was tried and dropped: half the sites build their data through a variable or a map, which a pattern cannot follow reliably. | No | Days |
+| 0d | NOT BUILT, same standing as 0c. The update paths (phase B of that plan). | No | Days |
+| 1a | STARTED Nov 13, 2026. Built: `src/lib/person-fields.ts`, which reads `Organization.settings.personFields` (for Title, Role and Specialty: asked or not, label, answers with a key that never changes, retired answers, "Others") and returns today's lists when nothing is saved; the specialty and title pickers take their default answers from it, so there is one copy of each list (`person-fields.test.ts` writes the 45 specialties out and holds the module to them). Still to do in 1a: every door, and the two rules in section 2 that are not forms, ask one refusal function; the hand-copied role lists and the scattered "Others" rules are deleted. No new check on a stored value (section 4). | No | Days |
 | 1b | Role storage (C in section 4), starting with the test of the previous image against the changed database. `docs/ROLLBACK.md` gets its entry. | No for MM Group | Days |
 | 1c | Every outside reader (section 6) reads the organisation's list. BEFORE any screen can add an answer: an answer added while a reader still holds the fixed list is refused by the Contacts filter, blanked by three CSV imports, sent as a raw key to the exports and to `contacts_centralv1`, and refused by the agent tools and the API. | No for MM Group | Days |
 | 1d | The settings screen for labels and answers, the permission key (it will need the grants snapshot test, the roles document test and `check-permission-guards.sh` updated), the audit entries. Written through `updateOrganizationSettings`, read through a projection as `public-brand-server.ts` does. `docs/ROLLBACK.md` gets its entry. | Yes, new screen | Days |
@@ -274,8 +299,10 @@ Sizes are estimates, not measurements.
 | 2 | New fields created by the organisation, following the person everywhere (D5). Needs a place to store them on Speaker, Contact and AccountProfile (Attendee has `customFields`; the staff API can write it, and on production 0 of 7,496 attendees hold anything in it, counted Nov 13, 2026), and the copy sites from step 0 must carry them. Shown on the public forms, the registration sheet, the CSV export. | Yes | 3 to 4 weeks |
 | 3 | Later, only when asked: new fields in filters, bulk email segments, badges and email tokens; an organisation's own titles; presentation formats and the credit-hours label per organisation. | Yes | Not sized |
 
-Step 0 plus step 1 is what a second organisation needs to launch: about three
-weeks. Step 2 can wait until a tenant asks.
+Steps 0a, 0b and step 1 are what a second organisation needs to launch. Steps
+0c and 0d guard the day a NEW column is added to a person, which is step 2;
+step 1's one new column (Role as text, section 4) is found by the compiler,
+because its type changes at every site. Step 2 can wait until a tenant asks.
 
 ## 6. Who reads these fields outside the forms
 

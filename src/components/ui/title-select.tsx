@@ -7,14 +7,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./select";
+import { defaultPersonFields, offeredAnswers } from "@/lib/person-fields";
 
-export const TITLE_OPTIONS = [
-  { value: "DR", label: "Dr." },
-  { value: "MR", label: "Mr." },
-  { value: "MRS", label: "Mrs." },
-  { value: "MS", label: "Ms." },
-  { value: "PROF", label: "Prof." },
-] as const;
+/** The titles a form offers by default: one copy, in src/lib/person-fields.ts. */
+export const TITLE_OPTIONS = offeredAnswers(defaultPersonFields().title).map((o) => ({ value: o.key, label: o.label }));
 
 interface TitleSelectProps {
   /** Put on the button you tap, so a <label htmlFor> can point at the picker. */

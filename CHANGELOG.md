@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Organisation-owned fields: the lists move to one place (November 13)
+
+Step 1a of `docs/ORG_FIELDS_PLAN.md`, first slice. Nothing a user sees
+changes.
+
+`src/lib/person-fields.ts` reads what an organisation asks about a person,
+for Title, Role and Specialty: whether the field is asked, its label, its
+answers (each with a stored key that never changes, and a retired flag) and
+whether "Others" with free text is offered. It reads
+`Organization.settings.personFields`, and when nothing is saved it returns the
+lists exactly as they stood. No screen writes the setting yet.
+
+The specialty and title pickers now take their default answers from that
+module, so each list exists once: the 45 specialties were in a client
+component, and `person-fields.test.ts` writes them out and holds the module to
+them. Verified on the local app: the Add Registration form offers the same 45
+specialties, "Others" last, and the console is clean.
+
+Still to come, in order: every form and rule asks one function what is
+required; Role stops being a fixed database list; exports, filters, imports,
+the API and the agent tools read the organisation's list; then the settings
+screen.
+
 ### Contacts: an edit replaces what it changed and only fills the rest (November 13)
 
 Review of the staff group (`f1dad0b8`: no HIGH, three MED). The rule for what
