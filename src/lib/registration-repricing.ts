@@ -28,6 +28,15 @@ import { NO_BALANCE_TIER_STATUSES, tierChangeAllowed } from "@/lib/tier-change-p
  *    the OLD type's price); the tier is nulled (tiers belong to a type). For
  *    complimentary / sponsor-paid, "type change + tier cleared" counts as bare.
  *    Paid regs are left untouched.
+ *  - A bare type change on an UNPAID reg that holds a promo code or a discount
+ *    is refused like the tier change above (owner, Nov 13, 2026). It re-stamped
+ *    the price and kept the discount worked out against the old one: 250 off a
+ *    500 type, moved to a 200 type, read as nothing owed on the money screens
+ *    and at checkout while 100 was. The sheet always sends the tier, so it was
+ *    refused there already; the agent's `update_registration` with only a type,
+ *    or a PUT without `pricingTierId`, was not. Complimentary and sponsor-paid
+ *    regs are still not blocked: nothing is owed, and removing a sponsor's code
+ *    loses the sponsor.
  */
 
 export type RepricingResolution =
@@ -41,6 +50,14 @@ export type RepricingResolution =
       originalPrice?: number;
     }
   | { ok: false; code: string; message: string; status: number };
+
+/** One refusal for every door that would re-stamp a price under a promo code or discount. */
+const DISCOUNT_REFUSAL = {
+  ok: false,
+  code: "TIER_CHANGE_HAS_DISCOUNT",
+  status: 400,
+  message: "Remove the applied promo code / discount before changing the tier or type, then re-apply it if needed.",
+} as const;
 
 const UNPAID_STATUSES: PaymentStatus[] = [
   PaymentStatus.UNASSIGNED,
@@ -87,6 +104,8 @@ export async function resolveRepricing(input: {
   const typeChangeTierId = isChangingType ? null : undefined;
   const nextTierId: string | null | undefined = isSettingTier ? pricingTierId ?? null : typeChangeTierId;
 
+  const hasDiscount = !!existing.promoCodeId || Number(existing.discountAmount ?? 0) > 0;
+
   let originalPrice: number | undefined;
 
   if (isSettingTier) {
@@ -99,15 +118,7 @@ export async function resolveRepricing(input: {
           "The price (tier / type) cannot be changed on a paid, refunded or failed registration. For a paid one, refund the payment first.",
       };
     }
-    if (existing.promoCodeId || Number(existing.discountAmount ?? 0) > 0) {
-      return {
-        ok: false,
-        code: "TIER_CHANGE_HAS_DISCOUNT",
-        status: 400,
-        message:
-          "Remove the applied promo code / discount before changing the tier or type, then re-apply it if needed.",
-      };
-    }
+    if (hasDiscount) return DISCOUNT_REFUSAL;
     if (pricingTierId === null) {
       // Base price of the effective (new or current) type.
       if (effectiveTypeId) {
@@ -142,6 +153,9 @@ export async function resolveRepricing(input: {
       originalPrice = Number(tier.price);
     }
   } else if (isChangingType && (unpaid || noBalance) && effectiveTypeId) {
+    // The price is about to be re-stamped. On a reg that still owes, a discount
+    // worked out against the old price must not ride along (see the header).
+    if (unpaid && hasDiscount) return DISCOUNT_REFUSAL;
     // M2: bare type change (no tier provided) on an unpaid reg reprices to the
     // NEW type's base, else it keeps the OLD type's price. Complimentary and
     // sponsor-paid follow the same rule (nothing is owed either way).

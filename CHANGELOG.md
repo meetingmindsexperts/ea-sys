@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registrations: a type change is refused while a promo code is on an unpaid registration (November 13)
+
+Owner, after the door fix above turned up the cause: "ok do it."
+
+- **The problem**: changing someone's registration type re-stamps their price, and the discount stayed at the amount worked out against the OLD price. A Physician at 500 with a 50% code (250 off), moved to Nurse at 200, read as price 200, discount 250: nothing owed on the money screens and at checkout, while 100 was
+- The registration sheet could not do this: its type change always sends the rate too, and that was already refused with "Remove the applied promo code / discount before changing the tier or type, then re-apply it if needed." The **AI agent** (`update_registration` with only a type) and an API call without the rate were not refused. They are now, with the same message and code (`TIER_CHANGE_HAS_DISCOUNT`), in the one rule both use (`resolveRepricing` in `src/lib/registration-repricing.ts`)
+- **Not blocked**: a complimentary or sponsor-paid registration (nothing is owed, and removing a sponsor's code would lose the sponsor), and a paid one (its price is not touched by a type change)
+- The door has been safe since this morning: it admits only a discount that equals the price
+- The agent tool's description says so; no tool was added or removed
+- No migration, no data changed
+
 ### Badges: a cancelled registration gets no badge (November 13)
 
 Owner: "cancelled registration, should not get."

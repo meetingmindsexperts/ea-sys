@@ -69,6 +69,40 @@ describe("resolveRepricing", () => {
     expect(r).toMatchObject({ ok: true, isChangingType: true, nextTierId: null, originalPrice: 250 });
   });
 
+  // Owner, Nov 13, 2026: the agent's update_registration sends only the type. The price was
+  // re-stamped and the old discount kept: 250 off a 500 type, moved to a 200 type, read as
+  // nothing owed. Refused like the tier change, which the sheet's own type change already was.
+  it.each(["UNPAID", "UNASSIGNED", "PENDING"])("bare type change on a %s reg with a promo code is refused, nothing re-stamped", async (paymentStatus) => {
+    const r = await resolveRepricing({ eventId: "ev", existing: existing({ paymentStatus, promoCodeId: "promo1", discountAmount: 250 }), ticketTypeId: NEW_TYPE });
+    expect(r).toEqual({
+      ok: false,
+      code: "TIER_CHANGE_HAS_DISCOUNT",
+      status: 400,
+      message: "Remove the applied promo code / discount before changing the tier or type, then re-apply it if needed.",
+    });
+  });
+
+  it("bare type change with a stored discount and no code is refused too", async () => {
+    const r = await resolveRepricing({ eventId: "ev", existing: existing({ discountAmount: 100 }), ticketTypeId: NEW_TYPE });
+    expect(r).toMatchObject({ ok: false, code: "TIER_CHANGE_HAS_DISCOUNT" });
+  });
+
+  it.each(["COMPLIMENTARY", "INCLUSIVE"])("bare type change on a %s reg with a sponsor's code is still allowed (nothing is owed)", async (paymentStatus) => {
+    const r = await resolveRepricing({ eventId: "ev", existing: existing({ paymentStatus, promoCodeId: "promo1", discountAmount: 250 }), ticketTypeId: NEW_TYPE });
+    expect(r).toMatchObject({ ok: true, isChangingType: true, nextTierId: null, originalPrice: 250 });
+  });
+
+  it("a PAID reg with a promo code changes type as before: its price is not touched", async () => {
+    const r = await resolveRepricing({ eventId: "ev", existing: existing({ paymentStatus: "PAID", promoCodeId: "promo1", discountAmount: 250 }), ticketTypeId: NEW_TYPE });
+    expect(r).toMatchObject({ ok: true, nextTierId: null, originalPrice: undefined });
+  });
+
+  it("sending the same type is not a type change, so a promo code blocks nothing", async () => {
+    const same = existing({ promoCodeId: "promo1", discountAmount: 250 });
+    const r = await resolveRepricing({ eventId: "ev", existing: same, ticketTypeId: same.ticketTypeId ?? undefined });
+    expect(r).toMatchObject({ ok: true, isChangingType: false, originalPrice: undefined });
+  });
+
   it("bare type change on a PAID reg → tier null, NO reprice", async () => {
     const r = await resolveRepricing({ eventId: "ev", existing: existing({ paymentStatus: "PAID" }), ticketTypeId: NEW_TYPE });
     expect(r).toMatchObject({ ok: true, nextTierId: null, originalPrice: undefined });

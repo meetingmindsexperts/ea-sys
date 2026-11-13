@@ -213,14 +213,13 @@ From the review of `5fc01136` (Faculty counts as form-completed, a code that tak
 fee owes nothing at the door, the free rates' ways to pay; 0 BLOCKER, 0 HIGH, 3 MED, 3 LOW).
 The MEDs and one LOW were fixed in the follow-up commit.
 
-**Older defect, for the owner to decide: a type change with no rate keeps a stale discount.**
-`registration-repricing.ts` refuses a rate change while a code or discount is on the row
-(`TIER_CHANGE_HAS_DISCOUNT`), but a type change that sends no `pricingTierId` (the agent's
-`update_registration` with only a type, or a REST PUT without the field; the detail sheet
-always sends it) re-stamps `originalPrice` and leaves `discountAmount` as it was. The money
-screens and checkout then read the old discount against the new price. The door is safe
-since the fix above (the discount must equal the price). The fix is to refuse that change
-like the rate change, or to recompute the discount from the code.
+**~~Older defect: a type change with no rate keeps a stale discount.~~ FIXED Nov 13, 2026**
+(owner: "ok do it"). `resolveRepricing` refuses a bare type change on an unpaid registration
+that holds a promo code or a discount, with the same `TIER_CHANGE_HAS_DISCOUNT` the rate
+change gives. Complimentary and sponsor-paid registrations are still not blocked. Left as it
+was, and worth a decision: on an event whose types are priced 0 with the money on rates, a
+type change that sends no rate stamps the price 0 with no rate, so an unpaid registration
+with no code reads as free afterwards (the sheet always sends the rate; the agent may not).
 
 **LOW, left: the desk day summary calls a code-covered unpaid walk-in "unpaid".**
 `walkInBucket` in `desk-day-summary.ts` reads the payment status only. A walk-in left

@@ -168,4 +168,13 @@ describe("MCP update_registration — re-tier / reprice parity", () => {
     expect((res as { code?: string }).code).toBe("TIER_CHANGE_HAS_DISCOUNT");
     expect(mockDb.$transaction).not.toHaveBeenCalled();
   });
+
+  // Owner, Nov 13, 2026: the door that was open. The agent sends only the type; the price was
+  // re-stamped and the old discount kept, so the registration read as owing less than it did.
+  it("a type change alone with a promo applied → TIER_CHANGE_HAS_DISCOUNT, no transaction", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(existing({ promoCodeId: "promo1", discountAmount: 250 }));
+    const res = await update({ registrationId: "reg1", ticketTypeId: NEW_TYPE }, ctx);
+    expect((res as { code?: string }).code).toBe("TIER_CHANGE_HAS_DISCOUNT");
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
 });
