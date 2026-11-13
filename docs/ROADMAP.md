@@ -93,22 +93,24 @@ plan found these outside the plan's own steps.
 From the review of `f0899baf` (the switches), Nov 13. Fixed: both HIGH, all
 four MED, and LOW 4, 7, 8, 9, 11, 12 and the group part of 1. Left, with why:
 
-- **A hand-made request can still store a value for a field that is switched
-  off.** LOW. The forms send such a field blank (the public form since the
-  review; the others never fill one), and the value is the person's own. Not
-  done at the routes now because each door would have to hand back "the values
-  it kept": the event-level choice touches every door again to pass the
-  event's setting, and returns them from the same call.
+- ~~A hand-made request can still store a value for a field that is switched
+  off.~~ DONE with the event's own choice (Nov 13): the doors that create a
+  record keep only what the event asks (`askedOnly`). The two doors that EDIT
+  a record that exists (completing a registration, My account) still write
+  what they are sent for a field that is off: the form re-posts what the
+  record already holds, so nothing new is stored. LOW, left.
 - **A request refused for a missing Role or Specialty is refused later than it
   was**: after the per-email limiter on public registration, after the
   password-attempt counter on abstract sign-in, and after an expired
   completion token is deleted. LOW: no account, token use or desk-QR budget
   moves, and a form never sends such a request. The group door's member budget
-  was the one real cost and is fixed.
-- **One more read per public POST** for the organisation's rules. LOW. The
-  registration route's event read already joins the organisation and could
-  carry its settings; do it with the event-level choice, which changes that
-  call anyway.
+  was the one real cost and is fixed. Since the event's own choice
+  (Nov 13) the desk walk-in is also refused after its two rate limits are
+  charged, because the rule needs the event; the desk form checks first.
+- **One more read per public POST** for the organisation's rules. LOW, left on
+  purpose: it is one row by primary key on a route that already makes dozens
+  of reads, and passing the organisation's settings in from each caller would
+  make two ways to hand the rule its organisation.
 - **When the rules cannot be read, the doors demand everything**, which for an
   organisation with a field off asks for something its form does not show.
   LOW, and deliberate: a registration must not fail closed on a field that IS

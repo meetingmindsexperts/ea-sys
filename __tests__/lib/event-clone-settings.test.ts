@@ -85,6 +85,11 @@ describe("cloneEventSettings", () => {
     expect(cloneEventSettings(src)).toEqual({ ...src, reviewerUserIds: [], onsiteUserIds: [] });
   });
 
+  it("carries the event's own choice for Title, Role and Specialty with its other form settings (Nov 13, 2026)", () => {
+    const source = { formFields: { state: false }, personFieldChoices: { title: "off", specialty: "optional" } };
+    expect(cloneEventSettings(source)).toMatchObject(source);
+  });
+
   it("DROPS an unknown/new key (allow-list fail-safe — the anti-deny-list property)", () => {
     const out = cloneEventSettings({
       cme: { hours: 3 },

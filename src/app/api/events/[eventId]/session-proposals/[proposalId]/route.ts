@@ -10,7 +10,7 @@ import { getClientIp } from "@/lib/security";
 import { SESSION_TYPE_KIND } from "@/lib/session-enums";
 import { notifySessionProposalSubmitted } from "@/lib/session-proposal-notify";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
-import { loadPersonFieldRules } from "@/lib/person-field-rules";
+import { loadEventPersonFieldRules } from "@/lib/person-field-rules";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
 import { MAX_PROPOSAL_DESCRIPTION_CHARS } from "@/lib/session-proposal-content";
 
@@ -204,7 +204,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         // blocked. The form redirects to My Details first; this covers a
         // direct API call.
         if (data.status === "SUBMITTED") {
-          const missing = missingProfileFields(existing.speaker, await loadPersonFieldRules(event.organizationId));
+          const missing = missingProfileFields(existing.speaker, await loadEventPersonFieldRules(event));
           if (missing.length > 0) {
             apiLogger.warn({ msg: "session-proposals:profile-incomplete-block", eventId, proposalId, userId: session.user.id, missing });
             return NextResponse.json(profileIncompletePayload(missing), { status: 403 });

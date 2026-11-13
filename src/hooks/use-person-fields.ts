@@ -18,17 +18,32 @@ const PUBLIC_FIELDS_KEY = ["person-fields", "public"] as const;
 const SPECIALTY_SETTINGS_KEY = ["person-fields", "settings"] as const;
 
 /**
+ * Which event a page belongs to, from its address: `/e/<slug>/...` for the
+ * public pages and `/events/<id>/...` for the dashboard's. The fields a form
+ * shows on those pages are the organisation's AS THAT EVENT ASKS THEM (its own
+ * choice laid over the organisation's switches). Elsewhere, and where a
+ * caller asks for the organisation's own (the event settings card, which shows
+ * what the event is choosing over), there is no event.
+ */
+function eventOfPage(pathname: string, organisationOnly: boolean): string | null {
+  if (organisationOnly) return null;
+  // The route takes a slug or an id in the same parameter, as the public pages do.
+  const ref = /^\/e\/([^/]+)/.exec(pathname)?.[1] ?? /^\/events\/([^/]+)/.exec(pathname)?.[1] ?? null;
+  // "/events/new" is the creation page, not an event.
+  return ref === "new" ? null : ref;
+}
+
+/**
  * The fields a form shows. While the organisation's own are loading, and if
  * they cannot be read, this is today's lists: a form never loses its picker.
  */
-export function usePersonFields(): PublicPersonFields {
-  // On an event's public pages (/e/<slug>/...) the list is the event's
-  // organisation's, whoever is looking and whatever address serves the page.
-  const eventSlug = /^\/e\/([^/]+)/.exec(usePathname() ?? "")?.[1] ?? null;
+export function usePersonFields(opts: { organisationOnly?: boolean } = {}): PublicPersonFields {
+  // On an event's pages the list is the event's organisation's, whoever is
+  // looking and whatever address serves the page, with the event's own choice.
+  const event = eventOfPage(usePathname() ?? "", opts.organisationOnly === true);
   const { data } = useQuery({
-    queryKey: [...PUBLIC_FIELDS_KEY, eventSlug],
-    queryFn: async () =>
-      (await fetchApi<{ fields: PublicPersonFields }>(`/api/public/person-fields${eventSlug ? `?event=${encodeURIComponent(eventSlug)}` : ""}`)).fields,
+    queryKey: [...PUBLIC_FIELDS_KEY, event],
+    queryFn: async () => (await fetchApi<{ fields: PublicPersonFields }>(`/api/public/person-fields${event ? `?event=${encodeURIComponent(event)}` : ""}`)).fields,
     placeholderData: DEFAULT_PUBLIC_PERSON_FIELDS,
     retry: 1,
     // The page works without it: not a fault to report (see providers.tsx).

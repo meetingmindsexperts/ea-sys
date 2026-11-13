@@ -132,6 +132,15 @@ describe("my-profile GET: details the person already gave", () => {
     expect(missing).not.toContain("Specialty");
   });
 
+  it("and the EVENT's own choice is laid over them: a field this event does not ask is not missing", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { personFieldChoices: { role: "optional", specialty: "off" } } });
+    const body = (await (await get()).json()) as { fieldRules: PersonFieldRules };
+    expect(body.fieldRules.role).toEqual({ shown: true, required: false });
+    expect(body.fieldRules.specialty).toEqual({ shown: false, required: false });
+    // The event is read with its settings, which hold that choice.
+    expect(mockDb.event.findFirst.mock.calls[0][0].select).toMatchObject({ settings: true });
+  });
+
   it("an answer without rules (the other slot during a deploy) is judged by today's", async () => {
     const { rulesSentWith } = await import("@/lib/submitter-profile-completeness");
     expect(rulesSentWith({})).toEqual(DEFAULT_PERSON_FIELD_RULES);

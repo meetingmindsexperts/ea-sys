@@ -20,7 +20,8 @@ import {
 } from "@/lib/presenter-signup";
 import { becomesSubmitterToAuthor } from "@/lib/abstract-reviewer-access";
 import { presenterDetailsSchema } from "@/lib/schemas";
-import { personFieldRefusal } from "@/lib/person-field-rules";
+import { checkEventPersonFields } from "@/lib/person-field-rules";
+import { askedOnly } from "@/lib/person-field-check";
 
 /**
  * "Start an abstract as an EXISTING user" — the sign-in half of the abstract
@@ -149,14 +150,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // The details as this door keeps them: a field this event does not ask is
+    // not stored, whatever the request held.
+    let askedDetails = parsed.data.details;
     if (parsed.data.details) {
-      const fieldRefusal = await personFieldRefusal(event.organizationId, parsed.data.details);
-      if (fieldRefusal) {
-        apiLogger.warn({ msg: "public/abstract-start:person-fields-refused", eventId: event.id, fields: Object.keys(fieldRefusal.fieldErrors) });
+      const fieldCheck = await checkEventPersonFields(event, parsed.data.details);
+      if (fieldCheck.refusal) {
+        apiLogger.warn({ msg: "public/abstract-start:person-fields-refused", eventId: event.id, fields: Object.keys(fieldCheck.refusal.fieldErrors) });
         // Under `details`, where the form's own errors for these fields sit.
-        const fieldErrors = Object.fromEntries(Object.entries(fieldRefusal.fieldErrors).map(([k, v]) => [`details.${k}`, v]));
+        const fieldErrors = Object.fromEntries(Object.entries(fieldCheck.refusal.fieldErrors).map(([k, v]) => [`details.${k}`, v]));
         return NextResponse.json({ error: "Invalid input", details: { formErrors: [], fieldErrors } }, { status: 400 });
       }
+      askedDetails = { ...parsed.data.details, ...askedOnly(parsed.data.details, fieldCheck.rules) };
     }
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
@@ -242,7 +247,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // The confirmed details win; without them (a page loaded before Sep 29,
     // 2026) the old on-file behaviour stands.
-    const d = parsed.data.details;
+    const d = askedDetails;
     const firstName = d?.firstName || att?.firstName || user.firstName || "";
     const lastName = d?.lastName || att?.lastName || user.lastName || "";
     const profile = d

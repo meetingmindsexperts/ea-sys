@@ -212,3 +212,53 @@ describe("the rule every form and every door asks", () => {
     expect(publicPersonFields(config).specialty).toMatchObject({ enabled: false, required: false });
   });
 });
+
+// Step 2, the event part (owner, Nov 13, 2026): the organisation is the
+// ceiling, the event's choice applies to all of that event's forms, and Title
+// is on or off only.
+describe("one event's own choice", () => {
+  const on = { enabled: true, required: true };
+  const fields = { title: on, role: on, specialty: on };
+
+  it("nothing saved, or nothing readable, is no choice at all", async () => {
+    const { readEventPersonFieldChoices } = await import("@/lib/person-fields");
+    for (const settings of [undefined, null, "x", [], {}, { personFieldChoices: null }, { personFieldChoices: [] }, { personFieldChoices: { role: 1, specialty: "Off" } }]) {
+      expect(readEventPersonFieldChoices(settings)).toEqual({});
+    }
+  });
+
+  it("reads the three choices for Role and Specialty, and only 'off' for Title", async () => {
+    const { readEventPersonFieldChoices } = await import("@/lib/person-fields");
+    expect(readEventPersonFieldChoices({ personFieldChoices: { title: "off", role: "optional", specialty: "required" } })).toEqual({ title: "off", role: "optional", specialty: "required" });
+    expect(readEventPersonFieldChoices({ personFieldChoices: { title: "required", role: "off" } })).toEqual({ role: "off" });
+  });
+
+  it("is laid over the organisation's switches, field by field", async () => {
+    const { withEventChoices } = await import("@/lib/person-fields");
+    expect(withEventChoices(fields, {})).toEqual(fields);
+    expect(withEventChoices(fields, { title: "off", role: "optional" })).toEqual({
+      title: { enabled: false, required: false },
+      role: { enabled: true, required: false },
+      specialty: on,
+    });
+    // An event may demand what the organisation left optional.
+    expect(withEventChoices({ ...fields, role: { enabled: true, required: false } }, { role: "required" }).role).toEqual(on);
+  });
+
+  it("the organisation is the ceiling: off for the organisation is off on the event", async () => {
+    const { withEventChoices } = await import("@/lib/person-fields");
+    const off = { enabled: false, required: true };
+    expect(withEventChoices({ ...fields, specialty: off }, { specialty: "required" }).specialty).toEqual(off);
+    expect(withEventChoices({ ...fields, specialty: off }, { specialty: "optional" }).specialty).toEqual(off);
+  });
+
+  it("keeps whatever else a field carries (its label and answers, on what a form is handed)", async () => {
+    const { withEventChoices, publicPersonFields, personFieldRules } = await import("@/lib/person-fields");
+    const handed = publicPersonFields(defaultPersonFields());
+    const onEvent = withEventChoices(handed, { specialty: "optional" });
+    expect(onEvent.specialty.answers).toEqual(handed.specialty.answers);
+    expect(onEvent.specialty.label).toBe("Specialty");
+    expect(personFieldRules(onEvent).specialty).toEqual({ shown: true, required: false });
+  });
+});
+

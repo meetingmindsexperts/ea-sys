@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockAuth, mockDb, saveSpecialtyAnswers, savePersonFieldSwitches, countSpecialtyUse, resolveRequestOrgId, resolvePublicEventOrg, rateLimit, lane } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
-  mockDb: { organization: { findUnique: vi.fn() } },
+  mockDb: { organization: { findUnique: vi.fn() }, event: { findFirst: vi.fn() } },
   saveSpecialtyAnswers: vi.fn(),
   savePersonFieldSwitches: vi.fn(),
   countSpecialtyUse: vi.fn(),
@@ -36,6 +36,9 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/security", () => ({ checkRateLimit: () => rateLimit(), getClientIp: () => "1.2.3.4" }));
 vi.mock("@/lib/tenant/resolver", () => ({ resolveRequestOrgId: (req: Request) => resolveRequestOrgId(req) }));
 vi.mock("@/lib/tenant/event-tenant", () => ({ resolvePublicEventOrg: (req: Request, slug: string) => resolvePublicEventOrg(req, slug) }));
+// The public pages' own event filter, as a marker the test can recognise.
+vi.mock("@/lib/public-event", () => ({ publicEventWhere: async (_req: Request, slug: string, opts?: unknown) => ({ publicSlug: slug, opts }) }));
+vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_orgId: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/tenant-lane", () => ({
   runWithTenantLane: (orgId: string, ctx: unknown, fn: () => unknown) => {
     lane(orgId, ctx);
@@ -215,6 +218,64 @@ describe("the forms' read: whose list, and never an empty picker", () => {
     // Found as the public pages find the event (a slug is unique per organisation).
     expect(resolvePublicEventOrg).toHaveBeenCalledWith(expect.anything(), "hemnet2026");
     expect(mockDb.organization.findUnique).toHaveBeenCalledWith({ where: { id: ORG }, select: { settings: true } });
+  });
+
+  // Step 2, the event part: one event's forms follow that event's own choice,
+  // laid over its organisation's switches.
+  describe("one event's own choice for Title, Role and Specialty", () => {
+    const flags = async (url: string) => {
+      const { fields } = (await (await get(url)).json()) as { fields: Record<string, { enabled: boolean; required: boolean }> };
+      return { title: [fields.title.enabled, fields.title.required], role: [fields.role.enabled, fields.role.required], specialty: [fields.specialty.enabled, fields.specialty.required] };
+    };
+    const EVENT_CHOICE = { settings: { personFieldChoices: { title: "off", role: "optional", specialty: "off" } } };
+
+    it("a public page (by slug) gets the event's choice, read as the public pages read the event", async () => {
+      mockAuth.mockResolvedValue(null);
+      resolvePublicEventOrg.mockResolvedValue(ORG);
+      mockDb.event.findFirst.mockResolvedValue(EVENT_CHOICE);
+      expect(await flags("http://x/api/public/person-fields?event=hemnet2026")).toEqual({ title: [false, false], role: [true, false], specialty: [false, false] });
+      expect(mockDb.event.findFirst).toHaveBeenCalledWith({ where: { publicSlug: "hemnet2026", opts: { allowIdFallback: true } }, select: { settings: true } });
+    });
+
+    it("a dashboard page names the event by its id in the same parameter, found the same way", async () => {
+      mockAuth.mockResolvedValue(user("ONSITE"));
+      resolvePublicEventOrg.mockResolvedValue(ORG);
+      mockDb.event.findFirst.mockResolvedValue(EVENT_CHOICE);
+      expect((await flags("http://x/api/public/person-fields?event=ev1")).specialty).toEqual([false, false]);
+      expect(mockDb.event.findFirst).toHaveBeenCalledWith({ where: { publicSlug: "ev1", opts: { allowIdFallback: true } }, select: { settings: true } });
+    });
+
+    it("the organisation is the ceiling: a field it switched off stays off whatever the event saved", async () => {
+      mockAuth.mockResolvedValue(user("ORGANIZER"));
+      resolvePublicEventOrg.mockResolvedValue(ORG);
+      mockDb.organization.findUnique.mockResolvedValue({ settings: { [PERSON_FIELDS_SETTING]: { specialty: { enabled: false } } } });
+      mockDb.event.findFirst.mockResolvedValue({ settings: { personFieldChoices: { specialty: "required", role: "required" } } });
+      expect(await flags("http://x/api/public/person-fields?event=ev1")).toEqual({ title: [true, true], role: [true, true], specialty: [false, false] });
+    });
+
+    it("with no event named, the organisation's own switches: no event is read", async () => {
+      mockAuth.mockResolvedValue(user("ORGANIZER"));
+      mockDb.event.findFirst.mockResolvedValue(EVENT_CHOICE);
+      expect((await flags("http://x/api/public/person-fields")).specialty).toEqual([true, true]);
+      expect(mockDb.event.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("a slug that does not resolve reads no event: never a same-named event of the fallback organisation", async () => {
+      mockAuth.mockResolvedValue(user("ORGANIZER"));
+      resolvePublicEventOrg.mockResolvedValue(null);
+      mockDb.event.findFirst.mockResolvedValue(EVENT_CHOICE);
+      expect((await flags("http://x/api/public/person-fields?event=nope")).specialty).toEqual([true, true]);
+      expect(mockDb.event.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("an event that has saved no choice follows the organisation", async () => {
+      mockAuth.mockResolvedValue(user("ORGANIZER"));
+      resolvePublicEventOrg.mockResolvedValue(ORG);
+      mockDb.event.findFirst.mockResolvedValue({ settings: {} });
+      expect((await flags("http://x/api/public/person-fields?event=ev1")).role).toEqual([true, true]);
+      mockDb.event.findFirst.mockResolvedValue(null);
+      expect((await flags("http://x/api/public/person-fields?event=ev1")).role).toEqual([true, true]);
+    });
   });
 
   it("an unknown event falls back to the signed-in person's organisation", async () => {

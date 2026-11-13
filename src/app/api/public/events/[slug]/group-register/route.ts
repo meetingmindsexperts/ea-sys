@@ -11,8 +11,8 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
 import { titleEnum, optionalAttendeeRole, optionalSpecialty } from "@/lib/schemas";
-import { loadPersonFieldRules } from "@/lib/person-field-rules";
-import { personFieldProblems } from "@/lib/person-field-check";
+import { loadEventPersonFieldRules } from "@/lib/person-field-rules";
+import { askedOnly, personFieldProblems } from "@/lib/person-field-check";
 import { isTrustedInternalEmail, needsEmailVerification } from "@/lib/internal-domains";
 import { sendEmailVerification } from "@/lib/email-verification";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -200,8 +200,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Each member's Role, Specialty and "Others needs the typed specialty",
-    // by the organisation's rules: the same demand the public form makes.
-    const fieldRules = await loadPersonFieldRules(event.organizationId);
+    // as this event asks them (its own choice over its organisation's): the
+    // same demand the public form makes.
+    const fieldRules = await loadEventPersonFieldRules(event);
     const memberFieldErrors: Record<string, string[]> = {};
     data.members.forEach((member, i) => {
       for (const problem of personFieldProblems(member.attendee, fieldRules)) {
@@ -287,7 +288,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         payerReference: data.payerReference ?? null,
         promoCode: data.promoCode || null,
         rateSlug: data.rate ? registerTierSlug(data.rate) : null,
-        members: data.members,
+        // A field this event does not ask is not stored, whatever the request held.
+        members: data.members.map((member) => ({ ...member, attendee: { ...member.attendee, ...askedOnly(member.attendee, fieldRules) } })),
         requestIp: clientIp,
       });
 

@@ -11,7 +11,7 @@ import { contactSyncFromSpeaker } from "@/lib/contact-sync-payload";
 import { computeDetailsDelta, syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { suggestSpeakerDetails } from "@/lib/submitter-profile-suggestions";
-import { loadPersonFieldRules } from "@/lib/person-field-rules";
+import { loadEventPersonFieldRules } from "@/lib/person-field-rules";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -126,7 +126,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // `abstracts` select reads a swept table, so it runs INSIDE the wrap.
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, organizationId: true },
+      // `settings` holds the event's own choice for Title, Role and Specialty.
+      select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -150,7 +151,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // complete" gates, the nudge and My Details all judge by the same rules
     // the submit routes do: a submitter has no organisation of their own, so
     // the browser cannot work these out by itself.
-    const fieldRules = await loadPersonFieldRules(event.organizationId);
+    const fieldRules = await loadEventPersonFieldRules(event);
     // The details the person already gave elsewhere, for the form's empty
     // fields. Offered, never written: only their own Save stores them.
     const suggested = await suggestSpeakerDetails({

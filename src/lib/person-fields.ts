@@ -20,7 +20,8 @@
  * picker reads the organisation's list (src/hooks/use-person-fields.ts).
  * Since step 2 the same day, each field's on/off and required switches too:
  * `personFieldRules` is what every form and every server door asks
- * (src/lib/person-field-rules.ts holds the server's check).
+ * (src/lib/person-field-rules.ts holds the server's check), with each EVENT's
+ * own choice laid over them (`withEventChoices`, at the end of this file).
  * Not yet: the field's label is stored and read but no form shows it, Title
  * and Role still offer their fixed lists, and Role is still a fixed database
  * list (docs/ORG_FIELDS_PLAN.md, the later slices).
@@ -265,6 +266,58 @@ export function personFieldRules(fields: Record<ConfigurablePersonField, { enabl
 
 /** Today's form: all three asked and demanded. */
 export const DEFAULT_PERSON_FIELD_RULES: PersonFieldRules = personFieldRules(defaultPersonFields());
+
+/**
+ * What ONE EVENT does with a field its organisation asks (Nov 13, 2026; step 2
+ * of docs/ORG_FIELDS_PLAN.md, the event part; owner rulings D12 to D14).
+ *
+ * Kept in `Event.settings.personFieldChoices`, beside the event's other form
+ * settings and under a key of its own, so a settings page left open from
+ * before this existed cannot wipe it by saving the keys it knows.
+ *
+ *   - nothing saved for a field: the event asks it as the organisation does;
+ *   - "off": this event does not ask it;
+ *   - "optional" / "required": asked, and demanded or not, on this event.
+ *
+ * THE ORGANISATION IS THE CEILING: a field it switched off is off on every
+ * event, whatever an event saved. Title is on or off only, so for Title only
+ * "off" means anything.
+ */
+export const EVENT_PERSON_FIELD_CHOICES_SETTING = "personFieldChoices";
+export const EVENT_PERSON_FIELD_CHOICES = ["off", "optional", "required"] as const;
+export type EventPersonFieldChoice = (typeof EVENT_PERSON_FIELD_CHOICES)[number];
+export type EventPersonFieldChoices = Partial<Record<ConfigurablePersonField, EventPersonFieldChoice>>;
+
+/** The event's own choices. Anything unset, unknown or malformed is no choice: as the organisation. */
+export function readEventPersonFieldChoices(eventSettings: unknown): EventPersonFieldChoices {
+  const raw = isRecord(eventSettings) && isRecord(eventSettings[EVENT_PERSON_FIELD_CHOICES_SETTING]) ? eventSettings[EVENT_PERSON_FIELD_CHOICES_SETTING] : {};
+  const choices: EventPersonFieldChoices = {};
+  for (const field of CONFIGURABLE_PERSON_FIELDS) {
+    const choice = raw[field];
+    if (field === "title" ? choice === "off" : (EVENT_PERSON_FIELD_CHOICES as readonly unknown[]).includes(choice)) {
+      choices[field] = choice as EventPersonFieldChoice;
+    }
+  }
+  return choices;
+}
+
+/**
+ * The organisation's fields as one event asks them. Works on anything that
+ * carries the two switches (the full setting, or what a public form is
+ * handed), so the rule and the form's own read are laid over the same way.
+ */
+export function withEventChoices<T extends { enabled: boolean; required: boolean }>(
+  fields: Record<ConfigurablePersonField, T>,
+  choices: EventPersonFieldChoices,
+): Record<ConfigurablePersonField, T> {
+  const one = (field: T, choice: EventPersonFieldChoice | undefined): T => {
+    // The ceiling: off for the organisation is off here, and no choice is as the organisation.
+    if (!field.enabled || !choice) return field;
+    if (choice === "off") return { ...field, enabled: false, required: false };
+    return { ...field, required: choice === "required" };
+  };
+  return { title: one(fields.title, choices.title), role: one(fields.role, choices.role), specialty: one(fields.specialty, choices.specialty) };
+}
 
 /** Whether a NEWLY chosen answer is one the field offers. A stored answer is never judged by this. */
 export function isOfferedAnswer(field: PersonFieldConfig, chosen: string): boolean {

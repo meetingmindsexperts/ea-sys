@@ -72,6 +72,22 @@ export function blankUnaskedFields<T extends PersonFieldValues>(values: T, rules
   } as T;
 }
 
+/**
+ * What a DOOR keeps of these four: a field the rules do not ask is not taken,
+ * whoever sent it and however. The server's half of `blankUnaskedFields`: a
+ * hand-made request, or a form left open from before the field was switched
+ * off, cannot store an answer to a question nobody asked. For a door that
+ * CREATES a record; an edit leaves what the record already holds alone.
+ */
+export function askedOnly<T extends PersonFieldValues>(values: T, rules: PersonFieldRules): { [K in PersonFieldPath]: T[K] | undefined } {
+  return {
+    title: rules.title.shown ? values.title : undefined,
+    role: rules.role.shown ? values.role : undefined,
+    specialty: rules.specialty.shown ? values.specialty : undefined,
+    customSpecialty: rules.specialty.shown ? values.customSpecialty : undefined,
+  } as { [K in PersonFieldPath]: T[K] | undefined };
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 /**

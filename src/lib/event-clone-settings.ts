@@ -33,6 +33,8 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
   "registrationOpen",
   "showRemainingTickets",
   "formFields",
+  // The event's own choice for Title, Role and Specialty (person-fields.ts).
+  "personFieldChoices",
   "mainRegisterTiers",
   "codeRequiredTiers",
   "maxAttendees",

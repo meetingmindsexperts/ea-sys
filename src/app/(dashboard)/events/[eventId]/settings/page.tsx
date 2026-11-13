@@ -62,6 +62,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ALL_FORM_FIELDS_SHOWN, OPTIONAL_FORM_FIELDS, readFormFields, type FormFieldVisibility } from "@/lib/registration-form-fields";
+import { EVENT_PERSON_FIELD_CHOICES_SETTING, readEventPersonFieldChoices, type EventPersonFieldChoices } from "@/lib/person-fields";
+import { EventPersonFieldChoicesEditor } from "@/components/events/event-person-field-choices";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Settings,
@@ -332,6 +334,8 @@ export default function EventSettingsPage() {
 
   // Optional attendee fields the forms show (registration-form-fields.ts); all shown until unticked.
   const [formFields, setFormFields] = useState<FormFieldVisibility>(ALL_FORM_FIELDS_SHOWN);
+  // This event's own choice for Title, Role and Specialty; none saved = as the organisation (person-fields.ts).
+  const [personFieldChoices, setPersonFieldChoices] = useState<EventPersonFieldChoices>({});
 
   const [agendaSettings, setAgendaSettings] = useState({
     agendaPublished: false,
@@ -502,6 +506,7 @@ export default function EventSettingsPage() {
         });
         loadedShowInCatalogue.current = settings.showInCatalogue === true;
         setFormFields(readFormFields(settings));
+        setPersonFieldChoices(readEventPersonFieldChoices(settings));
 
         setAgendaSettings({
           agendaPublished: settings.agendaPublished ?? settings.programmePublished ?? false,
@@ -849,6 +854,8 @@ export default function EventSettingsPage() {
             ...notificationSettings,
             groupRegistration: groupSettings,
             formFields,
+            // Sent whole: a field with no entry follows the organisation.
+            [EVENT_PERSON_FIELD_CHOICES_SETTING]: personFieldChoices,
             abstractDeadline: wallTimeInTzToIso(abstractSettings.abstractDeadline, eventTimezone),
             // Sent raw; readAbstractLimits clamps and falls back, so a blank or
             // silly value can never brick submissions.
@@ -1690,6 +1697,13 @@ export default function EventSettingsPage() {
                 </Label>
               </div>
             ))}
+          </SettingsCard>
+
+          <SettingsCard
+            title="Title, Role and Specialty on this event"
+            description="What this event's forms do with the three fields your organisation asks: registration, completing a registration, group registration, the desk walk-in, and abstract and proposal sign-up. A field the organisation has switched off cannot be asked here. Staff forms keep every field, and answers already given are kept."
+          >
+            <EventPersonFieldChoicesEditor value={personFieldChoices} onChange={setPersonFieldChoices} />
           </SettingsCard>
 
           <SettingsCard

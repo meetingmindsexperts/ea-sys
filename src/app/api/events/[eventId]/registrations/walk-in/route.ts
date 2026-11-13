@@ -12,7 +12,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { checkInGate, executeCheckIn } from "@/lib/check-in";
 import { HTTP_STATUS_FOR_REGISTRATION_ERROR } from "@/lib/registration-error-status";
 import { optionalTitle, optionalAttendeeRole } from "@/lib/schemas";
-import { personFieldRefusal } from "@/lib/person-field-rules";
+import { checkEventPersonFields } from "@/lib/person-field-rules";
+import { askedOnly } from "@/lib/person-field-check";
 import {
   IDENTITY_EVIDENCE_SELECT,
   hasInvalidExpiryDate,
@@ -55,7 +56,7 @@ const optional = (max: number) => z.string().trim().max(max).optional();
 const walkInSchema = z
   .object({
     // Title, Role and Specialty are demanded as the organisation says, in the
-    // handler (personFieldRefusal, which demands the title here as before).
+    // handler (checkEventPersonFields, which demands the title here as before).
     title: optionalTitle,
     role: optionalAttendeeRole,
     firstName: required(100),
@@ -135,11 +136,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "walk-in:zod-validation-failed", eventId, userId: session.user.id, errors: parsed.error.flatten() });
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
-    const fieldRefusal = await personFieldRefusal(orgGuard.orgId, parsed.data, { demandTitle: true });
-    if (fieldRefusal) {
-      apiLogger.warn({ msg: "walk-in:person-fields-refused", eventId, userId: session.user.id, fields: Object.keys(fieldRefusal.fieldErrors) });
-      return NextResponse.json({ error: "Invalid input", details: fieldRefusal }, { status: 400 });
-    }
     const data = parsed.data;
     const paid = data.payment === "cash" || data.payment === "card";
 
@@ -175,6 +171,17 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.warn({ msg: "walk-in:event-not-found", eventId, userId: session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
       }
+
+      // Title, Role and Specialty: demanded as THIS EVENT asks them (its own
+      // choice over its organisation's), which is why the check waits for the
+      // event. The title is demanded here, as the desk always has.
+      const fieldCheck = await checkEventPersonFields(event, data, { demandTitle: true });
+      if (fieldCheck.refusal) {
+        apiLogger.warn({ msg: "walk-in:person-fields-refused", eventId, userId: session.user.id, fields: Object.keys(fieldCheck.refusal.fieldErrors) });
+        return NextResponse.json({ error: "Invalid input", details: fieldCheck.refusal }, { status: 400 });
+      }
+      // A field this event does not ask is not stored, whatever the request held.
+      const person = askedOnly(data, fieldCheck.rules);
 
       const ticketType = await db.ticketType.findFirst({
         where: { id: data.ticketTypeId, eventId },
@@ -238,8 +245,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketTypeId: data.ticketTypeId,
         pricingTierId: data.pricingTierId ?? null,
         attendee: {
-          title: data.title ?? null,
-          role: data.role,
+          title: person.title ?? null,
+          role: person.role,
           email: data.email,
           additionalEmail: data.additionalEmail || null,
           firstName: data.firstName,
@@ -249,8 +256,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           phone: data.phone,
           city: data.city,
           country: data.country,
-          specialty: data.specialty,
-          customSpecialty: data.customSpecialty || null,
+          specialty: person.specialty,
+          customSpecialty: person.customSpecialty || null,
           associationName: data.associationName || null,
           memberId: data.memberId || null,
           studentId: data.studentId || null,

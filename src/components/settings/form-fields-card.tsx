@@ -77,7 +77,8 @@ export function FieldSwitchesCard() {
           event: registration, completing a registration, group registration, the desk walk-in, sign-up, My Details, and
           abstract and proposal sign-up. A field that is switched off is not shown and never asked for; what people already
           answered stays stored. Staff screens in the dashboard (Add Registration, a registration or speaker&apos;s details,
-          Contacts) still show all three.
+          Contacts) still show all three. An event can choose its own for a field that is on here, in the event&apos;s
+          Settings, Registration tab; a field switched off here cannot be asked by any event.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -102,6 +102,7 @@ const GROUP_OK = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.event.findFirst.mockResolvedValue(EVENT);
+  mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
   mockDb.user.findFirst.mockResolvedValue(null);
   mockDb.user.create.mockResolvedValue({ id: "u-new" });
   mockDb.user.update.mockResolvedValue({});
@@ -169,6 +170,28 @@ describe("POST /group-register — gates", () => {
     const charged = vi.mocked(checkRateLimit).mock.calls.filter(([arg]) => String(arg.key).startsWith("group-register-members:"));
     expect(charged).toHaveLength(0);
     expect(createGroupMock).not.toHaveBeenCalled();
+  });
+
+  // Step 2, the event part: THIS event's choice, over its organisation's.
+  it("an event that does not ask Specialty takes a member without one, and stores none for a member who sent one", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, personFieldChoices: { specialty: "off" } } });
+    const without = { ...memberAttendee("b@corp.com"), specialty: "" };
+    const res = await POST(req({ ...BODY, members: [BODY.members[0], { ticketTypeId: "tt1", attendee: without }] }), params);
+    expect(res.status).toBe(201);
+    const stored = createGroupMock.mock.calls[0][0].members.map((m: { attendee: { specialty?: string; role?: string } }) => [m.attendee.specialty, m.attendee.role]);
+    // The first member's "Cardiology" was sent by a form that should not have asked: it is dropped. Role is kept.
+    expect(stored).toEqual([[undefined, "PHYSICIAN"], [undefined, "PHYSICIAN"]]);
+  });
+
+  it("an event may demand Role where its organisation left it optional", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: { personFields: { role: { enabled: true, required: false } } } });
+    const noRole = { ...memberAttendee("b@corp.com"), role: "" };
+    const body = { ...BODY, members: [BODY.members[0], { ticketTypeId: "tt1", attendee: noRole }] };
+    expect((await POST(req(body), params)).status).toBe(201);
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, personFieldChoices: { role: "required" } } });
+    const refused = await POST(req(body), params);
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).details.fieldErrors).toEqual({ "members.1.attendee.role": ["Role is required"] });
   });
 
   it("a request this door takes is charged once per member", async () => {

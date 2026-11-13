@@ -12,7 +12,7 @@ import { sendEmailVerification } from "@/lib/email-verification";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { SIGNUP_PASSWORD_MAX, SIGNUP_PASSWORD_MIN, signInNeedsConfirmation } from "@/lib/account-signup";
 import { personalDetailsFields } from "@/lib/schemas";
-import { loadPersonFieldRules } from "@/lib/person-field-rules";
+import { loadOrganizationPersonFieldRules } from "@/lib/person-field-rules";
 import { missingRequiredDetails, newAccountProfileData, normalizeDetails } from "@/lib/registrant-details";
 
 /**
@@ -87,7 +87,7 @@ export async function POST(req: Request) {
     const details = normalizeDetails(parsed.data);
     const { firstName, lastName } = details;
     // No event here: the organisation is the one whose address this is.
-    const blank = missingRequiredDetails(details, await loadPersonFieldRules(await resolveRequestOrgId(req)));
+    const blank = missingRequiredDetails(details, await loadOrganizationPersonFieldRules(await resolveRequestOrgId(req)));
     if (blank.length > 0) {
       apiLogger.warn({ msg: "auth/signup:blank-required", fields: blank, ip });
       return NextResponse.json({ error: "Please check the form and try again." }, { status: 400 });

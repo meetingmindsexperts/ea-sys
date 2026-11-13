@@ -5,9 +5,9 @@ const { mockDb } = vi.hoisted(() => ({ mockDb: { organization: { findUnique: vi.
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { blankUnaskedFields, personFieldProblems, withPersonFieldRules } from "@/lib/person-field-check";
+import { askedOnly, blankUnaskedFields, personFieldProblems, withPersonFieldRules } from "@/lib/person-field-check";
 import { personalDetailsFields, presenterDetailsSchema } from "@/lib/schemas";
-import { loadPersonFieldRules, personFieldRefusal } from "@/lib/person-field-rules";
+import { checkEventPersonFields, loadEventPersonFieldRules, loadOrganizationPersonFieldRules, personFieldRefusal } from "@/lib/person-field-rules";
 import { DEFAULT_PERSON_FIELD_RULES, PERSON_FIELDS_SETTING, personFieldRules, type PersonFieldRules } from "@/lib/person-fields";
 
 /**
@@ -156,34 +156,101 @@ describe("the lenient fields the doors' schemas take", () => {
     mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
     const parsed = presenterDetailsSchema.safeParse({ ...details, role: "PHYSICIAN", specialty: " " });
     expect(parsed.success).toBe(true);
-    if (parsed.success) expect(await personFieldRefusal("org1", parsed.data)).toEqual({ formErrors: [], fieldErrors: { specialty: ["Specialty is required"] } });
+    if (parsed.success) expect(await personFieldRefusal({ organizationId: "org1", settings: {} }, parsed.data)).toEqual({ formErrors: [], fieldErrors: { specialty: ["Specialty is required"] } });
   });
 });
 
-describe("loadPersonFieldRules and personFieldRefusal (the server's read)", () => {
+describe("the server's read: an event's rules, and an organisation's where there is no event", () => {
+  const event = (settings: unknown = {}) => ({ organizationId: "org1", settings });
+  const orgSaved = (personFields: unknown) => mockDb.organization.findUnique.mockResolvedValue({ settings: { [PERSON_FIELDS_SETTING]: personFields } });
+
   it("with nothing saved, or no organisation, today's rules", async () => {
     mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
-    expect(await loadPersonFieldRules("org1")).toEqual(DEFAULT_PERSON_FIELD_RULES);
-    expect(await loadPersonFieldRules(null)).toEqual(DEFAULT_PERSON_FIELD_RULES);
+    expect(await loadOrganizationPersonFieldRules("org1")).toEqual(DEFAULT_PERSON_FIELD_RULES);
+    expect(await loadOrganizationPersonFieldRules(null)).toEqual(DEFAULT_PERSON_FIELD_RULES);
+    expect(await loadEventPersonFieldRules(event())).toEqual(DEFAULT_PERSON_FIELD_RULES);
+    expect(await loadEventPersonFieldRules({ organizationId: null, settings: {} })).toEqual(DEFAULT_PERSON_FIELD_RULES);
   });
 
   it("reads the organisation's switches", async () => {
-    mockDb.organization.findUnique.mockResolvedValue({
-      settings: { [PERSON_FIELDS_SETTING]: { specialty: { enabled: false, label: "Specialty", options: [], allowOther: true } } },
+    orgSaved({ specialty: { enabled: false, label: "Specialty", options: [], allowOther: true } });
+    expect((await loadOrganizationPersonFieldRules("org1")).specialty).toEqual({ shown: false, required: false });
+    expect(await personFieldRefusal(event(), { role: "PHYSICIAN" })).toBeNull();
+  });
+
+  // Step 2, the event part (owner, Nov 13, 2026: the organisation is the ceiling).
+  it("an event's own choice is laid over its organisation's: not asked, optional, required", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
+    const rules = await loadEventPersonFieldRules(event({ personFieldChoices: { title: "off", role: "optional", specialty: "off" } }));
+    expect(rules).toEqual({ title: { shown: false, required: false }, role: { shown: true, required: false }, specialty: { shown: false, required: false } });
+    // The same request the organisation's own rules refuse is taken on this event.
+    expect(await personFieldRefusal(event({ personFieldChoices: { role: "optional", specialty: "off" } }), {})).toBeNull();
+    expect(await personFieldRefusal(event(), {})).not.toBeNull();
+  });
+
+  it("an event may demand a field its organisation left optional", async () => {
+    orgSaved({ role: { enabled: true, required: false } });
+    expect(await personFieldRefusal(event(), { specialty: "Cardiology" })).toBeNull();
+    expect(await personFieldRefusal(event({ personFieldChoices: { role: "required" } }), { specialty: "Cardiology" })).toEqual({
+      formErrors: [],
+      fieldErrors: { role: ["Role is required"] },
     });
-    expect((await loadPersonFieldRules("org1")).specialty).toEqual({ shown: false, required: false });
-    expect(await personFieldRefusal("org1", { role: "PHYSICIAN" })).toBeNull();
+  });
+
+  it("THE CEILING: a field the organisation switched off is off on every event, whatever the event saved", async () => {
+    orgSaved({ specialty: { enabled: false }, title: { enabled: false } });
+    const rules = await loadEventPersonFieldRules(event({ personFieldChoices: { specialty: "required", title: "required" } }));
+    expect(rules.specialty).toEqual({ shown: false, required: false });
+    expect(rules.title).toEqual({ shown: false, required: false });
+  });
+
+  it("Title is on or off only: an event cannot make it optional or required", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
+    for (const choice of ["optional", "required", "nonsense"]) {
+      expect((await loadEventPersonFieldRules(event({ personFieldChoices: { title: choice } }))).title).toEqual(DEFAULT_PERSON_FIELD_RULES.title);
+    }
+  });
+
+  it("a choice that is not one of the three, or a setting of the wrong shape, is no choice", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
+    for (const settings of [{ personFieldChoices: { role: "OFF", specialty: true } }, { personFieldChoices: "off" }, { personFieldChoices: null }, null, "x"]) {
+      expect(await loadEventPersonFieldRules(event(settings))).toEqual(DEFAULT_PERSON_FIELD_RULES);
+    }
+  });
+
+  it("the check hands back the rules it used, so a door can drop what was not asked", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
+    const check = await checkEventPersonFields(event({ personFieldChoices: { specialty: "off" } }), { role: "PHYSICIAN", specialty: "Cardiology", customSpecialty: "x" });
+    expect(check.refusal).toBeNull();
+    expect(askedOnly({ title: "DR", role: "PHYSICIAN", specialty: "Cardiology", customSpecialty: "x" }, check.rules)).toEqual({
+      title: "DR", role: "PHYSICIAN", specialty: undefined, customSpecialty: undefined,
+    });
   });
 
   it("a refusal has the shape of a schema's field errors", async () => {
     mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
-    expect(await personFieldRefusal("org1", { role: "PHYSICIAN" })).toEqual({ formErrors: [], fieldErrors: { specialty: ["Specialty is required"] } });
+    expect(await personFieldRefusal(event(), { role: "PHYSICIAN" })).toEqual({ formErrors: [], fieldErrors: { specialty: ["Specialty is required"] } });
   });
 
   it("when the read fails, demands what was always demanded, and says so in the log", async () => {
     mockDb.organization.findUnique.mockRejectedValue(new Error("db down"));
-    expect(await loadPersonFieldRules("org1")).toEqual(DEFAULT_PERSON_FIELD_RULES);
+    expect(await loadOrganizationPersonFieldRules("org1")).toEqual(DEFAULT_PERSON_FIELD_RULES);
+    expect(await loadEventPersonFieldRules(event({ personFieldChoices: { specialty: "off" } }))).toEqual(DEFAULT_PERSON_FIELD_RULES);
     const { apiLogger } = await import("@/lib/logger");
     expect(apiLogger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "person-field-rules:read-failed", organizationId: "org1" }));
+  });
+});
+
+describe("askedOnly: what a door that creates a record keeps", () => {
+  const sent = { title: "DR", role: "PHYSICIAN", specialty: "Others", customSpecialty: "Sleep medicine" };
+
+  it("with everything asked, everything", () => {
+    expect(askedOnly(sent, DEFAULT_PERSON_FIELD_RULES)).toEqual(sent);
+    expect(askedOnly(sent, rules({ title: optional, role: optional, specialty: optional }))).toEqual(sent);
+  });
+
+  it("a field that is not asked is not kept, and the typed specialty goes with Specialty", () => {
+    expect(askedOnly(sent, rules({ specialty: off }))).toEqual({ title: "DR", role: "PHYSICIAN", specialty: undefined, customSpecialty: undefined });
+    expect(askedOnly(sent, rules({ title: off, role: off }))).toEqual({ title: undefined, role: undefined, specialty: "Others", customSpecialty: "Sleep medicine" });
   });
 });

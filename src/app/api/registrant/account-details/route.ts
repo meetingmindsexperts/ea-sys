@@ -8,7 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { loadRegistrantScope } from "@/lib/registrant-access";
 import { personalDetailsFields } from "@/lib/schemas";
-import { loadPersonFieldRules } from "@/lib/person-field-rules";
+import { loadOrganizationPersonFieldRules } from "@/lib/person-field-rules";
 import {
   changedFields,
   copyToUpcomingRegistrations,
@@ -111,7 +111,7 @@ export async function PUT(req: Request) {
       // What the page showed: the delta is taken against it, so only what the
       // person actually changed reaches their registrations.
       const after = normalizeDetails(parsed.data);
-      const missing = missingRequiredDetails(after, await loadPersonFieldRules(orgId));
+      const missing = missingRequiredDetails(after, await loadOrganizationPersonFieldRules(orgId));
       if (missing.length > 0) {
         apiLogger.warn({ msg: "account-details:blank-required", userId: owner, fields: missing });
         return NextResponse.json({ error: "Please check the highlighted fields.", fieldErrors: Object.fromEntries(missing.map((f) => [f, ["This field is required"]])) }, { status: 400 });

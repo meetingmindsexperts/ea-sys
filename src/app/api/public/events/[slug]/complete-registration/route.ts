@@ -747,8 +747,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
-    // Role, Specialty and "Others needs the typed specialty": demanded as the event's organisation says.
-    const fieldRefusal = await personFieldRefusal(registration.event.organizationId, validated.data);
+    // Role, Specialty and "Others needs the typed specialty": demanded as this event asks them (its own choice over its organisation's).
+    const fieldRefusal = await personFieldRefusal(registration.event, validated.data);
     if (fieldRefusal) {
       apiLogger.warn({ msg: "complete-registration:person-fields-refused", registrationId, fields: Object.keys(fieldRefusal.fieldErrors) });
       return NextResponse.json({ error: "Invalid input", details: fieldRefusal }, { status: 400 });

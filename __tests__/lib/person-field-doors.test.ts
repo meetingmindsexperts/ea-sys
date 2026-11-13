@@ -27,22 +27,39 @@ import { join, relative } from "node:path";
 const ROOT = process.cwd();
 const read = (file: string) => readFileSync(join(ROOT, file), "utf8");
 
-/** The server doors, and the call each makes to the organisation's rules. */
+/**
+ * The server doors, and the call each makes to the rules. A door that belongs
+ * to an EVENT hands over the event (its organisation and its settings), so the
+ * event's own choice is laid over the organisation's; only the two doors with
+ * no event ask the organisation alone.
+ */
 const DOORS: Record<string, RegExp> = {
-  "src/app/api/public/events/[slug]/register/route.ts": /personFieldRefusal\(event\.organizationId/,
-  "src/app/api/public/events/[slug]/complete-registration/route.ts": /personFieldRefusal\(registration\.event\.organizationId/,
-  "src/app/api/public/events/[slug]/group-register/route.ts": /personFieldProblems\(member\.attendee, fieldRules\)/,
-  "src/app/api/public/events/[slug]/submitter/route.ts": /personFieldRefusal\(orgId/,
-  "src/app/api/public/events/[slug]/abstract-start/route.ts": /personFieldRefusal\(event\.organizationId/,
-  "src/app/api/events/[eventId]/registrations/walk-in/route.ts": /personFieldRefusal\(orgGuard\.orgId, parsed\.data, \{ demandTitle: true \}\)/,
-  "src/app/api/auth/signup/route.ts": /missingRequiredDetails\(details, await loadPersonFieldRules\(/,
-  "src/app/api/registrant/account-details/route.ts": /missingRequiredDetails\(after, await loadPersonFieldRules\(/,
+  "src/app/api/public/events/[slug]/register/route.ts": /checkEventPersonFields\(event, validated\.data\)/,
+  "src/app/api/public/events/[slug]/complete-registration/route.ts": /personFieldRefusal\(registration\.event, validated\.data\)/,
+  "src/app/api/public/events/[slug]/group-register/route.ts": /loadEventPersonFieldRules\(event\)[\s\S]*personFieldProblems\(member\.attendee, fieldRules\)/,
+  "src/app/api/public/events/[slug]/submitter/route.ts": /checkEventPersonFields\(event, validated\.data\)/,
+  "src/app/api/public/events/[slug]/abstract-start/route.ts": /checkEventPersonFields\(event, parsed\.data\.details\)/,
+  "src/app/api/events/[eventId]/registrations/walk-in/route.ts": /checkEventPersonFields\(event, data, \{ demandTitle: true \}\)/,
+  "src/app/api/auth/signup/route.ts": /missingRequiredDetails\(details, await loadOrganizationPersonFieldRules\(/,
+  "src/app/api/registrant/account-details/route.ts": /missingRequiredDetails\(after, await loadOrganizationPersonFieldRules\(/,
   // The "profile complete" gate on submitting an abstract or a proposal.
-  "src/app/api/events/[eventId]/abstracts/route.ts": /missingProfileFields\(speaker, await loadPersonFieldRules\(event\.organizationId\)\)/,
-  "src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts": /missingProfileFields\(existingAbstract\.speaker, await loadPersonFieldRules\(event\.organizationId\)\)/,
-  "src/app/api/events/[eventId]/session-proposals/route.ts": /missingProfileFields\(speaker, await loadPersonFieldRules\(event\.organizationId\)\)/,
-  "src/app/api/events/[eventId]/session-proposals/[proposalId]/route.ts": /missingProfileFields\(existing\.speaker, await loadPersonFieldRules\(event\.organizationId\)\)/,
+  "src/app/api/events/[eventId]/abstracts/route.ts": /missingProfileFields\(speaker, await loadEventPersonFieldRules\(event\)\)/,
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts": /missingProfileFields\(existingAbstract\.speaker, await loadEventPersonFieldRules\(event\)\)/,
+  "src/app/api/events/[eventId]/session-proposals/route.ts": /missingProfileFields\(speaker, await loadEventPersonFieldRules\(event\)\)/,
+  "src/app/api/events/[eventId]/session-proposals/[proposalId]/route.ts": /missingProfileFields\(existing\.speaker, await loadEventPersonFieldRules\(event\)\)/,
 };
+
+/** The only doors with no event: account sign-up and My account. Every other door has one and must use its rules. */
+const NO_EVENT_DOORS = ["src/app/api/auth/signup/route.ts", "src/app/api/registrant/account-details/route.ts"];
+
+/** The doors that CREATE a person's record: a field the event does not ask is not stored, whoever sent it. */
+const CREATE_DOORS = [
+  "src/app/api/public/events/[slug]/register/route.ts",
+  "src/app/api/public/events/[slug]/group-register/route.ts",
+  "src/app/api/public/events/[slug]/submitter/route.ts",
+  "src/app/api/public/events/[slug]/abstract-start/route.ts",
+  "src/app/api/events/[eventId]/registrations/walk-in/route.ts",
+];
 
 /**
  * Routes that take Title, Role or Specialty in a schema and are NOT a door
@@ -123,6 +140,25 @@ describe("every door asks the organisation's rule", () => {
 
   it.each(PROFILE_GATES)("the profile gate %s judges by the rules sent with the profile", (file) => {
     expect(read(file)).toMatch(/rulesSentWith\(/);
+  });
+
+  it("the rules a submitter's browser judges by are the EVENT's", () => {
+    expect(read("src/app/api/events/[eventId]/abstracts/my-profile/route.ts")).toMatch(/loadEventPersonFieldRules\(event\)/);
+  });
+
+  it.each(CREATE_DOORS)("the create door %s keeps only what its event asks", (file) => {
+    expect(read(file)).toMatch(/askedOnly\(/);
+  });
+
+  it("only the two doors with no event ask the organisation alone", () => {
+    // If this fails, a door that belongs to an event is reading the
+    // organisation's rules and ignoring its event's own choice. Hand the event
+    // to loadEventPersonFieldRules / checkEventPersonFields instead.
+    const users = ["src", "worker"]
+      .flatMap((root) => sourceFiles(join(ROOT, root)))
+      .map((full) => relative(ROOT, full))
+      .filter((file) => file !== "src/lib/person-field-rules.ts" && /loadOrganizationPersonFieldRules\(/.test(read(file)));
+    expect(users.sort()).toEqual([...NO_EVENT_DOORS].sort());
   });
 
   it("nobody can ask whether a profile is complete without saying by whose rules", () => {

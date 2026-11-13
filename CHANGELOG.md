@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Form fields: each event chooses what it asks (November 13)
+
+Step 2 of `docs/ORG_FIELDS_PLAN.md`, second part. Owner, Nov 13: the
+organisation is the ceiling, the choice applies to all of an event's forms,
+and the order of the fields is left out.
+
+An event's Settings, Registration tab has a new card, **Title, Role and
+Specialty on this event**. For Role and Specialty: as the organisation, not
+asked, optional or required. For Title: as the organisation, or not asked.
+
+- **The organisation is the ceiling.** A field switched off in Settings, Form
+  fields cannot be asked by any event; the card says so. Where the
+  organisation asks a field, its Required switch is only the starting value:
+  an event may relax it or demand it.
+- **Where it applies:** that event's public registration, completing a
+  registration, group registration, the desk walk-in, the registrant's own
+  edit, abstract and proposal sign-up, and the submitter's My Details with its
+  "profile complete" check. Sign-up and My account have no event and follow
+  the organisation.
+- **One rule still.** The event's choice is laid over the organisation's
+  switches by one function, used by the routes and by the read the forms make,
+  so a form and its route cannot disagree. A door that belongs to an event
+  must hand the event over; the test fails if one reads the organisation
+  alone.
+- **A field an event does not ask is not stored**, whoever sent it: the doors
+  that create a record (registration, group, walk-in, abstract sign-up) now
+  drop it, so a form left open from before a switch cannot save an answer to a
+  question nobody asked. This closes the item the review of the switches left.
+- A cloned event carries its choice. An event that has chosen nothing behaves
+  exactly as before.
+
+Stored in `Event.settings.personFieldChoices`, under a key of its own so a
+settings page left open from before this existed cannot wipe it. No migration.
+
+Verified on the local app, on screen: one event set to "Role optional,
+Specialty not asked" showed that on its public form and its desk while another
+event still asked all three; the real registration route took a request with
+neither field for the first event and refused it for the second; with the
+organisation's Specialty switched off the event could not ask it. Settings
+restored, nothing created.
+
 ### Form fields: the review of the switches, fixed before anyone flips one (November 13)
 
 Review of `f0899baf` (2 HIGH, 4 MED, 12 LOW). Both HIGH needed a field to be
@@ -77,7 +118,7 @@ is shown without its asterisk.
   no Role or Specialty is refused a step later in the route (after the event
   is read); a specialty of spaces only is refused where it was taken; and the
   sign-up form's wording for the two fields is now the shared one.
-- Each event's own choice (this event uses the field or not) is the next part.
+- Each event's own choice followed the same day (the entry above this one's review).
 
 A registration made while Specialty is off stores nothing for it, not an
 empty text. The switches are saved with the same protection as the list: a

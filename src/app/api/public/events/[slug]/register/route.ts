@@ -15,7 +15,8 @@ import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { personalDetailsFields } from "@/lib/schemas";
-import { personFieldRefusal } from "@/lib/person-field-rules";
+import { checkEventPersonFields } from "@/lib/person-field-rules";
+import { askedOnly } from "@/lib/person-field-check";
 import { syncToContact } from "@/lib/contact-sync";
 import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -257,7 +258,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, supportingDocumentUrl, supportingDocumentFilename, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, password, promoCode, referrer, utmSource, utmMedium, utmCampaign } =
+    const { ticketTypeId, pricingTierId, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, state, zipCode, country, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, supportingDocumentUrl, supportingDocumentFilename, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, password, promoCode, referrer, utmSource, utmMedium, utmCampaign } =
       validated.data;
     const email = validated.data.email.toLowerCase();
     const attendanceModeInput = validated.data.attendanceMode;
@@ -325,14 +326,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Role, Specialty and "Others needs the typed specialty": demanded as the
-    // event's organisation says (src/lib/person-field-rules.ts). Asked here
-    // because the organisation is only known once the event is.
-    const fieldRefusal = await personFieldRefusal(event.organizationId, validated.data);
-    if (fieldRefusal) {
-      apiLogger.warn({ msg: "public/events/register:person-fields-refused", eventId: event.id, fields: Object.keys(fieldRefusal.fieldErrors) });
-      return NextResponse.json({ error: "Invalid input", details: fieldRefusal }, { status: 400 });
+    // Role, Specialty and "Others needs the typed specialty": demanded as THIS
+    // EVENT asks them, its own choice laid over its organisation's
+    // (src/lib/person-field-rules.ts). Asked here because both are only known
+    // once the event is.
+    const fieldCheck = await checkEventPersonFields(event, validated.data);
+    if (fieldCheck.refusal) {
+      apiLogger.warn({ msg: "public/events/register:person-fields-refused", eventId: event.id, fields: Object.keys(fieldCheck.refusal.fieldErrors) });
+      return NextResponse.json({ error: "Invalid input", details: fieldCheck.refusal }, { status: 400 });
     }
+    // A field this event does not ask is not stored, whatever the request held
+    // (a form left open from before it was switched off, or a hand-made one).
+    const { title, role, specialty, customSpecialty } = askedOnly(validated.data, fieldCheck.rules);
 
     if (desk && desk.eventId !== event.id) {
       apiLogger.warn({ msg: "public/register:desk-qr-refused", reason: "wrong-event", eventId: event.id, deskQr: desk.jti });

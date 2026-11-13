@@ -11,7 +11,8 @@ import { publicEventWhere } from "@/lib/public-event";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { presenterDetailsSchema } from "@/lib/schemas";
-import { personFieldRefusal } from "@/lib/person-field-rules";
+import { checkEventPersonFields } from "@/lib/person-field-rules";
+import { askedOnly } from "@/lib/person-field-check";
 import { syncToContact } from "@/lib/contact-sync";
 import { contactSyncFromSpeakerInput } from "@/lib/contact-sync-payload";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -23,7 +24,8 @@ import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-
 import { abstractSubmissionsOpen } from "@/lib/webinar";
 
 // Role, Specialty and "Others needs the typed specialty" are demanded as the
-// event's organisation says, in the handler (personFieldRefusal).
+// event says (its own choice over its organisation's), in the handler
+// (checkEventPersonFields).
 const registerSchema = presenterDetailsSchema.extend({
     email: z.string().email("Valid email is required").max(255),
     password: z.string().min(6, "Password must be at least 6 characters").max(128),
@@ -114,13 +116,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const fieldRefusal = await personFieldRefusal(orgId, validated.data);
-    if (fieldRefusal) {
-      apiLogger.warn({ msg: "public/submitter:person-fields-refused", slug, fields: Object.keys(fieldRefusal.fieldErrors) });
-      return NextResponse.json({ error: "Invalid input", details: fieldRefusal }, { status: 400 });
+    const fieldCheck = await checkEventPersonFields(event, validated.data);
+    if (fieldCheck.refusal) {
+      apiLogger.warn({ msg: "public/submitter:person-fields-refused", slug, fields: Object.keys(fieldCheck.refusal.fieldErrors) });
+      return NextResponse.json({ error: "Invalid input", details: fieldCheck.refusal }, { status: 400 });
     }
 
-    const data = validated.data;
+    // A field this event does not ask is not stored, whatever the request held.
+    const data = { ...validated.data, ...askedOnly(validated.data, fieldCheck.rules) };
     const emailLower = data.email.toLowerCase();
 
     // The abstract-submissions gate + deadline apply only to ABSTRACT signups.

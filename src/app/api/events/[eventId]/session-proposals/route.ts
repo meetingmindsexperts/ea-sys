@@ -16,7 +16,7 @@ import { buildEntriesDocx, DOCX_CONTENT_TYPE } from "@/lib/docx-export";
 import { exportSubtitle, proposalToDocxEntry } from "@/lib/submission-docx-export";
 import { notifySessionProposalSubmitted } from "@/lib/session-proposal-notify";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
-import { loadPersonFieldRules } from "@/lib/person-field-rules";
+import { loadEventPersonFieldRules } from "@/lib/person-field-rules";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
 import { MAX_PROPOSAL_DESCRIPTION_CHARS } from "@/lib/session-proposal-content";
 
@@ -315,7 +315,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // proposal. The form redirects to My Details first — this refusal
       // covers a direct API call. Staff creating on behalf are exempt.
       if (session.user.role === "SUBMITTER") {
-        const missing = missingProfileFields(speaker, await loadPersonFieldRules(event.organizationId));
+        const missing = missingProfileFields(speaker, await loadEventPersonFieldRules(event));
         if (missing.length > 0) {
           apiLogger.warn({ msg: "session-proposals:profile-incomplete-block", eventId, userId: session.user.id, missing });
           return NextResponse.json(profileIncompletePayload(missing), { status: 403 });
