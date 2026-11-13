@@ -22,6 +22,7 @@ import { parseRegistrationFormIdentifier, type RegistrationFormRate } from "@/li
 import { linkMayReprice, linkRatePrice, priceAtLinkRate, rateFromRegistration, RESTAMPABLE_STATUSES, stampedPaymentStatus, type LinkRepriceState } from "@/lib/registration-form-pricing";
 import { applyRegistrationTransition, claimEventSeats, claimSeat } from "@/lib/registration-seat-db";
 import { holdsEventSeat, holdsSeat, seatCounter, type SeatState } from "@/lib/registration-seat";
+import { isRegistrationFormCompleted } from "@/lib/registration-completion";
 import { registerTierSlug } from "@/lib/main-register-tiers";
 import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import {
@@ -345,7 +346,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         ticketTypeId: true,
         ...LINK_REPRICE_SELECT,
         // The price is public (the register page shows it); the form hides billing for a free type.
-        ticketType: { select: { id: true, name: true, price: true, ...IDENTITY_EVIDENCE_SELECT, ...SUPPORTING_DOCUMENT_POLICY_SELECT } },
+        ticketType: { select: { id: true, name: true, price: true, isFaculty: true, ...IDENTITY_EVIDENCE_SELECT, ...SUPPORTING_DOCUMENT_POLICY_SELECT } },
         completedAt: true,
         attendee: {
           select: {
@@ -428,8 +429,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const publicEvent = { ...eventFields, formFields: readFormFields(eventSettings) };
 
     // Already completed: an account was linked, or the form was submitted without one (completedAt,
-    // docs/ONSITE_DESK_PLAN.md §3.1; before it, a password-less completion looked incomplete).
-    if (registration.userId || registration.completedAt) {
+    // docs/ONSITE_DESK_PLAN.md §3.1; before it, a password-less completion looked incomplete), or it is
+    // Faculty, whose details staff keep. One rule: isRegistrationFormCompleted.
+    if (isRegistrationFormCompleted(registration)) {
       apiLogger.info({ msg: "Already-completed registration accessed via token", registrationId, email: registration.attendee.email });
       return NextResponse.json({ alreadyCompleted: true, event: publicEvent });
     }
@@ -728,7 +730,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         // minted one).
         qrCode: true,
         ...LINK_REPRICE_SELECT,
-        ticketType: { select: { id: true, name: true, price: true, currency: true, ...IDENTITY_EVIDENCE_SELECT, ...SUPPORTING_DOCUMENT_POLICY_SELECT } },
+        ticketType: { select: { id: true, name: true, price: true, currency: true, isFaculty: true, ...IDENTITY_EVIDENCE_SELECT, ...SUPPORTING_DOCUMENT_POLICY_SELECT } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
       },
     });
@@ -747,7 +749,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
-    if (registration.userId || registration.completedAt) {
+    if (isRegistrationFormCompleted(registration)) {
       apiLogger.info({ msg: "Completion POST on already-completed registration", registrationId, email: registration.attendee.email });
       return NextResponse.json({ error: "This registration has already been completed. Your confirmation and barcode were sent by email; if you set a password, you can also sign in to manage it." }, { status: 409 });
     }

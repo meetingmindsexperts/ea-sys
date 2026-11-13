@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTickets, queryKeys, fetchApi } from "@/hooks/use-api";
-import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
+import { computeRegistrationFinancials, readRegistrationBasePrice, registrationChargesNothing } from "@/lib/registration-financials";
 import { formatPersonName } from "@/lib/utils";
 import { deskEnterAction, deskQueryIsSearchable, matchesDeskSearch } from "@/lib/desk-enter";
 import { CompleteOnsiteDialog, EditDetailsDialog, useWaitingList, type OnsiteLink, type OnsitePerson } from "./desk-onsite";
@@ -20,6 +20,7 @@ import { WalkInQrDialog } from "./desk-walkin-qr";
 import { DeskDtcmPanel } from "./desk-dtcm";
 import { deskRowNeedsDtcmCode, walkInDtcmWarning, walkInLeftWithoutDtcmCode } from "@/lib/desk-dtcm";
 import { isComplimentaryRate, walkInPaymentChoices, walkInPaymentLabel, type WalkInPaymentChoice } from "@/lib/desk-walkin-payment";
+import { isRegistrationFormCompleted } from "@/lib/registration-completion";
 import { useCan } from "@/hooks/use-can";
 import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
 import { TitleSelect } from "@/components/ui/title-select";
@@ -54,7 +55,7 @@ interface DeskRegistration {
     /** DET needs one to issue a DTCM code; the desk's Edit can add it. */
     phone?: string | null;
   };
-  ticketType: { name: string; price?: number | string; currency?: string } | null;
+  ticketType: { name: string; price?: number | string; currency?: string; isFaculty?: boolean } | null;
   pricingTier?: { price: number | string; currency?: string } | null;
   originalPrice?: number | string | null;
   discountAmount?: number | string | null;
@@ -170,12 +171,14 @@ async function openBadgePrint(eventId: string, registrationId: string): Promise<
 
 /**
  * Whether the row owes money, so the desk offers Record payment first instead
- * of a check-in the door would refuse. The price is the same order the server
- * reads (stamped price, then tier, then type); the server gate still decides.
+ * of a check-in the door would refuse. Asks the door's own rule for "charged
+ * nothing" (a zero price, or a code that takes the whole of it: a 100% code
+ * entered after registering stays UNPAID and owes nothing); the server gate
+ * still decides.
  */
 function paymentDue(r: DeskRegistration): boolean {
   if (!OUTSTANDING.has(r.paymentStatus)) return false;
-  return readRegistrationBasePrice(r) > 0;
+  return !registrationChargesNothing(r);
 }
 
 /**
@@ -232,16 +235,12 @@ function personOf(r: DeskRegistration): OnsitePerson {
   };
 }
 
-function isFormCompleted(r: DeskRegistration): boolean {
-  return Boolean(r.completedAt || r.userId);
-}
-
 function StatusChips({ r, needsDtcm }: { r: DeskRegistration; needsDtcm: boolean }) {
   if (r.status === "CANCELLED") return <Badge variant="outline" className="text-red-700 border-red-200">Cancelled</Badge>;
   return (
     <>
       {r.status === "CHECKED_IN" && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Checked in</Badge>}
-      {!isFormCompleted(r) && <Badge variant="outline" className="text-amber-700 border-amber-200">Form not completed</Badge>}
+      {!isRegistrationFormCompleted(r) && <Badge variant="outline" className="text-amber-700 border-amber-200">Form not completed</Badge>}
       {paymentDue(r) && <Badge variant="outline" className="text-red-700 border-red-200">Payment due</Badge>}
       {/* Said on the row, where the badge is printed from: a missing code is otherwise found by a DTCM inspector. */}
       {needsDtcm && <Badge variant="outline" className="text-amber-700 border-amber-200">No DTCM code</Badge>}
@@ -410,7 +409,7 @@ export function DeskPanel({
 
   const onsiteRow = onsitePerson ? registrations.find((r) => r.id === onsitePerson.id) : undefined;
   const onsiteCompleted =
-    !!onsitePerson && (!!waitingEntries.find((e) => e.id === onsitePerson.id)?.completed || (!!onsiteRow && isFormCompleted(onsiteRow)));
+    !!onsitePerson && (!!waitingEntries.find((e) => e.id === onsitePerson.id)?.completed || (!!onsiteRow && isRegistrationFormCompleted(onsiteRow)));
 
   const addWaiting = waiting.add;
   const onLinkCreated = useCallback(
@@ -690,7 +689,7 @@ export function DeskPanel({
                               <Barcode className="h-3.5 w-3.5" /> Get DTCM code
                             </Button>
                           )}
-                          {!isFormCompleted(r) && (
+                          {!isRegistrationFormCompleted(r) && (
                             <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setOnsitePerson(personOf(r))}>
                               <Smartphone className="h-3.5 w-3.5" /> Complete onsite
                             </Button>
@@ -1277,7 +1276,9 @@ function WalkInForm({
             )}
             {choices.includes("complimentary") && (
               <p className="text-sm text-muted-foreground">
-                {isComplimentaryRate(tier?.name ?? null) ? "Complimentary rate" : "Free rate"}: nothing to collect, or Sponsor when a sponsor brings them.
+                {/* The line follows the buttons shown: the Complimentary rate offers no Sponsor choice. */}
+                {isComplimentaryRate(tier?.name ?? null) ? "Complimentary rate" : "Free rate"}: nothing to collect
+                {choices.includes("inclusive") ? ", or Sponsor when a sponsor brings them." : "."}
               </p>
             )}
             <div className="flex flex-wrap items-center gap-2">

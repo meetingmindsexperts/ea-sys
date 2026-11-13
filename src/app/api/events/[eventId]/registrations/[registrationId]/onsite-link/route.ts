@@ -9,6 +9,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
 import { renderQrPng } from "@/lib/barcode";
+import { isRegistrationFormCompleted } from "@/lib/registration-completion";
 import { RESTAMPABLE_STATUSES } from "@/lib/registration-form-pricing";
 import { mintOnsiteCompletionLink } from "@/services/registration-form-service";
 
@@ -61,6 +62,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         where: { id: registrationId, eventId },
         select: {
           id: true, status: true, userId: true, completedAt: true, ticketTypeId: true,
+          ticketType: { select: { isFaculty: true } },
           paymentStatus: true, refundedAmount: true, promoCodeId: true, groupId: true, sponsorId: true,
           _count: { select: { payments: true, invoices: { where: { status: { not: "CANCELLED" } } } } },
         },
@@ -73,8 +75,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.warn({ msg: "onsite-link:cancelled", eventId, registrationId, userId: session.user.id });
         return NextResponse.json({ error: "This registration is cancelled.", code: "CANCELLED" }, { status: 409 });
       }
-      // An account counts as completed, as everywhere else (registration-completion.ts).
-      if (registration.completedAt || registration.userId) {
+      // An account or the Faculty type counts as completed, as everywhere else (registration-completion.ts).
+      if (isRegistrationFormCompleted(registration)) {
         apiLogger.warn({ msg: "onsite-link:already-completed", eventId, registrationId, userId: session.user.id });
         return NextResponse.json({ error: "Their details are already complete.", code: "ALREADY_COMPLETED" }, { status: 409 });
       }

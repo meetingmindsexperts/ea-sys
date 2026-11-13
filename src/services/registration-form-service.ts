@@ -32,6 +32,7 @@ import {
   type RegistrationFormRate,
   type RegistrationFormSkipReason,
 } from "@/lib/registration-form-link";
+import { isRegistrationFormCompleted } from "@/lib/registration-completion";
 import { brandingFrom, getEventTemplate, renderAndWrap, sendEmail } from "@/lib/email";
 
 export type RegistrationFormSource = "rest" | "bulk";
@@ -98,7 +99,7 @@ type LoadedRegistration = Prisma.RegistrationGetPayload<{
     groupId: true; promoCodeId: true; sponsorId: true; ticketTypeId: true;
     pricingTierId: true; originalPrice: true; attendanceMode: true; createdSource: true;
     attendee: { select: { email: true; title: true; firstName: true; lastName: true } };
-    ticketType: { select: { id: true; name: true; virtualPrice: true; pricingTiers: { select: typeof RATE_TIER_SELECT } } };
+    ticketType: { select: { id: true; name: true; isFaculty: true; virtualPrice: true; pricingTiers: { select: typeof RATE_TIER_SELECT } } };
     _count: { select: { payments: true; invoices: true } };
   };
 }>;
@@ -113,8 +114,9 @@ function skipReason(
 ): RegistrationFormSkipReason | null {
   if (reg.status === "CANCELLED") return "CANCELLED";
   if (reg.userId) return "HAS_ACCOUNT";
-  // Completed without an account (docs/ONSITE_DESK_PLAN.md §3.1): a new link would only say so.
-  if (reg.completedAt) return "ALREADY_COMPLETED";
+  // Completed without an account (docs/ONSITE_DESK_PLAN.md §3.1), or Faculty, whose details staff
+  // keep: a new link would only say so (the one rule, registration-completion.ts).
+  if (isRegistrationFormCompleted(reg)) return "ALREADY_COMPLETED";
   if (!RESTAMPABLE_STATUSES.includes(reg.paymentStatus)) return "MONEY_RECORDED";
   if (Number(reg.refundedAmount) > 0 || reg._count.payments > 0 || reg._count.invoices > 0) return "MONEY_RECORDED";
   if (reg.groupId) return "IN_GROUP";
@@ -179,7 +181,7 @@ export async function prepareRegistrationForms(input: PrepareRegistrationFormsIn
       groupId: true, promoCodeId: true, sponsorId: true, ticketTypeId: true,
       pricingTierId: true, originalPrice: true, attendanceMode: true, createdSource: true,
       attendee: { select: { email: true, title: true, firstName: true, lastName: true } },
-      ticketType: { select: { id: true, name: true, virtualPrice: true, pricingTiers: { select: RATE_TIER_SELECT } } },
+      ticketType: { select: { id: true, name: true, isFaculty: true, virtualPrice: true, pricingTiers: { select: RATE_TIER_SELECT } } },
       _count: { select: { payments: true, invoices: { where: { status: { not: "CANCELLED" } } } } },
     },
   });

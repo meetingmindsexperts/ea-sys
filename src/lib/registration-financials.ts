@@ -111,6 +111,35 @@ export function readRegistrationBasePrice(reg: {
 }
 
 /**
+ * Whether a registration is charged nothing: its price is zero, or a code or
+ * discount takes the whole of it. THE answer the door (`isPaymentAdmissible`
+ * in check-in.ts, so badges too) and the onsite desk's row share.
+ *
+ * The second half exists for a code entered AFTER registering (owner, Nov 12,
+ * 2026: such a row keeps payment status UNPAID). Both readers asked only for
+ * the price before the discount, so eight delegates on one production event
+ * held a 100% sponsor code, owed nothing, and were refused at the door and
+ * offered "Record payment" for 0.00, which the payment route refuses too
+ * (Nov 13, 2026).
+ *
+ * `discountAmount` absent or zero leaves the price as it is, so a caller that
+ * cannot see money (a role without the finance key) never admits by mistake:
+ * the server, which always reads the row itself, decides.
+ */
+export function registrationChargesNothing(reg: {
+  originalPrice?: unknown;
+  pricingTier?: { price?: unknown } | null;
+  ticketType?: { price?: unknown } | null;
+  discountAmount?: unknown;
+}): boolean {
+  const price = readRegistrationBasePrice(reg);
+  if (price === 0) return true;
+  const discount = toNum(reg.discountAmount) ?? 0;
+  // Half a cent of slack, as the balance has (computeRegistrationFinancials).
+  return discount > 0 && price - discount < 0.005;
+}
+
+/**
  * Money state of a CANCELLED registration that had collected payment —
  * drives the negative "credit owed" balance and the "issue a credit note"
  * prompt (organizer request, July 20 2026). The credit note is the

@@ -104,6 +104,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         // The authoritative "what they owe". Without it a tier-priced
         // registration on a 0-base ticket type reads as free.
         originalPrice: true,
+        // A code that takes the whole price owes nothing, so they get a badge.
+        discountAmount: true,
         attendee: { select: { firstName: true, lastName: true, country: true, organization: true } },
         ticketType: { select: { name: true, price: true } },
         pricingTier: { select: { price: true } },
@@ -121,6 +123,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         paymentStatus: r.paymentStatus,
         status: r.status,
         originalPrice: r.originalPrice,
+        discountAmount: r.discountAmount,
         ticketTypePrice: r.ticketType?.price ?? null,
         pricingTierPrice: r.pricingTier?.price ?? null,
       }),

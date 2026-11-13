@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { isRegistrationFormCompleted } from "@/lib/registration-completion";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -54,11 +55,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       }
       const rows = await db.registration.findMany({
         where: { id: { in: ids }, eventId },
-        select: { id: true, status: true, completedAt: true, userId: true },
+        select: { id: true, status: true, completedAt: true, userId: true, ticketType: { select: { isFaculty: true } } },
       });
       return NextResponse.json({
-        // An account counts as completed, as everywhere else (registration-completion.ts).
-        statuses: rows.map((r) => ({ id: r.id, status: r.status, completed: !!(r.completedAt || r.userId) })),
+        // An account or the Faculty type counts as completed, as everywhere else (registration-completion.ts).
+        statuses: rows.map((r) => ({ id: r.id, status: r.status, completed: isRegistrationFormCompleted(r) })),
       });
     });
   } catch (err) {

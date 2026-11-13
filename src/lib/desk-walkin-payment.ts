@@ -8,10 +8,16 @@
  *
  * - A sponsor-link rate (one whose link needs a sponsor's code): the sponsor's
  *   code only.
- * - A free rate (the Complimentary rate, or any rate at 0): complimentary, or
- *   a sponsor's code when a sponsor brings them, so the sponsor keeps the
- *   credit on a $0 sponsor rate nobody marked as a link (review of 51cc3801:
- *   production has one, and free events price their delegates at 0).
+ * - The Complimentary rate, free: complimentary only (owner, Nov 13, 2026).
+ *   The rate already says who pays, so "Sponsor (Inclusive)" beside it was a
+ *   second answer to a settled question; production has no sponsored
+ *   registration on one.
+ * - A free rate named Inclusive that nobody marked as a link: the sponsor's
+ *   code only, the same ruling the other way round. It is what the sponsor
+ *   choice on a free rate was first kept for (review of 51cc3801: production
+ *   has one), and the sponsor keeps the credit.
+ * - Any other free rate (Standard at 0 on a free event): free, or a sponsor's
+ *   code when a sponsor brings them.
  * - A paid rate: cash or card (a 100% discount code there registers them
  *   complimentary: the desk's way to comp on a type with no Complimentary
  *   rate), or a sponsor's code for a sponsored delegate.
@@ -42,12 +48,24 @@ export function walkInPaymentLabel(choice: WalkInPaymentChoice, rateName: string
   return choice === "cash" ? "Cash" : "Card";
 }
 
+/** A rate named Inclusive, by its slug: the sponsor channel's usual name (code-required-tiers.ts). */
+export function isInclusiveRate(rateName: string | null): boolean {
+  return !!rateName && registerTierSlug(rateName) === "inclusive";
+}
+
+/** The ways to pay on a rate that costs nothing: the rate's own name decides when it says who pays. */
+function freeRateChoices(rateName: string | null): WalkInPaymentChoice[] {
+  if (isComplimentaryRate(rateName)) return ["complimentary"];
+  if (isInclusiveRate(rateName)) return ["inclusive"];
+  return ["complimentary", "inclusive"];
+}
+
 export function walkInPaymentChoices(
   rate: { name: string | null; price: number },
   codeRequiredSlugs: readonly string[],
 ): WalkInPaymentChoice[] {
   if (tierNeedsSponsorCode(rate.name, codeRequiredSlugs)) return ["inclusive"];
-  if (rate.price <= 0) return ["complimentary", "inclusive"];
+  if (rate.price <= 0) return freeRateChoices(rate.name);
   return ["cash", "card", "inclusive"];
 }
 

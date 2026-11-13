@@ -3,7 +3,9 @@
  * (§3.3).
  */
 import { describe, it, expect } from "vitest";
-import { completedAtOnCreate, completionWhereFor, NOT_COMPLETED_WHERE } from "@/lib/registration-completion";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { completedAtOnCreate, completionWhereFor, isRegistrationFormCompleted, NOT_COMPLETED_WHERE } from "@/lib/registration-completion";
 import { resolveSupportingDocument } from "@/lib/supporting-document";
 
 describe("completedAtOnCreate", () => {
@@ -26,13 +28,57 @@ describe("completionWhereFor", () => {
   it("pending: not completed and not cancelled, as one AND so it never overwrites a status or OR filter", () => {
     expect(completionWhereFor("pending")).toBe(NOT_COMPLETED_WHERE);
     // An account counts as completed too (review MED: the account sweeps link rows without stamping them).
-    expect(NOT_COMPLETED_WHERE).toEqual({ AND: [{ completedAt: null }, { userId: null }, { status: { not: "CANCELLED" } }] });
+    // Nor is anyone on the Faculty type pending (owner, Nov 13, 2026); a row with no type still is.
+    expect(NOT_COMPLETED_WHERE).toEqual({
+      AND: [
+        { completedAt: null },
+        { userId: null },
+        { status: { not: "CANCELLED" } },
+        { OR: [{ ticketTypeId: null }, { ticketType: { isFaculty: false } }] },
+      ],
+    });
     expect(Object.keys({ status: "CONFIRMED", ...completionWhereFor("pending") })).toEqual(["status", "AND"]);
   });
   it("done: completed; anything else filters nothing", () => {
-    expect(completionWhereFor("done")).toEqual({ AND: [{ OR: [{ completedAt: { not: null } }, { userId: { not: null } }] }] });
+    expect(completionWhereFor("done")).toEqual({
+      AND: [{ OR: [{ completedAt: { not: null } }, { userId: { not: null } }, { ticketType: { isFaculty: true } }] }],
+    });
     expect(completionWhereFor(null)).toEqual({});
     expect(completionWhereFor("bogus")).toEqual({});
+  });
+});
+
+describe("isRegistrationFormCompleted: the one rule every reader asks", () => {
+  it("is completed by the form, by an account, or by being on the Faculty type", () => {
+    expect(isRegistrationFormCompleted({ completedAt: new Date(), userId: null, ticketType: { isFaculty: false } })).toBe(true);
+    expect(isRegistrationFormCompleted({ completedAt: null, userId: "u-1", ticketType: { isFaculty: false } })).toBe(true);
+    // Staff added them while "Faculty" was an ordinary type (ADMIN_DASHBOARD, nothing stamped):
+    // 33 such rows on one production event read "Form not completed" with every detail present.
+    expect(isRegistrationFormCompleted({ completedAt: null, userId: null, ticketType: { isFaculty: true } })).toBe(true);
+  });
+  it("is not completed otherwise: an ordinary type, no type, or a payload without the type", () => {
+    expect(isRegistrationFormCompleted({ completedAt: null, userId: null, ticketType: { isFaculty: false } })).toBe(false);
+    expect(isRegistrationFormCompleted({ completedAt: null, userId: null, ticketType: null })).toBe(false);
+    expect(isRegistrationFormCompleted({ completedAt: null, userId: null })).toBe(false);
+    expect(isRegistrationFormCompleted({})).toBe(false);
+  });
+  it("no reader decides it for itself: each one that reads completedAt to judge a row asks the rule", () => {
+    // The files that used to write `completedAt || userId`. One that goes back to it would call a
+    // Faculty row incomplete on its own surface while the others call it complete.
+    const readers = [
+      "src/app/(dashboard)/events/[eventId]/check-in/desk-panel.tsx",
+      "src/app/(dashboard)/events/[eventId]/registrations/page.tsx",
+      "src/app/(dashboard)/events/[eventId]/registrations/registration-detail-sheet.tsx",
+      "src/app/api/events/[eventId]/registrations/[registrationId]/onsite-link/route.ts",
+      "src/app/api/events/[eventId]/registrations/completion-status/route.ts",
+      "src/app/api/public/events/[slug]/complete-registration/route.ts",
+      "src/services/registration-form-service.ts",
+    ];
+    for (const file of readers) {
+      const source = readFileSync(join(process.cwd(), file), "utf8");
+      expect(source, file).toContain("isRegistrationFormCompleted(");
+      expect(source, file).not.toMatch(/completedAt\s*\|\|\s*\w+\.userId|userId\s*\|\|\s*\w+\.completedAt|!\w+\.userId\s*&&\s*!\w+\.completedAt/);
+    }
   });
 });
 

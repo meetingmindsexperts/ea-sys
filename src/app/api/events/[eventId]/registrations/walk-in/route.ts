@@ -375,6 +375,7 @@ async function payAndAdmit(args: {
       paymentStatus: true,
       checkedInAt: true,
       originalPrice: true,
+      discountAmount: true,
       ticketType: { select: { price: true } },
       pricingTier: { select: { price: true } },
     },
@@ -387,6 +388,7 @@ async function payAndAdmit(args: {
         ticketTypePrice: fresh.ticketType?.price,
         pricingTierPrice: fresh.pricingTier?.price,
         originalPrice: fresh.originalPrice,
+        discountAmount: fresh.discountAmount,
       })
     : { code: "NOT_FOUND", message: "Registration not found" };
   if (denial) {

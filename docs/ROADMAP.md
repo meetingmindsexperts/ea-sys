@@ -192,6 +192,17 @@ emails"). The reminder, bulk and single, leaves out anyone whose balance is zero
 confirmation's payment box is left out when a code covers the whole fee. The payment
 status of a registration whose code was entered after registering stays UNPAID (owner).
 
+**Same blind spot, recorded Nov 13, 2026, not fixed: who may watch a webinar.** The door
+now admits a registration whose code takes the whole fee (`registrationChargesNothing`,
+asked by `isPaymentAdmissible`). The webinar rule (`NOTHING_OWED` in
+`src/lib/webinar/viewer-entitlement.ts`) still reads the rate's or type's price alone, so
+a PAID webinar registration covered by a code entered afterwards (status UNPAID) would be
+refused the room, Q&A, polls and the replay. No production row is in that state (the nine
+covered rows are all on conferences). The fix is the same rule as a where clause
+(`discountAmount` at least `originalPrice`, a column comparison), kept beside the pure
+function so the two cannot drift; it is a security-reviewed rule, so it gets its own
+change and its own review.
+
 **Older defects found while fixing it, recorded and not fixed.**
 - The payment reminder prints the FULL fee, and its Pay Now link carries the full
   price, for someone who has paid part: `buildPaymentReminderVars` works with

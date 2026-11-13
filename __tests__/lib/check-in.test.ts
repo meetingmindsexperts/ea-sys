@@ -128,7 +128,7 @@ describe("checkInGate — the desk truth table", () => {
 describe("isPaymentAdmissible — badge eligibility == door admission (H1)", () => {
   const pay = (
     paymentStatus: string,
-    extra: Partial<{ ticketTypePrice: unknown; pricingTierPrice: unknown; status: string; originalPrice: unknown }> = {},
+    extra: Partial<{ ticketTypePrice: unknown; pricingTierPrice: unknown; status: string; originalPrice: unknown; discountAmount: unknown }> = {},
   ) => ({
     paymentStatus,
     status: "CONFIRMED",
@@ -204,6 +204,23 @@ describe("isPaymentAdmissible — badge eligibility == door admission (H1)", () 
     expect(
       isPaymentAdmissible(pay("UNPAID", { originalPrice: 0, ticketTypePrice: 0, pricingTierPrice: 100 })),
     ).toBe(false);
+  });
+
+  it("a code that takes the whole price admits, whatever the status says (Nov 13, 2026)", () => {
+    // A 100% code entered after registering leaves the row UNPAID (owner, Nov 12, 2026).
+    // The door refused eight such delegates on one production event: 200.00 less 200.00.
+    const covered = { originalPrice: "200.00", discountAmount: "200.00", ticketTypePrice: 0, pricingTierPrice: 200 };
+    expect(isPaymentAdmissible(pay("UNPAID", covered))).toBe(true);
+    expect(isPaymentAdmissible(pay("UNASSIGNED", covered))).toBe(true);
+    expect(isPaymentAdmissible(pay("FAILED", covered))).toBe(true);
+    // A partial code still owes, and no discount is the old answer.
+    expect(isPaymentAdmissible(pay("UNPAID", { ...covered, discountAmount: "100.00" }))).toBe(false);
+    expect(isPaymentAdmissible(pay("UNPAID", { ...covered, discountAmount: null }))).toBe(false);
+    // The gate says the same, and still refuses a cancelled one.
+    const row = { status: "CONFIRMED", paymentStatus: "UNPAID", checkedInAt: null, ...covered };
+    expect(checkInGate(row)).toBeNull();
+    expect(checkInGate({ ...row, status: "CANCELLED" })).toMatchObject({ code: "CANCELLED" });
+    expect(checkInGate({ ...row, discountAmount: 0 })).toMatchObject({ code: "PAYMENT_REQUIRED" });
   });
 
   it("free ticket / free tier is admissible regardless of status", () => {

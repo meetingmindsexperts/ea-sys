@@ -28,24 +28,27 @@ beforeEach(() => {
 });
 
 describe("GET completion-status", () => {
-  it("answers completed for completedAt or an account, only for this event's rows, selecting nothing else", async () => {
+  it("answers completed for completedAt, an account or the Faculty type, only for this event's rows, selecting nothing else", async () => {
     mockDb.registration.findMany.mockResolvedValue([
-      { id: "a", status: "CONFIRMED", completedAt: new Date(), userId: null },
-      { id: "b", status: "CONFIRMED", completedAt: null, userId: "u-1" },
-      { id: "c", status: "CANCELLED", completedAt: null, userId: null },
+      { id: "a", status: "CONFIRMED", completedAt: new Date(), userId: null, ticketType: { isFaculty: false } },
+      { id: "b", status: "CONFIRMED", completedAt: null, userId: "u-1", ticketType: { isFaculty: false } },
+      { id: "c", status: "CANCELLED", completedAt: null, userId: null, ticketType: null },
+      { id: "d", status: "CONFIRMED", completedAt: null, userId: null, ticketType: { isFaculty: true } },
     ]);
-    const res = await get("a,b,c,elsewhere");
+    const res = await get("a,b,c,d,elsewhere");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       statuses: [
         { id: "a", status: "CONFIRMED", completed: true },
         { id: "b", status: "CONFIRMED", completed: true },
         { id: "c", status: "CANCELLED", completed: false },
+        { id: "d", status: "CONFIRMED", completed: true },
       ],
     });
     const query = mockDb.registration.findMany.mock.calls[0][0];
-    expect(query.where).toEqual({ id: { in: ["a", "b", "c", "elsewhere"] }, eventId: "evt-1" });
-    expect(Object.keys(query.select).sort()).toEqual(["completedAt", "id", "status", "userId"]);
+    expect(query.where).toEqual({ id: { in: ["a", "b", "c", "d", "elsewhere"] }, eventId: "evt-1" });
+    expect(Object.keys(query.select).sort()).toEqual(["completedAt", "id", "status", "ticketType", "userId"]);
+    expect(query.select.ticketType).toEqual({ select: { isFaculty: true } });
   });
 
   it("refuses no ids or too many, and an event outside the grant", async () => {

@@ -9,7 +9,38 @@ import {
   computeCancelledCreditState,
   computeRegistrationFinancials,
   readRegistrationBasePrice,
+  registrationChargesNothing,
 } from "@/lib/registration-financials";
+
+describe("registrationChargesNothing: a zero price, or a code that takes the whole of it", () => {
+  it("a zero price charges nothing, a priced one does", () => {
+    expect(registrationChargesNothing({ originalPrice: 0, ticketType: { price: 0 } })).toBe(true);
+    expect(registrationChargesNothing({ ticketType: { price: 0 } })).toBe(true);
+    expect(registrationChargesNothing({ originalPrice: 200, ticketType: { price: 0 } })).toBe(false);
+    // The stamping-gap guard still wins: 0 stamped beside a priced rate owes the rate.
+    expect(registrationChargesNothing({ originalPrice: 0, pricingTier: { price: 100 }, ticketType: { price: 0 } })).toBe(false);
+  });
+
+  it("a code that covers the whole price charges nothing (the production rows: 200.00 less 200.00)", () => {
+    expect(registrationChargesNothing({ originalPrice: "200.00", discountAmount: "200.00", ticketType: { price: 0 } })).toBe(true);
+    expect(registrationChargesNothing({ originalPrice: 350, discountAmount: 350 })).toBe(true);
+    // More than the price (a fixed code larger than the fee) is still nothing owed.
+    expect(registrationChargesNothing({ originalPrice: 100, discountAmount: 150 })).toBe(true);
+  });
+
+  it("a partial code still owes, down to the last cent", () => {
+    expect(registrationChargesNothing({ originalPrice: 200, discountAmount: 199.99 })).toBe(false);
+    expect(registrationChargesNothing({ originalPrice: 200, discountAmount: 100 })).toBe(false);
+  });
+
+  it("an absent, zero or unreadable discount changes nothing (a payload with money stripped never admits)", () => {
+    expect(registrationChargesNothing({ originalPrice: 200 })).toBe(false);
+    expect(registrationChargesNothing({ originalPrice: 200, discountAmount: null })).toBe(false);
+    expect(registrationChargesNothing({ originalPrice: 200, discountAmount: 0 })).toBe(false);
+    expect(registrationChargesNothing({ originalPrice: 200, discountAmount: "abc" })).toBe(false);
+    expect(registrationChargesNothing({ originalPrice: 200, discountAmount: -200 })).toBe(false);
+  });
+});
 
 describe("computeRegistrationFinancials", () => {
   it("subtotal + VAT, nothing paid → full balance", () => {

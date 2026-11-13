@@ -23,7 +23,7 @@
  * committed check-in into a user-facing 500 at the desk (review M13 for
  * these routes).
  */
-import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import { registrationChargesNothing } from "@/lib/registration-financials";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -46,6 +46,12 @@ export interface CheckInGateInput {
   pricingTierPrice: unknown;
   /** `Registration.originalPrice` — the price stamped at create, if selected. */
   originalPrice?: unknown;
+  /**
+   * `Registration.discountAmount`. A code that takes the whole price means
+   * nothing is owed (see `isComplimentaryRegistration`). Every real caller
+   * passes it, pinned by check-in-discount-callers.test.ts.
+   */
+  discountAmount?: unknown;
 }
 
 export interface CheckInDenial {
@@ -86,6 +92,12 @@ export function isComplimentaryRegistration(reg: {
    * above, it cannot flip the verdict on a whole payment status.
    */
   originalPrice?: unknown;
+  /**
+   * Optional like `originalPrice`, and for the same reason: omitting it only
+   * ever refuses more. Every real caller passes it, or the door and the badge
+   * disagree about a code-covered registration; a test lists those callers.
+   */
+  discountAmount?: unknown;
 }): boolean {
   if (reg.paymentStatus === "COMPLIMENTARY") return true;
 
@@ -104,13 +116,16 @@ export function isComplimentaryRegistration(reg: {
   // actually owes the tier price". This is that same bug, in the door. Rather
   // than repair a second copy of the rule, the door now calls the one that was
   // already right, so the two cannot disagree about what someone owes.
-  return (
-    readRegistrationBasePrice({
-      originalPrice: reg.originalPrice,
-      pricingTier: reg.pricingTierPrice == null ? null : { price: reg.pricingTierPrice },
-      ticketType: reg.ticketTypePrice == null ? null : { price: reg.ticketTypePrice },
-    }) === 0
-  );
+  //
+  // And when a code or discount takes the whole of that price (Nov 13, 2026).
+  // A 100% code entered after registering leaves the payment status UNPAID
+  // (owner ruling, Nov 12, 2026), so the status cannot say it: the amounts do.
+  return registrationChargesNothing({
+    originalPrice: reg.originalPrice,
+    pricingTier: reg.pricingTierPrice == null ? null : { price: reg.pricingTierPrice },
+    ticketType: reg.ticketTypePrice == null ? null : { price: reg.ticketTypePrice },
+    discountAmount: reg.discountAmount,
+  });
 }
 
 /**
@@ -140,6 +155,8 @@ export function isPaymentAdmissible(reg: {
   status: string;
   /** Forwarded to isComplimentaryRegistration — see the note there. */
   originalPrice?: unknown;
+  /** Forwarded to isComplimentaryRegistration: see the note there. */
+  discountAmount?: unknown;
 }): boolean {
   // A genuinely free ticket or tier admits regardless of the status string —
   // nothing is owed, so there is nothing for payment to block.

@@ -119,13 +119,14 @@ const SPONSOR_FILTER_ALL = "__all__";
 import { BadgeDialog } from "./badge-dialog";
 import { SharedViewsDialog } from "@/components/registrations/shared-views-dialog";
 import { resolvePastedIds } from "@/lib/resolve-pasted-ids";
+import { isRegistrationFormCompleted } from "@/lib/registration-completion";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 
 /** The registration form filter: not completed (and not cancelled), or completed. */
 function matchesCompletionFilter(r: Registration, filter: "all" | "pending" | "done"): boolean {
-  const completed = !!r.completedAt || !!r.userId;
+  const completed = isRegistrationFormCompleted(r);
   if (filter === "pending") return !completed && r.status !== "CANCELLED";
   if (filter === "done") return completed;
   return true;

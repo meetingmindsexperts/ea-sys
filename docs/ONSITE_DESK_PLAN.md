@@ -54,6 +54,14 @@ still looks incomplete and can be sent the form again.
   - the time of the row's `COMPLETE_REGISTRATION` audit entry, where one exists.
 - "Not completed" means `completedAt IS NULL` and the registration is not
   cancelled.
+- Since Nov 13, 2026 (owner): a registration on the **Faculty type** is also
+  complete, read from the type and not stamped on the row. Staff adding
+  faculty from the dashboard while "Faculty" was an ordinary type stamped
+  nothing, so 33 speakers on one event read "Form not completed" with every
+  detail present. The whole rule (the form, an account, or the Faculty type)
+  is `isRegistrationFormCompleted` in `src/lib/registration-completion.ts`,
+  with the same rule as a where clause for the list filter; every reader asks
+  it. The label is about the form, never about which fields are filled.
 
 ### 3.2 A "Not completed" filter
 
@@ -167,6 +175,17 @@ As built (Oct 29, 2026):
   when payment is due it opens Record payment (cash / card) in the row, then
   checks in and prints. "Complete onsite" for a not-completed row is step 3;
   until then the row shows "Form not completed" and can still be checked in.
+- Payment is not due when a code takes the whole fee (Nov 13, 2026): a 100%
+  code entered after registering leaves the status UNPAID, and the door, the
+  badge and the desk row now read the price less the discount
+  (`registrationChargesNothing`, asked by `isPaymentAdmissible`). Before this
+  such a row was offered Record payment for 0.00, which could not be recorded,
+  and its check-in was refused.
+- The free rates' ways to pay (owner, Nov 13, 2026): the Complimentary rate
+  offers Complimentary only; a free rate named Inclusive offers Sponsor
+  (Inclusive) only, marked as a sponsor link or not; any other free rate
+  offers Free or Sponsor (Inclusive). `walkInPaymentChoices` in
+  `src/lib/desk-walkin-payment.ts`, shared by the form and the route.
 
 ## 5. Step 3: Complete onsite
 

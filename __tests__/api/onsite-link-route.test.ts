@@ -62,8 +62,8 @@ describe("POST onsite-link", () => {
     expect(JSON.stringify(audit)).not.toContain("token=");
   });
 
-  it("refuses someone already complete (completedAt or an account) or cancelled, before minting", async () => {
-    for (const row of [{ completedAt: new Date() }, { userId: "u-9" }, { status: "CANCELLED" }]) {
+  it("refuses someone already complete (completedAt, an account or the Faculty type) or cancelled, before minting", async () => {
+    for (const row of [{ completedAt: new Date() }, { userId: "u-9" }, { ticketType: { isFaculty: true } }, { status: "CANCELLED" }]) {
       mockDb.registration.findFirst.mockResolvedValueOnce({ ...ROW, ...row });
       expect((await call()).status).toBe(409);
     }

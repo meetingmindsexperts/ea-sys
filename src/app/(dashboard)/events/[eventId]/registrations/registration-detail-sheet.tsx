@@ -113,6 +113,7 @@ import { displayRegistrationType, pickableRegTypes, SPEAKERS_TYPE_LABEL } from "
 import { tierChangeAllowed } from "@/lib/tier-change-policy";
 import { hasCustomBilling } from "./types";
 import { AddPayerDialog } from "@/components/billing/add-payer-dialog";
+import { isRegistrationFormCompleted } from "@/lib/registration-completion";
 import {
   EMPTY_REGISTRATION_EDIT_DATA,
   toEditData,
@@ -3160,9 +3161,9 @@ export function RegistrationDetailSheet({
                         </DropdownMenuItem>
                       ))}
                       {/* Token-gated completion link: only for registrations not yet completed. Hidden once
-                          they complete, with or without an account (completedAt), because the link would only
-                          tell them so (docs/ONSITE_DESK_PLAN.md §3.1). */}
-                      {!selectedRegistration.userId && !selectedRegistration.completedAt && (
+                          they complete, with or without an account (completedAt), and for Faculty, because
+                          the link would only tell them so (docs/ONSITE_DESK_PLAN.md §3.1). */}
+                      {!isRegistrationFormCompleted(selectedRegistration) && (
                         <DropdownMenuItem
                           onClick={() => setSendFormConfirmOpen(true)}
                         >
