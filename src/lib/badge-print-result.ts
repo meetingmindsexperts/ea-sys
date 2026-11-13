@@ -13,15 +13,21 @@
  * that sends more than one registration), so the names and the wording cannot
  * drift. Client-safe.
  *
- * Only payment is reported: it is the one reason with a remedy at hand. A
- * virtual attendee never has a badge, and "Print all" leaves out cancelled
- * registrations by design.
+ * Two things are told apart (review of b19e5e44). "Payment due" is someone who
+ * really owes, and it comes with the remedy and their numbers. Everyone else
+ * in the selection who gets no badge (a virtual attendee, a cancelled or
+ * refunded registration, a row deleted since the list loaded) is only
+ * counted, so the figures add up to what was selected without telling the
+ * operator to "record the payment" on a cancelled registration.
  */
 
 export const BADGES_PRINTED_HEADER = "X-Badges-Printed";
 export const BADGES_PAYMENT_DUE_HEADER = "X-Badges-Payment-Due";
 /** The registration numbers left out, as the list shows them ("069"), comma-separated, capped. */
 export const BADGES_PAYMENT_DUE_NUMBERS_HEADER = "X-Badges-Payment-Due-Numbers";
+
+/** The rest of the selection that gets no badge, for a reason that is not money owed. */
+export const BADGES_NO_BADGE_HEADER = "X-Badges-No-Badge";
 
 /** How many numbers are named: enough to act on, short enough for a header and a toast. */
 export const MAX_LEFT_OUT_NUMBERS = 20;
@@ -33,6 +39,8 @@ export interface BadgePrintResult {
   paymentDue: number;
   /** Their registration numbers, lowest first, at most MAX_LEFT_OUT_NUMBERS. */
   paymentDueNumbers: string[];
+  /** Others in the selection with no badge: virtual, cancelled, refunded or no longer there. */
+  noBadge: number;
 }
 
 /** A registration number as the Registrations list prints it. */
@@ -44,6 +52,7 @@ function registrationNumber(serialId: number): string {
 export function badgePrintHeaders(
   printed: number,
   leftOutForPayment: readonly { serialId: number | null }[],
+  noBadge = 0,
 ): Record<string, string> {
   const numbers = leftOutForPayment
     .map((r) => r.serialId)
@@ -54,6 +63,7 @@ export function badgePrintHeaders(
   return {
     [BADGES_PRINTED_HEADER]: String(printed),
     [BADGES_PAYMENT_DUE_HEADER]: String(leftOutForPayment.length),
+    [BADGES_NO_BADGE_HEADER]: String(Math.max(0, Math.trunc(noBadge))),
     ...(numbers.length > 0 ? { [BADGES_PAYMENT_DUE_NUMBERS_HEADER]: numbers.join(",") } : {}),
   };
 }
@@ -74,6 +84,7 @@ export function readBadgePrintResult(headers: { get(name: string): string | null
     printed: readCount(headers.get(BADGES_PRINTED_HEADER)),
     paymentDue: readCount(headers.get(BADGES_PAYMENT_DUE_HEADER)) ?? 0,
     paymentDueNumbers,
+    noBadge: readCount(headers.get(BADGES_NO_BADGE_HEADER)) ?? 0,
   };
 }
 
@@ -89,20 +100,35 @@ function namedNumbers(result: BadgePrintResult): string {
   return `: ${result.paymentDueNumbers.join(", ")}${tail}`;
 }
 
-/**
- * What to tell the operator when a print left people out, or null when it left
- * nobody out (then the screen keeps its usual "ready to print").
- */
-export function badgeLeftOutMessage(result: BadgePrintResult): string | null {
-  if (result.paymentDue <= 0) return null;
-  const ready =
-    result.printed == null
-      ? "Badges ready to print."
-      : `${result.printed} ${plural(result.printed, "badge", "badges")} ready to print.`;
+/** "3 left out, payment due: 069, 071, 076. Record the payment ...", or empty. */
+function paymentDueSentence(result: BadgePrintResult): string {
+  if (result.paymentDue <= 0) return "";
   const remedy = plural(
     result.paymentDue,
     "Record the payment or set it to Complimentary, then print that one.",
     "Record the payment or set them to Complimentary, then print those.",
   );
-  return `${ready} ${result.paymentDue} left out, payment due${namedNumbers(result)}. ${remedy}`;
+  return ` ${result.paymentDue} left out, payment due${namedNumbers(result)}. ${remedy}`;
+}
+
+/** "2 others in the selection get no badge (virtual, cancelled or refunded).", or empty. */
+function noBadgeSentence(result: BadgePrintResult): string {
+  if (result.noBadge <= 0) return "";
+  // "other" only beside someone already named as left out.
+  const who = result.paymentDue > 0 ? plural(result.noBadge, "other", "others") : "";
+  const verb = plural(result.noBadge, "gets", "get");
+  return ` ${[result.noBadge, who].filter(Boolean).join(" ")} in the selection ${verb} no badge (virtual, cancelled or refunded).`;
+}
+
+/**
+ * What to tell the operator when a print left people out, or null when it left
+ * nobody out (then the screen keeps its usual "ready to print").
+ */
+export function badgeLeftOutMessage(result: BadgePrintResult): string | null {
+  if (result.paymentDue <= 0 && result.noBadge <= 0) return null;
+  const ready =
+    result.printed == null
+      ? "Badges ready to print."
+      : `${result.printed} ${plural(result.printed, "badge", "badges")} ready to print.`;
+  return `${ready}${paymentDueSentence(result)}${noBadgeSentence(result)}`;
 }

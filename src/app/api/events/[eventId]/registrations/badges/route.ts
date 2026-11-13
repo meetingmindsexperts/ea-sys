@@ -132,7 +132,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     // The rest of the selection: told to the operator with the PDF (below),
     // not dropped in silence. A bulk print of 50 used to come back as 47
     // badges and "Badges ready to print" (owner, Nov 13, 2026).
-    const leftOutForPayment = allRegistrations.filter((r) => !admissible(r));
+    //
+    // "Payment due" is only someone who really owes (review of b19e5e44). The
+    // door's rule also turns away a REFUNDED registration whose place no
+    // longer stands, and a selection by id can hold CANCELLED rows (the list
+    // shows them, and its select-all ticks them): neither is told to "record
+    // the payment". They are counted with the virtual and the vanished below.
+    const leftOutForPayment = allRegistrations.filter(
+      (r) => !admissible(r) && r.status !== "CANCELLED" && r.paymentStatus !== "REFUNDED",
+    );
+    // Everyone else asked for and not printed, so the figures add up to the
+    // selection. For "all" that is only what the query matched.
+    const requested = all ? allRegistrations.length : new Set(registrationIds ?? []).size;
+    const noBadge = Math.max(0, requested - registrations.length - leftOutForPayment.length);
 
     if (registrations.length === 0) {
       // Distinguish "you selected people who owe money" from "your selection
@@ -198,14 +210,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     // is the ONE reader: it clamps every field and folds in the legacy
     // `badgeVerticalOffset` column, so an event that has never opened the new
     // form keeps its existing calibration and prints an identical badge.
-    if (leftOutForPayment.length > 0) {
-      apiLogger.warn({
-        msg: "badges:left-out-payment-due",
+    if (leftOutForPayment.length > 0 || noBadge > 0) {
+      // info, not warn: the print succeeded, and some owing before an event is
+      // the ordinary state of a Print All (warn feeds the error-rate card).
+      apiLogger.info({
+        msg: "badges:left-out",
         eventId,
         userId: session.user.id,
         printed: registrations.length,
-        leftOut: leftOutForPayment.length,
-        detail: "Some of the selection still owes payment; their badges were not printed",
+        paymentDue: leftOutForPayment.length,
+        noBadge,
+        detail: "Part of the selection was not printed: payment due, or no badge (virtual, cancelled, refunded, gone)",
       });
     }
 
@@ -284,7 +299,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         "Content-Disposition": `attachment; filename="badges-${eventId}.pdf"`,
         // How many are in the PDF and who was left out for payment: the body
         // is the PDF, so the Badges dialog reads these (badge-print-result.ts).
-        ...badgePrintHeaders(registrations.length, leftOutForPayment),
+        ...badgePrintHeaders(registrations.length, leftOutForPayment, noBadge),
       },
     });
     });

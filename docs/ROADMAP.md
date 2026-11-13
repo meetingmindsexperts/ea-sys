@@ -168,6 +168,38 @@ consumer moves to `updatedAfter`.
   type for every speaker (one join, no extra query); the single read and the list
   build the value in two places from one function.
 
+## Badges: what the Nov 13 review left (recorded Nov 13, 2026): not started
+
+From the review of `b19e5e44` (a bulk badge print says who was left out; 0 BLOCKER, 0 HIGH,
+1 MED, 4 LOW). The MED and three LOWs were fixed in the follow-up commit.
+
+**Older defect, MED, for the owner to decide: a cancelled registration selected by id gets a
+badge when it is paid, complimentary or free.** The badge route leaves cancelled rows out
+only for Print All; by id (Print Selected, or the registration's own sheet) the only test is
+the payment rule, which does not look at CANCELLED (the door checks that separately). The
+Registrations list shows cancelled rows and its select-all ticks them, so a bulk print of a
+page can print and stamp a badge for someone the door refuses. The fix is one status
+condition on the by-id query; the new message then counts them as "no badge".
+
+**Older defect: the 2,500 cap is checked after the payment filter.** The query takes 2,501
+rows and the cap compares the admissible count, so on an event with more than 2,500
+registrations of which some owe, the print passes without `BADGE_LIMIT_EXCEEDED` and the
+people past the 2,501st are neither printed nor counted. Above today's event sizes.
+
+**Older defect, LOW: "Print All (N)" counts the listed rows** (cancelled and virtual
+included, and whatever filter the list has), while Print All prints the whole event.
+
+**Older defect, LOW: a blocked pop-up still says ready.** The dialog opens the PDF with
+`window.open` after two awaits; if the browser blocks it the toast still says the badges are
+ready and the rows are already stamped as printed.
+
+**Older defect, LOW: the refusal when NOBODY in the selection qualifies** counts every
+matched row as "still owes payment", cancelled and refunded ones included.
+
+**LOW, left: the warning toast looks like the success one** (only the error toast is
+coloured, `ui/sonner.tsx`), and nothing tests the dialog itself: removing its read of the
+headers fails no test (there is no component test for it).
+
 ## Onsite desk: what the Nov 13 review left (recorded Nov 13, 2026): not started
 
 From the review of `5fc01136` (Faculty counts as form-completed, a code that takes the whole
