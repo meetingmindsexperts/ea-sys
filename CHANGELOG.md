@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Badges: a cancelled registration gets no badge (November 13)
+
+Owner: "cancelled registration, should not get."
+
+- **Print All** already left cancelled registrations out. **Print Selected** and **Print Badge** on a registration's own sheet did not: the only test by id was the payment rule, which does not look at the registration's status, so a cancelled registration that had been paid or was complimentary printed a badge and was stamped as printed. The Registrations list shows cancelled rows and its select-all ticks them, so printing a whole page could do it without anyone meaning to
+- Now a cancelled registration never prints, from any button. In a mixed selection it is counted under "get no badge (virtual, cancelled or refunded)"; on its own the answer is "This registration is cancelled, so it has no badge."
+- The refusal when nothing can be printed now names the true reason. It used to count every selected row as "still owes payment", cancelled and refunded ones included, and advise setting them to Complimentary. It now says how many owe (with the remedy), and that the others are cancelled or refunded (`badgeRefusal` in `src/lib/badge-print-result.ts`; a new code `BADGE_NOT_AVAILABLE` beside `BADGE_PAYMENT_REQUIRED` and `BADGE_NO_MATCH`)
+- Not changed: the door. It has always refused a cancelled registration unless staff reactivate it at check-in, and a reactivated one is no longer cancelled, so its badge prints
+- No migration, no data changed. No cancelled registration in production has ever had a badge printed (checked read-only), so this closes a door nobody had walked through
+
 ### Badges: a bulk print says who was left out for payment (November 13)
 
 Owner, after asking whether a badge can be printed while payment is due. It cannot: every Print badge button goes through one route, which prints only whom the door admits, and "admit anyway" at check-in does not unlock the badge until the payment is recorded. One gap was found on the way.

@@ -173,13 +173,11 @@ consumer moves to `updatedAfter`.
 From the review of `b19e5e44` (a bulk badge print says who was left out; 0 BLOCKER, 0 HIGH,
 1 MED, 4 LOW). The MED and three LOWs were fixed in the follow-up commit.
 
-**Older defect, MED, for the owner to decide: a cancelled registration selected by id gets a
-badge when it is paid, complimentary or free.** The badge route leaves cancelled rows out
-only for Print All; by id (Print Selected, or the registration's own sheet) the only test is
-the payment rule, which does not look at CANCELLED (the door checks that separately). The
-Registrations list shows cancelled rows and its select-all ticks them, so a bulk print of a
-page can print and stamp a badge for someone the door refuses. The fix is one status
-condition on the by-id query; the new message then counts them as "no badge".
+**~~Older defect, MED: a cancelled registration selected by id gets a badge when it is paid,
+complimentary or free.~~ FIXED Nov 13, 2026** (owner: "cancelled registration, should not
+get"). The badge route refuses a cancelled registration by id as Print All always did, and
+its refusal says "cancelled" (`badgeRefusal` in `src/lib/badge-print-result.ts`), which also
+closed the refusal that counted cancelled rows as "still owes payment" (below).
 
 **Older defect: the 2,500 cap is checked after the payment filter.** The query takes 2,501
 rows and the cap compares the admissible count, so on an event with more than 2,500
@@ -192,9 +190,6 @@ included, and whatever filter the list has), while Print All prints the whole ev
 **Older defect, LOW: a blocked pop-up still says ready.** The dialog opens the PDF with
 `window.open` after two awaits; if the browser blocks it the toast still says the badges are
 ready and the rows are already stamped as printed.
-
-**Older defect, LOW: the refusal when NOBODY in the selection qualifies** counts every
-matched row as "still owes payment", cancelled and refunded ones included.
 
 **LOW, left: the warning toast looks like the success one** (only the error toast is
 coloured, `ui/sonner.tsx`), and nothing tests the dialog itself: removing its read of the

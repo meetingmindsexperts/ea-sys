@@ -10,7 +10,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { isPaymentAdmissible } from "@/lib/check-in";
 import { printedBadgeType, readBadgeLayout } from "@/lib/badge-layout";
 import { generateBadgePDF } from "@/lib/badge-pdf";
-import { badgePrintHeaders } from "@/lib/badge-print-result";
+import { badgePrintHeaders, badgeRefusal } from "@/lib/badge-print-result";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -128,7 +128,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketTypePrice: r.ticketType?.price ?? null,
         pricingTierPrice: r.pricingTier?.price ?? null,
       });
-    const registrations = allRegistrations.filter(admissible);
+    // A cancelled registration gets no badge (owner, Nov 13, 2026). "Print all"
+    // never asks for one; by id (Print Selected, the registration's own sheet)
+    // the payment rule was the only test, and it does not look at CANCELLED
+    // (the door checks that separately), so a cancelled registration that was
+    // paid or complimentary printed and was stamped as printed. Kept in the
+    // query and refused here, not filtered out of it, so the refusal can say
+    // "cancelled" instead of "no registrations matched".
+    const registrations = allRegistrations.filter((r) => r.status !== "CANCELLED" && admissible(r));
     // The rest of the selection: told to the operator with the PDF (below),
     // not dropped in silence. A bulk print of 50 used to come back as 47
     // badges and "Badges ready to print" (owner, Nov 13, 2026).
@@ -147,48 +154,27 @@ export async function POST(req: Request, { params }: RouteParams) {
     const noBadge = Math.max(0, requested - registrations.length - leftOutForPayment.length);
 
     if (registrations.length === 0) {
-      // Distinguish "you selected people who owe money" from "your selection
-      // matched nobody at all". The first is the common case and it has a
-      // REMEDY, which the old message did not name.
-      //
-      // It is also the dead end behind the desk's payment override: the
-      // override sets status + checkedInAt and deliberately never touches
-      // `paymentStatus`, so an admitted attendee is still filtered out here.
-      // The operator got a bare refusal with no next step. Recording the
-      // payment is the action that clears both, so the message says so.
-      const droppedForPayment = allRegistrations.length;
-      apiLogger.warn(
-        {
-          msg: "badges:no-eligible-registrations",
-          eventId,
-          requested: all ? "all" : (registrationIds?.length ?? 0),
-          matched: droppedForPayment,
-          droppedForPayment,
-          detail: "No badge-eligible registrations",
-        },
-      );
-
-      if (droppedForPayment === 0) {
-        return NextResponse.json(
-          {
-            error: "No registrations matched. Check the selection and try again.",
-            code: "BADGE_NO_MATCH",
-          },
-          { status: 400 },
-        );
-      }
-
-      return NextResponse.json(
-        {
-          error:
-            droppedForPayment === 1
-              ? "This registration still owes payment, so its badge can't be printed. Record the payment under Billing & Payments, or set the payment status to Complimentary, then print."
-              : `None of the ${droppedForPayment} selected registrations can be badged — they all still owe payment (unpaid or pending). Record their payment, or set them to Complimentary, then print.`,
-          code: "BADGE_PAYMENT_REQUIRED",
-          blocked: droppedForPayment,
-        },
-        { status: 400 },
-      );
+      // Nothing to print. The refusal names the true reason and, for money
+      // owed, its remedy (badge-print-result.ts). That one is also the dead
+      // end behind the desk's payment override: the override sets status +
+      // checkedInAt and deliberately never touches `paymentStatus`, so an
+      // admitted attendee is still refused here until the payment is recorded.
+      const refusal = badgeRefusal({
+        matched: allRegistrations.length,
+        paymentDue: leftOutForPayment.length,
+        cancelled: allRegistrations.filter((r) => r.status === "CANCELLED").length,
+      });
+      apiLogger.warn({
+        msg: "badges:no-eligible-registrations",
+        eventId,
+        userId: session.user.id,
+        requested: all ? "all" : (registrationIds?.length ?? 0),
+        matched: allRegistrations.length,
+        droppedForPayment: leftOutForPayment.length,
+        code: refusal.code,
+        detail: "No badge-eligible registrations",
+      });
+      return NextResponse.json(refusal, { status: 400 });
     }
 
     // H4: over the per-request cap. Refuse rather than freeze the box mid-render.

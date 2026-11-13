@@ -132,3 +132,54 @@ export function badgeLeftOutMessage(result: BadgePrintResult): string | null {
       : `${result.printed} ${plural(result.printed, "badge", "badges")} ready to print.`;
   return `${ready}${paymentDueSentence(result)}${noBadgeSentence(result)}`;
 }
+
+/** The route's refusal when the selection yields no badge at all. */
+export interface BadgeRefusal {
+  error: string;
+  code: "BADGE_NO_MATCH" | "BADGE_PAYMENT_REQUIRED" | "BADGE_NOT_AVAILABLE";
+  /** How many still owe payment; only with BADGE_PAYMENT_REQUIRED. */
+  blocked?: number;
+}
+
+function paymentRefusal(matched: number, paymentDue: number): BadgeRefusal {
+  if (matched === 1) {
+    return {
+      error:
+        "This registration still owes payment, so its badge can't be printed. Record the payment under Billing & Payments, or set the payment status to Complimentary, then print.",
+      code: "BADGE_PAYMENT_REQUIRED",
+      blocked: 1,
+    };
+  }
+  const others = matched - paymentDue;
+  const rest = others > 0 ? ` The other ${others} ${plural(others, "is", "are")} cancelled or refunded.` : "";
+  return {
+    error: `None of the ${matched} selected registrations can be badged: ${paymentDue} still ${plural(paymentDue, "owes", "owe")} payment (unpaid or pending). Record the payment, or set them to Complimentary, then print.${rest}`,
+    code: "BADGE_PAYMENT_REQUIRED",
+    blocked: paymentDue,
+  };
+}
+
+/**
+ * Why nothing was printed, in words that name the true reason (owner, Nov 13,
+ * 2026: a cancelled registration gets no badge). `matched` is what the query
+ * found, `paymentDue` those who really owe, `cancelled` the cancelled among
+ * them. A cancelled or refunded registration is never told to record a payment.
+ */
+export function badgeRefusal(counts: { matched: number; paymentDue: number; cancelled: number }): BadgeRefusal {
+  const { matched, paymentDue, cancelled } = counts;
+  if (matched <= 0) return { error: "No registrations matched. Check the selection and try again.", code: "BADGE_NO_MATCH" };
+  if (paymentDue > 0) return paymentRefusal(matched, paymentDue);
+  if (matched > 1) {
+    return {
+      error: `None of the ${matched} selected registrations can have a badge: they are cancelled or refunded.`,
+      code: "BADGE_NOT_AVAILABLE",
+    };
+  }
+  return {
+    error:
+      cancelled > 0
+        ? "This registration is cancelled, so it has no badge."
+        : "This registration was refunded and its place no longer stands, so it has no badge.",
+    code: "BADGE_NOT_AVAILABLE",
+  };
+}

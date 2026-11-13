@@ -147,6 +147,31 @@ describe("POST badges: a mixed selection", () => {
     expect(mockDb.registration.findMany.mock.calls[1][0].where).toEqual({ eventId: "ev1", status: { not: "CANCELLED" }, attendanceMode: { not: "VIRTUAL" } });
   });
 
+  it("a cancelled registration gets no badge, even paid or complimentary (owner, Nov 13, 2026)", async () => {
+    // Ticking a page of the list selects its cancelled rows too.
+    mockDb.registration.findMany.mockResolvedValue([
+      row("paid", 12),
+      row("cancelled-paid", 1, { status: "CANCELLED" }),
+      row("cancelled-comp", 39, { status: "CANCELLED", paymentStatus: "COMPLIMENTARY" }),
+    ]);
+    const res = await post({ registrationIds: ["paid", "cancelled-paid", "cancelled-comp"] });
+    expect(res.status).toBe(200);
+    expect((generateSpy.mock.calls[0][0] as { id: string }[]).map((r) => r.id)).toEqual(["paid"]);
+    expect(readBadgePrintResult(res.headers)).toEqual({ printed: 1, paymentDue: 0, paymentDueNumbers: [], noBadge: 2 });
+    // Not stamped as printed either.
+    for (const call of stampSpy.mock.calls) expect(call[0].where.id).toEqual({ in: ["paid"] });
+  });
+
+  it("a cancelled registration on its own is refused as cancelled, not as owing or unmatched", async () => {
+    mockDb.registration.findMany.mockResolvedValue([row("cancelled-paid", 1, { status: "CANCELLED" })]);
+    const res = await post({ registrationIds: ["cancelled-paid"] });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "This registration is cancelled, so it has no badge.", code: "BADGE_NOT_AVAILABLE" });
+    expect(generateSpy).not.toHaveBeenCalled();
+    expect(stampSpy).not.toHaveBeenCalled();
+    expect(warnSpy.mock.calls.some((c) => c[0]?.msg === "badges:no-eligible-registrations" && c[0]?.code === "BADGE_NOT_AVAILABLE")).toBe(true);
+  });
+
   it("everyone owes: still the refusal with its remedy, and nothing is printed", async () => {
     mockDb.registration.findMany.mockResolvedValue([row("owes", 76, { paymentStatus: "UNPAID" })]);
     const res = await post({ registrationIds: ["owes"] });

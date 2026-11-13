@@ -11,6 +11,7 @@ import {
   MAX_LEFT_OUT_NUMBERS,
   badgeLeftOutMessage,
   badgePrintHeaders,
+  badgeRefusal,
   readBadgePrintResult,
 } from "@/lib/badge-print-result";
 
@@ -100,6 +101,50 @@ describe("badgeLeftOutMessage", () => {
   it("still warns when the numbers or the printed count are unknown", () => {
     expect(badgeLeftOutMessage({ printed: null, paymentDue: 2, paymentDueNumbers: [], noBadge: 0 })).toBe(
       "Badges ready to print. 2 left out, payment due. Record the payment or set them to Complimentary, then print those.",
+    );
+  });
+});
+
+describe("badgeRefusal: nothing was printed, and the reason is the true one", () => {
+  it("nothing matched", () => {
+    expect(badgeRefusal({ matched: 0, paymentDue: 0, cancelled: 0 })).toEqual({
+      error: "No registrations matched. Check the selection and try again.",
+      code: "BADGE_NO_MATCH",
+    });
+  });
+
+  it("one person who owes: the remedy, as before", () => {
+    const refusal = badgeRefusal({ matched: 1, paymentDue: 1, cancelled: 0 });
+    expect(refusal).toMatchObject({ code: "BADGE_PAYMENT_REQUIRED", blocked: 1 });
+    expect(refusal.error).toContain("still owes payment");
+  });
+
+  it("a cancelled registration is never told to record a payment (owner, Nov 13, 2026)", () => {
+    expect(badgeRefusal({ matched: 1, paymentDue: 0, cancelled: 1 })).toEqual({
+      error: "This registration is cancelled, so it has no badge.",
+      code: "BADGE_NOT_AVAILABLE",
+    });
+    expect(badgeRefusal({ matched: 3, paymentDue: 0, cancelled: 2 })).toEqual({
+      error: "None of the 3 selected registrations can have a badge: they are cancelled or refunded.",
+      code: "BADGE_NOT_AVAILABLE",
+    });
+  });
+
+  it("refunded and not cancelled: its place no longer stands", () => {
+    expect(badgeRefusal({ matched: 1, paymentDue: 0, cancelled: 0 }).error).toBe(
+      "This registration was refunded and its place no longer stands, so it has no badge.",
+    );
+  });
+
+  it("several, some owing and some cancelled: only the owing are counted as blocked", () => {
+    expect(badgeRefusal({ matched: 5, paymentDue: 3, cancelled: 2 })).toEqual({
+      error:
+        "None of the 5 selected registrations can be badged: 3 still owe payment (unpaid or pending). Record the payment, or set them to Complimentary, then print. The other 2 are cancelled or refunded.",
+      code: "BADGE_PAYMENT_REQUIRED",
+      blocked: 3,
+    });
+    expect(badgeRefusal({ matched: 2, paymentDue: 2, cancelled: 0 }).error).toBe(
+      "None of the 2 selected registrations can be badged: 2 still owe payment (unpaid or pending). Record the payment, or set them to Complimentary, then print.",
     );
   });
 });
