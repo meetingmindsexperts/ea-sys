@@ -1615,6 +1615,9 @@ export async function updateRegistration(
       },
       ticketTypeId,
       pricingTierId: input.pricingTierId,
+      // The status this same update writes: a re-stamp under a discount is
+      // judged on where the registration ends, not where it started.
+      nextPaymentStatus: paymentStatus,
     });
     if (!repricing.ok) {
       apiLogger.warn({ msg: "registration-update:repricing-blocked", registrationId, code: repricing.code, source });

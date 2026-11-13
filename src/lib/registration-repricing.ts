@@ -32,11 +32,16 @@ import { NO_BALANCE_TIER_STATUSES, tierChangeAllowed } from "@/lib/tier-change-p
  *    is refused like the tier change above (owner, Nov 13, 2026). It re-stamped
  *    the price and kept the discount worked out against the old one: 250 off a
  *    500 type, moved to a 200 type, read as nothing owed on the money screens
- *    and at checkout while 100 was. The sheet always sends the tier, so it was
- *    refused there already; the agent's `update_registration` with only a type,
- *    or a PUT without `pricingTierId`, was not. Complimentary and sponsor-paid
- *    regs are still not blocked: nothing is owed, and removing a sponsor's code
+ *    and at checkout while 100 was. The sheet sends the tier whenever it
+ *    changes, which was refused already; the agent's `update_registration` with
+ *    only a type, a PUT without `pricingTierId`, and the sheet moving a reg with
+ *    no tier to a type with none, were not. Complimentary and sponsor-paid regs
+ *    are still not blocked: nothing is owed, and removing a sponsor's code
  *    loses the sponsor.
+ *  - That exemption is judged on the status the reg ENDS with (review of
+ *    cbead69f): `{ ticketTypeId, paymentStatus: "UNPAID" }` in one call on a
+ *    complimentary reg re-stamped the price under its old discount and left it
+ *    owing. So a discount rides a re-stamp only onto COMPLIMENTARY or INCLUSIVE.
  */
 
 export type RepricingResolution =
@@ -78,6 +83,8 @@ export async function resolveRepricing(input: {
   ticketTypeId?: string;
   /** Requested tier: an id, `null` (base), or `undefined` (not provided). */
   pricingTierId?: string | null;
+  /** The payment status the same update writes, when it writes one. */
+  nextPaymentStatus?: PaymentStatus;
 }): Promise<RepricingResolution> {
   const { eventId, existing, ticketTypeId } = input;
 
@@ -105,6 +112,9 @@ export async function resolveRepricing(input: {
   const nextTierId: string | null | undefined = isSettingTier ? pricingTierId ?? null : typeChangeTierId;
 
   const hasDiscount = !!existing.promoCodeId || Number(existing.discountAmount ?? 0) > 0;
+  const endsNothingOwed = (NO_BALANCE_TIER_STATUSES as readonly string[]).includes(
+    input.nextPaymentStatus ?? existing.paymentStatus,
+  );
 
   let originalPrice: number | undefined;
 
@@ -153,9 +163,10 @@ export async function resolveRepricing(input: {
       originalPrice = Number(tier.price);
     }
   } else if (isChangingType && (unpaid || noBalance) && effectiveTypeId) {
-    // The price is about to be re-stamped. On a reg that still owes, a discount
-    // worked out against the old price must not ride along (see the header).
-    if (unpaid && hasDiscount) return DISCOUNT_REFUSAL;
+    // The price is about to be re-stamped. A discount worked out against the
+    // old price may ride along only onto a reg that ends owing nothing (see
+    // the header): judged on the status this same update writes, if any.
+    if (hasDiscount && !endsNothingOwed) return DISCOUNT_REFUSAL;
     // M2: bare type change (no tier provided) on an unpaid reg reprices to the
     // NEW type's base, else it keeps the OLD type's price. Complimentary and
     // sponsor-paid follow the same rule (nothing is owed either way).

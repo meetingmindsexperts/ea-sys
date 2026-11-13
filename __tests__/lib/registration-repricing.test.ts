@@ -92,6 +92,31 @@ describe("resolveRepricing", () => {
     expect(r).toMatchObject({ ok: true, isChangingType: true, nextTierId: null, originalPrice: 250 });
   });
 
+  // Review of cbead69f: the exemption is judged on the status the registration ENDS with.
+  it("a COMPLIMENTARY reg made UNPAID in the same call is refused: it would owe under the old discount", async () => {
+    const r = await resolveRepricing({
+      eventId: "ev", existing: existing({ paymentStatus: "COMPLIMENTARY", promoCodeId: "promo1", discountAmount: 200 }),
+      ticketTypeId: NEW_TYPE, nextPaymentStatus: "UNPAID",
+    });
+    expect(r).toMatchObject({ ok: false, code: "TIER_CHANGE_HAS_DISCOUNT" });
+  });
+
+  it("an UNPAID reg marked PAID in the same call is refused too: a paid row must not carry a stale discount", async () => {
+    const r = await resolveRepricing({
+      eventId: "ev", existing: existing({ promoCodeId: "promo1", discountAmount: 250 }),
+      ticketTypeId: NEW_TYPE, nextPaymentStatus: "PAID",
+    });
+    expect(r).toMatchObject({ ok: false, code: "TIER_CHANGE_HAS_DISCOUNT" });
+  });
+
+  it.each(["COMPLIMENTARY", "INCLUSIVE"])("an UNPAID reg made %s in the same call is allowed: it ends owing nothing", async (next) => {
+    const r = await resolveRepricing({
+      eventId: "ev", existing: existing({ promoCodeId: "promo1", discountAmount: 250 }),
+      ticketTypeId: NEW_TYPE, nextPaymentStatus: next as "COMPLIMENTARY" | "INCLUSIVE",
+    });
+    expect(r).toMatchObject({ ok: true, isChangingType: true, nextTierId: null, originalPrice: 250 });
+  });
+
   it("a PAID reg with a promo code changes type as before: its price is not touched", async () => {
     const r = await resolveRepricing({ eventId: "ev", existing: existing({ paymentStatus: "PAID", promoCodeId: "promo1", discountAmount: 250 }), ticketTypeId: NEW_TYPE });
     expect(r).toMatchObject({ ok: true, nextTierId: null, originalPrice: undefined });

@@ -245,4 +245,23 @@ describe("PUT — reprice guards apply to type+tier too", () => {
     expect((await res.json()).code).toBe("TIER_CHANGE_HAS_DISCOUNT");
     expect(mockDb.$transaction).not.toHaveBeenCalled();
   });
+
+  // Owner, Nov 13, 2026: the same refusal when only the type is sent (the door that was open).
+  it("a type change alone on a reg with a promo/discount → 400 TIER_CHANGE_HAS_DISCOUNT, nothing written", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(existingReg({ promoCodeId: "promo1", discountAmount: 100 }));
+
+    const res = await PUT(req({ ticketTypeId: NEW_TYPE }), { params });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("TIER_CHANGE_HAS_DISCOUNT");
+    expect(body.error).toContain("Remove the applied promo code");
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("the same change that also makes it Complimentary goes through: it ends owing nothing", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(existingReg({ promoCodeId: "promo1", discountAmount: 100 }));
+
+    const res = await PUT(req({ ticketTypeId: NEW_TYPE, paymentStatus: "COMPLIMENTARY" }), { params });
+    expect(res.status).toBe(200);
+  });
 });

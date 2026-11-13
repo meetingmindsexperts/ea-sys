@@ -168,6 +168,41 @@ consumer moves to `updatedAfter`.
   type for every speaker (one join, no extra query); the single read and the list
   build the value in two places from one function.
 
+## Type change under a promo code: what the Nov 13 review left (recorded Nov 13, 2026): not started
+
+From the review of `cbead69f` (a type change is refused while a promo code is on a
+registration that still owes; 0 BLOCKER, 0 HIGH, 2 MED, 5 LOW). Both MEDs and three LOWs were
+fixed in the follow-up commit.
+
+**A product decision: refuse, or recompute.** The remedy is "remove the code, change the
+type, re-apply it". Re-applying can fail (the code expired, was switched off, is limited to
+the old type, or its per-email limit is used), removing frees a use someone else can take,
+and an UNPAID registration on a sponsor's code loses its sponsor in between. The apply
+service already recomputes a discount when the same code is applied again
+(`applyPromoCodeToRegistration`, "idempotent refresh"). Recomputing the discount against the
+new price inside the type change would lose nothing; it is a larger change (the redemption
+row, the code's type limits, the per-email count) and the owner chose the refusal on Nov 13.
+
+**Older defect, for the owner: Bulk "Change type" follows a third rule.** A row holding a
+promo code moves type, KEEPS its old price and code, and drops its rate
+(`registrations/bulk-type/route.ts`). Physician 500 with 250 off, bulk-moved to Nurse 200,
+owes 250 on a 200 type. It is also the obvious way round the refusal above. It reads only
+`promoCodeId`, so a discount with no code is re-priced there under the stale discount.
+
+**The same stale discount by three separate saves, not closed:** make an unpaid registration
+with a code Complimentary, change its type (allowed: nothing is owed), set it back to Unpaid.
+The last step is a plain payment-status change. Closing it needs either the recompute above
+or a rule on flipping a discounted registration back to owing.
+
+**LOW, left.** A discount with no promo code (none in production, checked Nov 13) is refused
+with "remove the discount" and has no door to remove it. The refusal also fires when the new
+type's price equals the old one, where nothing would go stale.
+
+**Older defects the review named, not touched.** The single-row rule re-stamps a PENDING
+registration (an open Stripe checkout holds the old amount; Bulk refuses to), and ignores
+groups, issued invoices and recorded payments, which Bulk respects. A type change with no
+rate on a VIRTUAL unpaid registration stamps the in-person price, not the virtual one.
+
 ## Badges: what the Nov 13 review left (recorded Nov 13, 2026): not started
 
 From the review of `b19e5e44` (a bulk badge print says who was left out; 0 BLOCKER, 0 HIGH,
