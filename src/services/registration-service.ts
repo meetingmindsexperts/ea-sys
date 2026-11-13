@@ -31,7 +31,7 @@ import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { syncToContact } from "@/lib/contact-sync";
-import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
+import { changedContactFields, contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
 import { claimSpareDtcmCode, type ClaimDtcmOutcome } from "@/lib/dtcm-pool";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -1845,20 +1845,26 @@ export async function updateRegistration(
           },
         ]);
       }
+    }
 
-      // The contact hears what this edit changed, as the row now holds it, and
-      // nothing else (Nov 13, 2026). Until then the whole row was re-sent on
-      // every edit, with the type it held BEFORE the edit as the category: on a
-      // Faculty registration that wrote "Faculty" over the contact's own
-      // category, and it never sent State, Zip or the free-text specialty.
-      // The category is said only when this edit moved the registration to
-      // another type (never the Faculty type: that move is refused above).
-      const edited = Object.entries(attendee).filter(([, value]) => value !== undefined).map(([key]) => key);
+    // The contact: the fields whose value this edit CHANGED replace the
+    // contact's, read off the saved row; the rest of the row only fills what
+    // the contact has empty (Nov 13, 2026). "Changed" is a comparison of the
+    // row before and after, not the request's keys: the dashboard sends its
+    // whole form on every save. Until then the whole row was re-sent on every
+    // edit, so a status change on an old registration put its older phone and
+    // photo over newer ones on the contact, with the type the row held BEFORE
+    // the edit as the category: on a Faculty registration that wrote "Faculty"
+    // over the contact's own category.
+    // The category is said only when this edit moved the registration to
+    // another type (never the Faculty type: that move is refused above), and
+    // then even when no attendee field came with it.
+    if (attendee || newTicketTypeName) {
       await syncToContact(contactSyncFromAttendee(registration.attendee, {
         organizationId,
         eventId,
         category: newTicketTypeName,
-        only: edited,
+        only: changedContactFields(existing.attendee, registration.attendee),
       }));
     }
 

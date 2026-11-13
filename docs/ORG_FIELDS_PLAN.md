@@ -124,10 +124,11 @@ Mailchimp carries that. Step 0b closes it.
 
 ### 3b. The callers still to move, and how (review of `831549cc`, Nov 13)
 
-Moved: a person's own edit, and the three imports. Fifteen calls remain. The
-speaker builder must first gain what the attendee builder has: `only` (send
-what this write changed) and a way to say "this write does not decide the
-category".
+All moved by the end of Nov 13, 2026 (the tables below are kept as the record
+of how each had to move). The speaker builder gained what the attendee builder
+has: `only`, and the category said only when the write decides it. After the
+review of the staff group, `only` no longer means "send nothing else": the
+rest of the row is sent as fill-only.
 
 Fresh rows, safe to move as they are:
 
@@ -262,7 +263,7 @@ Sizes are estimates, not measurements.
 | Step | What | Changes behaviour? | Size |
 |---|---|---|---|
 | 0a | BUILT Nov 13, 2026. The one declaration of a person's fields and which of the four records hold each (`src/lib/person-field-contract.ts`). `person-field-contract.test.ts` fails when a column is added to Attendee, Speaker, Contact or AccountProfile and not declared, and holds the three hand-written copy lists (speaker and registration sync, contact sync, the account's details) and the public form's fields against it. | No | Done |
-| 0b | IN BUILD (Nov 13, 2026: the builders in `contact-sync-payload.ts`; moved so far: a person's own edit, the imports group (registrations CSV, speakers CSV, EventsAir), the staff group (create and update in the registration and speaker services) and the public forms group (register, complete registration, the submitter door). Still to move, as section 3b says for each: agent bulk tools and group registration, speaker paths). The callers of the contact sync stop building its payload by hand (section 3a): one builder per source record, typed so the compiler demands every field the sync accepts. The speaker builder applies `contactCategoryOf`, pinned by a test, and the deliberate gaps in 3a stay. The speaker's profile form starts calling the sync. | Yes: fields that were dropped start reaching the contact | Days |
+| 0b | BUILT Nov 13, 2026. No caller of the contact sync types its payload by hand: each builds it with `contactSyncFromAttendee`, `contactSyncFromSpeaker` or `contactSyncFromSpeakerInput` (`src/lib/contact-sync-payload.ts`), typed so that a row with fewer columns does not compile. Rules the builders and the sync hold: the category is said by the caller and is never "Faculty"; an edit replaces the fields whose value it changed and sends the rest of the row as fill-only (`fillBlanks`: written only where the contact's column is empty); a contact that does not exist is created with the whole row. `contact-sync-callers.test.ts` fails on a new hand-written payload. By hand on purpose: the evidence form (`verify-details`) and adding a reviewer (name and event only). | Yes: fields that were dropped reach the contact, and an old row no longer overwrites a newer contact | Done |
 | 0c | The create paths: one all-required input, so a create that does not account for a field fails to compile (`ATTENDEE_FIELDS_REFACTOR_PLAN.md`, phase A). One caller per commit. | No | Days |
 | 0d | The update paths, same treatment (phase B of that plan). | No | Days |
 | 1a | `person-fields.ts` with today's lists as the default; every door, and the two rules in section 2 that are not forms, ask the one refusal function; the hand-copied role lists and the scattered "Others" rules are deleted. No new check on a stored value (section 4). | No | Days |

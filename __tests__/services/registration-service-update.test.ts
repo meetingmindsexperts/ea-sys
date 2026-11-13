@@ -123,31 +123,55 @@ beforeEach(() => {
   mockDb._tx.ticketType.findUnique.mockResolvedValue({ quantity: 100, name: "Nurse" });
 });
 
-describe("the contact hears only what the edit changed (Nov 13, 2026)", () => {
-  const AFTER = {
-    id: "att1", email: "a@b.com", firstName: "A", lastName: "B", role: "PHYSICIAN", state: "Dubai", phone: "+971 1",
-    photo: "/uploads/old.jpg", bio: "Old bio", organization: "Clinic", registrationType: "Faculty",
-  };
-  const profileKeys = (payload: Record<string, unknown>) =>
-    Object.keys(payload).filter((k) => !["organizationId", "eventId", "email", "firstName", "lastName", "registrationType"].includes(k)).sort();
+describe("what the contact is told by an edit (Nov 13, 2026)", () => {
+  const BEFORE = { id: "att1", email: "a@b.com", firstName: "A", lastName: "B", tags: [], registrationType: "Physician", role: null, state: null, phone: "+971 1", photo: "/uploads/old.jpg", bio: "Old bio", organization: "Clinic" };
+  const replaced = (payload: Record<string, unknown>) =>
+    Object.keys(payload).filter((k) => !["organizationId", "eventId", "email", "firstName", "lastName", "registrationType", "fillBlanks"].includes(k)).sort();
+  const after = (over: Record<string, unknown>) => ({ ...UPDATED_ROW, attendee: { ...BEFORE, ...over } });
 
-  it("sends the edited fields as the row now holds them, and not the rest of the row", async () => {
-    mockDb._tx.registration.findUniqueOrThrow.mockResolvedValue({ ...UPDATED_ROW, attendee: AFTER });
+  it("the fields whose value changed replace the contact's; the rest of the row only fills its blanks", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(existing({ attendee: BEFORE }));
+    mockDb._tx.registration.findUniqueOrThrow.mockResolvedValue(after({ role: "PHYSICIAN", state: "Dubai" }));
     await updateRegistration({ ...base, attendee: { role: "PHYSICIAN", state: "Dubai" } });
     const payload = contactSyncSpy.mock.calls[0][0];
-    expect(profileKeys(payload)).toEqual(["role", "state"]);
+    expect(replaced(payload)).toEqual(["role", "state"]);
     expect(payload).toMatchObject({ organizationId: "org1", eventId: "ev1", email: "a@b.com", role: "PHYSICIAN", state: "Dubai" });
+    expect(payload.fillBlanks).toMatchObject({ phone: "+971 1", photo: "/uploads/old.jpg", bio: "Old bio", organization: "Clinic" });
+  });
+
+  it("the dashboard sends its whole form on every save: only what DIFFERS from the row is treated as changed", async () => {
+    // A status change from the sheet carries phone, organisation and photo too.
+    // They are what the row already held, so they must not replace a newer
+    // phone or photo the contact got from another event.
+    mockDb.registration.findFirst.mockResolvedValue(existing({ attendee: BEFORE }));
+    mockDb._tx.registration.findUniqueOrThrow.mockResolvedValue(after({}));
+    await updateRegistration({ ...base, status: "CONFIRMED", attendee: { phone: "+971 1", organization: "Clinic", photo: "/uploads/old.jpg" } });
+    const payload = contactSyncSpy.mock.calls[0][0];
+    expect(replaced(payload)).toEqual([]);
+    expect(payload.fillBlanks).toMatchObject({ phone: "+971 1", photo: "/uploads/old.jpg" });
   });
 
   it("an edit on a Faculty registration never writes Faculty as the contact's category", async () => {
     // The old payload sent the type the row held before the edit, raw.
-    mockDb.registration.findFirst.mockResolvedValue(existing({ attendee: { id: "att1", firstName: "A", lastName: "B", email: "a@b.com", tags: [], registrationType: "Faculty" } }));
-    mockDb._tx.registration.findUniqueOrThrow.mockResolvedValue({ ...UPDATED_ROW, attendee: AFTER });
-    await updateRegistration({ ...base, attendee: { phone: "+971 1" } });
-    expect(contactSyncSpy.mock.calls[0][0].registrationType).toBeNull();
+    mockDb.registration.findFirst.mockResolvedValue(existing({ attendee: { ...BEFORE, registrationType: "Faculty" } }));
+    mockDb._tx.registration.findUniqueOrThrow.mockResolvedValue(after({ registrationType: "Faculty", phone: "+971 2" }));
+    await updateRegistration({ ...base, attendee: { phone: "+971 2" } });
+    const payload = contactSyncSpy.mock.calls[0][0];
+    expect(payload.registrationType).toBeNull();
+    expect(payload.fillBlanks).not.toHaveProperty("registrationType");
   });
 
-  it("an edit that touches no attendee field does not sync at all, as before", async () => {
+  it("a move to another type tells the contact its new category, with or without an attendee field", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt2", isFaculty: false, name: "Nurse", price: 100 });
+    mockDb.registration.findFirst.mockResolvedValue(existing({ attendee: BEFORE, paymentStatus: "COMPLIMENTARY" }));
+    mockDb._tx.registration.findUniqueOrThrow.mockResolvedValue(after({ registrationType: "Nurse" }));
+    const r = await updateRegistration({ ...base, ticketTypeId: "tt2" });
+    expect(r).toMatchObject({ ok: true });
+    expect(contactSyncSpy).toHaveBeenCalledTimes(1);
+    expect(contactSyncSpy.mock.calls[0][0].registrationType).toBe("Nurse");
+  });
+
+  it("an edit that touches no attendee field and no type does not sync at all, as before", async () => {
     await updateRegistration({ ...base, notes: "x" });
     expect(contactSyncSpy).not.toHaveBeenCalled();
   });

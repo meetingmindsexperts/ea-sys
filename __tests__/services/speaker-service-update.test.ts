@@ -165,15 +165,19 @@ describe("H4 — the contact sync carries the FULL profile (was name+email on MC
   });
 });
 
-describe("the contact hears only what the edit changed (Nov 13, 2026)", () => {
+describe("what the contact is told by an edit (Nov 13, 2026)", () => {
+  // The fields that REPLACE the contact's values; `fillBlanks` only fills what it has empty.
   const profileKeys = (payload: Record<string, unknown>) =>
-    Object.keys(payload).filter((k) => !["organizationId", "eventId", "email", "firstName", "lastName"].includes(k)).sort();
+    Object.keys(payload).filter((k) => !["organizationId", "eventId", "email", "firstName", "lastName", "fillBlanks"].includes(k)).sort();
 
-  it("a status change sends no profile field: an old photo must not go over a newer one on the contact", async () => {
+  it("a status change replaces nothing: an old photo must not go over a newer one, it may only fill a blank", async () => {
     mockDb.speaker.findFirst.mockResolvedValue({ ...UPDATED, status: "INVITED" });
     mockDb.speaker.findUniqueOrThrow.mockResolvedValue({ ...UPDATED, status: "CONFIRMED" });
     await updateSpeaker({ ...BASE, fields: { status: "CONFIRMED" } });
-    expect(profileKeys(mockSyncToContact.mock.calls[0][0])).toEqual([]);
+    const payload = mockSyncToContact.mock.calls[0][0];
+    expect(profileKeys(payload)).toEqual([]);
+    expect(payload.fillBlanks).toMatchObject({ photo: UPDATED.photo, phone: UPDATED.phone, role: UPDATED.role });
+    expect(payload.fillBlanks).not.toHaveProperty("registrationType");
   });
 
   it("an edit of State and Zip sends exactly those, which the old payload never sent", async () => {

@@ -743,12 +743,13 @@ export async function updateSpeaker(
       actorUserId,
     });
 
-    // The contact hears what this edit changed, read off the freshly updated
-    // row (so it reflects the empty-to-null collapse above), and nothing else
+    // The contact: the fields this edit changed replace the contact's, read off
+    // the freshly updated row (so they reflect the empty-to-null collapse
+    // above); the rest of the row only fills what the contact has empty
     // (Nov 13, 2026). Until then every edit, a status change included, re-sent
     // thirteen fields of the row, which could put this speaker's older photo
-    // or phone over a newer one the contact got from another event, and it
-    // never sent State, Zip or the free-text specialty.
+    // or phone over a newer one the contact got from another event. The name
+    // is always written, as the sync has always done.
     // Awaited; `syncToContact` catches its own errors and never throws.
     await syncToContact(contactSyncFromSpeaker(speaker, {
       organizationId,

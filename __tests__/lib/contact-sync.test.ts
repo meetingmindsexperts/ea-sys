@@ -24,7 +24,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 import { syncToContact, omitBlankFields } from "@/lib/contact-sync";
-import { contactSyncFromAttendee, contactSyncFromSpeaker, contactSyncFromSpeakerInput, CONTACT_SYNC_OPTIONAL_FIELDS } from "@/lib/contact-sync-payload";
+import { changedContactFields, contactSyncFromAttendee, contactSyncFromSpeaker, contactSyncFromSpeakerInput, CONTACT_SYNC_OPTIONAL_FIELDS } from "@/lib/contact-sync-payload";
 
 const base = { organizationId: "org1", email: "Krishna@X.com", firstName: "Krishna", lastName: "P" };
 
@@ -130,6 +130,14 @@ describe("contactSyncFromAttendee", () => {
     expect(payload).not.toHaveProperty("bio");
     expect(payload).not.toHaveProperty("organization");
     expect(payload).not.toHaveProperty("dietaryReqs");
+    // The rest of the row goes along to fill blanks only, never the category.
+    expect(payload.fillBlanks).toMatchObject({ photo: "/uploads/p.jpg", bio: "Bio", organization: "Tawam", state: "Abu Dhabi" });
+    expect(payload.fillBlanks).not.toHaveProperty("phone");
+    expect(payload.fillBlanks).not.toHaveProperty("registrationType");
+  });
+
+  it("a row just created sends everything to replace, and nothing to fill", () => {
+    expect(contactSyncFromAttendee(attendee, { ...to, category: null })).not.toHaveProperty("fillBlanks");
   });
 
   it("a row with fewer columns does not compile", () => {
@@ -201,5 +209,61 @@ describe("contact-sync-payload.ts stays pure", () => {
     const imports = [...source.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
     expect(imports.sort()).toEqual(["@/lib/faculty-filter", "@/lib/person-field-contract", "@prisma/client"]);
     expect(source).toMatch(/^import type \{[^}]+\} from "@prisma\/client";$/m);
+  });
+});
+
+describe("changedContactFields", () => {
+  const row = { phone: "+971 1", organization: "Clinic", photo: null, studentIdExpiry: new Date("2027-01-01"), state: "" };
+
+  it("names the fields whose value differs, and only those", () => {
+    expect(changedContactFields(row, { ...row, phone: "+971 2", photo: "/uploads/new.jpg" }).sort()).toEqual(["phone", "photo"]);
+  });
+
+  it("the same value sent again is not a change: null, undefined and blank are one, text is trimmed, a date is its instant", () => {
+    expect(changedContactFields(row, { phone: " +971 1 ", organization: "Clinic", photo: undefined, studentIdExpiry: new Date("2027-01-01"), state: null })).toEqual([]);
+  });
+});
+
+describe("syncToContact: fillBlanks (Nov 13, 2026)", () => {
+  const edit = { ...base, eventId: "e2", phone: "+971 2", fillBlanks: { photo: "/uploads/row.jpg", organization: "Row Clinic", role: "PHYSICIAN", phone: "+971 0" } };
+
+  it("fills only what the contact has empty, and never puts the row's value over one it holds", async () => {
+    mockDb.contact.findUnique.mockResolvedValue({ eventIds: ["e1"], photo: "/uploads/newer.jpg", organization: null, role: "" });
+    await syncToContact(edit);
+    // It reads the contact's own values for exactly the fields it may fill.
+    expect(mockDb.contact.findUnique.mock.calls[0][0].select).toEqual({ eventIds: true, photo: true, organization: true, role: true });
+    const written = mockDb.contact.update.mock.calls[0][0].data;
+    expect(written).toMatchObject({ phone: "+971 2", organization: "Row Clinic", role: "PHYSICIAN", eventIds: ["e1", "e2"] });
+    expect(written).not.toHaveProperty("photo");
+  });
+
+  it("a field the write itself sets is replaced, whatever fillBlanks says about it", async () => {
+    mockDb.contact.findUnique.mockResolvedValue({ eventIds: ["e2"], photo: null, organization: null, role: null });
+    await syncToContact(edit);
+    expect(mockDb.contact.update.mock.calls[0][0].data.phone).toBe("+971 2");
+  });
+
+  it("a contact that does not exist yet is created with the whole row", async () => {
+    mockDb.contact.findUnique.mockResolvedValue(null);
+    await syncToContact(edit);
+    expect(mockDb.contact.create.mock.calls[0][0].data).toMatchObject({ phone: "+971 2", photo: "/uploads/row.jpg", organization: "Row Clinic", role: "PHYSICIAN" });
+  });
+
+  it("never fills the category: Faculty must not arrive by this road", async () => {
+    mockDb.contact.findUnique.mockResolvedValue({ eventIds: [] });
+    await syncToContact({ ...base, eventId: "e2", fillBlanks: { registrationType: "Faculty" } as never });
+    expect(mockDb.contact.update.mock.calls[0][0].data).not.toHaveProperty("registrationType");
+  });
+
+  it("with no event, reads the contact only when there is something to fill", async () => {
+    await syncToContact({ ...base, phone: "+971 2" });
+    expect(mockDb.contact.findUnique).not.toHaveBeenCalled();
+
+    mockDb.contact.findUnique.mockResolvedValue({ id: "c1", photo: "/uploads/newer.jpg", organization: null });
+    await syncToContact({ ...base, phone: "+971 2", fillBlanks: { photo: "/uploads/row.jpg", organization: "Row Clinic" } });
+    const args = mockDb.contact.upsert.mock.calls[1][0];
+    expect(args.update).toMatchObject({ phone: "+971 2", organization: "Row Clinic" });
+    expect(args.update).not.toHaveProperty("photo");
+    expect(args.create).toMatchObject({ photo: "/uploads/row.jpg", organization: "Row Clinic" });
   });
 });

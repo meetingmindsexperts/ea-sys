@@ -136,6 +136,24 @@ plan found these outside the plan's own steps.
   the write is skipped, and the sync still runs for it). LOW, older; three more
   fields ride on it since Nov 13. A race between two imports of the same
   person, and the sync only fills.
+- **A bulk type change tells the contact nothing**
+  (`registrations/bulk-type/route.ts` rewrites each attendee's type and has no
+  contact sync). MED, older, found by the review of `f1dad0b8`. Not fixed with
+  it: it would start writing a category on many contacts at once, which the
+  nightly feed carries to Mailchimp, so the owner is told first.
+- **Every contact sync writes the row's first and last name over the
+  contact's**, a status-only save included (`contact-sync.ts`). LOW, older, by
+  design until now: the name is the one field the sync has always replaced.
+  Worth a decision when Step 1 touches names.
+- **Staff cannot edit State, Zip or the typed-in specialty** of a registration
+  or a speaker from the dashboard, and cannot clear a field from the
+  registration sheet (it sends blanks as "not sent"). LOW, older; the second is
+  documented in `registration-edit-mapping.ts`.
+- **Two test fixtures say less than their titles** (review of `f1dad0b8`): the
+  "H4 full profile" speaker update test passes only because its "before" row
+  holds no profile columns, and one agent parity test asserts an email that now
+  comes from its own fixed row. LOW. Rename and re-fixture when those files are
+  next touched.
 - **A column can be waved past the new test by naming it "not a person
   field"** in `person-field-contract.test.ts`. LOW, by design: the list is
   short, each entry carries its reason, and a reviewer reads it. No stronger

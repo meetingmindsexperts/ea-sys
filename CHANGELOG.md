@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Contacts: an edit replaces what it changed and only fills the rest (November 13)
+
+Review of the staff group (`f1dad0b8`: no HIGH, three MED). The rule for what
+an edit tells the contact is now this, for every caller that edits a row
+(staff, the person themselves, a submitter's profile, the public forms):
+
+- The fields whose value the edit **changed** replace the contact's values.
+- Every other field the row holds goes along as "fill only": the sync writes
+  it only where the contact's own column is empty, never over a value.
+- A contact that does not exist yet is created with the whole row.
+- A category is never filled this way.
+
+Why: the first version sent the changed fields and nothing else. That stopped
+an old registration's phone and photo from replacing newer ones on the
+contact, but it also stopped a contact's blanks from ever filling, and for a
+staff save it was not even true: the dashboard sends its whole form on every
+save, so "changed" is now a comparison of the row before and after, not the
+request's keys.
+
+Also from the review: moving a registration to another type now tells the
+contact its new category even when no attendee field came with the move (the
+agent's update tool sends the type alone). The bulk type change still tells
+the contact nothing, as before (ROADMAP).
+
+Corrections to the entry below: State, Zip and the typed-in specialty cannot
+be edited from the dashboard at all, so "never sent" applied to the CSV and
+agent paths only; and a registration created on an older ordinary type named
+"Faculty" no longer writes that word as the contact's category either.
+
+Verified on the local app with a real staff save: the contact kept its newer
+phone, its empty State filled from the registration, and its category stayed.
+
+### Contacts: the last callers, and a test that keeps it so (November 13)
+
+Step 0b of `docs/ORG_FIELDS_PLAN.md` is complete: no caller of the contact
+sync types its payload by hand. The last group: the agent's two bulk create
+tools (the speakers one left out the additional email, State and Zip), group
+registration, and a submitter's own profile (it re-sent the whole speaker row
+on every save).
+
+Adding a reviewer from a speaker now tells the contact the person's name and
+that they came through the event, and nothing else: it used to re-send eleven
+fields of the speaker's row as it stood.
+
+`contact-sync-callers.test.ts` scans every call of the sync: each must build
+its payload with a builder or be named in the test with its reason (two are:
+the evidence form, and adding a reviewer). A new hand-written payload fails.
+
 ### Contacts: the public forms tell the contact what the form wrote (November 13)
 
 Step 0b of `docs/ORG_FIELDS_PLAN.md`, the public forms group: public

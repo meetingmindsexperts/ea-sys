@@ -33,6 +33,15 @@ export interface ContactSyncData {
   memberId?: string | null;
   studentId?: string | null;
   studentIdExpiry?: Date | null;
+  /**
+   * Fields the row holds that this write did NOT change. The sync writes one
+   * of these only where the contact's own column is empty, never over a value
+   * (Nov 13, 2026). An edit used to re-send its whole row, so opening an old
+   * registration and changing its status put that row's older phone and photo
+   * over newer ones on the contact; sending the changed fields alone fixed
+   * that and stopped a contact's blanks from ever filling. This does both.
+   */
+  fillBlanks?: Partial<Omit<ContactSyncData, "organizationId" | "email" | "firstName" | "lastName" | "eventId" | "fillBlanks" | "registrationType">>;
 }
 
 /**
@@ -68,7 +77,7 @@ export const CONTACT_SYNC_OPTIONAL_FIELDS = [
 ] as const satisfies readonly (keyof ContactSyncData)[];
 
 /** Compile-time: every key of ContactSyncData is written by the sync, here or by name below. */
-type ContactSyncKeyWritten = (typeof CONTACT_SYNC_OPTIONAL_FIELDS)[number] | "organizationId" | "email" | "firstName" | "lastName" | "eventId";
+type ContactSyncKeyWritten = (typeof CONTACT_SYNC_OPTIONAL_FIELDS)[number] | "organizationId" | "email" | "firstName" | "lastName" | "eventId" | "fillBlanks";
 const _everyContactSyncKeyIsWritten: Exclude<keyof ContactSyncData, ContactSyncKeyWritten> extends never ? true : never = true;
 void _everyContactSyncKeyIsWritten;
 
@@ -99,13 +108,30 @@ export interface AttendeeContactOptions extends ContactSyncTarget {
    */
   category: string | null;
   /**
-   * Send only these fields (the ones this write changed). A row also holds
-   * values the caller did not touch, such as a photo and bio copied in when
-   * the registration was made, and sending those would put an old value over
-   * a newer one on the contact: the sync replaces a value with any other
-   * non-blank value. Left out, every field goes: right for a row just created.
+   * The fields this write changed: they replace the contact's values. A row
+   * also holds values the caller did not touch, such as a photo and bio copied
+   * in when the registration was made; those go as `fillBlanks`, written only
+   * where the contact has nothing. Left out, every field replaces: right for a
+   * row just created.
    */
   only?: readonly string[];
+}
+
+/** One value, for comparing two rows: trimmed, a Date as its instant, and null, undefined and "" all as nothing. */
+function comparable(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return value.trim();
+  return value === null || value === undefined ? "" : String(value);
+}
+
+/**
+ * The copied fields whose value differs between a row before and after a
+ * write: what that write changed, whatever the caller's request carried. The
+ * dashboard sends its whole form on every save, so the request's keys say
+ * nothing about what changed.
+ */
+export function changedContactFields(before: Partial<Record<CopiedField, unknown>>, after: Partial<Record<CopiedField, unknown>>): CopiedField[] {
+  return COPIED_FIELDS.filter((field) => comparable(before[field]) !== comparable(after[field]));
 }
 
 /**
@@ -122,6 +148,7 @@ export function contactSyncFromAttendee(attendee: AttendeeContactSource, options
   const only = options.only ? new Set(options.only) : null;
   const fields = only ? COPIED_FIELDS.filter((field) => only.has(field)) : COPIED_FIELDS;
   const copied = Object.fromEntries(fields.map((field) => [field, attendee[field]])) as Partial<Pick<AttendeeContactSource, CopiedField>>;
+  const untouched = only ? COPIED_FIELDS.filter((field) => !only.has(field)) : [];
   return {
     organizationId: options.organizationId,
     eventId: options.eventId,
@@ -130,6 +157,7 @@ export function contactSyncFromAttendee(attendee: AttendeeContactSource, options
     lastName: attendee.lastName,
     ...copied,
     registrationType: contactCategoryOf(options.category),
+    ...(untouched.length > 0 && { fillBlanks: Object.fromEntries(untouched.map((field) => [field, attendee[field]])) }),
   };
 }
 
@@ -161,6 +189,7 @@ export function contactSyncFromSpeaker(speaker: SpeakerContactSource, options: S
   const fields = only ? SPEAKER_COPIED_FIELDS.filter((field) => only.has(field)) : SPEAKER_COPIED_FIELDS;
   const copied = Object.fromEntries(fields.map((field) => [field, speaker[field as SpeakerContactField]])) as Partial<Pick<SpeakerContactSource, SpeakerContactField>>;
   const saysCategory = !only || only.has("registrationType");
+  const untouched = only ? SPEAKER_COPIED_FIELDS.filter((field) => !only.has(field)) : [];
   return {
     organizationId: options.organizationId,
     eventId: options.eventId,
@@ -169,6 +198,7 @@ export function contactSyncFromSpeaker(speaker: SpeakerContactSource, options: S
     lastName: speaker.lastName,
     ...copied,
     ...(saysCategory && { registrationType: contactCategoryOf(speaker.registrationType) }),
+    ...(untouched.length > 0 && { fillBlanks: Object.fromEntries(untouched.map((field) => [field, speaker[field as SpeakerContactField]])) }),
   };
 }
 

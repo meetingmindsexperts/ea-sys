@@ -49,6 +49,16 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
     if (!email) return;
 
     const optional = omitBlankFields(Object.fromEntries(CONTACT_SYNC_OPTIONAL_FIELDS.map((field) => [field, data[field]])));
+    // Written only where the contact's own column is empty (see `fillBlanks`
+    // on the payload). A field this write also sets is not one of them.
+    const fill = omitBlankFields(Object.fromEntries(
+      CONTACT_SYNC_OPTIONAL_FIELDS
+        .filter((field) => field !== "registrationType" && !(field in optional))
+        .map((field) => [field, (data.fillBlanks as Record<string, unknown> | undefined)?.[field]]),
+    ));
+    const fillSelect = Object.fromEntries(Object.keys(fill).map((field) => [field, true]));
+    const blanksOf = (existing: Record<string, unknown>) =>
+      Object.fromEntries(Object.entries(fill).filter(([field]) => existing[field] === null || existing[field] === undefined || existing[field] === ""));
 
     const compositeKey = {
       organizationId_email: {
@@ -61,7 +71,7 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
       // Check if contact exists and already has this eventId
       const existing = await db.contact.findUnique({
         where: compositeKey,
-        select: { eventIds: true },
+        select: { eventIds: true, ...fillSelect },
       });
 
       if (existing) {
@@ -75,6 +85,7 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
             firstName: data.firstName,
             lastName: data.lastName,
             eventIds,
+            ...blanksOf(existing),
             ...optional,
           },
         });
@@ -86,17 +97,23 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
             firstName: data.firstName,
             lastName: data.lastName,
             eventIds: [data.eventId],
+            ...fill,
             ...optional,
           },
         });
       }
     } else {
-      // No eventId — simple upsert without touching eventIds
+      // No eventId: an upsert that leaves eventIds alone. With blanks to fill,
+      // the contact's own values are read first.
+      const existing = Object.keys(fill).length > 0
+        ? await db.contact.findUnique({ where: compositeKey, select: { id: true, ...fillSelect } })
+        : null;
       await db.contact.upsert({
         where: compositeKey,
         update: {
           firstName: data.firstName,
           lastName: data.lastName,
+          ...(existing ? blanksOf(existing) : {}),
           ...optional,
         },
         create: {
@@ -104,6 +121,7 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
           email,
           firstName: data.firstName,
           lastName: data.lastName,
+          ...fill,
           ...optional,
         },
       });
