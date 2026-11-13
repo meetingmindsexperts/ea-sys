@@ -301,6 +301,11 @@ export function readEventPersonFieldChoices(eventSettings: unknown): EventPerson
   return choices;
 }
 
+/** Whether two sets of choices say the same thing, however each was built. */
+export function sameEventPersonFieldChoices(a: EventPersonFieldChoices, b: EventPersonFieldChoices): boolean {
+  return CONFIGURABLE_PERSON_FIELDS.every((field) => a[field] === b[field]);
+}
+
 /**
  * The organisation's fields as one event asks them. Works on anything that
  * carries the two switches (the full setting, or what a public form is

@@ -14,7 +14,7 @@ import { DEFAULT_PUBLIC_PERSON_FIELDS, personFieldRules, type ConfigurablePerson
  * Two different shapes live under these keys, so they never share a prefix
  * with a value a person can choose: an event's slug is one.
  */
-const PUBLIC_FIELDS_KEY = ["person-fields", "public"] as const;
+export const PUBLIC_FIELDS_KEY = ["person-fields", "public"] as const;
 const SPECIALTY_SETTINGS_KEY = ["person-fields", "settings"] as const;
 
 /**
@@ -25,12 +25,19 @@ const SPECIALTY_SETTINGS_KEY = ["person-fields", "settings"] as const;
  * caller asks for the organisation's own (the event settings card, which shows
  * what the event is choosing over), there is no event.
  */
-function eventOfPage(pathname: string, organisationOnly: boolean): string | null {
-  if (organisationOnly) return null;
+export function eventOfPage(pathname: string): string | null {
   // The route takes a slug or an id in the same parameter, as the public pages do.
-  const ref = /^\/e\/([^/]+)/.exec(pathname)?.[1] ?? /^\/events\/([^/]+)/.exec(pathname)?.[1] ?? null;
-  // "/events/new" is the creation page, not an event.
-  return ref === "new" ? null : ref;
+  const slug = /^\/e\/([^/]+)/.exec(pathname)?.[1];
+  const id = /^\/events\/([^/]+)/.exec(pathname)?.[1];
+  // "/events/new" is the creation page, not an event (an event's SLUG may be "new").
+  const ref = slug ?? (id === "new" ? undefined : id);
+  if (!ref) return null;
+  // The address holds the segment encoded; the caller encodes it once for the query.
+  try {
+    return decodeURIComponent(ref);
+  } catch {
+    return ref;
+  }
 }
 
 /**
@@ -40,7 +47,8 @@ function eventOfPage(pathname: string, organisationOnly: boolean): string | null
 export function usePersonFields(opts: { organisationOnly?: boolean } = {}): PublicPersonFields {
   // On an event's pages the list is the event's organisation's, whoever is
   // looking and whatever address serves the page, with the event's own choice.
-  const event = eventOfPage(usePathname() ?? "", opts.organisationOnly === true);
+  const pathname = usePathname() ?? "";
+  const event = opts.organisationOnly ? null : eventOfPage(pathname);
   const { data } = useQuery({
     queryKey: [...PUBLIC_FIELDS_KEY, event],
     queryFn: async () => (await fetchApi<{ fields: PublicPersonFields }>(`/api/public/person-fields${event ? `?event=${encodeURIComponent(event)}` : ""}`)).fields,

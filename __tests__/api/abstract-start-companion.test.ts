@@ -30,6 +30,8 @@ const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy, txUserU
     // file asserts. The route asks BEFORE the transaction (Sep 21, 2026), so
     // the mock has to answer.
     ticketType: { findMany: vi.fn().mockResolvedValue([]) },
+    // The organisation's switches for Title, Role and Specialty (person-field-rules.ts).
+    organization: { findUnique: vi.fn() },
   },
   ensureCompanionSpy: vi.fn(),
   upsertSpy: vi.fn(),
@@ -88,6 +90,8 @@ beforeEach(() => {
   rateLimitSpy.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   compareSpy.mockResolvedValue(true);
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
+  // Nothing saved: today's rules.
+  mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
   mockDb.user.findUnique.mockResolvedValue({ email: "anna@example.com", emailConfirmedAt: new Date() });
   mockDb.user.findFirst.mockResolvedValue({
     id: "u1",
@@ -324,6 +328,50 @@ describe("abstract-start — lookup, then confirmed details", () => {
     expect(ensureCompanionSpy.mock.calls[0][0]).toMatchObject({
       organization: "Heart Institute",
       specialty: "Cardiology",
+    });
+  });
+
+  // Review of 5dd9cd5f. This door also REFRESHES a speaker record that exists
+  // (invited by the organisers, or a returning submitter), with
+  // overwriteExisting. A field the event does not ask must reach that write
+  // as `undefined` (leave what the record holds), never `null` (erase it):
+  // the first version erased the title the organisers had entered.
+  describe("a field this event does not ask is left on the record, never blanked", () => {
+    const profileSent = () => upsertSpy.mock.calls[0][1].profile as Record<string, unknown>;
+
+    it("with everything asked, the confirmed details are written as before", async () => {
+      await POST(makeReq({ ...validBody, details: { ...details, specialty: "Others", customSpecialty: "Sleep medicine" } }), params);
+      expect(profileSent()).toMatchObject({ title: "DR", role: "PHYSICIAN", specialty: "Others", customSpecialty: "Sleep medicine" });
+    });
+
+    it("a blank title on a form that ASKS it still clears it, as before", async () => {
+      const { title: _t, ...noTitle } = details;
+      void _t;
+      await POST(makeReq({ ...validBody, details: noTitle }), params);
+      expect(profileSent().title).toBeNull();
+    });
+
+    it("the EVENT does not ask Title or Role: both go as undefined, whatever the form re-posted", async () => {
+      mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { personFieldChoices: { title: "off", role: "off" } } });
+      const res = await POST(makeReq({ ...validBody, details }), params);
+      expect(res.status).toBe(200);
+      const sent = profileSent();
+      expect("title" in sent && sent.title).toBeUndefined();
+      expect("role" in sent && sent.role).toBeUndefined();
+      expect(sent.title).not.toBeNull();
+      expect(sent.role).not.toBeNull();
+      // What IS asked is still written.
+      expect(sent.specialty).toBe("Cardiology");
+    });
+
+    it("the ORGANISATION switched Specialty off and the event chose nothing: specialty and its typed text are both left", async () => {
+      mockDb.organization.findUnique.mockResolvedValue({ settings: { personFields: { specialty: { enabled: false } } } });
+      const res = await POST(makeReq({ ...validBody, details: { ...details, specialty: "Others", customSpecialty: "Sleep medicine" } }), params);
+      expect(res.status).toBe(200);
+      const sent = profileSent();
+      expect(sent.specialty).toBeUndefined();
+      expect(sent.customSpecialty).toBeUndefined();
+      expect(sent.title).toBe("DR");
     });
   });
 

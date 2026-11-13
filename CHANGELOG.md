@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Form fields: the review of the event's choice (November 13)
+
+Review of `5dd9cd5f` (1 HIGH, 2 MED, 10 LOW), fixed before it was pushed.
+
+- **Signing in through the abstract door erased a speaker's title (HIGH).**
+  That door also refreshes a speaker record that exists. With Title or Role
+  not asked, it wrote "nothing" over what the organisers had entered, and the
+  typed specialty the same way. A field that is not asked is now left as the
+  record holds it; the new-account door got the same correction.
+- **Saving an event was refused for someone who may edit its details but not
+  its settings (MED).** The page sent the new setting on every save, which
+  counted as a settings change. It is sent only when changed on that page,
+  which also stops a page opened earlier from undoing a colleague's choice.
+- **The desk kept the old rules after the choice was saved (MED),** and a
+  refused walk-in said only "Invalid input". Saving an event's settings now
+  refreshes the rules in that browser, and the desk names the field.
+- Smaller: the forms' read ties the event to the organisation it resolved;
+  an event whose slug is "new", or needs encoding, is found; when the
+  organisation cannot be read the event's own choice still applies; the
+  pickers are greyed for someone who cannot save; the guard test checks three
+  more ways a door could ignore its event.
+
 ### Form fields: each event chooses what it asks (November 13)
 
 Step 2 of `docs/ORG_FIELDS_PLAN.md`, second part. Owner, Nov 13: the
@@ -26,14 +48,18 @@ asked, optional or required. For Title: as the organisation, or not asked.
   "profile complete" check. Sign-up and My account have no event and follow
   the organisation.
 - **One rule still.** The event's choice is laid over the organisation's
-  switches by one function, used by the routes and by the read the forms make,
-  so a form and its route cannot disagree. A door that belongs to an event
-  must hand the event over; the test fails if one reads the organisation
-  alone.
-- **A field an event does not ask is not stored**, whoever sent it: the doors
-  that create a record (registration, group, walk-in, abstract sign-up) now
+  switches by one function, used by the routes and by the read the forms make.
+  A door that belongs to an event must hand over the event it loaded; the test
+  fails on one that reads the organisation alone, makes an event up, or works
+  the rules out by itself. A form open while the choice is changed keeps the
+  rules it loaded until it is opened again; the desk now names the field it
+  was refused for and reads the rules again.
+- **A field an event does not ask is not stored**, whoever sent it: public
+  registration, group registration, the desk walk-in and abstract sign-up now
   drop it, so a form left open from before a switch cannot save an answer to a
-  question nobody asked. This closes the item the review of the switches left.
+  question nobody asked. On a record that already exists the field is left as
+  it is, never blanked. (The coordinator's "add people" route is the one
+  create door not covered; it is in ROADMAP.)
 - A cloned event carries its choice. An event that has chosen nothing behaves
   exactly as before.
 

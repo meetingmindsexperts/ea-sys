@@ -367,6 +367,14 @@ the first table missed and the false "no filter on Role" claim (section 6),
 and the four rules at the top of section 4. On the commit: no HIGH, four MED,
 fixed in the commit that follows it.
 
+**The review of step 2's event part (`5dd9cd5f`).** 1 HIGH, 2 MED, 10 LOW,
+fixed in the commit after it; the rest is in `docs/ROADMAP.md`. The HIGH was
+`askedOnly` (which turns an unasked field into "not sent") feeding a write
+that treats "not sent" as "clear it": the abstract sign-in door refreshes a
+record that exists, and `?? null` erased the organisers' title. "Drop what was
+not asked" means two different things on a create and on an overwrite, and a
+door that does both needs `undefined`, never `null`, for an unasked field.
+
 **The review of step 2's organisation part (`f0899baf`).** 2 HIGH, 4 MED, 12
 LOW; both HIGH needed a field switched off. Fixed in the commit after it; what
 was left is in `docs/ROADMAP.md`, under person fields. The lesson worth

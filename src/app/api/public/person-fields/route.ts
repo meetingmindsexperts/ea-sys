@@ -62,14 +62,19 @@ export async function GET(req: Request) {
     const eventOrganizationId = ref ? await resolvePublicEventOrg(req, ref, { allowIdFallback: true }) : null;
     const organizationId = eventOrganizationId ?? (await auth())?.user?.organizationId ?? (await resolveRequestOrgId(req));
     if (!organizationId) return respond(DEFAULT_PUBLIC_PERSON_FIELDS);
-    // The event's own choice is read only when the event resolved, and through
-    // the same host-scoped filter: never a same-named event of the fallback
-    // organisation.
+    // The event's own choice is read only when the event resolved, and only
+    // from an event of the organisation it resolved to.
     const [org, event] = await runWithTenant(organizationId, async () =>
       Promise.all([
         db.organization.findUnique({ where: { id: organizationId }, select: { settings: true } }),
         eventOrganizationId && ref
-          ? db.event.findFirst({ where: await publicEventWhere(req, ref, { allowIdFallback: true }), select: { settings: true } })
+          ? db.event.findFirst({
+              // The same host-scoped filter, AND the organisation the read above
+              // resolved: on a host that serves several organisations, never
+              // one's list with another's event of the same name.
+              where: { AND: [await publicEventWhere(req, ref, { allowIdFallback: true }), { organizationId: eventOrganizationId }] },
+              select: { settings: true },
+            })
           : null,
       ]),
     );

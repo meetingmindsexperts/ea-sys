@@ -252,6 +252,16 @@ describe("one event's own choice", () => {
     expect(withEventChoices({ ...fields, specialty: off }, { specialty: "optional" }).specialty).toEqual(off);
   });
 
+  it("two sets of choices are the same when they say the same, however each was built", async () => {
+    const { sameEventPersonFieldChoices } = await import("@/lib/person-fields");
+    expect(sameEventPersonFieldChoices({}, {})).toBe(true);
+    expect(sameEventPersonFieldChoices({ role: "off", title: "off" }, { title: "off", role: "off" })).toBe(true);
+    expect(sameEventPersonFieldChoices({ role: "off" }, {})).toBe(false);
+    expect(sameEventPersonFieldChoices({ role: "off" }, { role: "optional" })).toBe(false);
+    // An entry that is there and unset is no choice, the same as no entry.
+    expect(sameEventPersonFieldChoices({ role: undefined }, {})).toBe(true);
+  });
+
   it("keeps whatever else a field carries (its label and answers, on what a form is handed)", async () => {
     const { withEventChoices, publicPersonFields, personFieldRules } = await import("@/lib/person-fields");
     const handed = publicPersonFields(defaultPersonFields());

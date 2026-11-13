@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
   DEFAULT_PERSON_FIELD_RULES,
+  defaultPersonFields,
   personFieldRules,
   readEventPersonFieldChoices,
   readPersonFields,
@@ -57,12 +58,15 @@ export async function loadOrganizationPersonFieldRules(organizationId: string | 
 /** For a door that belongs to an event: the organisation's rules with the event's own choice laid over them. */
 export async function loadEventPersonFieldRules(event: PersonFieldEvent): Promise<PersonFieldRules> {
   if (!event.organizationId) return DEFAULT_PERSON_FIELD_RULES;
+  const choices = readEventPersonFieldChoices(event.settings);
   try {
-    return personFieldRules(withEventChoices(await readOrganizationFields(event.organizationId), readEventPersonFieldChoices(event.settings)));
+    return personFieldRules(withEventChoices(await readOrganizationFields(event.organizationId), choices));
   } catch (err) {
-    // As above: a registration must not fail because this one read did.
+    // As above: a registration must not fail because this one read did. The
+    // event's own choice is already in hand, so it still applies, over today's
+    // rules: otherwise the route would demand a field this event's form hides.
     apiLogger.error({ err, organizationId: event.organizationId, msg: "person-field-rules:read-failed" });
-    return DEFAULT_PERSON_FIELD_RULES;
+    return personFieldRules(withEventChoices(defaultPersonFields(), choices));
   }
 }
 

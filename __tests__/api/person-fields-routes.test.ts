@@ -234,7 +234,13 @@ describe("the forms' read: whose list, and never an empty picker", () => {
       resolvePublicEventOrg.mockResolvedValue(ORG);
       mockDb.event.findFirst.mockResolvedValue(EVENT_CHOICE);
       expect(await flags("http://x/api/public/person-fields?event=hemnet2026")).toEqual({ title: [false, false], role: [true, false], specialty: [false, false] });
-      expect(mockDb.event.findFirst).toHaveBeenCalledWith({ where: { publicSlug: "hemnet2026", opts: { allowIdFallback: true } }, select: { settings: true } });
+      // The public pages' own filter, AND the organisation the event resolved
+      // to: on a host that serves several organisations, never one's list with
+      // another's event of the same name (review of 5dd9cd5f).
+      expect(mockDb.event.findFirst).toHaveBeenCalledWith({
+        where: { AND: [{ publicSlug: "hemnet2026", opts: { allowIdFallback: true } }, { organizationId: ORG }] },
+        select: { settings: true },
+      });
     });
 
     it("a dashboard page names the event by its id in the same parameter, found the same way", async () => {
@@ -242,7 +248,10 @@ describe("the forms' read: whose list, and never an empty picker", () => {
       resolvePublicEventOrg.mockResolvedValue(ORG);
       mockDb.event.findFirst.mockResolvedValue(EVENT_CHOICE);
       expect((await flags("http://x/api/public/person-fields?event=ev1")).specialty).toEqual([false, false]);
-      expect(mockDb.event.findFirst).toHaveBeenCalledWith({ where: { publicSlug: "ev1", opts: { allowIdFallback: true } }, select: { settings: true } });
+      expect(mockDb.event.findFirst).toHaveBeenCalledWith({
+        where: { AND: [{ publicSlug: "ev1", opts: { allowIdFallback: true } }, { organizationId: ORG }] },
+        select: { settings: true },
+      });
     });
 
     it("the organisation is the ceiling: a field it switched off stays off whatever the event saved", async () => {

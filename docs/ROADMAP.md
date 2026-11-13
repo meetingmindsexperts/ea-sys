@@ -94,11 +94,45 @@ From the review of `f0899baf` (the switches), Nov 13. Fixed: both HIGH, all
 four MED, and LOW 4, 7, 8, 9, 11, 12 and the group part of 1. Left, with why:
 
 - ~~A hand-made request can still store a value for a field that is switched
-  off.~~ DONE with the event's own choice (Nov 13): the doors that create a
-  record keep only what the event asks (`askedOnly`). The two doors that EDIT
-  a record that exists (completing a registration, My account) still write
-  what they are sent for a field that is off: the form re-posts what the
-  record already holds, so nothing new is stored. LOW, left.
+  off.~~ DONE with the event's own choice (Nov 13): public registration, group
+  registration, the desk walk-in and abstract sign-up keep only what the event
+  asks (`askedOnly`), and leave such a field alone on a record that exists.
+  Left, all LOW:
+  - **The coordinator's "add people" route** (`registrant/my-group/[groupId]/
+    members`) stores Title, Role and Specialty as sent. Its dialog asks Title
+    only (hidden when off) and has never asked the other two, so only a
+    hand-made request reaches it. Fix with the item below that makes this
+    dialog ask what group registration asks: the event is read in the service,
+    not the route.
+  - **The doors that EDIT a record that exists** (completing a registration,
+    My account, the registrant's edit, the submitter's My Details) write what
+    they are sent for a field that is off. The form re-posts what the record
+    holds, so nothing new is stored.
+  - **Public registration on a reused attendee row** leaves an unasked Title
+    and Role as the row holds them and writes Specialty as empty. Inconsistent,
+    harmless: the row had no live registration.
+- From the review of `5dd9cd5f` (the event's choice), left, all LOW:
+  - **The event edit stores `personFieldChoices` as sent** (the settings blob
+    is not validated key by key). Every reader goes through
+    `readEventPersonFieldChoices`, which ignores anything that is not one of
+    the three choices, so a bad value means "as the organisation".
+  - **On the platform instance, a staff address not mapped to the event's
+    organisation** would give the desk form the organisation's rules while the
+    walk-in route uses the event's. Not reachable on master. Check when the
+    platform's staff addresses are decided.
+  - **The event card says "As the organisation (required)" from today's
+    defaults while the organisation's switches are still loading** or cannot
+    be read. A second's wrong label, never a wrong save.
+  - **A form left open across a change keeps the rules it loaded** until it is
+    opened again (the page keeps every read for five minutes and a mounted tab
+    longer). The desk now recovers by itself; the public forms show the
+    route's refusal as "Invalid input" (the older item below).
+  - Older, met on the way: the new-account abstract door clears the typed
+    specialty of an existing speaker when the form sends it blank while
+    "Others" stays; an event's slug has no character rule; public
+    registration's duplicate check uses a plain case-insensitive equals (one
+    of the "about 30 older uses"); the public forms demand a Title in the
+    browser while their routes do not.
 - **A request refused for a missing Role or Specialty is refused later than it
   was**: after the per-email limiter on public registration, after the
   password-attempt counter on abstract sign-in, and after an expired

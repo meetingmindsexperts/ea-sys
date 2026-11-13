@@ -62,7 +62,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ALL_FORM_FIELDS_SHOWN, OPTIONAL_FORM_FIELDS, readFormFields, type FormFieldVisibility } from "@/lib/registration-form-fields";
-import { EVENT_PERSON_FIELD_CHOICES_SETTING, readEventPersonFieldChoices, type EventPersonFieldChoices } from "@/lib/person-fields";
+import { EVENT_PERSON_FIELD_CHOICES_SETTING, readEventPersonFieldChoices, sameEventPersonFieldChoices, type EventPersonFieldChoices } from "@/lib/person-fields";
+import { PUBLIC_FIELDS_KEY } from "@/hooks/use-person-fields";
 import { EventPersonFieldChoicesEditor } from "@/components/events/event-person-field-choices";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -336,6 +337,12 @@ export default function EventSettingsPage() {
   const [formFields, setFormFields] = useState<FormFieldVisibility>(ALL_FORM_FIELDS_SHOWN);
   // This event's own choice for Title, Role and Specialty; none saved = as the organisation (person-fields.ts).
   const [personFieldChoices, setPersonFieldChoices] = useState<EventPersonFieldChoices>({});
+  // The choice as loaded. A save sends it only when it was changed HERE, for
+  // two reasons (review of 5dd9cd5f): sending it always made every save count
+  // as a settings change, which refused someone who may edit an event's
+  // details but not its settings; and a page opened before a colleague's
+  // change would put the old choice back when saving something unrelated.
+  const loadedPersonFieldChoices = useRef<EventPersonFieldChoices>({});
 
   const [agendaSettings, setAgendaSettings] = useState({
     agendaPublished: false,
@@ -506,7 +513,8 @@ export default function EventSettingsPage() {
         });
         loadedShowInCatalogue.current = settings.showInCatalogue === true;
         setFormFields(readFormFields(settings));
-        setPersonFieldChoices(readEventPersonFieldChoices(settings));
+        loadedPersonFieldChoices.current = readEventPersonFieldChoices(settings);
+        setPersonFieldChoices(loadedPersonFieldChoices.current);
 
         setAgendaSettings({
           agendaPublished: settings.agendaPublished ?? settings.programmePublished ?? false,
@@ -686,6 +694,8 @@ export default function EventSettingsPage() {
           if (zoomNote || seqNote || keptNote) toast.warning(msg, { duration: 12000 });
           else toast.success(msg);
           queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
+        // What this event's forms ask may have changed: the desk and the pickers must not keep the old rules.
+        queryClient.invalidateQueries({ queryKey: PUBLIC_FIELDS_KEY });
           queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
           queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
         } else if (cascade?.anchorMoved) {
@@ -706,6 +716,8 @@ export default function EventSettingsPage() {
         } else {
           toast.success("General settings saved");
         queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
+        // What this event's forms ask may have changed: the desk and the pickers must not keep the old rules.
+        queryClient.invalidateQueries({ queryKey: PUBLIC_FIELDS_KEY });
         }
         fetchEvent();
       } else {
@@ -854,8 +866,11 @@ export default function EventSettingsPage() {
             ...notificationSettings,
             groupRegistration: groupSettings,
             formFields,
-            // Sent whole: a field with no entry follows the organisation.
-            [EVENT_PERSON_FIELD_CHOICES_SETTING]: personFieldChoices,
+            // Only when changed on this page (see loadedPersonFieldChoices), and
+            // then whole: a field with no entry follows the organisation.
+            ...(!sameEventPersonFieldChoices(personFieldChoices, loadedPersonFieldChoices.current) && {
+              [EVENT_PERSON_FIELD_CHOICES_SETTING]: personFieldChoices,
+            }),
             abstractDeadline: wallTimeInTzToIso(abstractSettings.abstractDeadline, eventTimezone),
             // Sent raw; readAbstractLimits clamps and falls back, so a blank or
             // silly value can never brick submissions.
@@ -921,6 +936,8 @@ export default function EventSettingsPage() {
       if (res.ok) {
         toast.success("Settings saved");
         queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
+        // What this event's forms ask may have changed: the desk and the pickers must not keep the old rules.
+        queryClient.invalidateQueries({ queryKey: PUBLIC_FIELDS_KEY });
         fetchEvent();
       } else {
         const data = await res.json().catch(() => ({}));
@@ -1703,7 +1720,7 @@ export default function EventSettingsPage() {
             title="Title, Role and Specialty on this event"
             description="What this event's forms do with the three fields your organisation asks: registration, completing a registration, group registration, the desk walk-in, and abstract and proposal sign-up. A field the organisation has switched off cannot be asked here. Staff forms keep every field, and answers already given are kept."
           >
-            <EventPersonFieldChoicesEditor value={personFieldChoices} onChange={setPersonFieldChoices} />
+            <EventPersonFieldChoicesEditor value={personFieldChoices} onChange={setPersonFieldChoices} disabled={!canEditSettings} />
           </SettingsCard>
 
           <SettingsCard

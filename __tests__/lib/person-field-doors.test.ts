@@ -81,12 +81,12 @@ const NOT_A_DOOR: Record<string, string> = {
     "the submitter's own edit of a record that exists: the demand is the profile gate at submit, which is a door above; its GET sends the rules",
   "src/app/api/registrant/registrations/route.ts": "the registrant's own edit of a registration that exists: never demanded them",
   "src/app/api/registrant/my-group/[groupId]/members/route.ts":
-    "a coordinator adding people to a group: this form has never asked Role or Specialty (docs/ROADMAP.md, person fields)",
+    "a coordinator adding people to a group: this form has never asked Role or Specialty, and the route stores what it is sent (docs/ROADMAP.md, person fields: the one create door that does not keep only what the event asks)",
 };
 
 /** A route's schema naming one of the three fields. */
 const TAKES_THE_FIELDS =
-  /\b(?:specialty|customSpecialty)\s*:\s*(?:z\.|optional\(|required\(|optionalSpecialty)|personalDetailsFields|presenterDetailsSchema|\brole\s*:\s*(?:optionalAttendeeRole|attendeeRoleEnum)/;
+  /\b(?:specialty|customSpecialty)\s*:\s*(?:z\.|optional\(|required\(|optionalSpecialty)|personalDetailsFields|presenterDetailsSchema|\brole\s*:\s*(?:optionalAttendeeRole|attendeeRoleEnum)|\btitle\s*:\s*(?:optionalTitle|titleEnum)/;
 
 /**
  * The forms people fill in: each reads the organisation's rules, shows a field
@@ -146,8 +146,33 @@ describe("every door asks the organisation's rule", () => {
     expect(read("src/app/api/events/[eventId]/abstracts/my-profile/route.ts")).toMatch(/loadEventPersonFieldRules\(event\)/);
   });
 
-  it.each(CREATE_DOORS)("the create door %s keeps only what its event asks", (file) => {
-    expect(read(file)).toMatch(/askedOnly\(/);
+  it.each(CREATE_DOORS)("the create door %s keeps only what its event asks, and USES what it kept", (file) => {
+    // Assigned or spread into what the door goes on to write: a call whose
+    // result is dropped would pass a bare "is it called" check.
+    expect(read(file)).toMatch(/(?:=\s*|\.\.\.)askedOnly\(/);
+  });
+
+  it("an event door hands over the event it loaded, never one made up on the spot", () => {
+    // `checkEventPersonFields({ organizationId, settings: null }, ...)` would
+    // pass every other check here and ignore the event's own choice.
+    const literal = /(?:checkEventPersonFields|loadEventPersonFieldRules|personFieldRefusal)\(\s*\{/;
+    const found = ["src", "worker"]
+      .flatMap((root) => sourceFiles(join(ROOT, root)))
+      .map((full) => relative(ROOT, full))
+      .filter((file) => literal.test(read(file)));
+    expect(found).toEqual([]);
+  });
+
+  it("no route or service works the rules out by itself", () => {
+    // The rules are built in ONE place on the server (person-field-rules.ts).
+    // The forms' read builds what a FORM is handed with the same function, and
+    // is the only other file that may lay an event's choice over a setting.
+    const composes = /\bpersonFieldRules\(|\bwithEventChoices\(/;
+    const found = ["src/app/api", "src/services", "src/lib/agent", "worker"]
+      .flatMap((root) => sourceFiles(join(ROOT, root)))
+      .map((full) => relative(ROOT, full))
+      .filter((file) => composes.test(read(file)));
+    expect(found).toEqual(["src/app/api/public/person-fields/route.ts"]);
   });
 
   it("only the two doors with no event ask the organisation alone", () => {
@@ -214,9 +239,10 @@ describe("every route that takes these fields is a door, or named as not one", (
 
   it("a new route that takes Title, Role or Specialty must be classified", () => {
     // If this fails you added (or changed) a route whose schema takes one of
-    // these fields. If people outside the staff fill it in, it is a door: ask
-    // personFieldRefusal with the event's organisation and add it to DOORS. If
-    // it never demands them, add it to NOT_A_DOOR and say why.
+    // these fields. If people outside the staff fill it in, it is a door: hand
+    // the event it loaded to checkEventPersonFields (or, with no event at all,
+    // ask loadOrganizationPersonFieldRules) and add it to DOORS. If it never
+    // demands them, add it to NOT_A_DOOR and say why.
     expect(routes.filter((file) => !(file in DOORS) && !(file in NOT_A_DOOR))).toEqual([]);
   });
 
@@ -253,8 +279,9 @@ describe("no file demands Title, Role or Specialty by itself", () => {
     const found = files.filter((file) => !THE_RULE.has(file) && pattern.test(read(file)));
     // If this fails, a schema or a form is demanding the field by itself. Take
     // the field leniently (optionalAttendeeRole, optionalSpecialty) and ask
-    // personFieldRefusal / withPersonFieldRules with the organisation's rules:
-    // otherwise an organisation that switched the field off is refused here.
+    // checkEventPersonFields (a route) or withPersonFieldRules (a form) with
+    // the event's rules: otherwise an organisation or an event that switched
+    // the field off is refused here.
     expect(found).toEqual([]);
   });
 });

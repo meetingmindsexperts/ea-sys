@@ -280,7 +280,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       zipCode: data.zipCode || null,
       country: data.country,
       specialty: data.specialty,
-      customSpecialty: data.customSpecialty || null,
+      // Not asked on this event: left as an existing record holds it, never
+      // blanked beside an "Others" that stays (review of 5dd9cd5f).
+      customSpecialty: fieldCheck.rules.specialty.shown ? data.customSpecialty || null : undefined,
       registrationType: data.registrationType || undefined,
       // Surface separation: which flow this signup came through
       // ("abstract" | "proposal"; a door widens to "both" on an existing

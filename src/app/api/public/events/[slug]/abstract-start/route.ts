@@ -22,6 +22,7 @@ import { becomesSubmitterToAuthor } from "@/lib/abstract-reviewer-access";
 import { presenterDetailsSchema } from "@/lib/schemas";
 import { checkEventPersonFields } from "@/lib/person-field-rules";
 import { askedOnly } from "@/lib/person-field-check";
+import { DEFAULT_PERSON_FIELD_RULES } from "@/lib/person-fields";
 
 /**
  * "Start an abstract as an EXISTING user" — the sign-in half of the abstract
@@ -151,8 +152,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // The details as this door keeps them: a field this event does not ask is
-    // not stored, whatever the request held.
+    // not stored, whatever the request held. `asks` says which of Title, Role
+    // and Specialty this event asks, for the write below.
     let askedDetails = parsed.data.details;
+    let asks = DEFAULT_PERSON_FIELD_RULES;
     if (parsed.data.details) {
       const fieldCheck = await checkEventPersonFields(event, parsed.data.details);
       if (fieldCheck.refusal) {
@@ -161,7 +164,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         const fieldErrors = Object.fromEntries(Object.entries(fieldCheck.refusal.fieldErrors).map(([k, v]) => [`details.${k}`, v]));
         return NextResponse.json({ error: "Invalid input", details: { formErrors: [], fieldErrors } }, { status: 400 });
       }
-      askedDetails = { ...parsed.data.details, ...askedOnly(parsed.data.details, fieldCheck.rules) };
+      asks = fieldCheck.rules;
+      askedDetails = { ...parsed.data.details, ...askedOnly(parsed.data.details, asks) };
     }
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
@@ -252,8 +256,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     const lastName = d?.lastName || att?.lastName || user.lastName || "";
     const profile = d
       ? {
-          title: d.title ?? null,
-          role: d.role ?? null,
+          // This door also REFRESHES a speaker record that exists (invited by
+          // the organisers, or a returning submitter). A field the event does
+          // not ask goes as `undefined`, which leaves what the record holds;
+          // `null` would erase a title the organisers entered (review of
+          // 5dd9cd5f). A new record stores nothing for it either way.
+          title: asks.title.shown ? d.title ?? null : undefined,
+          role: asks.role.shown ? d.role ?? null : undefined,
           additionalEmail: d.additionalEmail || null,
           organization: d.organization,
           jobTitle: d.jobTitle,
@@ -263,7 +272,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           zipCode: d.zipCode || null,
           country: d.country,
           specialty: d.specialty,
-          customSpecialty: d.customSpecialty || null,
+          customSpecialty: asks.specialty.shown ? d.customSpecialty || null : undefined,
         }
       : {
           title: att?.title ?? null,

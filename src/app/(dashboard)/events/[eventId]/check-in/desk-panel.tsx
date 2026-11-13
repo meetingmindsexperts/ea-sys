@@ -26,7 +26,7 @@ import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidenceP
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
-import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { PUBLIC_FIELDS_KEY, usePersonFieldRules } from "@/hooks/use-person-fields";
 import { personFieldProblems, type PersonFieldPath } from "@/lib/person-field-check";
 import type { PersonFieldRules } from "@/lib/person-fields";
 import { CountrySelect } from "@/components/ui/country-select";
@@ -904,6 +904,13 @@ const EMPTY_FIELDS: WalkInFields = {
   cardLast4: "",
 };
 
+/** The messages of a route's field refusal (`details.fieldErrors`), or none when it named no field. */
+function refusedFieldMessages(details: unknown): string[] {
+  const fieldErrors = (details as { fieldErrors?: Record<string, unknown> } | null | undefined)?.fieldErrors;
+  if (!fieldErrors || typeof fieldErrors !== "object") return [];
+  return Object.values(fieldErrors).flatMap((messages) => (Array.isArray(messages) ? messages.filter((m): m is string => typeof m === "string") : []));
+}
+
 /** How the walk-in form names a field the organisation's rule finds missing. */
 const WALK_IN_RULE_LABELS: Record<PersonFieldPath, string> = {
   title: "Title",
@@ -970,6 +977,7 @@ function WalkInForm({
     [ticketTypes],
   );
 
+  const queryClient = useQueryClient();
   const [fields, setFields] = useState<WalkInFields>(EMPTY_FIELDS);
   const [ticketTypeId, setTicketTypeId] = useState("");
   const [pricingTierId, setPricingTierId] = useState<string | null>(null);
@@ -1120,7 +1128,12 @@ function WalkInForm({
         return;
       }
       if (!res.ok) {
-        toast.error(data.error || "The walk-in was not registered");
+        // A refusal that names fields (Title, Role or Specialty demanded by the
+        // event's settings after this form loaded its rules): say which, and
+        // read the rules again so the form shows what is being asked.
+        const named = refusedFieldMessages(data.details);
+        if (named.length > 0) queryClient.invalidateQueries({ queryKey: PUBLIC_FIELDS_KEY });
+        toast.error(named.length > 0 ? named.join(". ") : data.error || "The walk-in was not registered");
         return;
       }
       remember(eventId, { ticketTypeId: type.id, pricingTierId: tier?.id ?? null, payment: effectivePayment });

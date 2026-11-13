@@ -235,7 +235,15 @@ describe("the server's read: an event's rules, and an organisation's where there
   it("when the read fails, demands what was always demanded, and says so in the log", async () => {
     mockDb.organization.findUnique.mockRejectedValue(new Error("db down"));
     expect(await loadOrganizationPersonFieldRules("org1")).toEqual(DEFAULT_PERSON_FIELD_RULES);
-    expect(await loadEventPersonFieldRules(event({ personFieldChoices: { specialty: "off" } }))).toEqual(DEFAULT_PERSON_FIELD_RULES);
+    // The event's own choice is already in hand, so it still applies, over
+    // today's rules: the route must not demand a field this event's form hides
+    // (review of 5dd9cd5f).
+    expect(await loadEventPersonFieldRules(event({ personFieldChoices: { specialty: "off", role: "optional" } }))).toEqual({
+      ...DEFAULT_PERSON_FIELD_RULES,
+      role: { shown: true, required: false },
+      specialty: { shown: false, required: false },
+    });
+    expect(await loadEventPersonFieldRules(event())).toEqual(DEFAULT_PERSON_FIELD_RULES);
     const { apiLogger } = await import("@/lib/logger");
     expect(apiLogger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "person-field-rules:read-failed", organizationId: "org1" }));
   });
