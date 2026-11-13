@@ -158,6 +158,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     let unrecognizedRole = 0;
 
     let unrecognizedTitle = 0;
+    // An additional email that is not an address is dropped, not saved: it is
+    // copied to the organisation's contact and used as a CC (Nov 13, 2026).
+    let invalidAdditionalEmail = 0;
     const speakers: Prisma.SpeakerCreateManyInput[] = [];
     const pendingUpdates: Array<{
       rowNum: number;
@@ -195,6 +198,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       const roleCell = getField(fields, idx.role);
       const role = parseAttendeeRole(roleCell);
       if (roleCell && !role) unrecognizedRole++;
+      const additionalEmailCell = getField(fields, idx.additionalEmail)?.trim().toLowerCase() || undefined;
+      const additionalEmail = additionalEmailCell && EMAIL_RE.test(additionalEmailCell) ? additionalEmailCell : undefined;
+      if (additionalEmailCell && !additionalEmail) invalidAdditionalEmail++;
       const statusRaw = getField(fields, idx.status)?.toUpperCase();
       const statusCell = statusRaw && SPEAKER_STATUS_VALUES.has(statusRaw) ? statusRaw : undefined;
 
@@ -216,7 +222,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         specialty: getField(fields, idx.specialty),
         registrationType: getField(fields, idx.registrationType),
         website: getField(fields, idx.website),
-        additionalEmail: getField(fields, idx.additionalEmail)?.toLowerCase(),
+        additionalEmail,
         status: statusCell,
         tags: parseTags(getField(fields, idx.tags)),
       };
@@ -255,7 +261,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         registrationType: incoming.registrationType || null,
         tags: incoming.tags,
         website: incoming.website || null,
-        additionalEmail: getField(fields, idx.additionalEmail) || null,
+        additionalEmail: additionalEmail ?? null,
         status: (statusCell ?? "INVITED") as "INVITED" | "CONFIRMED" | "DECLINED" | "CANCELLED",
       });
     }
@@ -370,8 +376,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "Import errors", importType: "speakers", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
 
-    if (unrecognizedRole > 0 || unrecognizedTitle > 0) {
-      apiLogger.warn({ msg: "Import unrecognized enum cells", importType: "speakers", source: "csv", eventId, userId: session.user.id, unrecognizedRole, unrecognizedTitle });
+    if (unrecognizedRole > 0 || unrecognizedTitle > 0 || invalidAdditionalEmail > 0) {
+      apiLogger.warn({ msg: "Import unrecognized enum cells", importType: "speakers", source: "csv", eventId, userId: session.user.id, unrecognizedRole, unrecognizedTitle, invalidAdditionalEmail });
     }
 
     recordImport(req, {

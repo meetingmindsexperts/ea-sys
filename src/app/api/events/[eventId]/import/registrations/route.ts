@@ -600,8 +600,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         // From the row just created, so the contact holds what the registration
         // holds. The hand-typed payload this replaced left Role out: 2,665
         // imported people had a Role on their registration and none on their
-        // contact (production, Nov 13, 2026). A faculty type never reaches
-        // this row (refused above), so the type's name is the category.
+        // contact (production, Nov 13, 2026). The category is the type's name.
+        // The built-in Faculty type never reaches this row (refused above); an
+        // older ordinary type that is NAMED "Faculty" can, and the builder
+        // leaves the contact's category alone for that word.
         await syncToContact(contactSyncFromAttendee(importedAttendee, { organizationId: orgGuard.orgId, eventId, category: attendeeRegistrationType }));
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {

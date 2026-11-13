@@ -227,6 +227,17 @@ describe("CSV import — registration type resolution", () => {
     }));
   });
 
+  it("an older ordinary type NAMED Faculty takes the row, and the contact's category is left alone", async () => {
+    // Only the built-in Faculty type is refused; a type that already carries
+    // the name still matches a cell. "Faculty" is never a contact's category.
+    mockDb.ticketType.findMany.mockResolvedValue([{ ...PHYSICIAN, id: "tt-old-faculty", name: "Faculty" }]);
+    mockDb.attendee.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "att-1", ...data }));
+    const res = await POST(csvRequest("firstName,lastName,email,registrationType\nJohn,Doe,john@example.com,Faculty"), params);
+    expect(res.status).toBe(200);
+    expect(createdRegistration().ticketTypeId).toBe("tt-old-faculty");
+    expect(mockSyncToContact.mock.calls[0][0].registrationType).toBeNull();
+  });
+
   it("lets the row's own cell win over the fallback", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue(PHYSICIAN);
 

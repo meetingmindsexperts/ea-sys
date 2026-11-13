@@ -121,6 +121,21 @@ plan found these outside the plan's own steps.
   several events** (`PUT /api/registrant/registrations`); My Details skips
   those rows. LOW, older: 78 legacy rows from Feb and Mar 2026, and the write
   is the person's own details. Fix: the same count check My Details uses.
+- **The registrations CSV import, four older LOWs** found by the review of
+  `831549cc` (`import/registrations/route.ts`): the contact's category takes
+  the cell's own casing ("physician") and not the matched type's name; a type
+  made on the fly is created outside the per-row try, so a failure there
+  answers 500 after earlier rows were saved; a cell "Faculty" still lands
+  delegates on an older ordinary type of that name (the Nov 12 ruling left
+  such types alone); and the duplicate check, here and in the EventsAir
+  import, is a plain case-insensitive equals, so `john_smith@` is refused as
+  already registered when `john.smith@` exists. None loses data. Fix with the
+  next change to the import.
+- **The speakers CSV import syncs a contact for a row that lost a race**
+  (`createMany` with `skipDuplicates`: a speaker created between the read and
+  the write is skipped, and the sync still runs for it). LOW, older; three more
+  fields ride on it since Nov 13. A race between two imports of the same
+  person, and the sync only fills.
 - **A column can be waved past the new test by naming it "not a person
   field"** in `person-field-contract.test.ts`. LOW, by design: the list is
   short, each entry carries its reason, and a reviewer reads it. No stronger

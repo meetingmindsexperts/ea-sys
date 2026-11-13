@@ -7,6 +7,8 @@
  * Contact directly (not via this sync).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const { mockDb } = vi.hoisted(() => ({
   mockDb: {
@@ -181,11 +183,23 @@ describe("contactSyncFromSpeaker", () => {
 describe("contactSyncFromSpeakerInput (a speaker about to be created)", () => {
   it("sends what the input holds and leaves out what it does not", () => {
     const payload = contactSyncFromSpeakerInput(
-      { email: "s@x.com", firstName: "Sam", lastName: "Okoye", role: "ACADEMIA", state: "Beirut", zipCode: "1107", additionalEmail: "pa@x.com", registrationType: "Faculty" },
+      { eventId: "e1", organizationId: "org1", email: "s@x.com", firstName: "Sam", lastName: "Okoye", role: "ACADEMIA", state: "Beirut", zipCode: "1107", additionalEmail: "pa@x.com", registrationType: "Faculty", tags: ["vip"], website: "x.com", status: "INVITED" },
       { organizationId: "org1", eventId: "e1" },
     );
     expect(payload).toMatchObject({ organizationId: "org1", eventId: "e1", email: "s@x.com", role: "ACADEMIA", state: "Beirut", zipCode: "1107", additionalEmail: "pa@x.com" });
     expect(payload.photo).toBeUndefined();
     expect(payload.registrationType).toBeNull();
+    // Only the sync's own keys: the input's tags, website and status are a speaker's, not a contact's.
+    const allowed = new Set<string>([...CONTACT_SYNC_OPTIONAL_FIELDS, "organizationId", "eventId", "email", "firstName", "lastName"]);
+    expect(Object.keys(payload).filter((k) => !allowed.has(k))).toEqual([]);
+  });
+});
+
+describe("contact-sync-payload.ts stays pure", () => {
+  it("imports no database and no logger, so a test that stubs the write still runs the real builders", () => {
+    const source = readFileSync(join(process.cwd(), "src/lib/contact-sync-payload.ts"), "utf8");
+    const imports = [...source.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
+    expect(imports.sort()).toEqual(["@/lib/faculty-filter", "@/lib/person-field-contract", "@prisma/client"]);
+    expect(source).toMatch(/^import type \{[^}]+\} from "@prisma\/client";$/m);
   });
 });

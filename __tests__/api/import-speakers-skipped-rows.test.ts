@@ -73,7 +73,19 @@ describe("speaker CSV import: skipped rows", () => {
     );
   });
 
-  it("the contact receives every field the import writes, State, Zip and the additional email included (Nov 13, 2026)", async () => {
+  it("an additional email that is not an address is dropped, never saved or sent to the contact (Nov 13, 2026)", async () => {
+    // The contact's additional email is copied onto later records and used as a CC.
+    const csv = "email,firstName,lastName,additionalEmail\nnew@example.com,Nia,New,N/A\nok@example.com,Oli,Okay, PA@Example.com ";
+    await POST(csvRequest(csv), params);
+    const created = mockDb.speaker.createMany.mock.calls[0][0].data;
+    expect(created.map((s: { additionalEmail: string | null }) => s.additionalEmail)).toEqual([null, "pa@example.com"]);
+    const payloads = mockSyncMany.mock.calls[0][0];
+    expect(payloads[0].additionalEmail).toBeNull();
+    expect(payloads[1].additionalEmail).toBe("pa@example.com");
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "Import unrecognized enum cells", invalidAdditionalEmail: 1 }));
+  });
+
+  it("the contact receives the State, Zip and additional email the import writes (Nov 13, 2026)", async () => {
     const csv = "email,firstName,lastName,state,zipCode,additionalEmail,registrationType\nnew@example.com,Nia,New,Dubai,00000,pa@example.com,Faculty";
     await POST(csvRequest(csv), params);
     const [payload] = mockSyncMany.mock.calls[0][0];

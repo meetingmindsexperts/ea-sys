@@ -13,10 +13,8 @@
 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { CONTACT_SYNC_OPTIONAL_FIELDS, type ContactSyncData } from "@/lib/contact-sync-payload";
-
 // The payload, its field list and the builders live in contact-sync-payload.ts.
-export { CONTACT_SYNC_OPTIONAL_FIELDS, type ContactSyncData } from "@/lib/contact-sync-payload";
+import { CONTACT_SYNC_OPTIONAL_FIELDS, type ContactSyncData } from "@/lib/contact-sync-payload";
 
 /**
  * Enrich-only field filter. Drops `undefined`, `null`, AND `""` so a write can

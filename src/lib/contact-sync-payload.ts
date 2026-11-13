@@ -4,7 +4,7 @@
  * import, so a route test that stubs the write in contact-sync.ts still runs
  * the real builders. The write itself is `syncToContact` in contact-sync.ts.
  */
-import type { Attendee, Speaker } from "@prisma/client";
+import type { Attendee, Prisma, Speaker } from "@prisma/client";
 import { contactCategoryOf } from "@/lib/faculty-filter";
 import { personFieldsOn } from "@/lib/person-field-contract";
 
@@ -162,13 +162,11 @@ export function contactSyncFromSpeaker(speaker: SpeakerContactSource, target: Co
 /**
  * A speaker about to be created, as `createMany` takes it: a field the input
  * leaves out is one the new row will not have either, so there is nothing to
- * demand. For a row read back from the database use `contactSyncFromSpeaker`,
- * whose type refuses a select that left a column out.
+ * demand. Typed as the create input (it needs `eventId`), so a row read back
+ * from the database with a narrow select is not accepted here by accident:
+ * for a row use `contactSyncFromSpeaker`, whose type refuses a select that
+ * left a column out.
  */
-export type SpeakerInputContactSource = Pick<Speaker, "email" | "firstName" | "lastName"> & {
-  [K in "registrationType" | SpeakerContactField]?: Speaker[K] | null;
-};
-
-export function contactSyncFromSpeakerInput(input: SpeakerInputContactSource, target: ContactSyncTarget): ContactSyncData {
+export function contactSyncFromSpeakerInput(input: Prisma.SpeakerCreateManyInput, target: ContactSyncTarget): ContactSyncData {
   return contactSyncFromSpeaker(input as SpeakerContactSource, target);
 }

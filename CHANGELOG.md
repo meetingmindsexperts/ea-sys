@@ -18,16 +18,23 @@ builders moved so a test that stubs the write still runs them).
 
 A speaker about to be created has no row yet, so that import uses
 `contactSyncFromSpeakerInput`: what the input leaves out, the row will not
-have either. "Faculty" is still never written as a contact's category. The
-EventsAir import also stops passing an empty organisation when the session
-had none; it uses the one it already checked.
+have either. "Faculty" is still never written as a contact's category, which
+now also holds for the registrations import when an older ordinary type is
+named "Faculty".
+
+The speakers import now checks the additional email cell: one that is not an
+address ("N/A", two addresses in one cell) is dropped and counted in the log,
+never saved. It was saved before, on the speaker only; now that the contact
+receives the field it would have spread from there, and it is used as a CC
+(review of the first version of this change).
 
 Verified on the local app with real imports: a registrations row with Role,
 State and Zip produced a contact holding all three, and a speakers row
 produced a contact with State, Zip and the additional email and no category.
-The EventsAir import could not be run locally (it needs the live credentials)
-and is covered by the type check and its tests only. Existing contacts are not
-changed.
+The EventsAir import could not be run locally (it needs the live credentials);
+`import-eventsair-contact-sync.test.ts` now runs that line with the EventsAir
+call stubbed, which no test did before. What it sends is the same as before.
+Existing contacts are not changed.
 
 ### Contacts: a person's own edit tells the contact what changed, Role included (November 13)
 
