@@ -70,6 +70,7 @@ import { Input } from "@/components/ui/input";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { claimLinkCopy, readClaimLinkState, type ClaimLinkState } from "@/lib/claim-link-copy";
 import { withPersonFieldRules } from "@/lib/person-field-check";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
@@ -281,6 +282,8 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
   // The organisers already have a speaker profile on this address: the account
   // was made, and confirming the address takes the profile over.
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
+  // Whether the confirmation link really went out: the route says, and the screen says the same.
+  const [claimLink, setClaimLink] = useState<ClaimLinkState>("sent");
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
   // Step-1 mode: "idle" = new-account sign-up; "signin" = an account already
@@ -455,6 +458,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           return;
         }
         if (result.code === "CONFIRM_EMAIL_TO_CLAIM") {
+          setClaimLink(readClaimLinkState(result.claimLink));
           setNeedsConfirmation(true);
           setSuccess(true);
           return;
@@ -464,6 +468,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
         return;
       }
 
+      setClaimLink(readClaimLinkState(result.claimLink));
       setNeedsConfirmation(result.needsConfirmation === true);
       setSuccess(true);
     } catch (err) {
@@ -584,6 +589,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
         if (result.code === "CONFIRM_EMAIL_TO_CLAIM") {
           // The organisers' speaker profile waits for a confirmed address: a
           // lasting next-steps screen, not a toast that disappears.
+          setClaimLink(readClaimLinkState(result.claimLink));
           setNeedsConfirmation(true);
           setSuccess(true);
           return;
@@ -825,16 +831,14 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           </div>
           <h2 className="text-2xl font-bold text-slate-900 mb-2">{needsConfirmation ? "Confirm your email" : "Account Created!"}</h2>
           <p className="text-slate-500 text-base leading-relaxed mb-2">
-            {needsConfirmation
-              ? "The organisers already have a speaker profile for this email. We sent you a link: sign in, then open it to take the profile over, and come back here to finish."
-              : copy.successLead}
+            {needsConfirmation ? claimLinkCopy(claimLink).lead : copy.successLead}
           </p>
           <p className="font-semibold text-slate-800 mb-6">{event.name}</p>
           <div className="bg-slate-50 rounded-xl p-4 text-left mb-6 border border-slate-100">
             <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-2">Next Steps</p>
             <ol className="space-y-2">
               {(needsConfirmation
-                ? ["Log in with your email and password", "Open the confirmation link we emailed you", copy.nextStep3]
+                ? ["Log in with your email and password", claimLinkCopy(claimLink).step, copy.nextStep3]
                 : ["Log in with your email and password", "Find this event in your dashboard", copy.nextStep3]
               ).map(
                 (s, i) => (

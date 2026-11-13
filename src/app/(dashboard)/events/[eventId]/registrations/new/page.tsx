@@ -370,7 +370,7 @@ export default function NewRegistrationPage() {
                 <p className="text-xs text-muted-foreground">
                   {formData.ticketTypeId === FACULTY_CHOICE
                     ? "Faculty covers invited speakers and committee members: free, no seat, not counted as a delegate. Speakers are usually added on the Speakers page, which also puts them on the programme."
-                    : "Optional — leave empty to register without a type"}
+                    : "Optional: leave empty to register without a type"}
                 </p>
               </div>
               {formData.ticketTypeId === FACULTY_CHOICE && (

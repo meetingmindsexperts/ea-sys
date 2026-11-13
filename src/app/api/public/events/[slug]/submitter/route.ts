@@ -251,6 +251,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         {
           error: `The organisers already have a speaker profile for ${emailLower}. ${claimLinkNote(sent)}`,
           code: "CONFIRM_EMAIL_TO_CLAIM",
+          // Whether the link went out, so the screen never says "we sent" when we could not.
+          claimLink: sent,
         },
         { status: 409 },
       );
@@ -355,6 +357,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({
         success: true,
         needsConfirmation: true,
+        claimLink: sent,
         message: `Account created. The organisers already have a speaker profile for ${emailLower}. ${claimLinkNote(sent)}`,
       });
     }

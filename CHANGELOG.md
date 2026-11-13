@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Wording found by the test run (November 13)
+
+Four things the two test agents noticed on Nov 13, none of them from the
+form-fields work.
+
+- **"We sent you a link" when no link was sent.** On abstract and proposal
+  sign-up, when the organisers already hold a speaker profile for the address,
+  the screen always said a confirmation link had been sent, even when the send
+  had failed. The two routes now say whether it went out and the screen
+  follows: sent, sent recently (open the latest), or could not be sent (try
+  again in a few minutes).
+- **"General settings saved"** appeared whichever tab of an event's settings
+  was saved. It now says "Settings saved".
+- Two messages lose their dashes: "Please complete your details first, then
+  you can submit." and "Optional: leave empty to register without a type".
+  The two webinar-move messages beside the first toast are reworded the same
+  way.
+
 ### The operator can read recent warnings and errors through the connector (November 13)
 
 Owner: "add the tool". A cloud routine could not check production's log,

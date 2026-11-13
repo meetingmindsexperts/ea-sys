@@ -46,7 +46,7 @@ export function useSubmitterProfileGate(eventId: string): void {
         // Effect runs client-only, so window is safe — and reading the live
         // location avoids the useSearchParams Suspense requirement.
         const next = window.location.pathname + window.location.search;
-        toast.info("Please complete your details first — then you can submit.");
+        toast.info("Please complete your details first, then you can submit.");
         router.replace(`/events/${eventId}/my-details?next=${encodeURIComponent(next)}`);
       })
       .catch((err) => console.error("[submitter-profile-gate] load failed", err));

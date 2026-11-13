@@ -514,6 +514,17 @@ describe("submitter route: an existing unconfirmed account and an invited record
     expect(mockDb._tx.speaker.update).not.toHaveBeenCalled();
     expect(sendVerifySpy).toHaveBeenCalledWith(expect.objectContaining({ purpose: "speaker" }));
   });
+
+  // The screen said "We sent you a link" when the send had failed (Nov 13,
+  // 2026 test run): the answer now says which it was, and the screen follows.
+  it.each(["sent", "rate-limited", "failed"] as const)("says whether the confirmation link went out: %s", async (outcome) => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-old", role: "REGISTRANT", termsAcceptedAt: new Date(), passwordHash: "h", emailConfirmedAt: null });
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "sp-invited" });
+    sendVerifySpy.mockResolvedValueOnce(outcome);
+    const body = await (await POST(makeReq(validBody), { params })).json();
+    expect(body.code).toBe("CONFIRM_EMAIL_TO_CLAIM");
+    expect(body.claimLink).toBe(outcome);
+  });
 });
 
 describe("submitter route: an existing account authoring an abstract", () => {

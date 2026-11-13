@@ -707,14 +707,15 @@ export default function EventSettingsPage() {
           if (zoomNote || seqNote) {
             toast.warning(`Saved. Webinar session moved, but:${zoomNote}${seqNote}`);
           } else {
-            toast.success("Saved — webinar session, Zoom and reminder emails moved to the new time");
+            toast.success("Saved. The webinar session, Zoom and reminder emails moved to the new time");
           }
         } else if (cascade && !cascade.anchorMoved) {
           toast.warning(
-            "Event dates saved, but the webinar session could NOT be moved — retime it from the Agenda page (Zoom + reminder emails follow from there).",
+            "Event dates saved, but the webinar session could NOT be moved. Retime it from the Agenda page (Zoom and the reminder emails follow from there).",
           );
         } else {
-          toast.success("General settings saved");
+          // One handler saves the General, Registration and Abstracts tabs: name none of them.
+          toast.success("Settings saved");
         queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
         // What this event's forms ask may have changed: the desk and the pickers must not keep the old rules.
         queryClient.invalidateQueries({ queryKey: PUBLIC_FIELDS_KEY });
