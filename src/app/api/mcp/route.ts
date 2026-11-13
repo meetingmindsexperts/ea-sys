@@ -323,7 +323,7 @@ async function handleMcp(req: Request): Promise<Response> {
   });
   const mcpServer = buildMcpServer(
     authResult.organizationId,
-    { role: authResult.actorRole, fromApiKey: authResult.fromApiKey },
+    { role: authResult.actorRole, fromApiKey: authResult.fromApiKey, credentialId: authResult.credentialId },
     // A key with a role is gated by it (owner Oct 5, 2026: REST and MCP both).
     authResult.apiKeyGrants ? principalFromApiKey(authResult.organizationId, authResult.apiKeyGrants) : null,
   );

@@ -85,6 +85,47 @@ alone.
 - The import's rate limit and its import record use the caller's organisation, not the
   event's; a track the import creates stays when its session is then refused.
 
+## The operator's log tool over MCP: what the Nov 13 review left
+
+`get_system_log_summary` (`src/lib/agent/operator-log-tool.ts`), review of
+`41293a3d`. Fixed: the HIGH (no text from a log line leaves), all three MED,
+and the LOWs about names, the read's log line, the search pattern and the
+reference document. Left, with why:
+
+- **A message NAME can still carry a few words of request text.** About 50
+  call sites build `msg` from something other than a route constant, and a
+  handful put request text in it (`src/lib/logger.ts` `logApiError`:
+  `API Error: ${method} ${path}`). The tool keeps a sentence-like name's first
+  six words and withholds any word that looks like a path, and a code-like
+  name's first 60 characters, so what can pass is a short fragment, not a
+  sentence. LOW. The clean fix is at the call sites: a `msg` is a constant and
+  the variable goes in a field.
+- **The consent screen does not say the grant can read the log**, and the
+  grant lasts 30 days and renews, longer than the page's 48 hour session.
+  LOW: only the operator's own grant gets the tool. Say it on the consent
+  screen when that screen is next touched.
+- **No route-level test demotes an OAuth SUPER_ADMIN mid-session** and expects
+  the session to end; the session tests cover API keys and mock the builder.
+  LOW: the route's fingerprint includes the role and is the same code for both
+  credentials. Add with the next change to `src/app/api/mcp/route.ts`.
+- **On the platform instance**, how the database roles treat the log table
+  outside a tenant lane is not decided (no policy exists today). Check when
+  the platform's roles are built.
+- Older, met on the way and not from this tool:
+  - **The MCP rate limit bucket for an OAuth token is keyed on 10 characters
+    of which 7 are the fixed prefix** (`src/app/api/mcp/route.ts`, `keyPrefix`),
+    so unrelated tokens can share a limit and each refresh gets a fresh one.
+    MED. Key it on the grant (`oauth:<userId>:<clientId>`).
+  - **One address can write to the log table without bound**: every refused
+    public request logs a warn line, and `/mcp-authorize` logs a line holding
+    text from the address before sign-in, with no limit on the page. MED for
+    log volume. Log a refusal once per window per address.
+  - **Two call sites log bulk data**: the event edit logs the whole request
+    body on a validation failure (`events/[eventId]/route.ts`), and the
+    EventsAir client logs an unbounded response body. LOW.
+  - **The logger hides `token` and `password` only at the top level and one
+    level down.** LOW.
+
 ## Person fields owned by the organisation: what the Nov 13 review left
 
 Plan: `docs/ORG_FIELDS_PLAN.md`. The review of step 0a (`78a0b8a6`) and of the

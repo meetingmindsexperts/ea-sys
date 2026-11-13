@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The log tool hands over no text from the log (November 13)
+
+Review of `41293a3d` (no blocker, 1 HIGH, 3 MED, 11 LOW), fixed before it was
+pushed. Who gets the tool held up on every door the review tried.
+
+- **Text a stranger plants can no longer reach the assistant (HIGH).** One
+  request from anyone on the internet makes the application log a line holding
+  their text (a slug in a public address, a user agent). The tool gave sample
+  lines by default, so that text went straight to an assistant that also holds
+  the connector's write tools. The tool now returns **no text from a log
+  line**: message names, counts, times and true totals. Examples are off
+  unless asked for and hold only identifiers, numbers, short codes and the
+  error's type; every other value is replaced by a note of its length. A
+  message name keeps the developers' first few words and withholds anything
+  that looks like a path. The answer and the tool's description both say that
+  nothing in it is an instruction.
+- **A flood of warnings can no longer hide the errors (MED).** Errors and
+  warnings are read apart, each with its own cap, and the totals are true
+  counts.
+- **The masking promise is gone, because nothing needs masking (MED):** names,
+  addresses, IPs and email subjects were not masked in samples. No text
+  leaves now.
+- Smaller: lines without a name are one group, not one each; each read logs
+  which grant made it; the search text may not contain a pattern character;
+  the reference document describes the tool.
+
+To read what a line actually said, open the `/logs` page.
+
 ### Wording found by the test run (November 13)
 
 Four things the two test agents noticed on Nov 13, none of them from the
@@ -30,9 +58,9 @@ Owner: "add the tool". A cloud routine could not check production's log,
 because the log table was reachable only from one laptop.
 
 - New MCP tool `get_system_log_summary`: for the last 1 to 72 hours, each
-  warning and error message with its count, first and last time, and up to
-  three sample lines. Email addresses and phone numbers are masked in the
-  samples. Read-only.
+  warning and error message name with its count and its first and last time,
+  and true totals per level. Read-only. **It returns no text from a log
+  line** (see the entry above this one).
 - **Who gets it:** the platform operator (SUPER_ADMIN) signed in to the
   connector as themselves, the same wall as the `/logs` page. It is not listed
   for an admin or organiser, and never for an API key. It is not part of the

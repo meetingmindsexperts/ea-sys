@@ -667,7 +667,7 @@ Pino-based structured JSON logging with three output modes:
 - Auto-refresh (configurable interval), export filtered or all logs to text file
 - **Download All** — fetches all logs from current source and exports
 - **Clear Logs** — deletes database logs for selected timeframe (database source only); DELETE endpoint at `/api/logs`
-- **Over MCP, for the operator only** (Nov 13, 2026): `get_system_log_summary` gives the same table as a summary (message names, counts, times, a few masked sample lines) to an assistant the operator connects. Behind the same wall as this page (`canActAsPlatformOperator`), listed only for the operator's own sign-in and never for an API key, and deliberately outside the shared tool registry: `src/lib/agent/operator-log-tool.ts`. **Never move it into `registerAllMcpTools` or give it a permission key**: the log table has no organisation column
+- **Over MCP, for the operator only** (Nov 13, 2026): `get_system_log_summary` gives the same table as a summary (message names, counts, times, true totals) to an assistant the operator connects. Behind the same wall as this page (`canActAsPlatformOperator`), listed only for the operator's own sign-in and never for an API key, and deliberately outside the shared tool registry: `src/lib/agent/operator-log-tool.ts`. **Never move it into `registerAllMcpTools` or give it a permission key** (the log table has no organisation column), and **never let it return text from a log line**: anyone on the internet can write that text and the reader holds write tools; an example is identifiers, numbers and codes only
 
 ### Database Logging (Vercel)
 - `SystemLog` model stores log entries in PostgreSQL (level, module, message, timestamp)

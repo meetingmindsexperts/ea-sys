@@ -129,6 +129,31 @@ Two authentication methods are supported on `/api/mcp`, checked in order:
 
 Both return the same `{ organizationId }` context, so downstream tools don't care which method authenticated the request. Tools are automatically scoped to the authenticated org.
 
+## The operator's tool (1, not counted below)
+
+`get_system_log_summary` is not part of the shared tool set and is not in the
+125 below. It is listed only for the **platform operator** (SUPER_ADMIN)
+connected through OAuth as themselves, the same people who can open the
+`/logs` page. It is never listed for an API key, an admin or an organiser.
+
+| Tool | What it returns |
+|------|-----------------|
+| `get_system_log_summary` | For the last 1 to 72 hours (default 4): each warning and error message name with its count and its first and last time, plus true totals per level. Read-only |
+
+Inputs: `hours`, `level` (`warn_and_error`, `error`, `all`), `examples`
+(0 to 3, default 0), `contains` (part of a message name).
+
+**It returns no text from a log line.** Anyone on the internet can make the
+application log text of their choosing (a slug, a user agent), and an
+assistant reading that text could take it for an instruction. Names are the
+developers' own message names; an example is the line's identifiers, numbers
+and short codes, with every other value replaced by a note such as
+`[text, 38 chars]`. To read a line in full, open `/logs`. Reads the database
+log table only (warnings and errors, 30 days), not CloudWatch.
+
+The grant that reaches it lasts 30 days and renews, longer than the 48 hour
+browser session the `/logs` page needs. Revoke the connector's grant to end it.
+
 ## Tools (125 total)
 
 ### Organization-level (6)

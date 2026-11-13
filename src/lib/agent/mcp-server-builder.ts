@@ -31,7 +31,7 @@ const MCP_SERVER_VERSION = pkg.version;
  */
 export function buildMcpServer(
   organizationId: string,
-  actor?: { role: string | null; fromApiKey: boolean },
+  actor?: { role: string | null; fromApiKey: boolean; /** Which credential is calling, for the operator tool's log line. */ credentialId?: string },
   /** An API key that acts with a role (Phase 5): its tools are gated by it. */
   keyPrincipal?: Principal | null,
 ): McpServer {
@@ -41,6 +41,11 @@ export function buildMcpServer(
   // The platform operator's read of the log (operator-log-tool.ts): listed
   // only for an OAuth grant whose granting user is the operator, never for an
   // API key. An omitted `actor` is an API key, so it is refused like one.
-  registerOperatorLogTool(server, { role: actor?.role ?? null, fromApiKey: actor?.fromApiKey ?? true, organizationId });
+  registerOperatorLogTool(server, {
+    role: actor?.role ?? null,
+    fromApiKey: actor?.fromApiKey ?? true,
+    organizationId,
+    credentialId: actor?.credentialId,
+  });
   return server;
 }
