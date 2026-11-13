@@ -25,6 +25,7 @@
 | 7 | Per-tenant Stripe / Zoom / Anthropic keys | ✅ **IMPLEMENTED** Aug 4, 2026 (§7) |
 | 8 | Master ops step (TenantDomain + DEFAULT_ORG_ID) | ✅ **DONE** Aug 4, 2026 — verified live (§8) |
 | 9 | Per-tenant email (no fallback, onboarding gate) | ✅ **DECIDED** Sep 2, 2026 — not built (§9) |
+| 10 | Person fields owned by the organisation (Role, Specialty, Title, new fields) | ✅ **DECIDED** Nov 13, 2026, not built (§10) |
 
 ---
 
@@ -840,6 +841,20 @@ before deploying or MMG's sends refuse.
 
 **Not started.** No code, no schema. Buildable on master as a no-op under the
 flag, exactly as item 7 was.
+
+---
+
+## 10. Person fields owned by the organisation: ✅ DECIDED (Nov 13, 2026), NOT BUILT
+
+Every public form demands a medical Role and a medical Specialty, and the
+lists are fixed in source (Role is a database list on four tables). A second
+organisation in another industry cannot launch on that. Owner decision: the
+organisation holds the fields and their answer lists, an event uses a field or
+not, admins and organisers may edit them, and a field follows the person to
+their registration, speaker record, contact and account. Step 0 and step 1 of
+the plan are the pre-launch part (about three weeks, estimated); new fields
+created by a tenant can follow. Plan, inventory and the open questions:
+[ORG_FIELDS_PLAN.md](ORG_FIELDS_PLAN.md).
 
 ---
 

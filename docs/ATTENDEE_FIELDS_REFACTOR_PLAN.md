@@ -1,6 +1,10 @@
 # Attendee-field consolidation — implementation plan (#2)
 
 > Status: **PLAN — not yet implemented.** Created July 2, 2026.
+> Nov 13, 2026: this is now step 0 of [ORG_FIELDS_PLAN.md](ORG_FIELDS_PLAN.md)
+> (person fields owned by the organisation), which cannot be built safely
+> without it. The site counts there are the current ones (9 create, 10 update,
+> 16 contact sync callers).
 > Part of the registration-routes duplication cleanup (see CLAUDE.md → Recent
 > Features → "Registration route dedup"). #4 (`ensureRegistrantAccount`) and #3
 > (`buildEventConfirmationFields`) shipped; this is #2, reframed from "low-value
