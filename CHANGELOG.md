@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Contacts: "changed" is the difference in the row, for every edit (November 13)
+
+Review of the public forms, the last callers and the fill-blanks rule
+(`eb801404`, `ac216d0b`, `4dfab626`: no HIGH, two MED).
+
+- **A submitter's own profile** was meant to stop putting its photo and bio
+  over the contact's on every save, and did not: the page sends all sixteen
+  fields each time, and the route took the request's fields as "changed". It
+  now compares the record before and after, as the staff edit does.
+- **A person's own edit on an event's registration page** and **the completion
+  form** had the same shape and are corrected the same way.
+- **Adding a reviewer from a speaker** now goes through the builder too: it
+  replaces nothing on the contact and fills its blanks from the speaker.
+- A blank title on the public form no longer sends a reused row's old title.
+- Two tests said a reused row's old photo and bio "are not sent". Since the
+  fill-blanks rule they are sent as fill only; the tests now say and check
+  that: they replace nothing and may fill a contact that has none.
+- The test that scans the sync's callers is stricter: a builder's result
+  spread together with hand-written fields now fails, and a file allowed one
+  hand-written call may not hold two.
+
+Verified on the local database with the real function: a self-edit that
+changed nothing filled the contact's empty Role, State and Zip and left the
+organisation the contact already held as it was.
+
 ### Organisation-owned fields: the lists move to one place (November 13)
 
 Step 1a of `docs/ORG_FIELDS_PLAN.md`, first slice. Nothing a user sees

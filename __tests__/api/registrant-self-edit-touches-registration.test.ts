@@ -11,7 +11,7 @@ const { mockDb, mockAuth, tx } = vi.hoisted(() => {
   const tx = {
     $queryRaw: vi.fn(async () => []),
     registration: { updateMany: vi.fn() },
-    attendee: { update: vi.fn() },
+    attendee: { update: vi.fn(), findUniqueOrThrow: vi.fn() },
   };
   return {
     tx,
@@ -47,6 +47,7 @@ beforeEach(() => {
   mockDb.event.findFirst.mockResolvedValue({ organizationId: "org1" });
   tx.registration.updateMany.mockResolvedValue({ count: 1 });
   tx.attendee.update.mockResolvedValue({ id: "att1", email: "a@b.com", firstName: "New", lastName: "Name" });
+  tx.attendee.findUniqueOrThrow.mockResolvedValue({ id: "att1", email: "a@b.com", firstName: "Old", lastName: "Name" });
 });
 
 describe("registrant self-edit", () => {

@@ -267,3 +267,41 @@ describe("syncToContact: fillBlanks (Nov 13, 2026)", () => {
     expect(args.create).toMatchObject({ photo: "/uploads/row.jpg", organization: "Row Clinic" });
   });
 });
+
+describe("a builder's payload through the sync, end to end (Nov 13, 2026)", () => {
+  const row = {
+    email: "a@x.com", firstName: "Ana", lastName: "Lima",
+    title: "DR" as const, role: "PHYSICIAN" as const, additionalEmail: null, organization: "Tawam", jobTitle: null,
+    phone: "+971 2", photo: "/uploads/row.jpg", city: null, state: null, zipCode: null, country: "UAE", bio: null,
+    specialty: "Cardiology", customSpecialty: null,
+    associationName: null, memberId: null, studentId: "S1", studentIdExpiry: new Date("2027-01-01T00:00:00Z"),
+  };
+
+  it("an edit of the phone replaces the phone and fills the contact's blanks, a date and a fixed-list value among them", async () => {
+    mockDb.contact.findUnique.mockResolvedValue({ eventIds: ["e1"], title: null, role: null, organization: "Newer Hospital", photo: "/uploads/newer.jpg", country: null, specialty: "", studentId: null, studentIdExpiry: null });
+    await syncToContact(contactSyncFromAttendee(row, { organizationId: "org1", eventId: "e1", category: null, only: ["phone"] }));
+    const written = mockDb.contact.update.mock.calls[0][0].data;
+    expect(written).toMatchObject({ phone: "+971 2", title: "DR", role: "PHYSICIAN", country: "UAE", specialty: "Cardiology", studentId: "S1" });
+    expect(written.studentIdExpiry).toEqual(new Date("2027-01-01T00:00:00Z"));
+    // What the contact already holds is left alone.
+    expect(written).not.toHaveProperty("organization");
+    expect(written).not.toHaveProperty("photo");
+    expect(written).not.toHaveProperty("registrationType");
+  });
+
+  it("a field the edit cleared neither replaces nor fills: the sync never clears", async () => {
+    mockDb.contact.findUnique.mockResolvedValue({ eventIds: ["e1"], phone: "+971 1" });
+    await syncToContact(contactSyncFromAttendee({ ...row, phone: null }, { organizationId: "org1", eventId: "e1", category: null, only: ["phone"] }));
+    expect(mockDb.contact.update.mock.calls[0][0].data).not.toHaveProperty("phone");
+  });
+
+  it("`only: []` (adding a reviewer from a speaker) replaces nothing and fills the blanks", async () => {
+    mockDb.contact.findUnique.mockResolvedValue({ eventIds: [], phone: "+971 1", organization: null });
+    const speaker = { ...row, registrationType: "Faculty", associationName: undefined, memberId: undefined, studentId: undefined, studentIdExpiry: undefined };
+    await syncToContact(contactSyncFromSpeaker(speaker, { organizationId: "org1", eventId: "e9", only: [] }));
+    const written = mockDb.contact.update.mock.calls[0][0].data;
+    expect(written).toMatchObject({ organization: "Tawam", eventIds: ["e9"] });
+    expect(written).not.toHaveProperty("phone");
+    expect(written).not.toHaveProperty("registrationType");
+  });
+});

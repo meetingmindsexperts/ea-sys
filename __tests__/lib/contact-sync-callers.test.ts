@@ -18,12 +18,16 @@ import { join, relative } from "node:path";
 
 const ROOTS = ["src", "worker"];
 
-/** Calls that deliberately send a hand-written payload, and why. */
-const BY_HAND: Record<string, string> = {
-  "src/app/api/public/events/[slug]/verify-details/route.ts":
-    "sends only the evidence values the form submitted; the row write is fill-if-empty, so the row can differ from them",
-  "src/app/api/events/[eventId]/reviewers/route.ts":
-    "name and event only: adding a reviewer changes nothing about the person",
+/** Calls that deliberately send a hand-written payload: how many per file, and why. */
+const BY_HAND: Record<string, { calls: number; why: string }> = {
+  "src/app/api/public/events/[slug]/verify-details/route.ts": {
+    calls: 1,
+    why: "sends only the evidence values the form submitted; the row write is fill-if-empty, so the row can differ from them",
+  },
+  "src/app/api/events/[eventId]/reviewers/route.ts": {
+    calls: 1,
+    why: "a reviewer invited by email has no row behind them: name, email and the event",
+  },
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
@@ -63,7 +67,12 @@ function contactSyncCalls(): Call[] {
         if (/^\s*(\/\/|\*|\/\*)/.test(before)) continue; // a mention in a comment
         const argument = argumentOf(source, m.index + m[0].length - 1);
         if (!argument.trim()) continue; // `syncToContact()` named in prose
-        calls.push({ file, line: source.slice(0, m.index).split("\n").length, usesBuilder: /\bcontactSyncFrom\w+\(/.test(argument) });
+        // A builder somewhere inside is not enough: `{ ...builder(row), role: x }`
+        // is a hand-written payload again. The argument itself must be the
+        // builder call, or (for the batch) a map whose result is one.
+        const bare = argument.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "").trim();
+        const usesBuilder = /^contactSyncFrom\w+\(/.test(bare) || /^\w+\.map\(\(\w+\) => contactSyncFrom\w+\(/.test(bare);
+        calls.push({ file, line: source.slice(0, m.index).split("\n").length, usesBuilder });
       }
     }
   }
@@ -78,7 +87,13 @@ describe("callers of the contact sync", () => {
   });
 
   it("every call builds its payload with a builder, or is named with its reason", () => {
-    const byHand = calls.filter((c) => !c.usesBuilder && !(c.file in BY_HAND)).map((c) => `${c.file}:${c.line}`);
+    const perFile = new Map<string, Call[]>();
+    for (const c of calls.filter((x) => !x.usesBuilder)) perFile.set(c.file, [...(perFile.get(c.file) ?? []), c]);
+    // A file named below may hold exactly the number of hand-written calls it
+    // is named for: one more in the same file fails too.
+    const byHand = [...perFile.entries()]
+      .filter(([file, found]) => found.length !== (BY_HAND[file]?.calls ?? 0))
+      .flatMap(([, found]) => found.map((c) => `${c.file}:${c.line}`));
     // If this fails you added a contact sync that lists its fields by hand.
     // Build the payload with contactSyncFromAttendee / contactSyncFromSpeaker
     // (src/lib/contact-sync-payload.ts): a hand list is how a field gets left

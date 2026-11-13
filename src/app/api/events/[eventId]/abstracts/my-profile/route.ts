@@ -272,13 +272,17 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         })
         .catch((err) => apiLogger.error({ err, msg: "my-profile:audit-failed", speakerId: existing.id }));
 
-      // The contact hears what this save touched, off the saved row, and no
-      // category: a person's own edit does not decide it (Nov 13, 2026). The
-      // whole row used to be re-sent, so saving a phone number put this
-      // record's photo and bio over newer ones on the contact.
+      // The contact: the fields whose value this save CHANGED replace the
+      // contact's, the rest of the row only fills its blanks, and no category:
+      // a person's own edit does not decide it (Nov 13, 2026). "Changed" is the
+      // row before against the row after, not the request's keys: the page
+      // sends all sixteen fields on every save. The whole row used to be
+      // re-sent, so saving a phone number put this record's photo and bio over
+      // newer ones on the contact.
       // The profile's select does not read the speaker's type, and `only` keeps
       // the category unsaid whatever it holds.
-      await syncToContact(contactSyncFromSpeaker({ ...speaker, registrationType: null }, { organizationId: event.organizationId, eventId, only: touched }));
+      const detailsDelta = computeDetailsDelta(existing, speaker);
+      await syncToContact(contactSyncFromSpeaker({ ...speaker, registrationType: null }, { organizationId: event.organizationId, eventId, only: Object.keys(detailsDelta) }));
 
       // Keep the same-event registration's personal details in step.
       await syncSpeakerDetailsToRegistrations({
@@ -286,7 +290,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         speakerId: existing.id,
         email: existing.email,
         sourceRegistrationId: existing.sourceRegistration?.id ?? null,
-        delta: computeDetailsDelta(existing, speaker),
+        delta: detailsDelta,
         actorUserId: session.user.id,
       });
 

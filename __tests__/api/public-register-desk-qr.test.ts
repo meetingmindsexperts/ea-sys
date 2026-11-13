@@ -362,7 +362,7 @@ describe("what the contact is told (Nov 13, 2026)", () => {
     expect(payload).not.toHaveProperty("dietaryReqs");
   });
 
-  it("a reused attendee row's old photo and bio are not sent: only what the form wrote", async () => {
+  it("a reused attendee row's old photo and bio replace nothing on the contact: they may only fill a blank", async () => {
     // An attendee left behind by a deleted registration is reused, and still
     // holds what an earlier event copied onto it.
     tx.attendee.findFirst.mockResolvedValue({ id: "att-old" });
@@ -377,6 +377,7 @@ describe("what the contact is told (Nov 13, 2026)", () => {
     const payload = contactSyncSpy.mock.calls[0][0];
     expect(payload).not.toHaveProperty("photo");
     expect(payload).not.toHaveProperty("bio");
+    expect(payload.fillBlanks).toEqual({ photo: "/uploads/old.jpg", bio: "Old bio" });
     expect(payload.phone).toBe((tx.attendee.update.mock.calls[0][0].data as Record<string, unknown>).phone);
   });
 });

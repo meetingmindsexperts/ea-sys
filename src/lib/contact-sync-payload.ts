@@ -40,6 +40,9 @@ export interface ContactSyncData {
    * registration and changing its status put that row's older phone and photo
    * over newer ones on the contact; sending the changed fields alone fixed
    * that and stopped a contact's blanks from ever filling. This does both.
+   * Consequence to know: a field an organiser blanks on the Contacts page
+   * fills again at the next sync, from the row. That was already so when the
+   * whole row replaced it.
    */
   fillBlanks?: Partial<Omit<ContactSyncData, "organizationId" | "email" | "firstName" | "lastName" | "eventId" | "fillBlanks" | "registrationType">>;
 }

@@ -786,7 +786,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       return {
         registration,
         // What the form wrote on the attendee, for the contact sync below.
-        attendeeFieldsWritten: Object.keys(attendeeData),
+        // A key left undefined (a blank title) is not written: on a reused row the
+        // old value stays, and it is not this form's to send.
+        attendeeFieldsWritten: Object.entries(attendeeData).filter(([, value]) => value !== undefined).map(([key]) => key),
         discountAmount,
         originalPrice,
         finalPrice,
@@ -846,10 +848,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log for public registration" }));
 
     // Sync to org contact store (awaited — errors caught internally)
-    // What the form wrote, read off the saved row. Not the whole row: the
-    // attendee may be a reused one (above) that still holds an old photo or
-    // bio, and those must not go over newer ones on the contact. The public
-    // form cannot pick the Faculty type, so the type's name is the category.
+    // What the form wrote replaces the contact's values, read off the saved
+    // row. The rest of the row only fills the contact's blanks: the attendee
+    // may be a reused one (above) that still holds an old photo or bio, and
+    // those must never go over newer ones on the contact. The public form
+    // cannot pick the Faculty type, so the type's name is the category.
     await syncToContact(contactSyncFromAttendee(registration.attendee, {
       organizationId: event.organizationId,
       eventId: event.id,

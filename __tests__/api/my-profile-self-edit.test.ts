@@ -174,6 +174,23 @@ describe("my-profile PATCH — field semantics", () => {
     expect(data).not.toHaveProperty("email");
   });
 
+  it("the page sends every field on every save: only what DIFFERS replaces the contact's values (Nov 13, 2026)", async () => {
+    // A phone change must not put this record's older photo and bio over newer
+    // ones the contact got from another event. They may only fill a blank.
+    const stored = { ...structuredClone(existingSpeaker), organization: "Tawam", phone: "+971 1", photo: "/uploads/old.jpg", bio: "Old bio" };
+    mockDb.speaker.findFirst.mockResolvedValue(stored);
+    mockDb.speaker.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({ ...structuredClone(stored), ...args.data }));
+    const res = await PATCH(req({ organization: "Tawam", phone: "+971 2", photo: "/uploads/old.jpg", bio: "Old bio" }), params);
+    expect(res.status).toBe(200);
+    const payload = syncSpy.mock.calls[0][0];
+    expect(payload.phone).toBe("+971 2");
+    expect(payload).not.toHaveProperty("photo");
+    expect(payload).not.toHaveProperty("bio");
+    expect(payload).not.toHaveProperty("organization");
+    expect(payload.fillBlanks).toMatchObject({ photo: "/uploads/old.jpg", bio: "Old bio", organization: "Tawam" });
+    expect(payload).not.toHaveProperty("registrationType");
+  });
+
   it("email is NOT editable through this route (immutability house rule)", async () => {
     const res = await PATCH(req({ email: "new@x.com", phone: "123" }), params);
     expect(res.status).toBe(200);

@@ -12,7 +12,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
-import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
+import { changedContactFields, contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
@@ -1216,7 +1216,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         organizationId: registration.event.organizationId,
         eventId: registration.event.id,
         category: ratedPlan?.type.name ?? resolvedType?.name ?? null,
-        only: completed.written,
+        // Of what the form wrote, the fields whose value differs from the row it
+        // loaded: the form comes prefilled, and an untouched phone from an import
+        // must not replace a newer one on the contact.
+        only: changedContactFields(registration.attendee, completed.attendee).filter((field) => completed.written.includes(field)),
       }));
     }
 

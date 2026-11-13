@@ -225,9 +225,11 @@ describe("completion type-set — base behavior", () => {
     expect(payload.additionalEmail).toBe("pa@example.com");
     expect(payload.registrationType).toBe(written.registrationType);
     expect(payload.registrationType).toBeTruthy();
-    // The row's older photo and bio are not the form's to send.
+    // The row's older photo and bio are not the form's: they replace nothing
+    // on the contact and may only fill a blank.
     expect(payload).not.toHaveProperty("photo");
     expect(payload).not.toHaveProperty("bio");
+    expect(payload.fillBlanks).toMatchObject({ photo: "/uploads/old.jpg", bio: "Old bio" });
   });
 
   it("sets the type, claims the seat, stamps the tier price, and leaves an owing status as it is", async () => {

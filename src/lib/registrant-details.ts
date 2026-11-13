@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { syncToContact } from "@/lib/contact-sync";
-import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
+import { changedContactFields, contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { MARKETING_CONSENT_WORDING_VERSION } from "@/lib/marketing-consent";
 
@@ -134,21 +134,26 @@ export async function writeOwnAttendee(
     // Rows in id order, as the bulk paths take them (review of a10e8058, L7).
     await tx.$queryRaw`SELECT id FROM "Registration" WHERE "attendeeId" = ${registration.attendeeId} ORDER BY id FOR UPDATE`;
     await tx.registration.updateMany({ where: { attendeeId: registration.attendeeId }, data: { updatedAt: new Date() } });
-    return tx.attendee.update({ where: { id: registration.attendeeId }, data });
+    // The row before the write, behind the lock: what this edit changed is the
+    // difference, not the request's keys (the event's edit form sends them all).
+    const before = await tx.attendee.findUniqueOrThrow({ where: { id: registration.attendeeId } });
+    const after = await tx.attendee.update({ where: { id: registration.attendeeId }, data });
+    return { ...after, changed: changedContactFields(before, after) };
   });
   const event = await db.event.findFirst({ where: { id: registration.eventId }, select: { organizationId: true } });
   if (event) {
-    // The contact hears what this edit changed, as the row now holds it, and
-    // nothing else. The hand-typed payload this replaced sent thirteen fixed
-    // fields whatever was edited: it never sent Role (so a person's own change
-    // of it did not reach the contact), and it re-sent fields the edit had not
-    // touched, the type among them, which on a Faculty registration wrote
-    // "Faculty" over the contact's category.
+    // The contact: the fields whose value this edit changed replace the
+    // contact's, as the row now holds them; the rest of the row only fills its
+    // blanks; no category. The hand-typed payload this replaced sent thirteen
+    // fixed fields whatever was edited: it never sent Role (so a person's own
+    // change of it did not reach the contact), and it re-sent fields the edit
+    // had not touched, the type among them, which on a Faculty registration
+    // wrote "Faculty" over the contact's category.
     await syncToContact(contactSyncFromAttendee(attendee, {
       organizationId: event.organizationId,
       eventId: registration.eventId,
       category: null,
-      only: Object.keys(data),
+      only: attendee.changed,
     }));
   }
   return attendee;

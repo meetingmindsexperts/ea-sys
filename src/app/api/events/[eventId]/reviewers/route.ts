@@ -13,6 +13,7 @@ import { isLinkedRole, requirePermission } from "@/lib/permissions/require-permi
 import { updateEventSettings } from "@/lib/event-settings";
 import { getClientIp } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromSpeaker } from "@/lib/contact-sync-payload";
 
 const addReviewerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("speaker"), speakerId: z.string().min(1).max(100) }),
@@ -290,17 +291,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     }));
 
     // The contact learns that this person came through the event, and their
-    // name. Nothing else: adding a reviewer changes nothing about the person.
-    // Picking a speaker used to re-send eleven fields of the speaker's row
-    // (photo, bio, phone) as it stood, which could be older than what the
-    // contact already held from another event (Nov 13, 2026).
+    // name. Adding a reviewer changes nothing about the person, so nothing of
+    // the speaker's row REPLACES a contact value: it only fills the contact's
+    // blanks (`only: []`). Picking a speaker used to re-send eleven fields of
+    // the row (photo, bio, phone) as it stood, which could be older than what
+    // the contact already held from another event (Nov 13, 2026).
     if (validated.data.type === "speaker") {
-      const spk = await db.speaker.findFirst({
-        where: { id: validated.data.speakerId, eventId },
-        select: { email: true, firstName: true, lastName: true },
-      });
+      const spk = await db.speaker.findFirst({ where: { id: validated.data.speakerId, eventId } });
       if (spk) {
-        await syncToContact({ organizationId: orgGuard.orgId, eventId, email: spk.email, firstName: spk.firstName, lastName: spk.lastName });
+        await syncToContact(contactSyncFromSpeaker(spk, { organizationId: orgGuard.orgId, eventId, only: [] }));
       }
     } else {
       await syncToContact({

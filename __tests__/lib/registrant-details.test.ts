@@ -12,7 +12,7 @@ const { mockDb, mockSync } = vi.hoisted(() => ({
     user: { findUnique: vi.fn(), update: vi.fn() },
     accountProfile: { findUnique: vi.fn(), upsert: vi.fn() },
     registration: { findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
-    attendee: { update: vi.fn() },
+    attendee: { update: vi.fn(), findUniqueOrThrow: vi.fn() },
     event: { findFirst: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(async (ops: unknown[]) => ops),
@@ -43,6 +43,8 @@ const BASE = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.attendee.update.mockResolvedValue({ email: "anna@example.com", firstName: "Anna", lastName: "Lee" });
+  // The row before the write: what an edit changed is read as the difference.
+  mockDb.attendee.findUniqueOrThrow.mockResolvedValue({ email: "anna@example.com", firstName: "Anna", lastName: "Lee" });
   mockDb.event.findFirst.mockResolvedValue({ organizationId: "org1" });
 });
 
@@ -87,20 +89,25 @@ describe("copyToUpcomingRegistrations", () => {
     // row's type and other untouched fields on every edit.
     mockDb.registration.findMany.mockResolvedValue([{ id: "r1", attendeeId: "a1", eventId: "e1", attendee: { _count: { registrations: 1 } } }]);
     mockDb.event.findFirst.mockResolvedValue({ organizationId: "org1" });
-    mockDb.attendee.update.mockResolvedValue({
-      email: "anna@example.com", firstName: "Anna", lastName: "Lee", role: "PHYSICIAN", state: "Abu Dhabi", organization: "Old Clinic",
+    const row = {
+      email: "anna@example.com", firstName: "Anna", lastName: "Lee", role: null, state: null, organization: "Old Clinic",
       registrationType: "Faculty", photo: "/uploads/old.jpg", bio: "Old bio", memberId: "M1",
-    });
+    };
+    mockDb.attendee.findUniqueOrThrow.mockResolvedValue(row);
+    mockDb.attendee.update.mockResolvedValue({ ...row, role: "PHYSICIAN", state: "Abu Dhabi" });
     await copyToUpcomingRegistrations("u1", ["role", "state"], details, NOW);
     const payload = mockSync.mock.calls[0][0];
     expect(payload).toMatchObject({ organizationId: "org1", eventId: "e1", email: "anna@example.com", role: "PHYSICIAN", state: "Abu Dhabi" });
-    // Not edited, so not said: an old photo must not go over a newer one, and
-    // a Faculty registration's type must never become the contact's category.
+    // Not changed, so they replace nothing: an old photo must not go over a
+    // newer one. They may only fill what the contact has empty.
     expect(payload).not.toHaveProperty("photo");
     expect(payload).not.toHaveProperty("bio");
     expect(payload).not.toHaveProperty("organization");
     expect(payload).not.toHaveProperty("memberId");
+    expect(payload.fillBlanks).toMatchObject({ photo: "/uploads/old.jpg", bio: "Old bio", organization: "Old Clinic", memberId: "M1" });
+    // A Faculty registration's type never becomes the contact's category, by either road.
     expect(payload.registrationType).toBeNull();
+    expect(payload.fillBlanks).not.toHaveProperty("registrationType");
   });
 
   it("never writes a shared Attendee (it would rewrite another event's registration)", async () => {

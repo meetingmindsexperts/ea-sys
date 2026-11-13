@@ -136,6 +136,19 @@ plan found these outside the plan's own steps.
   the write is skipped, and the sync still runs for it). LOW, older; three more
   fields ride on it since Nov 13. A race between two imports of the same
   person, and the sync only fills.
+- **The fill-blanks write is a read followed by a write** (`contact-sync.ts`):
+  a value another request puts on the contact in the few milliseconds between
+  is overwritten by the fill. LOW (review of `4dfab626`). One field, same
+  person; a conditional write per field would close it and costs a query each.
+- **A contact made by the fill path has no category** when the edit did not
+  move the type (a contact that was deleted and is recreated by a staff save).
+  LOW. The nightly feed takes the type from the registrations themselves, so
+  Mailchimp is not affected.
+- **The completion form no longer re-sends a type it did not pick**, so a type
+  set by the bulk change reaches the contact only once the bulk change itself
+  tells it (the item below). LOW.
+- **The sign-up door writes the submitted name on the contact** even when the
+  speaker record's name is locked and kept. LOW, older.
 - **A bulk type change tells the contact nothing**
   (`registrations/bulk-type/route.ts` rewrites each attendee's type and has no
   contact sync). MED, older, found by the review of `f1dad0b8`. Not fixed with
