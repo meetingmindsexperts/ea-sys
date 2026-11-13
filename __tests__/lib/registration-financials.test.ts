@@ -24,8 +24,15 @@ describe("registrationChargesNothing: a zero price, or a code that takes the who
   it("a code that covers the whole price charges nothing (the production rows: 200.00 less 200.00)", () => {
     expect(registrationChargesNothing({ originalPrice: "200.00", discountAmount: "200.00", ticketType: { price: 0 } })).toBe(true);
     expect(registrationChargesNothing({ originalPrice: 350, discountAmount: 350 })).toBe(true);
-    // More than the price (a fixed code larger than the fee) is still nothing owed.
-    expect(registrationChargesNothing({ originalPrice: 100, discountAmount: 150 })).toBe(true);
+  });
+
+  it("a discount LARGER than the price is a stale one and admits nobody (review of 5fc01136)", () => {
+    // Every writer clamps a discount to its price. 250 off a 500 type, then the type changed to
+    // a 200 one with no rate sent: the price is re-stamped, the discount is not. They still owe.
+    expect(registrationChargesNothing({ originalPrice: 200, discountAmount: 250 })).toBe(false);
+    expect(registrationChargesNothing({ originalPrice: 100, discountAmount: 150 })).toBe(false);
+    // Rounding only: a cent fraction over is the same amount.
+    expect(registrationChargesNothing({ originalPrice: 33.33, discountAmount: 33.334 })).toBe(true);
   });
 
   it("a partial code still owes, down to the last cent", () => {

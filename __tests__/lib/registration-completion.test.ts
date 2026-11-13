@@ -3,6 +3,7 @@
  * (§3.3).
  */
 import { describe, it, expect } from "vitest";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { completedAtOnCreate, completionWhereFor, isRegistrationFormCompleted, NOT_COMPLETED_WHERE } from "@/lib/registration-completion";
@@ -62,23 +63,37 @@ describe("isRegistrationFormCompleted: the one rule every reader asks", () => {
     expect(isRegistrationFormCompleted({ completedAt: null, userId: null })).toBe(false);
     expect(isRegistrationFormCompleted({})).toBe(false);
   });
-  it("no reader decides it for itself: each one that reads completedAt to judge a row asks the rule", () => {
-    // The files that used to write `completedAt || userId`. One that goes back to it would call a
-    // Faculty row incomplete on its own surface while the others call it complete.
-    const readers = [
-      "src/app/(dashboard)/events/[eventId]/check-in/desk-panel.tsx",
-      "src/app/(dashboard)/events/[eventId]/registrations/page.tsx",
-      "src/app/(dashboard)/events/[eventId]/registrations/registration-detail-sheet.tsx",
-      "src/app/api/events/[eventId]/registrations/[registrationId]/onsite-link/route.ts",
-      "src/app/api/events/[eventId]/registrations/completion-status/route.ts",
-      "src/app/api/public/events/[slug]/complete-registration/route.ts",
-      "src/services/registration-form-service.ts",
-    ];
-    for (const file of readers) {
-      const source = readFileSync(join(process.cwd(), file), "utf8");
-      expect(source, file).toContain("isRegistrationFormCompleted(");
-      expect(source, file).not.toMatch(/completedAt\s*\|\|\s*\w+\.userId|userId\s*\|\|\s*\w+\.completedAt|!\w+\.userId\s*&&\s*!\w+\.completedAt/);
+  // The files that used to write `completedAt || userId`. One that goes back to it would call a
+  // Faculty row incomplete on its own surface while the others call it complete.
+  const READERS = [
+    "src/app/(dashboard)/events/[eventId]/check-in/desk-panel.tsx",
+    "src/app/(dashboard)/events/[eventId]/registrations/page.tsx",
+    "src/app/(dashboard)/events/[eventId]/registrations/registration-detail-sheet.tsx",
+    "src/app/api/events/[eventId]/registrations/[registrationId]/onsite-link/route.ts",
+    "src/app/api/events/[eventId]/registrations/completion-status/route.ts",
+    "src/app/api/public/events/[slug]/complete-registration/route.ts",
+    "src/services/registration-form-service.ts",
+  ];
+
+  it("each known reader asks the rule", () => {
+    for (const file of READERS) {
+      expect(readFileSync(join(process.cwd(), file), "utf8"), file).toContain("isRegistrationFormCompleted(");
     }
+  });
+
+  it("nothing outside the rule reads a registration's completedAt off a row (review of 5fc01136)", () => {
+    // Found, not listed: ANY `x.completedAt` read in src/ or worker/ is a reader deciding for
+    // itself, however it is spelled (`!!r.completedAt || !!r.userId`, the reverse order, two ifs).
+    // Writing it (`completedAt: new Date()`), selecting it and filtering on it are keys, not reads
+    // off a row, and do not match. The CRM's task `completedAt` is another model.
+    const found = execSync("grep -rlE '\\.completedAt\\b' src worker --include=*.ts --include=*.tsx || true", {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean)
+      .filter((file) => !/(^|\/)crm(\/|-)/.test(file));
+    expect(found).toEqual(["src/lib/registration-completion.ts"]);
   });
 });
 

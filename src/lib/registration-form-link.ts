@@ -78,6 +78,7 @@ export type RegistrationFormSkipReason =
   | "CANCELLED"
   | "HAS_ACCOUNT"
   | "ALREADY_COMPLETED"
+  | "FACULTY"
   | "MONEY_RECORDED"
   | "IN_GROUP"
   | "PROMO_APPLIED"
@@ -92,6 +93,8 @@ export const REGISTRATION_FORM_SKIP_LABELS: Record<RegistrationFormSkipReason, s
   CANCELLED: "cancelled",
   HAS_ACCOUNT: "already completed (has an account)",
   ALREADY_COMPLETED: "already completed the registration form",
+  // Complete by the Faculty type, not by the form (registration-completion.ts): say which.
+  FACULTY: "on the Faculty type, whose details staff keep",
   MONEY_RECORDED: "already paid or invoiced",
   IN_GROUP: "part of a group registration",
   PROMO_APPLIED: "has a promo code applied",

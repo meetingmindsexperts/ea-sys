@@ -115,7 +115,9 @@ function skipReason(
   if (reg.status === "CANCELLED") return "CANCELLED";
   if (reg.userId) return "HAS_ACCOUNT";
   // Completed without an account (docs/ONSITE_DESK_PLAN.md §3.1), or Faculty, whose details staff
-  // keep: a new link would only say so (the one rule, registration-completion.ts).
+  // keep: a new link would only say so (the one rule, registration-completion.ts). Faculty is
+  // named first, so the organiser is not told a speaker "completed the form" they never saw.
+  if (reg.ticketType?.isFaculty) return "FACULTY";
   if (isRegistrationFormCompleted(reg)) return "ALREADY_COMPLETED";
   if (!RESTAMPABLE_STATUSES.includes(reg.paymentStatus)) return "MONEY_RECORDED";
   if (Number(reg.refundedAmount) > 0 || reg._count.payments > 0 || reg._count.invoices > 0) return "MONEY_RECORDED";

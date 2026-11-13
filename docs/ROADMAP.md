@@ -168,6 +168,45 @@ consumer moves to `updatedAfter`.
   type for every speaker (one join, no extra query); the single read and the list
   build the value in two places from one function.
 
+## Onsite desk: what the Nov 13 review left (recorded Nov 13, 2026): not started
+
+From the review of `5fc01136` (Faculty counts as form-completed, a code that takes the whole
+fee owes nothing at the door, the free rates' ways to pay; 0 BLOCKER, 0 HIGH, 3 MED, 3 LOW).
+The MEDs and one LOW were fixed in the follow-up commit.
+
+**Older defect, for the owner to decide: a type change with no rate keeps a stale discount.**
+`registration-repricing.ts` refuses a rate change while a code or discount is on the row
+(`TIER_CHANGE_HAS_DISCOUNT`), but a type change that sends no `pricingTierId` (the agent's
+`update_registration` with only a type, or a REST PUT without the field; the detail sheet
+always sends it) re-stamps `originalPrice` and leaves `discountAmount` as it was. The money
+screens and checkout then read the old discount against the new price. The door is safe
+since the fix above (the discount must equal the price). The fix is to refuse that change
+like the rate change, or to recompute the discount from the code.
+
+**LOW, left: the desk day summary calls a code-covered unpaid walk-in "unpaid".**
+`walkInBucket` in `desk-day-summary.ts` reads the payment status only. A walk-in left
+UNASSIGNED (the capture failed) and then given a 100% code from the sheet is admitted by the
+door and still counted as money owed on the day sheet. Rare; the row carries no discount
+today, so it needs the query widened.
+
+**LOW, a product decision: a free rate named "Inclusive" with no sponsor code.** At the
+walk-in form such a rate now takes a sponsor's code only (owner, Nov 13: the rate says who
+pays). On an event with no "Sponsor covers the fee" code, nobody can be registered at the
+desk on that rate; the desk picks another rate. The public link for an unmarked Inclusive
+rate still registers free with no code, and the Walk-in QR's Free tab was not traced for
+that rate (`freeDeskRate` leaves out only the Complimentary rate).
+
+**LOW, left: the completion page's words for a Faculty row.** A Faculty row's form link
+answers "already completed. Your confirmation and barcode were sent by email", which is
+written for someone who submitted the form. No such link is live in production and none can
+be sent now; it would need a link sent before an ordinary "Faculty" type became the built-in
+one.
+
+**Older defects the review named, not touched.** A change of attendance mode never re-prices
+(`updateRegistration`). The badge route, given explicit ids, does not leave out CANCELLED
+rows (the door still refuses them). `checkInGate` checks CANCELLED only, so a registration
+waiting for approval or on the waiting list is admitted once its payment is admissible.
+
 ## Registration counts: what the Nov 12 review left (recorded Nov 12, 2026): not started
 
 From the review of `cd275466` (the Registrations page summary card; 0 BLOCKER, 0 HIGH,

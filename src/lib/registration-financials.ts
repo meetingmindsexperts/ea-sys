@@ -125,6 +125,13 @@ export function readRegistrationBasePrice(reg: {
  * `discountAmount` absent or zero leaves the price as it is, so a caller that
  * cannot see money (a role without the finance key) never admits by mistake:
  * the server, which always reads the row itself, decides.
+ *
+ * The discount must EQUAL the price, not exceed it (review of 5fc01136). Every
+ * writer clamps a discount to the price it was applied to, so one larger than
+ * the price is left over from an earlier, higher price: a type change that
+ * sends no rate re-stamps the price and keeps the old discount
+ * (registration-repricing.ts). 250 off a 500 type moved to a 200 type still
+ * owes; "at least the price" would have let it in.
  */
 export function registrationChargesNothing(reg: {
   originalPrice?: unknown;
@@ -135,8 +142,8 @@ export function registrationChargesNothing(reg: {
   const price = readRegistrationBasePrice(reg);
   if (price === 0) return true;
   const discount = toNum(reg.discountAmount) ?? 0;
-  // Half a cent of slack, as the balance has (computeRegistrationFinancials).
-  return discount > 0 && price - discount < 0.005;
+  // Half a cent of slack either way, as the balance has (computeRegistrationFinancials).
+  return discount > 0 && Math.abs(price - discount) < 0.005;
 }
 
 /**

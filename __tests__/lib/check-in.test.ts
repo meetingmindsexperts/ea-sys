@@ -216,6 +216,8 @@ describe("isPaymentAdmissible — badge eligibility == door admission (H1)", () 
     // A partial code still owes, and no discount is the old answer.
     expect(isPaymentAdmissible(pay("UNPAID", { ...covered, discountAmount: "100.00" }))).toBe(false);
     expect(isPaymentAdmissible(pay("UNPAID", { ...covered, discountAmount: null }))).toBe(false);
+    // A discount larger than the price is left over from a higher price: refused (review of 5fc01136).
+    expect(isPaymentAdmissible(pay("UNPAID", { ...covered, discountAmount: "250.00" }))).toBe(false);
     // The gate says the same, and still refuses a cancelled one.
     const row = { status: "CONFIRMED", paymentStatus: "UNPAID", checkedInAt: null, ...covered };
     expect(checkInGate(row)).toBeNull();
