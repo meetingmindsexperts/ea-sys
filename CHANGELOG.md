@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Speaker and registration details: the sync can no longer write another person's record (November 13)
+
+Found by the review of the person fields groundwork, older than it. When a
+speaker's or a registration's details are edited, the same person's other
+record in the event is found by link or by email and the changed fields are
+copied onto it. The email was matched with a plain case-insensitive equals,
+which the database runs as a pattern: the underscore in `john_smith@` also
+matches `john.smith@`. Two people in one event whose addresses differ only
+there would have had one's phone, organisation or name copied onto the other.
+Both lookups now use `equalsIgnoringCase` (the Nov 10 rule for any address
+that decides whose a record is). Production has no such pair (0 speakers and
+registrations in one event whose different addresses match each other as a
+pattern, counted Nov 13, 2026), so nothing was ever copied wrongly and nothing
+needs repair.
+
 ### Person fields: one declaration of what the four records share (November 13)
 
 Owner, preparing for other organisations and other industries: the

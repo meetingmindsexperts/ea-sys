@@ -85,6 +85,23 @@ describe("syncSpeakerDetailsToRegistrations", () => {
     expect(mockDb.attendee.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["a1"] } }, data: { phone: "123" } });
   });
 
+  it("matches the address exactly: an underscore is not a wildcard (Nov 13, 2026)", async () => {
+    // Prisma's insensitive equals is ILIKE, where "_" matches any character, so
+    // john_smith@ also found john.smith@ and this sync wrote the other person's row.
+    mockDb.registration.findMany.mockResolvedValue([]);
+    await syncSpeakerDetailsToRegistrations({ ...base, email: "john_smith@x.com", sourceRegistrationId: null, delta: { phone: "1" } });
+    expect(mockDb.registration.findMany.mock.calls[0][0].where.OR).toEqual([
+      { attendee: { email: { equals: "john\\_smith@x.com", mode: "insensitive" } } },
+    ]);
+
+    mockDb.speaker.findMany.mockResolvedValue([]);
+    await syncRegistrationDetailsToSpeakers({ eventId: "ev1", registrationId: "r9", email: "50%_off@x.com", delta: { phone: "1" } });
+    expect(mockDb.speaker.findMany.mock.calls[0][0].where.OR).toEqual([
+      { sourceRegistrationId: "r9" },
+      { email: { equals: "50\\%\\_off@x.com", mode: "insensitive" } },
+    ]);
+  });
+
   it("moves the registration's version token so a stale editor gets a reload (M1)", async () => {
     mockDb.registration.findMany.mockResolvedValue([
       { id: "r1", attendeeId: "a1", attendee: { _count: { registrations: 1 } } },

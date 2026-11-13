@@ -14,7 +14,10 @@
  *    already disagreed stays as it is until someone edits that field (owner:
  *    nothing existing is changed, only future edits).
  *  - **Same event only.** Matched by `Speaker.sourceRegistrationId` OR a shared
- *    email (case-insensitive) inside the event.
+ *    email (case-insensitive) inside the event. The email is matched with
+ *    `equalsIgnoringCase`, never a bare insensitive equals: that compiles to
+ *    ILIKE, where the underscore in john_smith@ also matches john.smith@, and
+ *    this function WRITES the row it finds (Nov 13, 2026).
  *  - **A shared Attendee is never written.** 78 legacy Attendee rows (Feb-Mar
  *    2026) back registrations at several events, so writing one would rewrite
  *    another event's registration, invoice name included. Those are skipped
@@ -35,6 +38,7 @@
 import type { AttendeeRole, Prisma, Title } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 
 export const SYNCED_PERSON_FIELDS = [
   "title",
@@ -180,7 +184,7 @@ export async function syncSpeakerDetailsToRegistrations(change: SpeakerDetailsCh
         eventId,
         OR: [
           ...(sourceRegistrationId ? [{ id: sourceRegistrationId }] : []),
-          { attendee: { email: { equals: email.trim(), mode: "insensitive" as const } } },
+          { attendee: { email: equalsIgnoringCase(email.trim()) } },
         ],
       },
       select: {
@@ -253,7 +257,7 @@ export async function syncRegistrationDetailsToSpeakers(change: RegistrationDeta
         eventId,
         OR: [
           { sourceRegistrationId: registrationId },
-          { email: { equals: email.trim(), mode: "insensitive" as const } },
+          { email: equalsIgnoringCase(email.trim()) },
         ],
       },
       select: { id: true, ...selectDeltaFields(delta) },
