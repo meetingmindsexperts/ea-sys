@@ -10,6 +10,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { isPaymentAdmissible } from "@/lib/check-in";
 import { printedBadgeType, readBadgeLayout } from "@/lib/badge-layout";
 import { generateBadgePDF } from "@/lib/badge-pdf";
+import { badgePrintHeaders } from "@/lib/badge-print-result";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -118,7 +119,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // silently dropping sponsor-paid (INCLUSIVE) and pay-at-desk (UNASSIGNED)
     // delegates who scan in fine but then have no badge. `isPaymentAdmissible`
     // is the shared source of truth so the two can't drift again.
-    const registrations = allRegistrations.filter((r) =>
+    const admissible = (r: (typeof allRegistrations)[number]) =>
       isPaymentAdmissible({
         paymentStatus: r.paymentStatus,
         status: r.status,
@@ -126,8 +127,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         discountAmount: r.discountAmount,
         ticketTypePrice: r.ticketType?.price ?? null,
         pricingTierPrice: r.pricingTier?.price ?? null,
-      }),
-    );
+      });
+    const registrations = allRegistrations.filter(admissible);
+    // The rest of the selection: told to the operator with the PDF (below),
+    // not dropped in silence. A bulk print of 50 used to come back as 47
+    // badges and "Badges ready to print" (owner, Nov 13, 2026).
+    const leftOutForPayment = allRegistrations.filter((r) => !admissible(r));
 
     if (registrations.length === 0) {
       // Distinguish "you selected people who owe money" from "your selection
@@ -193,6 +198,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     // is the ONE reader: it clamps every field and folds in the legacy
     // `badgeVerticalOffset` column, so an event that has never opened the new
     // form keeps its existing calibration and prints an identical badge.
+    if (leftOutForPayment.length > 0) {
+      apiLogger.warn({
+        msg: "badges:left-out-payment-due",
+        eventId,
+        userId: session.user.id,
+        printed: registrations.length,
+        leftOut: leftOutForPayment.length,
+        detail: "Some of the selection still owes payment; their badges were not printed",
+      });
+    }
+
     const layout = readBadgeLayout(event);
     // DTCM QRs render only on flagged (Dubai) events — a stale dtcmBarcode
     // value on an unflagged event must not change its badge output.
@@ -250,6 +266,8 @@ export async function POST(req: Request, { params }: RouteParams) {
               // DTCM audit trail (Badge=Faculty-style): how many printed badges
               // carried the Dubai compliance QR vs were still missing a code.
               dtcmQrCount: dtcmCount,
+              // Asked for and not printed: payment due (told to the operator too).
+              paymentDueLeftOut: leftOutForPayment.length,
               registrationIds: printedIds,
             },
             ipAddress: getClientIp(req),
@@ -264,6 +282,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="badges-${eventId}.pdf"`,
+        // How many are in the PDF and who was left out for payment: the body
+        // is the PDF, so the Badges dialog reads these (badge-print-result.ts).
+        ...badgePrintHeaders(registrations.length, leftOutForPayment),
       },
     });
     });

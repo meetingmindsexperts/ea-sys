@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { IdCard, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { badgeLeftOutMessage, readBadgePrintResult } from "@/lib/badge-print-result";
 
 interface BadgeDialogProps {
   eventId: string;
@@ -52,7 +54,12 @@ export function BadgeDialog({ eventId, selectedIds, totalCount }: BadgeDialogPro
       }
       setTimeout(() => URL.revokeObjectURL(url), 60000);
 
-      toast.success("Badges ready to print");
+      // The PDF holds only whom the door admits. When some of the selection
+      // still owes payment, say how many and which, and keep it on screen
+      // long enough to read: the print dialog opens over it.
+      const leftOut = badgeLeftOutMessage(readBadgePrintResult(res.headers));
+      if (leftOut) toast.warning(leftOut, { duration: 30000 });
+      else toast.success("Badges ready to print");
       setOpen(false);
     } catch {
       toast.error("Badge generation failed");
@@ -72,13 +79,13 @@ export function BadgeDialog({ eventId, selectedIds, totalCount }: BadgeDialogPro
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Print Badges</DialogTitle>
+          {/* The dialog's spoken description too (it had none, and warned in the console). */}
+          <DialogDescription>
+            One badge per page, centered horizontally. Adjust the vertical position in Event Settings. Anyone who still owes payment is left out and named.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Print badges — one per page, centered horizontally. Adjust vertical position in Event Settings.
-          </p>
-
           <div className="space-y-2">
             {selectedIds.size > 0 && (
               <Button

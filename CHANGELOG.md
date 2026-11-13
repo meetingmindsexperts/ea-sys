@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Badges: a bulk print says who was left out for payment (November 13)
+
+Owner, after asking whether a badge can be printed while payment is due. It cannot: every Print badge button goes through one route, which prints only whom the door admits, and "admit anyway" at check-in does not unlock the badge until the payment is recorded. One gap was found on the way.
+
+- **A mixed selection no longer drops people in silence.** Printing 50 where 3 still owe used to return 47 badges and "Badges ready to print"; the operator found the three by counting paper. The **Badges** dialog on Registrations (Print Selected and Print All) now says, for example, "47 badges ready to print. 3 left out, payment due: 069, 071, 076. Record the payment or set them to Complimentary, then print those." It names up to 20 registration numbers, lowest first, then "and N more", and stays on screen for 30 seconds because the print window opens over it
+- When nobody is left out the dialog says what it always said. When everybody is, the route still refuses with its message, as before
+- Only payment is reported, the one reason with a remedy at hand. A virtual attendee never has a badge, and Print All leaves cancelled registrations out by design
+- The single-badge buttons (onsite desk, kiosk, the registration's own sheet) send one person, so they already got the refusal; unchanged
+- How: the response body is the PDF, so the counts travel in three headers (`X-Badges-Printed`, `X-Badges-Payment-Due`, `X-Badges-Payment-Due-Numbers`). `src/lib/badge-print-result.ts` writes them for the route and reads them for the dialog, so the names and the wording are one place; a response without them (an older server during a deploy) reads as nobody left out. The print's audit row gained `paymentDueLeftOut`, and the route logs `badges:left-out-payment-due`
+- The dialog also gained a proper description (it had none, which warned in the browser console)
+- Checked in the browser on the local production copy: three selected, one covered by a 100% code and two owing, gave one badge and the message naming 002 and 043
+
 ### Onsite desk: three things the desk team reported (November 13)
 
 Owner, from the desk of the 4th GCC Hematology Hub: "Form not completed" on people whose details are all there, "Record payment" on people who used a 100% promo code, and "Sponsor (Inclusive)" offered beside Complimentary on the Complimentary rate.
