@@ -12,6 +12,7 @@ import { sendEmailVerification } from "@/lib/email-verification";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { SIGNUP_PASSWORD_MAX, SIGNUP_PASSWORD_MIN, signInNeedsConfirmation } from "@/lib/account-signup";
 import { personalDetailsFields } from "@/lib/schemas";
+import { loadPersonFieldRules } from "@/lib/person-field-rules";
 import { missingRequiredDetails, newAccountProfileData, normalizeDetails } from "@/lib/registrant-details";
 
 /**
@@ -48,11 +49,9 @@ const schema = z
     // A field people never see; a bot that fills every input fills it.
     website: z.string().max(200).optional(),
   })
-  .strict()
-  .refine((d) => d.specialty !== "Others" || (d.customSpecialty?.trim().length ?? 0) > 0, {
-    message: "Please enter your specialty",
-    path: ["customSpecialty"],
-  });
+  // Role, Specialty and "Others needs the typed specialty" are demanded as the
+  // organisation says, below (missingRequiredDetails), not by this schema.
+  .strict();
 
 const ACCEPTED = { ok: true, message: "If this address can be used for a new account, we have sent a link to it." };
 
@@ -87,7 +86,8 @@ export async function POST(req: Request) {
     const { password, website } = parsed.data;
     const details = normalizeDetails(parsed.data);
     const { firstName, lastName } = details;
-    const blank = missingRequiredDetails(details);
+    // No event here: the organisation is the one whose address this is.
+    const blank = missingRequiredDetails(details, await loadPersonFieldRules(await resolveRequestOrgId(req)));
     if (blank.length > 0) {
       apiLogger.warn({ msg: "auth/signup:blank-required", fields: blank, ip });
       return NextResponse.json({ error: "Please check the form and try again." }, { status: 400 });

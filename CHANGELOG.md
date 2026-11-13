@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Form fields: Title, Role and Specialty can be switched off or made optional (November 13)
+
+Step 2 of `docs/ORG_FIELDS_PLAN.md`, first part: the organisation's switches.
+Owner: "pushed, step 2".
+
+Settings, Form fields has a new **Fields** card: for each of Title, Role and
+Specialty, "Ask" and "Required". A field that is switched off is not shown and
+never asked for; an optional one is shown without its asterisk.
+
+- **Where it applies:** every form people fill in, on every event: public
+  registration, completing a registration, group registration, the desk
+  walk-in, sign-up, My Details (the account's and a submitter's), the edit on
+  an event's registration page, and abstract and proposal sign-up. Staff
+  screens in the dashboard still show all three.
+- **One rule, not seventeen copies.** "Role is required" and "Specialty is
+  required" were written into eight route schemas and nine forms, and "Others
+  needs the typed specialty" into about fifteen places. They now all ask
+  `personFieldRules`. A new test lists every door and fails on a schema or a
+  form that demands these fields by itself; on its first run it found one more
+  copy, in My Details, which is gone.
+- **The "profile complete" gate** on submitting an abstract or a proposal asks
+  the same rule, so an organisation that switches Specialty off does not have
+  every submitter refused for a field no form shows.
+- **Nothing changes until someone flips a switch.** With all three on, which
+  is the default, every form and every route demands exactly what it did.
+- Each event's own choice (this event uses the field or not) is the next part.
+
+A registration made while Specialty is off stores nothing for it, not an
+empty text. The switches are saved with the same protection as the list: a
+save made after a colleague's change is refused and the screen reloads.
+
+Verified on the local app, on screen: with Specialty off and Role optional,
+the public registration form, the desk walk-in and My Details showed no
+Specialty and no asterisk on Role; a registration with neither was accepted;
+with the switches back on the same registration was refused with both field
+errors. Test rows deleted by id, counters and settings restored.
+
 ### Form fields: three traps closed before anyone uses it (November 13)
 
 Review of `9e22412a` (no HIGH, three MED), all in the Specialty list that

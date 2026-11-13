@@ -17,6 +17,16 @@ export const attendeeRoleEnum = z.enum([
   "OTHERS",
 ]);
 
+/**
+ * Role where a form may leave it out: a valid value, or nothing. Whether it
+ * is DEMANDED is the organisation's rule, added per request by
+ * `withPersonFieldRules` (src/lib/person-field-check.ts), not this schema's.
+ */
+export const optionalAttendeeRole = attendeeRoleEnum.optional().or(z.literal("").transform(() => undefined));
+
+/** Specialty where a form may leave it out. Demanded, or not, by the organisation's rule (as above). */
+export const optionalSpecialty = z.string().max(255).optional();
+
 /** AttendeeRole enum key type (matches Prisma AttendeeRole). */
 export type AttendeeRoleValue =
   | "ACADEMIA"
@@ -116,12 +126,14 @@ export function parseAttendeeRole(raw: string | null | undefined): AttendeeRoleV
  * (organisation, phone, country and specialty blank) and the payable
  * registration was minted from those blanks.
  *
- * Kept as a plain object (no refine) so each door can `.extend()` it; apply
- * `refinePresenterSpecialty` to the final schema.
+ * Kept as a plain object (no refine) so each door can `.extend()` it. Role and
+ * Specialty are taken leniently here: each door wraps its final schema in
+ * `withPersonFieldRules` with its organisation's rules, which also holds the
+ * "Others needs the typed specialty" rule (Nov 13, 2026).
  */
 export const presenterDetailsSchema = z.object({
   title: titleEnum,
-  role: attendeeRoleEnum,
+  role: optionalAttendeeRole,
   firstName: z.string().min(1, "First name is required").max(100),
   lastName: z.string().min(1, "Last name is required").max(100),
   additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
@@ -132,20 +144,9 @@ export const presenterDetailsSchema = z.object({
   phone: z.string().min(1, "Mobile number is required").max(50),
   city: z.string().min(1, "City is required").max(255),
   country: z.string().min(1, "Country is required").max(255),
-  specialty: z.string().min(1, "Specialty is required").max(255),
+  specialty: optionalSpecialty,
   customSpecialty: z.string().max(255).optional(),
 });
-
-/** "Others" as a specialty needs the free-text one. Shared by both doors. */
-export function refinePresenterSpecialty<T extends z.ZodTypeAny>(schema: T) {
-  return schema.refine(
-    (data) => {
-      const d = data as { specialty?: string; customSpecialty?: string };
-      return d.specialty !== "Others" || (d.customSpecialty?.trim().length ?? 0) > 0;
-    },
-    { message: "Please specify your specialty", path: ["customSpecialty"] },
-  );
-}
 
 /**
  * The personal fields the public registration form asks, with its own rules
@@ -157,7 +158,7 @@ export function refinePresenterSpecialty<T extends z.ZodTypeAny>(schema: T) {
  */
 export const personalDetailsFields = {
   title: titleEnum,
-  role: attendeeRoleEnum,
+  role: optionalAttendeeRole,
   firstName: z.string().min(1, "First name is required").max(100),
   lastName: z.string().min(1, "Last name is required").max(100),
   organization: z.string().min(1, "Organization is required").max(255),
@@ -167,6 +168,6 @@ export const personalDetailsFields = {
   state: z.string().max(255).optional(),
   zipCode: z.string().max(20).optional(),
   country: z.string().min(1, "Country is required").max(255),
-  specialty: z.string().min(1, "Specialty is required").max(255),
+  specialty: optionalSpecialty,
   customSpecialty: z.string().max(255).optional(),
 };

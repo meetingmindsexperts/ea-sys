@@ -7,12 +7,13 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { MAX_PERSON_FIELD_ANSWER, MAX_PERSON_FIELD_OPTIONS, readPersonFields } from "@/lib/person-fields";
-import { countSpecialtyUse, saveSpecialtyAnswers, type SaveSpecialtyAnswersErrorCode } from "@/services/person-field-service";
+import { countSpecialtyUse, savePersonFieldSwitches, saveSpecialtyAnswers, switchesOf, type SaveSpecialtyAnswersErrorCode } from "@/services/person-field-service";
 
 /**
- * The organisation's Specialty answers, for Settings, Form fields (Nov 13,
- * 2026; step 1 of docs/ORG_FIELDS_PLAN.md). GET the list with how many records
- * store each answer; PUT the list as a whole. Both need `formFields.manage`
+ * Settings, Form fields (Nov 13, 2026; steps 1 and 2 of
+ * docs/ORG_FIELDS_PLAN.md). GET the three fields' switches (asked or not,
+ * demanded or not) and the Specialty answers with how many records store each;
+ * PUT either the Specialty list as a whole, or the switches. Both need `formFields.manage`
  * (admins and organisers, or a custom role given it): the forms themselves
  * read the answers from the public route, which needs no key.
  */
@@ -21,15 +22,24 @@ const answerList = z
   .array(z.object({ answer: z.string().max(MAX_PERSON_FIELD_ANSWER + 20), retired: z.boolean().optional() }))
   .max(MAX_PERSON_FIELD_OPTIONS);
 
-const putSchema = z.object({
-  specialty: z.object({
-    answers: answerList,
-    allowOther: z.boolean(),
-    // The list as the screen loaded it. The whole list is replaced, so a save
-    // made from an older copy is refused (LIST_CHANGED), never applied.
-    expected: z.object({ answers: answerList, allowOther: z.boolean() }),
-  }),
-});
+const fieldSwitch = z.object({ enabled: z.boolean(), required: z.boolean() });
+const switches = z.object({ title: fieldSwitch, role: fieldSwitch, specialty: fieldSwitch });
+
+// One save at a time: the Specialty answers, or the three fields' switches.
+const putSchema = z.union([
+  z
+    .object({
+      specialty: z.object({
+        answers: answerList,
+        allowOther: z.boolean(),
+        // The list as the screen loaded it. The whole list is replaced, so a
+        // save made from an older copy is refused (LIST_CHANGED), never applied.
+        expected: z.object({ answers: answerList, allowOther: z.boolean() }),
+      }),
+    })
+    .strict(),
+  z.object({ fields: z.object({ switches, expected: switches }) }).strict(),
+]);
 
 /** Exhaustive over the service's error union, so a new code fails the build. */
 const HTTP_STATUS: Record<SaveSpecialtyAnswersErrorCode, number> = {
@@ -44,14 +54,21 @@ const HTTP_STATUS: Record<SaveSpecialtyAnswersErrorCode, number> = {
   UNKNOWN: 500,
 };
 
+const SWITCHES_HTTP_STATUS = { ORGANIZATION_NOT_FOUND: 404, SWITCHES_CHANGED: 409, UNKNOWN: 500 } as const;
+
 async function specialtyWithUse(organizationId: string) {
   const org = await db.organization.findUnique({ where: { id: organizationId }, select: { settings: true } });
-  const field = readPersonFields(org?.settings).specialty;
+  const config = readPersonFields(org?.settings);
+  const field = config.specialty;
   const use = await countSpecialtyUse(db, organizationId, field.options.map((o) => o.key));
   return {
-    label: field.label,
-    allowOther: field.allowOther,
-    answers: field.options.map((o) => ({ answer: o.key, retired: o.retired, records: use.get(o.key) ?? 0 })),
+    // Asked or not, and demanded or not, for each of the three fields.
+    fields: switchesOf(config),
+    specialty: {
+      label: field.label,
+      allowOther: field.allowOther,
+      answers: field.options.map((o) => ({ answer: o.key, retired: o.retired, records: use.get(o.key) ?? 0 })),
+    },
   };
 }
 
@@ -68,7 +85,7 @@ export async function GET() {
     }
     // The session's lane: the record counts read contacts, attendees and speakers.
     return await runWithTenantLane(organizationId, { route: "organization/person-fields:GET", userId: session.user.id }, async () =>
-      NextResponse.json({ specialty: await specialtyWithUse(organizationId) }),
+      NextResponse.json(await specialtyWithUse(organizationId)),
     );
   } catch (err) {
     apiLogger.error({ err }, "person-fields:list-failed");
@@ -105,6 +122,14 @@ export async function PUT(req: Request) {
 
     const userId = session.user.id;
     return await runWithTenantLane(organizationId, { route: "organization/person-fields:PUT", userId }, async () => {
+      if ("fields" in parsed.data) {
+        const saved = await savePersonFieldSwitches({ organizationId, actorUserId: userId, ...parsed.data.fields });
+        if (!saved.ok) {
+          apiLogger.warn({ msg: "person-fields:switches-rejected", organizationId, userId, code: saved.code });
+          return NextResponse.json({ error: saved.message, code: saved.code }, { status: SWITCHES_HTTP_STATUS[saved.code] });
+        }
+        return NextResponse.json(await specialtyWithUse(organizationId));
+      }
       const result = await saveSpecialtyAnswers({
         organizationId,
         actorUserId: userId,
@@ -119,7 +144,7 @@ export async function PUT(req: Request) {
           { status: HTTP_STATUS[result.code] },
         );
       }
-      return NextResponse.json({ specialty: await specialtyWithUse(organizationId) });
+      return NextResponse.json(await specialtyWithUse(organizationId));
     });
   } catch (err) {
     apiLogger.error({ err }, "person-fields:update-failed");

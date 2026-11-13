@@ -150,8 +150,10 @@ describe("a setting that cannot be used falls back whole, never half", () => {
 
   it("a usable one is read: trimmed, on unless switched off, no Others unless asked", () => {
     expect(withRole({ label: " Job ", options: [{ key: " DEV ", label: " Developer " }] })).toEqual({
-      enabled: true, label: "Job", options: [{ key: "DEV", label: "Developer", retired: false }], allowOther: false,
+      enabled: true, required: true, label: "Job", options: [{ key: "DEV", label: "Developer", retired: false }], allowOther: false,
     });
+    // Both switches are on unless saved off.
+    expect(withRole({ ...good, enabled: false, required: false })).toMatchObject({ enabled: false, required: false });
   });
 });
 
@@ -165,7 +167,31 @@ describe("what a public form is handed", () => {
         },
       }),
     );
-    expect(fields.specialty).toEqual({ enabled: true, label: "Area", answers: [{ key: "Cloud", label: "Cloud" }, { key: "Others", label: "Others" }] });
+    expect(fields.specialty).toEqual({ enabled: true, required: true, label: "Area", answers: [{ key: "Cloud", label: "Cloud" }, { key: "Others", label: "Others" }] });
     expect(Object.keys(fields).sort()).toEqual(["role", "specialty", "title"]);
+  });
+});
+
+describe("the rule every form and every door asks", () => {
+  it("today's form: all three shown and demanded", async () => {
+    const { DEFAULT_PERSON_FIELD_RULES } = await import("@/lib/person-fields");
+    expect(DEFAULT_PERSON_FIELD_RULES).toEqual({
+      title: { shown: true, required: true }, role: { shown: true, required: true }, specialty: { shown: true, required: true },
+    });
+  });
+
+  it("a field that is off is not shown and never demanded, whatever its required flag says", async () => {
+    const { personFieldRules, publicPersonFields } = await import("@/lib/person-fields");
+    const config = readPersonFields({
+      [PERSON_FIELDS_SETTING]: {
+        specialty: { enabled: false, required: true, label: "Specialty", options: [], allowOther: true },
+        role: { enabled: true, required: false, label: "Role", options: [{ key: "DEV", label: "Developer" }] },
+      },
+    });
+    expect(personFieldRules(config)).toEqual({
+      title: { shown: true, required: true }, role: { shown: true, required: false }, specialty: { shown: false, required: false },
+    });
+    // The public page is told the same.
+    expect(publicPersonFields(config).specialty).toMatchObject({ enabled: false, required: false });
   });
 });

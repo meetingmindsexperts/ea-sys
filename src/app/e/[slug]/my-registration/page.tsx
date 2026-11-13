@@ -17,6 +17,7 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { usePersonFieldRules } from "@/hooks/use-person-fields";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
 import {
@@ -139,6 +140,8 @@ function confirmedPaymentMessage(s: {
 }
 
 export default function EventMyRegistrationPage() {
+  // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
+  const fieldRules = usePersonFieldRules();
   const params = useParams();
   const slug = params.slug as string;
   const queryClient = useQueryClient();
@@ -755,8 +758,8 @@ export default function EventMyRegistrationPage() {
 
                   {isEditing ? (
                     <div className="grid gap-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-3">
-                        <div className="space-y-1"><Label className="text-xs">Title</Label><TitleSelect value={editData.title || ""} onChange={(v) => setEditData({ ...editData, title: v })} /></div>
+                      <div className={fieldRules.title.shown ? "grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-3" : "grid grid-cols-1 sm:grid-cols-2 gap-3"}>
+                        {fieldRules.title.shown && <div className="space-y-1"><Label className="text-xs">Title</Label><TitleSelect value={editData.title || ""} onChange={(v) => setEditData({ ...editData, title: v })} /></div>}
                         <div className="space-y-1"><Label className="text-xs">First Name</Label><Input value={editData.firstName || ""} disabled={reg.nameLocked} className={reg.nameLocked ? "bg-muted" : undefined} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} /></div>
                         <div className="space-y-1"><Label className="text-xs">Last Name</Label><Input value={editData.lastName || ""} disabled={reg.nameLocked} className={reg.nameLocked ? "bg-muted" : undefined} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} /></div>
                       </div>
@@ -784,8 +787,8 @@ export default function EventMyRegistrationPage() {
                         <div className="space-y-1"><Label className="text-xs">City</Label><Input value={editData.city || ""} onChange={(e) => setEditData({ ...editData, city: e.target.value })} /></div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="space-y-1"><Label className="text-xs">Specialty</Label><SpecialtySelect value={editData.specialty || ""} onChange={(v) => setEditData({ ...editData, specialty: v })} /></div>
-                        <div className="space-y-1"><Label className="text-xs">Role</Label><RoleSelect value={editData.role || ""} onChange={(v) => setEditData({ ...editData, role: v })} /></div>
+                        {fieldRules.specialty.shown && <div className="space-y-1"><Label className="text-xs">Specialty</Label><SpecialtySelect value={editData.specialty || ""} onChange={(v) => setEditData({ ...editData, specialty: v })} /></div>}
+                        {fieldRules.role.shown && <div className="space-y-1"><Label className="text-xs">Role</Label><RoleSelect value={editData.role || ""} onChange={(v) => setEditData({ ...editData, role: v })} /></div>}
                       </div>
                       {showsField(event?.formFields, "dietaryReqs") && (
                         <div className="space-y-1"><Label className="text-xs">Dietary Requirements</Label><Input value={editData.dietaryReqs || ""} onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })} /></div>

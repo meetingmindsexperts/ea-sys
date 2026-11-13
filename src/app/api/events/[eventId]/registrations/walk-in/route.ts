@@ -11,7 +11,8 @@ import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkInGate, executeCheckIn } from "@/lib/check-in";
 import { HTTP_STATUS_FOR_REGISTRATION_ERROR } from "@/lib/registration-error-status";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, optionalAttendeeRole } from "@/lib/schemas";
+import { personFieldRefusal } from "@/lib/person-field-rules";
 import {
   IDENTITY_EVIDENCE_SELECT,
   hasInvalidExpiryDate,
@@ -53,8 +54,10 @@ const optional = (max: number) => z.string().trim().max(max).optional();
 
 const walkInSchema = z
   .object({
-    title: titleEnum.refine((v) => v !== undefined, "Title is required"),
-    role: attendeeRoleEnum,
+    // Title, Role and Specialty are demanded as the organisation says, in the
+    // handler (personFieldRefusal, which demands the title here as before).
+    title: titleEnum,
+    role: optionalAttendeeRole,
     firstName: required(100),
     lastName: required(100),
     email: z.string().trim().email().max(255),
@@ -64,7 +67,7 @@ const walkInSchema = z
     phone: required(50),
     city: required(255),
     country: required(255),
-    specialty: required(255),
+    specialty: optional(255),
     customSpecialty: optional(255),
     associationName: optional(255),
     memberId: optional(100),
@@ -87,9 +90,6 @@ const walkInSchema = z
     cardBrand: z.string().trim().max(50).optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.specialty === "Others" && !data.customSpecialty) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customSpecialty"], message: "Please specify the specialty" });
-    }
     if ((data.payment === "inclusive" || data.payment === "covered") && !data.promoCode) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["promoCode"], message: "Enter the code" });
     }
@@ -134,6 +134,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!parsed.success) {
       apiLogger.warn({ msg: "walk-in:zod-validation-failed", eventId, userId: session.user.id, errors: parsed.error.flatten() });
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
+    }
+    const fieldRefusal = await personFieldRefusal(orgGuard.orgId, parsed.data, { demandTitle: true });
+    if (fieldRefusal) {
+      apiLogger.warn({ msg: "walk-in:person-fields-refused", eventId, userId: session.user.id, fields: Object.keys(fieldRefusal.fieldErrors) });
+      return NextResponse.json({ error: "Invalid input", details: fieldRefusal }, { status: 400 });
     }
     const data = parsed.data;
     const paid = data.payment === "cash" || data.payment === "card";

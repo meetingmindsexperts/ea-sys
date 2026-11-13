@@ -30,13 +30,16 @@ import type { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
+  CONFIGURABLE_PERSON_FIELDS,
   MAX_PERSON_FIELD_ANSWER,
   MAX_PERSON_FIELD_OPTIONS,
   OTHER_ANSWER,
   PERSON_FIELDS_SETTING,
   readPersonFields,
+  type ConfigurablePersonField,
   type PersonFieldConfig,
   type PersonFieldOption,
+  type PersonFieldsConfig,
 } from "@/lib/person-fields";
 
 export type SaveSpecialtyAnswersErrorCode =
@@ -198,8 +201,8 @@ export async function saveSpecialtyAnswers(input: {
         };
       }
 
-      // The label and the on/off switch are kept as they are: this save is the answers.
-      const after: PersonFieldConfig = { enabled: before.enabled, label: before.label, options: plan.next, allowOther: input.allowOther };
+      // The label and the on/off and required switches are kept as they are: this save is the answers.
+      const after: PersonFieldConfig = { enabled: before.enabled, required: before.required, label: before.label, options: plan.next, allowOther: input.allowOther };
       const saved = (settings[PERSON_FIELDS_SETTING] && typeof settings[PERSON_FIELDS_SETTING] === "object" ? settings[PERSON_FIELDS_SETTING] : {}) as Record<string, unknown>;
       await tx.organization.update({
         where: { id: input.organizationId },
@@ -236,5 +239,81 @@ export async function saveSpecialtyAnswers(input: {
   } catch (err) {
     apiLogger.error({ err, organizationId: input.organizationId }, "person-fields:specialty-save-failed");
     return fail("UNKNOWN", "Failed to save the specialty answers");
+  }
+}
+
+/**
+ * Whether the organisation asks Title, Role and Specialty at all, and whether
+ * an answer is demanded (Nov 13, 2026; step 2 of docs/ORG_FIELDS_PLAN.md).
+ * Every form and every server door reads these through `personFieldRules`.
+ *
+ * Only the two switches change: a field's label and answers are kept. The save
+ * says which switches it was edited from and is refused when they have changed
+ * since, for the same reason the answers' save is.
+ */
+export type PersonFieldSwitches = Record<ConfigurablePersonField, { enabled: boolean; required: boolean }>;
+
+export type SavePersonFieldSwitchesResult =
+  | { ok: true; switches: PersonFieldSwitches }
+  | { ok: false; code: "ORGANIZATION_NOT_FOUND" | "SWITCHES_CHANGED" | "UNKNOWN"; message: string };
+
+export function switchesOf(config: PersonFieldsConfig): PersonFieldSwitches {
+  const one = (field: PersonFieldConfig) => ({ enabled: field.enabled, required: field.required });
+  return { title: one(config.title), role: one(config.role), specialty: one(config.specialty) };
+}
+
+const sameSwitches = (a: PersonFieldSwitches, b: PersonFieldSwitches) =>
+  CONFIGURABLE_PERSON_FIELDS.every((f) => a[f].enabled === b[f].enabled && a[f].required === b[f].required);
+
+export async function savePersonFieldSwitches(input: {
+  organizationId: string;
+  actorUserId: string;
+  switches: PersonFieldSwitches;
+  /** The switches as the screen loaded them. */
+  expected: PersonFieldSwitches;
+}): Promise<SavePersonFieldSwitchesResult> {
+  try {
+    const outcome = await tenantTransaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ settings: Prisma.JsonValue | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${input.organizationId} FOR UPDATE`;
+      if (rows.length === 0) return { saved: false as const, code: "ORGANIZATION_NOT_FOUND" as const };
+      const settings = (rows[0].settings ?? {}) as Record<string, unknown>;
+      const config = readPersonFields(settings);
+      const before = switchesOf(config);
+      if (!sameSwitches(before, input.expected)) return { saved: false as const, code: "SWITCHES_CHANGED" as const };
+
+      // Each field is written whole (its label and answers as they are read
+      // today), so the stored setting stays one the reader accepts.
+      const next = Object.fromEntries(
+        CONFIGURABLE_PERSON_FIELDS.map((f) => [f, { ...config[f], enabled: input.switches[f].enabled, required: input.switches[f].required }]),
+      );
+      const saved = (settings[PERSON_FIELDS_SETTING] && typeof settings[PERSON_FIELDS_SETTING] === "object" ? settings[PERSON_FIELDS_SETTING] : {}) as Record<string, unknown>;
+      await tx.organization.update({
+        where: { id: input.organizationId },
+        data: { settings: { ...settings, [PERSON_FIELDS_SETTING]: { ...saved, ...next } } as unknown as Prisma.InputJsonValue },
+      });
+      return { saved: true as const, before };
+    });
+
+    if (!outcome.saved) {
+      return outcome.code === "ORGANIZATION_NOT_FOUND"
+        ? { ok: false, code: "ORGANIZATION_NOT_FOUND", message: "Organisation not found" }
+        : { ok: false, code: "SWITCHES_CHANGED", message: "Someone else changed these switches after you opened them. They have been reloaded: make your change again." };
+    }
+    db.auditLog
+      .create({
+        data: {
+          userId: input.actorUserId,
+          action: "UPDATE",
+          entityType: "Organization",
+          entityId: input.organizationId,
+          changes: { personFieldSwitches: { before: outcome.before, after: input.switches } } as unknown as Prisma.InputJsonValue,
+        },
+      })
+      .catch((err) => apiLogger.warn({ err, organizationId: input.organizationId }, "person-fields:audit-failed"));
+    apiLogger.info({ organizationId: input.organizationId, by: input.actorUserId, switches: input.switches }, "person-fields:switches-saved");
+    return { ok: true, switches: input.switches };
+  } catch (err) {
+    apiLogger.error({ err, organizationId: input.organizationId }, "person-fields:switches-save-failed");
+    return { ok: false, code: "UNKNOWN", message: "Failed to save the form fields" };
   }
 }

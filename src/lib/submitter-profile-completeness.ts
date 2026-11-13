@@ -14,6 +14,8 @@
  * discover it is missing.
  */
 
+import { DEFAULT_PERSON_FIELD_RULES, type PersonFieldRules } from "@/lib/person-fields";
+
 export interface ProfileCompletenessInput {
   role: string | null;
   specialty: string | null;
@@ -36,13 +38,22 @@ const REQUIRED_FIELDS: Array<{ key: keyof ProfileCompletenessInput; label: strin
   { key: "bio", label: "Bio" },
 ];
 
-/** Human-readable labels of the required fields that are still empty. */
-export function missingProfileFields(p: ProfileCompletenessInput): string[] {
-  return REQUIRED_FIELDS.filter(({ key }) => !p[key]?.toString().trim()).map(({ label }) => label);
+/**
+ * Human-readable labels of the required fields that are still empty. Role and
+ * Specialty count only while the organisation demands them (Nov 13, 2026): an
+ * organisation that switched Specialty off must not have every submitter
+ * refused as "profile incomplete" for a field no form asks. Callers that know
+ * the organisation pass its rules; without them, today's (both demanded).
+ */
+export function missingProfileFields(p: ProfileCompletenessInput, rules: PersonFieldRules = DEFAULT_PERSON_FIELD_RULES): string[] {
+  return REQUIRED_FIELDS.filter(({ key }) => {
+    if ((key === "role" || key === "specialty") && !rules[key].required) return false;
+    return !p[key]?.toString().trim();
+  }).map(({ label }) => label);
 }
 
-export function isProfileIncomplete(p: ProfileCompletenessInput): boolean {
-  return missingProfileFields(p).length > 0;
+export function isProfileIncomplete(p: ProfileCompletenessInput, rules: PersonFieldRules = DEFAULT_PERSON_FIELD_RULES): boolean {
+  return missingProfileFields(p, rules).length > 0;
 }
 
 /**

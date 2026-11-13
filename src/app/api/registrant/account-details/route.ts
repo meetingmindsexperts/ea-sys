@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { loadRegistrantScope } from "@/lib/registrant-access";
 import { personalDetailsFields } from "@/lib/schemas";
+import { loadPersonFieldRules } from "@/lib/person-field-rules";
 import {
   changedFields,
   copyToUpcomingRegistrations,
@@ -40,12 +41,9 @@ const putSchema = z
     ...personalDetailsFields,
     /** Absent: consent left as it is. */
     marketingConsent: z.boolean().optional(),
-  })
-  // The form's rule, checked here too: "Others" needs the specialty written in.
-  .refine((d) => d.specialty !== "Others" || (d.customSpecialty?.trim().length ?? 0) > 0, {
-    message: "Please enter your specialty",
-    path: ["customSpecialty"],
   });
+// Role, Specialty and "Others needs the specialty written in" are demanded as
+// the organisation says, in the handler (missingRequiredDetails).
 
 /** How many upcoming registrations a save would update, for the page to say so. */
 async function upcomingCount(userId: string): Promise<number> {
@@ -113,7 +111,7 @@ export async function PUT(req: Request) {
       // What the page showed: the delta is taken against it, so only what the
       // person actually changed reaches their registrations.
       const after = normalizeDetails(parsed.data);
-      const missing = missingRequiredDetails(after);
+      const missing = missingRequiredDetails(after, await loadPersonFieldRules(orgId));
       if (missing.length > 0) {
         apiLogger.warn({ msg: "account-details:blank-required", userId: owner, fields: missing });
         return NextResponse.json({ error: "Please check the highlighted fields.", fieldErrors: Object.fromEntries(missing.map((f) => [f, ["This field is required"]])) }, { status: 400 });

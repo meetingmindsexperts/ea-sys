@@ -1,9 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
 import { usePathname } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchApi } from "@/hooks/use-api";
-import { DEFAULT_PUBLIC_PERSON_FIELDS, type PublicPersonFields } from "@/lib/person-fields";
+import { DEFAULT_PUBLIC_PERSON_FIELDS, personFieldRules, type ConfigurablePersonField, type PersonFieldRules, type PublicPersonFields } from "@/lib/person-fields";
 
 /**
  * What the organisation's forms ask about a person (Nov 13, 2026; step 1 of
@@ -36,6 +37,17 @@ export function usePersonFields(): PublicPersonFields {
   return data ?? DEFAULT_PUBLIC_PERSON_FIELDS;
 }
 
+/**
+ * What the form on this page does with Title, Role and Specialty: show or
+ * not, demand or not. The same rule its route applies (person-field-check.ts).
+ */
+export function usePersonFieldRules(): PersonFieldRules {
+  const fields = usePersonFields();
+  // One object for as long as the fields are the same read: forms build their
+  // schema from it, and a new object every render would rebuild that each time.
+  return useMemo(() => personFieldRules(fields), [fields]);
+}
+
 export interface SpecialtyAnswerRow {
   answer: string;
   retired: boolean;
@@ -54,12 +66,48 @@ export interface SpecialtyListInput {
   allowOther: boolean;
 }
 
-/** The Specialty list as Settings edits it: every answer, retired ones too, with how many records store each. */
-export function useSpecialtySettings(enabled = true) {
+/** Asked or not, and demanded or not, for each of the three fields. */
+export type FieldSwitches = Record<ConfigurablePersonField, { enabled: boolean; required: boolean }>;
+
+interface FormFieldSettings {
+  fields: FieldSwitches;
+  specialty: SpecialtySettings;
+}
+
+/** Everything Settings, Form fields edits, in one read. */
+function useFormFieldSettings() {
   return useQuery({
     queryKey: SPECIALTY_SETTINGS_KEY,
-    queryFn: async () => (await fetchApi<{ specialty: SpecialtySettings }>("/api/organization/person-fields")).specialty,
-    enabled,
+    queryFn: () => fetchApi<FormFieldSettings>("/api/organization/person-fields"),
+  });
+}
+
+/** The Specialty list as Settings edits it: every answer, retired ones too, with how many records store each. */
+export function useSpecialtySettings() {
+  const query = useFormFieldSettings();
+  return { ...query, data: query.data?.specialty };
+}
+
+/** The three fields' switches as Settings edits them. */
+export function useFieldSwitches() {
+  const query = useFormFieldSettings();
+  return { ...query, data: query.data?.fields };
+}
+
+export function useSaveFieldSwitches() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // `expected` is what the screen loaded: a save made from older switches is refused.
+    mutationFn: (input: { switches: FieldSwitches; expected: FieldSwitches }) =>
+      fetchApi<FormFieldSettings>("/api/organization/person-fields", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fields: input }),
+      }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(SPECIALTY_SETTINGS_KEY, saved);
+      queryClient.invalidateQueries({ queryKey: PUBLIC_FIELDS_KEY });
+    },
   });
 }
 
@@ -69,14 +117,14 @@ export function useSaveSpecialtySettings() {
     // `expected` is the list the edit started from: a save made from an older
     // copy is refused by the server, never applied over someone else's change.
     mutationFn: (input: SpecialtyListInput & { expected: SpecialtyListInput }) =>
-      fetchApi<{ specialty: SpecialtySettings }>("/api/organization/person-fields", {
+      fetchApi<FormFieldSettings>("/api/organization/person-fields", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ specialty: input }),
       }),
     onSuccess: (saved) => {
       // The answer carries the saved list with its counts: no second read.
-      queryClient.setQueryData(SPECIALTY_SETTINGS_KEY, saved.specialty);
+      queryClient.setQueryData(SPECIALTY_SETTINGS_KEY, saved);
       // What every picker in this browser offers.
       queryClient.invalidateQueries({ queryKey: PUBLIC_FIELDS_KEY });
     },

@@ -40,6 +40,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { CountrySelect } from "@/components/ui/country-select";
 import { BillingDetailsSection, SupportingDocumentField, billingFromPersonal, missingBillingFields } from "@/components/public/registration-form-extras";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { withPersonFieldRules } from "@/lib/person-field-check";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import {
@@ -183,8 +185,11 @@ const registrationSchema = z.object({
   ticketTypeId: z.string().min(1, "Please select a category"),
   pricingTierId: z.string().optional(),
   attendanceMode: z.enum(["IN_PERSON", "VIRTUAL"]),
-  title: z.string().min(1, "Title is required"),
-  role: z.string().min(1, "Role is required"),
+  // Title, Role and Specialty are demanded as the organisation says: the
+  // resolver adds its rules to this schema (withPersonFieldRules), the same
+  // rule the route applies.
+  title: z.string(),
+  role: z.string(),
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Valid email is required"),
@@ -196,7 +201,7 @@ const registrationSchema = z.object({
   state: z.string().optional(),
   zipCode: z.string().optional(),
   country: z.string().min(1, "Country is required"),
-  specialty: z.string().min(1, "Specialty is required"),
+  specialty: z.string(),
   customSpecialty: z.string().optional(),
   dietaryReqs: z.string().optional(),
   // Member-specific fields
@@ -228,13 +233,7 @@ const registrationSchema = z.object({
   if (data.password.length < 6) ctx.addIssue({ code: "custom", path: ["password"], message: "Password must be at least 6 characters" });
   if (!data.confirmPassword) ctx.addIssue({ code: "custom", path: ["confirmPassword"], message: "Please confirm your password" });
   else if (data.password !== data.confirmPassword) ctx.addIssue({ code: "custom", path: ["confirmPassword"], message: "Passwords do not match" });
-}).refine(
-  (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
-  {
-    message: "Please specify your specialty",
-    path: ["customSpecialty"],
-  },
-);
+});
 
 type RegistrationForm = z.infer<typeof registrationSchema>;
 
@@ -339,8 +338,12 @@ function CategoryRegistrationContent() {
     trackingRef.current.utmCampaign = searchParams.get("utm_campaign");
   }, [searchParams]);
 
+  // What this organisation's forms do with Title, Role and Specialty: shown
+  // or not, demanded or not (Settings, Form fields).
+  const fieldRules = usePersonFieldRules();
+  const schemaWithFieldRules = useMemo(() => withPersonFieldRules(registrationSchema, fieldRules, { demandTitle: true }), [fieldRules]);
   const form = useForm<RegistrationForm>({
-    resolver: zodResolver(registrationSchema),
+    resolver: zodResolver(schemaWithFieldRules),
     // The page scrolls to the first error itself (form-error-scroll.ts); the
     // library's jump focused a lower text field first (review L4).
     shouldFocusError: false,
@@ -1285,17 +1288,19 @@ function CategoryRegistrationContent() {
                         )} />
                     )}
 
-                    <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-4">
+                    <div className={fieldRules.title.shown ? "grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-4" : "grid grid-cols-1 sm:grid-cols-2 gap-4"}>
+                      {fieldRules.title.shown && (
                       <FormField control={form.control} name="title"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">Title{fieldRules.title.required && <span className="text-red-400"> *</span>}</FormLabel>
                             <FormControl>
                               <TitleSelect value={field.value} onChange={field.onChange} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
+                      )}
                       <FormField control={form.control} name="firstName"
                         render={({ field }) => (
                           <FormItem>
@@ -1397,31 +1402,37 @@ function CategoryRegistrationContent() {
                     </div>
                     )}
 
+                    {(fieldRules.specialty.shown || fieldRules.role.shown) && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {fieldRules.specialty.shown && (
                       <FormField control={form.control} name="specialty"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">Specialty <span className="text-red-400">*</span></FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">Specialty{fieldRules.specialty.required && <span className="text-red-400"> *</span>}</FormLabel>
                             <FormControl>
                               <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
+                      )}
+                      {fieldRules.role.shown && (
                       <FormField control={form.control} name="role"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">Role <span className="text-red-400">*</span></FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">Role{fieldRules.role.required && <span className="text-red-400"> *</span>}</FormLabel>
                             <FormControl>
                               <RoleSelect value={field.value} onChange={field.onChange} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
+                      )}
                     </div>
+                    )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {selectedSpecialty === "Others" && (
+                      {fieldRules.specialty.shown && selectedSpecialty === "Others" && (
                         <FormField control={form.control} name="customSpecialty"
                           render={({ field }) => (
                             <FormItem>

@@ -31,6 +31,7 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { usePersonFieldRules } from "@/hooks/use-person-fields";
 import {
   livePrice,
   mainGroupRate,
@@ -102,6 +103,8 @@ function closedMessage(event: PublicEvent): string {
 }
 
 function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
+  // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
+  const fieldRules = usePersonFieldRules();
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
 
@@ -290,9 +293,10 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
         !m.phone.trim() && "phone",
         !m.city.trim() && "city",
         !m.country.trim() && "country",
-        !m.role && "role",
-        !m.specialty && "specialty",
-        m.specialty === "Others" && !m.customSpecialty.trim() && "custom specialty",
+        // Demanded as the organisation says, as the route does (person-field-check.ts).
+        fieldRules.role.required && !m.role && "role",
+        fieldRules.specialty.required && !m.specialty && "specialty",
+        fieldRules.specialty.shown && m.specialty === "Others" && !m.customSpecialty.trim() && "custom specialty",
       ].filter(Boolean);
       if (missing.length > 0) {
         blockSubmit(`Member ${i + 1}: missing ${missing.join(", ")}.`, `grp-member-${i}`);
@@ -577,8 +581,12 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
                         <p className="text-xs text-slate-500 mt-1">{currency} {priceInfo.price.toFixed(2)}{priceInfo.tierName ? ` · ${priceInfo.tierName}` : ""}</p>
                       )}
                     </div>
-                    <div><Label htmlFor={`grp-m${idx}-title`}>Title</Label><TitleSelect id={`grp-m${idx}-title`} value={m.title} onChange={(v) => updateMember(idx, { title: v })} /></div>
-                    <div className="hidden lg:block" />
+                    {fieldRules.title.shown && (
+                      <>
+                        <div><Label htmlFor={`grp-m${idx}-title`}>Title</Label><TitleSelect id={`grp-m${idx}-title`} value={m.title} onChange={(v) => updateMember(idx, { title: v })} /></div>
+                        <div className="hidden lg:block" />
+                      </>
+                    )}
                     <div><Label htmlFor={`grp-m${idx}-first-name`}>First name *</Label><Input id={`grp-m${idx}-first-name`} autoComplete="off" value={m.firstName} onChange={(e) => updateMember(idx, { firstName: e.target.value })} disabled={isCoordinatorRow} /></div>
                     <div><Label htmlFor={`grp-m${idx}-last-name`}>Last name *</Label><Input id={`grp-m${idx}-last-name`} autoComplete="off" value={m.lastName} onChange={(e) => updateMember(idx, { lastName: e.target.value })} disabled={isCoordinatorRow} /></div>
                     <div><Label htmlFor={`grp-m${idx}-email`}>Email *</Label><Input id={`grp-m${idx}-email`} autoComplete="off" type="email" value={m.email} onChange={(e) => updateMember(idx, { email: e.target.value })} disabled={isCoordinatorRow} /></div>
@@ -587,9 +595,13 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
                     <div><Label htmlFor={`grp-m${idx}-phone`}>Phone *</Label><Input id={`grp-m${idx}-phone`} type="tel" autoComplete="off" value={m.phone} onChange={(e) => updateMember(idx, { phone: e.target.value })} /></div>
                     <div><Label htmlFor={`grp-m${idx}-city`}>City *</Label><Input id={`grp-m${idx}-city`} autoComplete="off" value={m.city} onChange={(e) => updateMember(idx, { city: e.target.value })} /></div>
                     <div><Label htmlFor={`grp-m${idx}-country`}>Country *</Label><CountrySelect id={`grp-m${idx}-country`} value={m.country} onChange={(v) => updateMember(idx, { country: v })} /></div>
-                    <div><Label htmlFor={`grp-m${idx}-role`}>Role *</Label><RoleSelect id={`grp-m${idx}-role`} value={m.role} onChange={(v) => updateMember(idx, { role: v })} /></div>
-                    <div><Label htmlFor={`grp-m${idx}-specialty`}>Specialty *</Label><SpecialtySelect id={`grp-m${idx}-specialty`} value={m.specialty} onChange={(v) => updateMember(idx, { specialty: v })} /></div>
-                    {m.specialty === "Others" && (
+                    {fieldRules.role.shown && (
+                      <div><Label htmlFor={`grp-m${idx}-role`}>Role{fieldRules.role.required ? " *" : ""}</Label><RoleSelect id={`grp-m${idx}-role`} value={m.role} onChange={(v) => updateMember(idx, { role: v })} /></div>
+                    )}
+                    {fieldRules.specialty.shown && (
+                      <div><Label htmlFor={`grp-m${idx}-specialty`}>Specialty{fieldRules.specialty.required ? " *" : ""}</Label><SpecialtySelect id={`grp-m${idx}-specialty`} value={m.specialty} onChange={(v) => updateMember(idx, { specialty: v })} /></div>
+                    )}
+                    {fieldRules.specialty.shown && m.specialty === "Others" && (
                       <div><Label htmlFor={`grp-m${idx}-custom-specialty`}>Custom specialty *</Label><Input id={`grp-m${idx}-custom-specialty`} autoComplete="off" value={m.customSpecialty} onChange={(e) => updateMember(idx, { customSpecialty: e.target.value })} /></div>
                     )}
                   </div>

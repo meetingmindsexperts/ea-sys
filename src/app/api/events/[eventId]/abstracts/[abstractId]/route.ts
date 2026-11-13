@@ -27,6 +27,7 @@ import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications
 import { notifyEventAdmins } from "@/lib/notifications";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
+import { loadPersonFieldRules } from "@/lib/person-field-rules";
 import {
   isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE,
   isSubThemeMissing, SUB_THEME_REQUIRED_CODE, SUB_THEME_REQUIRED_MESSAGE,
@@ -270,7 +271,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       // blocked. The edit page redirects to My Details first; this covers a
       // direct API call.
       if (data.status === "SUBMITTED" && existingAbstract.speaker) {
-        const missing = missingProfileFields(existingAbstract.speaker);
+        const missing = missingProfileFields(existingAbstract.speaker, await loadPersonFieldRules(event.organizationId));
         if (missing.length > 0) {
           apiLogger.warn({ msg: "abstract-submit:profile-incomplete-block", eventId, abstractId, userId: session.user.id, missing });
           return NextResponse.json(profileIncompletePayload(missing), { status: 403 });

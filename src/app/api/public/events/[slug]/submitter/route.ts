@@ -10,7 +10,8 @@ import { speakerClaimPending } from "@/lib/registrant-access";
 import { publicEventWhere } from "@/lib/public-event";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { presenterDetailsSchema, refinePresenterSpecialty } from "@/lib/schemas";
+import { presenterDetailsSchema } from "@/lib/schemas";
+import { personFieldRefusal } from "@/lib/person-field-rules";
 import { syncToContact } from "@/lib/contact-sync";
 import { contactSyncFromSpeakerInput } from "@/lib/contact-sync-payload";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -21,8 +22,9 @@ import { getTitleLabel } from "@/lib/utils";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
 import { abstractSubmissionsOpen } from "@/lib/webinar";
 
-const registerSchema = refinePresenterSpecialty(
-  presenterDetailsSchema.extend({
+// Role, Specialty and "Others needs the typed specialty" are demanded as the
+// event's organisation says, in the handler (personFieldRefusal).
+const registerSchema = presenterDetailsSchema.extend({
     email: z.string().email("Valid email is required").max(255),
     password: z.string().min(6, "Password must be at least 6 characters").max(128),
     registrationType: z.string().max(255).optional(),
@@ -36,8 +38,7 @@ const registerSchema = refinePresenterSpecialty(
     ticketTypeId: z.string().max(100).optional(),
     /** The chosen type's ID and document switches decide which of these are required (Nov 4, 2026). */
     ...presenterEvidenceShape,
-  }),
-);
+});
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -111,6 +112,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         { error: "Invalid input", details },
         { status: 400 }
       );
+    }
+
+    const fieldRefusal = await personFieldRefusal(orgId, validated.data);
+    if (fieldRefusal) {
+      apiLogger.warn({ msg: "public/submitter:person-fields-refused", slug, fields: Object.keys(fieldRefusal.fieldErrors) });
+      return NextResponse.json({ error: "Invalid input", details: fieldRefusal }, { status: 400 });
     }
 
     const data = validated.data;

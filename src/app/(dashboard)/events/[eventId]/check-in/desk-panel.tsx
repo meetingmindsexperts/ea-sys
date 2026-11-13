@@ -26,6 +26,8 @@ import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidenceP
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import type { PersonFieldRules } from "@/lib/person-fields";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SupportingDocumentField, type UploadedDocument } from "@/components/public/registration-form-extras";
 
@@ -901,17 +903,20 @@ const EMPTY_FIELDS: WalkInFields = {
   cardLast4: "",
 };
 
-/** The public form's required fields that a plain input's `required` cannot catch (the pickers). */
-const REQUIRED_PICKERS: Array<[keyof WalkInFields, string]> = [
-  ["title", "Title"],
-  ["country", "Country"],
-  ["specialty", "Specialty"],
-  ["role", "Role"],
-];
-
-function missingFields(fields: WalkInFields, type: DeskTicketType | undefined): string[] {
-  const missing = REQUIRED_PICKERS.filter(([key]) => !fields[key].trim()).map(([, label]) => label);
-  if (fields.specialty === "Others" && !fields.customSpecialty.trim()) missing.push("Specialty (please specify)");
+/**
+ * The required fields that a plain input's `required` cannot catch (the
+ * pickers). Title, Role and Specialty are demanded as the organisation says,
+ * the same rule the walk-in route applies (person-field-check.ts).
+ */
+function missingFields(fields: WalkInFields, type: DeskTicketType | undefined, rules: PersonFieldRules): string[] {
+  const pickers: Array<[keyof WalkInFields, string, boolean]> = [
+    ["title", "Title", rules.title.required],
+    ["country", "Country", true],
+    ["specialty", "Specialty", rules.specialty.required],
+    ["role", "Role", rules.role.required],
+  ];
+  const missing = pickers.filter(([key, , demanded]) => demanded && !fields[key].trim()).map(([, label]) => label);
+  if (rules.specialty.shown && fields.specialty === "Others" && !fields.customSpecialty.trim()) missing.push("Specialty (please specify)");
   if (type) {
     missing.push(...missingIdentityEvidence(readIdentityEvidencePolicy(type), fields));
   }
@@ -954,6 +959,8 @@ function WalkInForm({
   /** Registered and checked in. */
   onDone: (email: string, created: WalkInCreated) => Promise<void>;
 }) {
+  // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
+  const fieldRules = usePersonFieldRules();
   const { data: ticketTypes = [] } = useTickets(eventId);
   const types = useMemo(
     () => (ticketTypes as DeskTicketType[]).filter((t) => !t.isFaculty && t.isActive !== false),
@@ -1057,7 +1064,7 @@ function WalkInForm({
       toast.error("Choose a registration type");
       return;
     }
-    const missing = missingFields(fields, type);
+    const missing = missingFields(fields, type, fieldRules);
     // Without a rate a tiered type reads as free, so a paid walk-in would be registered for nothing.
     if (tiers.length > 0 && !tier) missing.unshift("Rate");
     if (type.requiresDocument && type.documentRequired && !supportingDoc) missing.push(type.documentLabel || "Supporting document");
@@ -1176,10 +1183,12 @@ function WalkInForm({
             )}
           </div>
 
-          <div className="grid grid-cols-[110px_1fr_1fr] gap-3">
-            <Field label="Title" required>
-              <TitleSelect value={fields.title} onChange={pick("title")} />
-            </Field>
+          <div className={fieldRules.title.shown ? "grid grid-cols-[110px_1fr_1fr] gap-3" : "grid grid-cols-2 gap-3"}>
+            {fieldRules.title.shown && (
+              <Field label="Title" required={fieldRules.title.required}>
+                <TitleSelect value={fields.title} onChange={pick("title")} />
+              </Field>
+            )}
             <Field label="First name" required htmlFor="walkin-first">
               <Input id="walkin-first" value={fields.firstName} onChange={set("firstName")} required />
             </Field>
@@ -1210,13 +1219,17 @@ function WalkInForm({
             <Field label="City" required htmlFor="walkin-city">
               <Input id="walkin-city" value={fields.city} onChange={set("city")} required />
             </Field>
-            <Field label="Specialty" required>
-              <SpecialtySelect value={fields.specialty} onChange={pick("specialty")} />
-            </Field>
-            <Field label="Role" required>
-              <RoleSelect value={fields.role} onChange={pick("role")} />
-            </Field>
-            {fields.specialty === "Others" && (
+            {fieldRules.specialty.shown && (
+              <Field label="Specialty" required={fieldRules.specialty.required}>
+                <SpecialtySelect value={fields.specialty} onChange={pick("specialty")} />
+              </Field>
+            )}
+            {fieldRules.role.shown && (
+              <Field label="Role" required={fieldRules.role.required}>
+                <RoleSelect value={fields.role} onChange={pick("role")} />
+              </Field>
+            )}
+            {fieldRules.specialty.shown && fields.specialty === "Others" && (
               <Field label="Please specify the specialty" required htmlFor="walkin-custom-specialty" className="sm:col-span-2">
                 <Input id="walkin-custom-specialty" value={fields.customSpecialty} onChange={set("customSpecialty")} required />
               </Field>

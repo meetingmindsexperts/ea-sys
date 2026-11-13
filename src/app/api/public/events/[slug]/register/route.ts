@@ -15,6 +15,7 @@ import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { personalDetailsFields } from "@/lib/schemas";
+import { personFieldRefusal } from "@/lib/person-field-rules";
 import { syncToContact } from "@/lib/contact-sync";
 import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -108,13 +109,7 @@ const registrationSchema = z.object({
   agreeTerms: z.literal(true, { message: "You must agree to the terms and conditions" }),
   // The desk QR (docs/ONSITE_DESK_PLAN.md §8): while valid, desk mode.
   deskToken: z.string().max(4000).optional(),
-}).refine(
-  (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
-  {
-    message: "Please specify your specialty",
-    path: ["customSpecialty"],
-  },
-);
+});
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -328,6 +323,15 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Role, Specialty and "Others needs the typed specialty": demanded as the
+    // event's organisation says (src/lib/person-field-rules.ts). Asked here
+    // because the organisation is only known once the event is.
+    const fieldRefusal = await personFieldRefusal(event.organizationId, validated.data);
+    if (fieldRefusal) {
+      apiLogger.warn({ msg: "public/events/register:person-fields-refused", eventId: event.id, fields: Object.keys(fieldRefusal.fieldErrors) });
+      return NextResponse.json({ error: "Invalid input", details: fieldRefusal }, { status: 400 });
     }
 
     if (desk && desk.eventId !== event.id) {
@@ -631,7 +635,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         state: state || null,
         zipCode: zipCode || null,
         country,
-        specialty,
+        // Blank when the organisation does not ask it: stored as nothing, not as "".
+        specialty: specialty || null,
         customSpecialty: customSpecialty || null,
         registrationType,
         dietaryReqs: dietaryReqs || null,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm, useWatch, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -17,6 +17,8 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { withPersonFieldRules } from "@/lib/person-field-check";
 import { PageHeader } from "@/components/ui/typography";
 
 /**
@@ -29,7 +31,9 @@ import { PageHeader } from "@/components/ui/typography";
 const schema = z
   .object({
     title: z.string(),
-    role: z.string().min(1, "Role is required"),
+    // Role and Specialty are demanded as the organisation says: the resolver
+    // adds its rules (withPersonFieldRules), as the route does.
+    role: z.string(),
     firstName: z.string().trim().min(1, "First name is required").max(100),
     lastName: z.string().trim().min(1, "Last name is required").max(100),
     organization: z.string().trim().min(1, "Organization is required").max(255),
@@ -39,13 +43,9 @@ const schema = z
     state: z.string().max(255),
     zipCode: z.string().max(20),
     country: z.string().min(1, "Country is required"),
-    specialty: z.string().min(1, "Specialty is required"),
+    specialty: z.string(),
     customSpecialty: z.string().max(255),
     marketingConsent: z.boolean(),
-  })
-  .refine((d) => d.specialty !== "Others" || d.customSpecialty.trim().length > 0, {
-    message: "Please enter your specialty",
-    path: ["customSpecialty"],
   });
 
 type FormValues = z.infer<typeof schema>;
@@ -66,7 +66,10 @@ const EMPTY: FormValues = {
 export default function MyDetailsPage() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const form = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: EMPTY });
+  // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
+  const fieldRules = usePersonFieldRules();
+  const schemaWithFieldRules = useMemo(() => withPersonFieldRules(schema, fieldRules), [fieldRules]);
+  const form = useForm<FormValues>({ resolver: zodResolver(schemaWithFieldRules), defaultValues: EMPTY });
   const { register, control, handleSubmit, reset, formState } = form;
   const { errors, isSubmitting, isDirty } = formState;
   const specialty = useWatch({ control, name: "specialty" });
@@ -152,11 +155,13 @@ export default function MyDetailsPage() {
         <Card className="gap-0 py-0">
           <CardContent className="space-y-5 p-4 sm:p-6">
             <SectionTitle icon={UserRound} title="About you" />
-            <div className="grid gap-4 sm:grid-cols-[8rem_1fr_1fr]">
-              <div className="space-y-1.5">
-                <Label htmlFor="details-title">Title</Label>
-                <Controller control={control} name="title" render={({ field }) => <TitleSelect id="details-title" value={field.value} onChange={field.onChange} />} />
-              </div>
+            <div className={fieldRules.title.shown ? "grid gap-4 sm:grid-cols-[8rem_1fr_1fr]" : "grid gap-4 sm:grid-cols-2"}>
+              {fieldRules.title.shown && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="details-title">Title</Label>
+                  <Controller control={control} name="title" render={({ field }) => <TitleSelect id="details-title" value={field.value} onChange={field.onChange} />} />
+                </div>
+              )}
               <TextField label="First name" required error={fieldError("firstName")} {...register("firstName")} />
               <TextField label="Last name" required error={fieldError("lastName")} {...register("lastName")} />
             </div>
@@ -173,21 +178,25 @@ export default function MyDetailsPage() {
 
             <SectionTitle title="Work" />
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="details-role">
-                  Role <span className="text-destructive">*</span>
-                </Label>
-                <Controller control={control} name="role" render={({ field }) => <RoleSelect id="details-role" value={field.value} onChange={field.onChange} />} />
-                {fieldError("role")}
-              </div>
+              {fieldRules.role.shown && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="details-role">
+                    Role{fieldRules.role.required && <span className="text-destructive"> *</span>}
+                  </Label>
+                  <Controller control={control} name="role" render={({ field }) => <RoleSelect id="details-role" value={field.value} onChange={field.onChange} />} />
+                  {fieldError("role")}
+                </div>
+              )}
+              {fieldRules.specialty.shown && (
               <div className="space-y-1.5">
                 <Label htmlFor="details-specialty">
-                  Specialty <span className="text-destructive">*</span>
+                  Specialty{fieldRules.specialty.required && <span className="text-destructive"> *</span>}
                 </Label>
                 <Controller control={control} name="specialty" render={({ field }) => <SpecialtySelect id="details-specialty" value={field.value} onChange={field.onChange} />} />
                 {fieldError("specialty")}
               </div>
-              {specialty === "Others" && (
+              )}
+              {fieldRules.specialty.shown && specialty === "Others" && (
                 <TextField className="sm:col-span-2" label="Your specialty" required error={fieldError("customSpecialty")} {...register("customSpecialty")} />
               )}
               <TextField label="Organization" required error={fieldError("organization")} {...register("organization")} />

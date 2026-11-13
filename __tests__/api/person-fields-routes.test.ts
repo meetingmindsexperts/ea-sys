@@ -10,10 +10,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockAuth, mockDb, saveSpecialtyAnswers, countSpecialtyUse, resolveRequestOrgId, resolvePublicEventOrg, rateLimit, lane } = vi.hoisted(() => ({
+const { mockAuth, mockDb, saveSpecialtyAnswers, savePersonFieldSwitches, countSpecialtyUse, resolveRequestOrgId, resolvePublicEventOrg, rateLimit, lane } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: { organization: { findUnique: vi.fn() } },
   saveSpecialtyAnswers: vi.fn(),
+  savePersonFieldSwitches: vi.fn(),
   countSpecialtyUse: vi.fn(),
   resolveRequestOrgId: vi.fn(),
   resolvePublicEventOrg: vi.fn(),
@@ -41,7 +42,13 @@ vi.mock("@/lib/tenant-lane", () => ({
     return fn();
   },
 }));
-vi.mock("@/services/person-field-service", () => ({ saveSpecialtyAnswers, countSpecialtyUse }));
+// The two saves and the count are stubbed; reading the switches off a config is the real function.
+vi.mock("@/services/person-field-service", async (original) => ({
+  switchesOf: (await original<typeof import("@/services/person-field-service")>()).switchesOf,
+  saveSpecialtyAnswers,
+  savePersonFieldSwitches,
+  countSpecialtyUse,
+}));
 
 import { GET as getSettings, PUT } from "@/app/api/organization/person-fields/route";
 import { GET as getPublic } from "@/app/api/public/person-fields/route";
@@ -52,6 +59,8 @@ const user = (role: string, organizationId: string | null = ORG) => ({ user: { i
 const put = (body: unknown) => PUT({ json: async () => body } as unknown as Request);
 const EXPECTED = { answers: [{ answer: "Cloud" }, { answer: "Legacy", retired: true }], allowOther: false };
 const VALID = { specialty: { answers: [{ answer: "Cloud" }, { answer: "Data", retired: true }], allowOther: false, expected: EXPECTED } };
+const ON = { enabled: true, required: true };
+const SWITCHES = { title: ON, role: { enabled: true, required: false }, specialty: { enabled: false, required: false } };
 const OWN_LIST = {
   [PERSON_FIELDS_SETTING]: {
     specialty: { label: "Area", options: [{ key: "Cloud", label: "Cloud" }, { key: "Legacy", label: "Legacy", retired: true }], allowOther: false },
@@ -62,6 +71,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   rateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   saveSpecialtyAnswers.mockResolvedValue({ ok: true, field: {} });
+  savePersonFieldSwitches.mockResolvedValue({ ok: true, switches: SWITCHES });
   countSpecialtyUse.mockResolvedValue(new Map([["Cloud", 12]]));
   mockDb.organization.findUnique.mockResolvedValue({ settings: OWN_LIST });
   resolveRequestOrgId.mockResolvedValue(null);
@@ -73,11 +83,14 @@ describe("Settings, Form fields: who may read and change the list", () => {
     mockAuth.mockResolvedValue(user(role));
     const res = await getSettings();
     expect(res.status).toBe(200);
-    expect((await res.json()).specialty).toEqual({
+    const body = await res.json();
+    expect(body.specialty).toEqual({
       label: "Area",
       allowOther: false,
       answers: [{ answer: "Cloud", retired: false, records: 12 }, { answer: "Legacy", retired: true, records: 0 }],
     });
+    // And whether each of the three fields is asked and demanded: all on, with nothing saved for them.
+    expect(body.fields).toEqual({ title: ON, role: ON, specialty: ON });
     // The counts read contacts, attendees and speakers, which sit behind a row policy on the platform.
     expect(lane).toHaveBeenCalledWith(ORG, { route: "organization/person-fields:GET", userId: "u1" });
   });
@@ -141,6 +154,34 @@ describe("Settings, Form fields: who may read and change the list", () => {
     const res = await put(VALID);
     expect(res.status).toBe(status);
     expect(await res.json()).toMatchObject({ code });
+  });
+
+  it("an organiser saves the switches: asked or not, demanded or not, with what the screen loaded", async () => {
+    mockAuth.mockResolvedValue(user("ORGANIZER"));
+    const expected = { title: ON, role: ON, specialty: ON };
+    const res = await put({ fields: { switches: SWITCHES, expected } });
+    expect(res.status).toBe(200);
+    expect(savePersonFieldSwitches).toHaveBeenCalledWith({ organizationId: ORG, actorUserId: "u1", switches: SWITCHES, expected });
+    expect(saveSpecialtyAnswers).not.toHaveBeenCalled();
+  });
+
+  it("switches somebody else changed since: 409 with the code, so the screen reloads", async () => {
+    mockAuth.mockResolvedValue(user("ADMIN"));
+    savePersonFieldSwitches.mockResolvedValue({ ok: false, code: "SWITCHES_CHANGED", message: "changed" });
+    const res = await put({ fields: { switches: SWITCHES, expected: SWITCHES } });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "changed", code: "SWITCHES_CHANGED" });
+  });
+
+  it.each([
+    ["a field left out", { fields: { switches: { title: ON, role: ON }, expected: SWITCHES } }],
+    ["a switch that is not yes or no", { fields: { switches: { ...SWITCHES, role: { enabled: "yes", required: true } }, expected: SWITCHES } }],
+    ["the answers and the switches in one save", { ...VALID, fields: { switches: SWITCHES, expected: SWITCHES } }],
+  ])("400 on %s", async (_name, body) => {
+    mockAuth.mockResolvedValue(user("ADMIN"));
+    expect((await put(body)).status).toBe(400);
+    expect(savePersonFieldSwitches).not.toHaveBeenCalled();
+    expect(saveSpecialtyAnswers).not.toHaveBeenCalled();
   });
 
   it("429 when saved too often", async () => {

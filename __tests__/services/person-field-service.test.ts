@@ -20,7 +20,7 @@ const { mockDb, tx } = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (cb: (t: unknown) => unknown) => mockDb.$transaction(cb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { planSpecialtyAnswers, saveSpecialtyAnswers } from "@/services/person-field-service";
+import { planSpecialtyAnswers, savePersonFieldSwitches, saveSpecialtyAnswers, switchesOf } from "@/services/person-field-service";
 import { defaultPersonFields, PERSON_FIELDS_SETTING } from "@/lib/person-fields";
 
 const DEFAULT_COUNT = defaultPersonFields().specialty.options.length;
@@ -178,5 +178,65 @@ describe("saveSpecialtyAnswers", () => {
   it("a database failure is an UNKNOWN result, never a throw", async () => {
     mockDb.$transaction.mockRejectedValueOnce(new Error("boom"));
     expect(await saveSpecialtyAnswers({ ...BASE, answers: defaults() })).toMatchObject({ ok: false, code: "UNKNOWN" });
+  });
+});
+
+describe("savePersonFieldSwitches (step 2: asked or not, demanded or not)", () => {
+  const ON = { enabled: true, required: true };
+  const ALL_ON = { title: ON, role: ON, specialty: ON };
+  const NEXT = { title: { enabled: false, required: true }, role: { enabled: true, required: false }, specialty: ON };
+  const base = { organizationId: "org1", actorUserId: "u1" };
+
+  it("with nothing saved, every switch reads on", () => {
+    expect(switchesOf(defaultPersonFields())).toEqual(ALL_ON);
+  });
+
+  it("writes the two switches and keeps each field's label, answers and Others as they were", async () => {
+    const result = await savePersonFieldSwitches({ ...base, switches: NEXT, expected: ALL_ON });
+    expect(result).toEqual({ ok: true, switches: NEXT });
+    const written = tx.organization.update.mock.calls[0][0].data.settings;
+    expect(written.zoom).toEqual({ enabled: true });
+    const saved = written[PERSON_FIELDS_SETTING];
+    expect(saved.title).toMatchObject({ enabled: false, required: true, label: "Title" });
+    expect(saved.role).toMatchObject({ enabled: true, required: false, label: "Role" });
+    // Each field is written whole, so what is stored is something the reader accepts.
+    expect(saved.role.options).toHaveLength(defaultPersonFields().role.options.length);
+    expect(saved.specialty.options).toHaveLength(DEFAULT_COUNT);
+    expect(saved.specialty.allowOther).toBe(true);
+  });
+
+  it("keeps an organisation's own Specialty list when only a switch changes", async () => {
+    const own = { enabled: true, required: true, label: "Area", options: [{ key: "Cloud", label: "Cloud", retired: true }], allowOther: false };
+    tx.$queryRaw.mockResolvedValue([{ settings: { [PERSON_FIELDS_SETTING]: { specialty: own } } }]);
+    await savePersonFieldSwitches({ ...base, switches: { ...ALL_ON, specialty: { enabled: true, required: false } }, expected: ALL_ON });
+    expect(tx.organization.update.mock.calls[0][0].data.settings[PERSON_FIELDS_SETTING].specialty).toEqual({ ...own, required: false });
+  });
+
+  it("switches somebody else changed since the screen loaded: refused, nothing written", async () => {
+    tx.$queryRaw.mockResolvedValue([{ settings: { [PERSON_FIELDS_SETTING]: { role: { enabled: false, label: "Role", options: [{ key: "DEV", label: "Developer" }] } } } }]);
+    const result = await savePersonFieldSwitches({ ...base, switches: NEXT, expected: ALL_ON });
+    expect(result).toMatchObject({ ok: false, code: "SWITCHES_CHANGED" });
+    expect(tx.organization.update).not.toHaveBeenCalled();
+  });
+
+  it("writes who changed them, before and after", async () => {
+    await savePersonFieldSwitches({ ...base, switches: NEXT, expected: ALL_ON });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toEqual({ personFieldSwitches: { before: ALL_ON, after: NEXT } });
+  });
+
+  it("ORGANIZATION_NOT_FOUND, and a database failure is UNKNOWN, never a throw", async () => {
+    tx.$queryRaw.mockResolvedValue([]);
+    expect(await savePersonFieldSwitches({ ...base, switches: NEXT, expected: ALL_ON })).toMatchObject({ ok: false, code: "ORGANIZATION_NOT_FOUND" });
+    mockDb.$transaction.mockRejectedValueOnce(new Error("boom"));
+    expect(await savePersonFieldSwitches({ ...base, switches: NEXT, expected: ALL_ON })).toMatchObject({ ok: false, code: "UNKNOWN" });
+  });
+});
+
+describe("saving the Specialty answers keeps the switches", () => {
+  it("required and enabled are not this save's to change", async () => {
+    tx.$queryRaw.mockResolvedValue([{ settings: { [PERSON_FIELDS_SETTING]: { specialty: { enabled: true, required: false, label: "Specialty", options: [{ key: "Cloud", label: "Cloud" }], allowOther: true } } } }]);
+    const result = await saveSpecialtyAnswers({ organizationId: "org1", actorUserId: "u1", allowOther: true, answers: [{ answer: "Cloud" }, { answer: "Data" }], expected: { answers: [{ answer: "Cloud" }], allowOther: true } });
+    expect(result.ok).toBe(true);
+    expect(tx.organization.update.mock.calls[0][0].data.settings[PERSON_FIELDS_SETTING].specialty).toMatchObject({ enabled: true, required: false });
   });
 });

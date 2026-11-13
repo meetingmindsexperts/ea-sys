@@ -33,6 +33,7 @@ import {
   saveAccountProfile,
   type AccountDetails,
 } from "@/lib/registrant-details";
+import { DEFAULT_PERSON_FIELD_RULES, personFieldRules } from "@/lib/person-fields";
 
 const NOW = new Date("2026-11-09T10:00:00Z");
 const BASE = {
@@ -198,7 +199,24 @@ describe("marketingConsentInForce (double opt-in for sign-up consent)", () => {
 
 describe("missingRequiredDetails", () => {
   it("a whitespace-only answer is missing once trimmed (it passes min(1))", () => {
-    expect(missingRequiredDetails(normalizeDetails({ ...BASE, firstName: "   ", organization: " " }))).toEqual(["firstName", "organization"]);
-    expect(missingRequiredDetails(normalizeDetails(BASE))).toEqual([]);
+    expect(missingRequiredDetails(normalizeDetails({ ...BASE, firstName: "   ", organization: " " }), DEFAULT_PERSON_FIELD_RULES)).toEqual(["firstName", "organization"]);
+    expect(missingRequiredDetails(normalizeDetails(BASE), DEFAULT_PERSON_FIELD_RULES)).toEqual([]);
+  });
+
+  it("Role and Specialty are missing only while the organisation demands them (Nov 13, 2026)", () => {
+    const blank = normalizeDetails({ ...BASE, role: "", specialty: "" });
+    expect(missingRequiredDetails(blank, DEFAULT_PERSON_FIELD_RULES)).toEqual(["role", "specialty"]);
+    const off = { enabled: false, required: true };
+    const optional = { enabled: true, required: false };
+    const on = { enabled: true, required: true };
+    // Specialty switched off, Role optional: sign-up and My Details must not refuse.
+    expect(missingRequiredDetails(blank, personFieldRules({ title: on, role: optional, specialty: off }))).toEqual([]);
+  });
+
+  it("Others still needs the typed specialty, unless Specialty is switched off", () => {
+    const others = normalizeDetails({ ...BASE, specialty: "Others", customSpecialty: "" });
+    expect(missingRequiredDetails(others, DEFAULT_PERSON_FIELD_RULES)).toEqual(["customSpecialty"]);
+    const on = { enabled: true, required: true };
+    expect(missingRequiredDetails(others, personFieldRules({ title: on, role: on, specialty: { enabled: false, required: true } }))).toEqual([]);
   });
 });

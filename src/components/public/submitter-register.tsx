@@ -19,7 +19,7 @@
  * still auto-mint the comp Faculty companion (badge/barcode), unchanged.
  */
 
-import { useState, useEffect, useRef, type ReactNode } from "react";
+import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { scrollToFirstFormError } from "@/lib/form-error-scroll";
 import { useParams, useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
@@ -69,6 +69,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { withPersonFieldRules } from "@/lib/person-field-check";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { toast } from "sonner";
@@ -149,8 +151,10 @@ const registerSchema = z.object({
   email: z.string().email("Valid email is required"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string().min(1, "Please confirm your password"),
-  title: z.string().min(1, "Title is required"),
-  role: z.string().min(1, "Role is required"),
+  // Title, Role and Specialty are demanded as the organisation says: the
+  // resolver adds its rules (withPersonFieldRules), as the route does.
+  title: z.string(),
+  role: z.string(),
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   additionalEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
@@ -159,7 +163,7 @@ const registerSchema = z.object({
   phone: z.string().min(1, "Mobile number is required"),
   city: z.string().min(1, "City is required"),
   country: z.string().min(1, "Country is required"),
-  specialty: z.string().min(1, "Specialty is required"),
+  specialty: z.string(),
   customSpecialty: z.string().optional(),
   /** Presenter rate. Only required when the event offers any (plan D4). */
   ticketTypeId: z.string().optional(),
@@ -170,13 +174,7 @@ const registerSchema = z.object({
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
-}).refine(
-  (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
-  {
-    message: "Please specify your specialty",
-    path: ["customSpecialty"],
-  },
-);
+});
 
 type RegisterForm = z.infer<typeof registerSchema>;
 
@@ -300,8 +298,11 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
   const [existingPerson, setExistingPerson] = useState<{ name: string; email: string } | null>(null);
   const router = useRouter();
 
+  // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
+  const fieldRules = usePersonFieldRules();
+  const schemaWithFieldRules = useMemo(() => withPersonFieldRules(registerSchema, fieldRules, { demandTitle: true }), [fieldRules]);
   const form = useForm<RegisterForm>({
-    resolver: zodResolver(registerSchema),
+    resolver: zodResolver(schemaWithFieldRules),
     // The page scrolls to the first error itself (form-error-scroll.ts); the
     // library's jump focused a lower text field first (review L4).
     shouldFocusError: false,
@@ -1021,17 +1022,19 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                     <div className="space-y-5">
                       <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Contact Details</h3>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-4">
+                      <div className={fieldRules.title.shown ? "grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-4" : "grid grid-cols-1 sm:grid-cols-2 gap-4"}>
+                        {fieldRules.title.shown && (
                         <FormField control={form.control} name="title"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Title{fieldRules.title.required && <span className="text-red-400"> *</span>}</FormLabel>
                               <FormControl>
                                 <TitleSelect value={field.value} onChange={field.onChange} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
+                        )}
                         <FormField control={form.control} name="firstName"
                           render={({ field }) => (
                             <FormItem>
@@ -1110,28 +1113,33 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {fieldRules.specialty.shown && (
                         <FormField control={form.control} name="specialty"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Specialty <span className="text-red-400">*</span></FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Specialty{fieldRules.specialty.required && <span className="text-red-400"> *</span>}</FormLabel>
                               <FormControl>
                                 <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
+                        )}
+                        {fieldRules.role.shown && (
                         <FormField control={form.control} name="role"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Role <span className="text-red-400">*</span></FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Role{fieldRules.role.required && <span className="text-red-400"> *</span>}</FormLabel>
                               <FormControl>
                                 <RoleSelect value={field.value} onChange={field.onChange} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
+                        )}
                       </div>
 
+                      {fieldRules.specialty.shown && (
                       <FormField control={form.control} name="customSpecialty"
                         render={({ field }) => (
                           <FormItem>
@@ -1140,6 +1148,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                             <FormMessage />
                           </FormItem>
                         )} />
+                      )}
                     </div>
 
                     {/*

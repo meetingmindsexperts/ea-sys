@@ -18,9 +18,12 @@
  * Wired today (Nov 13, 2026): the Specialty ANSWERS. Settings, Form fields
  * saves them (src/services/person-field-service.ts), and every specialty
  * picker reads the organisation's list (src/hooks/use-person-fields.ts).
- * Not yet: the field's label and its on/off switch are stored and read but no
- * form obeys them, Title and Role still offer their fixed lists, and Role is
- * still a fixed database list (docs/ORG_FIELDS_PLAN.md, the later slices).
+ * Since step 2 the same day, each field's on/off and required switches too:
+ * `personFieldRules` is what every form and every server door asks
+ * (src/lib/person-field-rules.ts holds the server's check).
+ * Not yet: the field's label is stored and read but no form shows it, Title
+ * and Role still offer their fixed lists, and Role is still a fixed database
+ * list (docs/ORG_FIELDS_PLAN.md, the later slices).
  *
  * Pure and client-safe: no database import. The server reads the setting and
  * hands the parsed result to whoever needs it.
@@ -51,6 +54,8 @@ export interface PersonFieldOption {
 export interface PersonFieldConfig {
   /** Whether the organisation asks this field at all. */
   enabled: boolean;
+  /** Whether an answer is demanded where the field is asked. Means nothing while the field is off. */
+  required: boolean;
   label: string;
   options: PersonFieldOption[];
   /** Offer "Others", which demands the free text beside it. */
@@ -114,18 +119,21 @@ export function defaultPersonFields(): PersonFieldsConfig {
   return {
     title: {
       enabled: true,
+      required: true,
       label: "Title",
       options: [option("DR", "Dr."), option("MR", "Mr."), option("MRS", "Mrs."), option("MS", "Ms."), option("PROF", "Prof.")],
       allowOther: false,
     },
     role: {
       enabled: true,
+      required: true,
       label: "Role",
       options: ATTENDEE_ROLE_ORDER.map((key) => option(key, ATTENDEE_ROLE_LABELS[key])),
       allowOther: false,
     },
     specialty: {
       enabled: true,
+      required: true,
       label: "Specialty",
       options: DEFAULT_SPECIALTIES.map((text) => option(text, text)),
       allowOther: true,
@@ -160,7 +168,7 @@ function readField(raw: unknown, fallback: PersonFieldConfig): PersonFieldConfig
   if (options.some((o) => o === null)) return fallback;
   const read = options as PersonFieldOption[];
   if (new Set(read.map((o) => o.key)).size !== read.length) return fallback;
-  return { enabled: raw.enabled !== false, label, options: read, allowOther: raw.allowOther === true };
+  return { enabled: raw.enabled !== false, required: raw.required !== false, label, options: read, allowOther: raw.allowOther === true };
 }
 
 /** What the organisation asks about a person. Nothing saved, or nothing readable, is today's form. */
@@ -197,6 +205,8 @@ export function answerLabel(field: PersonFieldConfig, stored: string | null | un
  */
 export interface PublicPersonField {
   enabled: boolean;
+  /** Demanded where it is asked; false whenever the field is off. */
+  required: boolean;
   label: string;
   answers: { key: string; label: string }[];
 }
@@ -205,6 +215,7 @@ export type PublicPersonFields = Record<ConfigurablePersonField, PublicPersonFie
 export function publicPersonFields(config: PersonFieldsConfig): PublicPersonFields {
   const one = (field: PersonFieldConfig): PublicPersonField => ({
     enabled: field.enabled,
+    required: field.enabled && field.required,
     label: field.label,
     answers: offeredAnswers(field).map(({ key, label }) => ({ key, label })),
   });
@@ -213,6 +224,27 @@ export function publicPersonFields(config: PersonFieldsConfig): PublicPersonFiel
 
 /** Today's form, as a public page gets it while the organisation's own is loading or cannot be read. */
 export const DEFAULT_PUBLIC_PERSON_FIELDS: PublicPersonFields = publicPersonFields(defaultPersonFields());
+
+/**
+ * What one form does with one field: show it or not, demand it or not
+ * (Nov 13, 2026; step 2 of docs/ORG_FIELDS_PLAN.md). The ONE answer every
+ * form and every server door asks, so they cannot disagree: until now the
+ * demand for a specialty was written into eight routes and nine forms.
+ */
+export interface PersonFieldRule {
+  shown: boolean;
+  required: boolean;
+}
+export type PersonFieldRules = Record<ConfigurablePersonField, PersonFieldRule>;
+
+/** A field that is off is never demanded, whatever its required flag says. */
+export function personFieldRules(fields: Record<ConfigurablePersonField, { enabled: boolean; required: boolean }>): PersonFieldRules {
+  const one = (field: { enabled: boolean; required: boolean }): PersonFieldRule => ({ shown: field.enabled, required: field.enabled && field.required });
+  return { title: one(fields.title), role: one(fields.role), specialty: one(fields.specialty) };
+}
+
+/** Today's form: all three asked and demanded. */
+export const DEFAULT_PERSON_FIELD_RULES: PersonFieldRules = personFieldRules(defaultPersonFields());
 
 /** Whether a NEWLY chosen answer is one the field offers. A stored answer is never judged by this. */
 export function isOfferedAnswer(field: PersonFieldConfig, chosen: string): boolean {

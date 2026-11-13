@@ -1,7 +1,7 @@
 "use client";
 
 import { showsField, type FormFieldVisibility } from "@/lib/registration-form-fields";
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -36,6 +36,8 @@ import { CountrySelect } from "@/components/ui/country-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { withPersonFieldRules } from "@/lib/person-field-check";
 import { toast } from "sonner";
 import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
 import {
@@ -134,8 +136,10 @@ const completionSchema = z.object({
    *  one). Required-ness is enforced in `onSubmit`, since it depends on data
    *  the schema can't see. */
   ticketTypeId: z.string().optional(),
-  title: z.string().min(1, "Title is required"),
-  role: z.string().min(1, "Role is required"),
+  // Title, Role and Specialty are demanded as the organisation says: the
+  // resolver adds its rules (withPersonFieldRules), as the route does.
+  title: z.string(),
+  role: z.string(),
   jobTitle: z.string().min(1, "Position is required"),
   organization: z.string().min(1, "Organization is required"),
   phone: z.string().min(1, "Mobile number is required"),
@@ -143,7 +147,7 @@ const completionSchema = z.object({
   state: z.string().optional(),
   zipCode: z.string().optional(),
   country: z.string().min(1, "Country is required"),
-  specialty: z.string().min(1, "Specialty is required"),
+  specialty: z.string(),
   customSpecialty: z.string().optional(),
   dietaryReqs: z.string().optional(),
   associationName: z.string().optional(),
@@ -168,13 +172,7 @@ const completionSchema = z.object({
 }).refine((data) => !data.password || data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
-}).refine(
-  (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
-  {
-    message: "Please specify your specialty",
-    path: ["customSpecialty"],
-  },
-);
+});
 
 type CompletionForm = z.infer<typeof completionSchema>;
 
@@ -205,8 +203,11 @@ function CompleteRegistrationContent() {
   // Tablet mode: an abandoned form is cleared, so the next person never sees it.
   const [idledOut, setIdledOut] = useState(false);
 
+  // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
+  const fieldRules = usePersonFieldRules();
+  const schemaWithFieldRules = useMemo(() => withPersonFieldRules(completionSchema, fieldRules, { demandTitle: true }), [fieldRules]);
   const form = useForm<CompletionForm>({
-    resolver: zodResolver(completionSchema),
+    resolver: zodResolver(schemaWithFieldRules),
     // The page scrolls to the first error itself (form-error-scroll.ts); the
     // library's jump focused a lower text field first (review L4).
     shouldFocusError: false,
@@ -637,17 +638,19 @@ function CompleteRegistrationContent() {
                 <div className="space-y-5">
                   <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Complete Your Details</h3>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-4">
+                  <div className={fieldRules.title.shown ? "grid grid-cols-1 sm:grid-cols-[100px_1fr_1fr] gap-4" : "grid grid-cols-1 sm:grid-cols-2 gap-4"}>
+                    {fieldRules.title.shown && (
                     <FormField control={form.control} name="title"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-sm font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
+                          <FormLabel className="text-sm font-medium text-slate-600">Title{fieldRules.title.required && <span className="text-red-400"> *</span>}</FormLabel>
                           <FormControl>
                             <TitleSelect value={field.value || ""} onChange={field.onChange} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
+                    )}
                     <FormField control={form.control} name="jobTitle"
                       render={({ field }) => (
                         <FormItem>
@@ -705,30 +708,34 @@ function CompleteRegistrationContent() {
                           <FormMessage />
                         </FormItem>
                       )} />
+                    {fieldRules.role.shown && (
                     <FormField control={form.control} name="role"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-sm font-medium text-slate-600">Role <span className="text-red-400">*</span></FormLabel>
+                          <FormLabel className="text-sm font-medium text-slate-600">Role{fieldRules.role.required && <span className="text-red-400"> *</span>}</FormLabel>
                           <FormControl>
                             <RoleSelect value={field.value} onChange={field.onChange} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {fieldRules.specialty.shown && (
                     <FormField control={form.control} name="specialty"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-sm font-medium text-slate-600">Specialty <span className="text-red-400">*</span></FormLabel>
+                          <FormLabel className="text-sm font-medium text-slate-600">Specialty{fieldRules.specialty.required && <span className="text-red-400"> *</span>}</FormLabel>
                           <FormControl>
                             <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
-                    {form.watch("specialty") === "Others" && (
+                    )}
+                    {fieldRules.specialty.shown && form.watch("specialty") === "Others" && (
                       <FormField control={form.control} name="customSpecialty"
                         render={({ field }) => (
                           <FormItem>

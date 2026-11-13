@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -18,6 +18,8 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { withPersonFieldRules } from "@/lib/person-field-check";
 
 const signupSchema = z
   .object({
@@ -27,8 +29,10 @@ const signupSchema = z
     firstName: z.string().trim().min(1, "Enter your first name").max(100),
     lastName: z.string().trim().min(1, "Enter your last name").max(100),
     email: z.string().trim().email("Please enter a valid email").max(255),
-    role: z.string().min(1, "Choose your role"),
-    specialty: z.string().min(1, "Choose your specialty"),
+    // Role and Specialty are demanded as the organisation says: the resolver
+    // adds its rules (withPersonFieldRules), as the route does.
+    role: z.string(),
+    specialty: z.string(),
     customSpecialty: z.string().max(255),
     organization: z.string().trim().min(1, "Enter your organization").max(255),
     jobTitle: z.string().trim().min(1, "Enter your position").max(255),
@@ -46,8 +50,7 @@ const signupSchema = z
     acceptTerms: z.boolean().refine((v) => v, "Please accept to continue"),
     website: z.string().optional(),
   })
-  .refine((d) => d.password === d.confirmPassword, { message: "The passwords don't match", path: ["confirmPassword"] })
-  .refine((d) => d.specialty !== "Others" || d.customSpecialty.trim().length > 0, { message: "Enter your specialty", path: ["customSpecialty"] });
+  .refine((d) => d.password === d.confirmPassword, { message: "The passwords don't match", path: ["confirmPassword"] });
 
 type SignupValues = z.infer<typeof signupSchema>;
 
@@ -67,8 +70,11 @@ export function SignupForm({
 }) {
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
+  const fieldRules = usePersonFieldRules();
+  const schemaWithFieldRules = useMemo(() => withPersonFieldRules(signupSchema, fieldRules), [fieldRules]);
   const form = useForm<SignupValues>({
-    resolver: zodResolver(signupSchema),
+    resolver: zodResolver(schemaWithFieldRules),
     defaultValues: {
       title: "", firstName: "", lastName: "", email: "", role: "", specialty: "", customSpecialty: "", organization: "",
       jobTitle: "", phone: "", country: "", city: "", state: "", zipCode: "",
@@ -134,10 +140,12 @@ export function SignupForm({
         <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
           <CardContent className="space-y-4">
             <SectionLabel>About you</SectionLabel>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[7rem_1fr_1fr]">
-              <FormField control={form.control} name="title" render={({ field }) => (
-                <FormItem><FormLabel>Title</FormLabel><TitleSelect value={field.value} onChange={field.onChange} /><FormMessage /></FormItem>
-              )} />
+            <div className={fieldRules.title.shown ? "grid grid-cols-1 gap-4 sm:grid-cols-[7rem_1fr_1fr]" : "grid grid-cols-1 gap-4 sm:grid-cols-2"}>
+              {fieldRules.title.shown && (
+                <FormField control={form.control} name="title" render={({ field }) => (
+                  <FormItem><FormLabel>Title</FormLabel><TitleSelect value={field.value} onChange={field.onChange} /><FormMessage /></FormItem>
+                )} />
+              )}
               <TextInput form={form} name="firstName" label="First name" autoComplete="given-name" />
               <TextInput form={form} name="lastName" label="Last name" autoComplete="family-name" />
             </div>
@@ -145,13 +153,17 @@ export function SignupForm({
 
             <SectionLabel>Work</SectionLabel>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <FormField control={form.control} name="role" render={({ field }) => (
-                <FormItem><FormLabel>Role</FormLabel><RoleSelect value={field.value} onChange={field.onChange} /><FormMessage /></FormItem>
-              )} />
-              <FormField control={form.control} name="specialty" render={({ field }) => (
-                <FormItem><FormLabel>Specialty</FormLabel><SpecialtySelect value={field.value} onChange={field.onChange} /><FormMessage /></FormItem>
-              )} />
-              {specialty === "Others" && <TextInput form={form} name="customSpecialty" label="Your specialty" className="sm:col-span-2" />}
+              {fieldRules.role.shown && (
+                <FormField control={form.control} name="role" render={({ field }) => (
+                  <FormItem><FormLabel>Role</FormLabel><RoleSelect value={field.value} onChange={field.onChange} /><FormMessage /></FormItem>
+                )} />
+              )}
+              {fieldRules.specialty.shown && (
+                <FormField control={form.control} name="specialty" render={({ field }) => (
+                  <FormItem><FormLabel>Specialty</FormLabel><SpecialtySelect value={field.value} onChange={field.onChange} /><FormMessage /></FormItem>
+                )} />
+              )}
+              {fieldRules.specialty.shown && specialty === "Others" && <TextInput form={form} name="customSpecialty" label="Your specialty" className="sm:col-span-2" />}
               <TextInput form={form} name="organization" label="Organization" autoComplete="organization" />
               <TextInput form={form} name="jobTitle" label="Position" autoComplete="organization-title" />
             </div>

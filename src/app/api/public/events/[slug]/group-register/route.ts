@@ -10,7 +10,9 @@ import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, optionalAttendeeRole, optionalSpecialty } from "@/lib/schemas";
+import { loadPersonFieldRules } from "@/lib/person-field-rules";
+import { personFieldProblems } from "@/lib/person-field-check";
 import { isTrustedInternalEmail, needsEmailVerification } from "@/lib/internal-domains";
 import { sendEmailVerification } from "@/lib/email-verification";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -54,12 +56,11 @@ const memberAttendeeSchema = z.object({
   state: z.string().max(100).optional(),
   zipCode: z.string().max(20).optional(),
   country: z.string().min(1).max(100),
-  role: attendeeRoleEnum,
-  specialty: z.string().min(1).max(255),
+  // Role and Specialty are demanded as the event's organisation says, once
+  // the event is known (person-field-rules.ts), not by this schema.
+  role: optionalAttendeeRole,
+  specialty: optionalSpecialty,
   customSpecialty: z.string().max(255).optional(),
-}).refine((a) => a.specialty !== "Others" || !!a.customSpecialty?.trim(), {
-  message: "Custom specialty is required when specialty is 'Others'",
-  path: ["customSpecialty"],
 });
 
 const groupRegisterSchema = z.object({
@@ -212,6 +213,20 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!event) {
       apiLogger.warn({ msg: "public/group-register:event-not-found", slug });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Each member's Role, Specialty and "Others needs the typed specialty",
+    // by the organisation's rules: the same demand the public form makes.
+    const fieldRules = await loadPersonFieldRules(event.organizationId);
+    const memberFieldErrors: Record<string, string[]> = {};
+    data.members.forEach((member, i) => {
+      for (const problem of personFieldProblems(member.attendee, fieldRules)) {
+        memberFieldErrors[`members.${i}.attendee.${problem.path}`] = [problem.message];
+      }
+    });
+    if (Object.keys(memberFieldErrors).length > 0) {
+      apiLogger.warn({ msg: "public/group-register:person-fields-refused", slug, eventId: event.id, fields: Object.keys(memberFieldErrors) });
+      return NextResponse.json({ error: "Invalid input", details: { formErrors: [], fieldErrors: memberFieldErrors } }, { status: 400 });
     }
 
     return await runWithTenant(event.organizationId, async () => {

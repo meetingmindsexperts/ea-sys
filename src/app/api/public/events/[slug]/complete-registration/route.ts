@@ -10,7 +10,8 @@ import { rateLimited } from "@/lib/api-errors";
 import { checkLinkRateLimit, getClientIp, hashVerificationToken, VENUE_CROWD_IP_LIMITS } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, optionalAttendeeRole, optionalSpecialty } from "@/lib/schemas";
+import { personFieldRefusal } from "@/lib/person-field-rules";
 import { syncToContact } from "@/lib/contact-sync";
 import { changedContactFields, contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { sendRegistrationConfirmation } from "@/lib/email";
@@ -491,7 +492,9 @@ export async function GET(req: Request, { params }: RouteParams) {
 const completionSchema = z.object({
   token: z.string().min(1),
   title: titleEnum,
-  role: attendeeRoleEnum,
+  // Role and Specialty are demanded as the event's organisation says, after
+  // the registration is loaded (personFieldRefusal below), not by this schema.
+  role: optionalAttendeeRole,
   jobTitle: z.string().min(1, "Position is required").max(255),
   organization: z.string().min(1, "Organization is required").max(255),
   phone: z.string().min(1, "Mobile number is required").max(50),
@@ -499,7 +502,7 @@ const completionSchema = z.object({
   state: z.string().max(255).optional(),
   zipCode: z.string().max(20).optional(),
   country: z.string().min(1, "Country is required").max(255),
-  specialty: z.string().min(1, "Specialty is required").max(255),
+  specialty: optionalSpecialty,
   customSpecialty: z.string().max(255).optional(),
   dietaryReqs: z.string().max(2000).optional(),
   associationName: z.string().max(255).optional(),
@@ -534,13 +537,7 @@ const completionSchema = z.object({
 }).refine((data) => !data.password || data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
-}).refine(
-  (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
-  {
-    message: "Please specify your specialty",
-    path: ["customSpecialty"],
-  },
-);
+});
 
 type StoredPricing = {
   pricingTier: { price: unknown; currency: string } | null;
@@ -748,6 +745,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!(await eventMatchesRequestTenant(req, registration.event.organizationId))) {
       apiLogger.warn({ msg: "Completion POST token used on wrong tenant domain", urlSlug: slug, registrationId });
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
+    }
+
+    // Role, Specialty and "Others needs the typed specialty": demanded as the event's organisation says.
+    const fieldRefusal = await personFieldRefusal(registration.event.organizationId, validated.data);
+    if (fieldRefusal) {
+      apiLogger.warn({ msg: "complete-registration:person-fields-refused", registrationId, fields: Object.keys(fieldRefusal.fieldErrors) });
+      return NextResponse.json({ error: "Invalid input", details: fieldRefusal }, { status: 400 });
     }
 
     if (isRegistrationFormCompleted(registration)) {
@@ -1200,7 +1204,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       firstName,
       lastName,
       password,
-      specialty,
+      specialty: specialty ?? null,
       clientIp: getClientIp(req),
       signupMessage: `${firstName} ${lastName} (${email}) completed registration and created an account`,
     });

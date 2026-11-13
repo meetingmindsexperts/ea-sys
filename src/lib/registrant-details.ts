@@ -5,6 +5,8 @@ import { syncToContact } from "@/lib/contact-sync";
 import { changedContactFields, contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { MARKETING_CONSENT_WORDING_VERSION } from "@/lib/marketing-consent";
+import { personFieldProblems } from "@/lib/person-field-check";
+import type { PersonFieldRules } from "@/lib/person-fields";
 
 /**
  * A person's own details: the account's (AccountProfile, Nov 9, 2026) and the
@@ -185,10 +187,18 @@ export function normalizeDetails(input: DetailsInput): AccountDetails {
   };
 }
 
-/** Fields the registration form requires that are empty once trimmed ("   " passes min(1)). */
-export function missingRequiredDetails(d: AccountDetails): string[] {
-  const required = ["firstName", "lastName", "role", "organization", "jobTitle", "phone", "city", "country", "specialty"] as const;
-  return required.filter((k) => !d[k]);
+/**
+ * Fields the registration form requires that are empty once trimmed ("   "
+ * passes min(1)). Role and Specialty are demanded as the organisation says
+ * (Nov 13, 2026): an organisation that switched Specialty off, or made it
+ * optional, must not lock its own people out of sign-up and My Details. The
+ * "Others" answer still needs the typed specialty beside it.
+ */
+export function missingRequiredDetails(d: AccountDetails, rules: PersonFieldRules): string[] {
+  const always = ["firstName", "lastName", "organization", "jobTitle", "phone", "city", "country"] as const;
+  const missing: string[] = always.filter((k) => !d[k]);
+  for (const problem of personFieldProblems(d, rules)) missing.push(problem.path);
+  return missing;
 }
 
 /** The fields whose value differs, comparing normalised values. */

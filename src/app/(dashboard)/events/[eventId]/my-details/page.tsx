@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { usePersonFieldRules } from "@/hooks/use-person-fields";
 import { CountrySelect } from "@/components/ui/country-select";
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import {
@@ -157,6 +158,11 @@ function Field({ icon: Icon, label, value }: { icon: React.ElementType; label: s
 }
 
 export default function SubmitterProfilePage() {
+  // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
+  const fieldRules = usePersonFieldRules();
+  // For the one-time load below, which must not run again when the rules arrive.
+  const fieldRulesRef = useRef(fieldRules);
+  fieldRulesRef.current = fieldRules;
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
@@ -196,8 +202,9 @@ export default function SubmitterProfilePage() {
       [form.phone.trim(), "Mobile"],
       [form.jobTitle.trim(), "Job title"],
       [form.organization.trim(), "Organization"],
-      [form.role, "Role"],
-      [form.specialty, "Specialty"],
+      // Demanded as the organisation says (Settings, Form fields).
+      [fieldRules.role.required ? form.role : "not asked", "Role"],
+      [fieldRules.specialty.required ? form.specialty : "not asked", "Specialty"],
       [form.city.trim(), "City"],
       [form.country, "Country"],
       // Owner, Aug 7 2026: the bio is printed in the programme and read out at
@@ -206,7 +213,7 @@ export default function SubmitterProfilePage() {
     ]
       .filter(([value]) => !value)
       .map(([, label]) => label);
-    if (form.specialty === "Others" && !form.customSpecialty.trim()) {
+    if (fieldRules.specialty.shown && form.specialty === "Others" && !form.customSpecialty.trim()) {
       missing.push("Custom specialty");
     }
     if (missing.length > 0) {
@@ -254,7 +261,7 @@ export default function SubmitterProfilePage() {
       // hand-rolled version here let "/\t/evil.example" through, because the
       // browser strips the tab AFTER the "//" check has passed it.
       const next = new URLSearchParams(window.location.search).get("next");
-      if (isSafeInternalPath(next) && !isProfileIncomplete(saved)) {
+      if (isSafeInternalPath(next) && !isProfileIncomplete(saved, fieldRules)) {
         router.push(next);
       }
     } catch (err) {
@@ -287,7 +294,7 @@ export default function SubmitterProfilePage() {
           // Encourage completion (Aug 4, 2026): a sparse profile (sign-in
           // shortcut mint) opens straight into edit mode so the person fills
           // in the details the signup form would have required.
-          if (isProfileIncomplete(data)) {
+          if (isProfileIncomplete(data, fieldRulesRef.current)) {
             setForm(toProfileForm(data));
             setEditing(true);
           }
@@ -330,11 +337,11 @@ export default function SubmitterProfilePage() {
 
   if (!profile) return null;
 
-  const missingFields = missingProfileFields(profile);
+  const missingFields = missingProfileFields(profile, fieldRules);
   // The form opens filled with what the person gave elsewhere; say so, and
   // name what they still have to type themselves (a bio, usually).
   const prefilled = Object.keys(profile.suggested ?? {}).length > 0;
-  const stillMissing = missingProfileFields({ ...profile, ...profile.suggested });
+  const stillMissing = missingProfileFields({ ...profile, ...profile.suggested }, fieldRules);
   // Name lock (owner rule, Aug 5, 2026): a name that's already on file —
   // including anyone with an existing registration — is greyed out like the
   // email; changes go through the organizing team. A blank name (rare) can
@@ -459,10 +466,12 @@ export default function SubmitterProfilePage() {
                   once set (registration identity) — like email, changes go
                   through the organizing team. */}
               <div className="grid sm:grid-cols-3 gap-3">
-                <div>
-                  <Label className="text-xs">Title</Label>
-                  <TitleSelect value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
-                </div>
+                {fieldRules.title.shown && (
+                  <div>
+                    <Label className="text-xs">Title</Label>
+                    <TitleSelect value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
+                  </div>
+                )}
                 <div>
                   <Label className="text-xs">First name *</Label>
                   <Input
@@ -499,15 +508,19 @@ export default function SubmitterProfilePage() {
                   <Label className="text-xs">Organization *</Label>
                   <Input value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} />
                 </div>
-                <div>
-                  <Label className="text-xs">Role *</Label>
-                  <RoleSelect value={form.role} onChange={(v) => setForm({ ...form, role: v })} placeholder="Select a role" />
-                </div>
-                <div>
-                  <Label className="text-xs">Specialty *</Label>
-                  <SpecialtySelect value={form.specialty} onChange={(v) => setForm({ ...form, specialty: v })} />
-                </div>
-                {form.specialty === "Others" && (
+                {fieldRules.role.shown && (
+                  <div>
+                    <Label className="text-xs">Role{fieldRules.role.required ? " *" : ""}</Label>
+                    <RoleSelect value={form.role} onChange={(v) => setForm({ ...form, role: v })} placeholder="Select a role" />
+                  </div>
+                )}
+                {fieldRules.specialty.shown && (
+                  <div>
+                    <Label className="text-xs">Specialty{fieldRules.specialty.required ? " *" : ""}</Label>
+                    <SpecialtySelect value={form.specialty} onChange={(v) => setForm({ ...form, specialty: v })} />
+                  </div>
+                )}
+                {fieldRules.specialty.shown && form.specialty === "Others" && (
                   <div>
                     <Label className="text-xs">Custom specialty *</Label>
                     <Input value={form.customSpecialty} onChange={(e) => setForm({ ...form, customSpecialty: e.target.value })} />

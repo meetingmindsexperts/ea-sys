@@ -9,9 +9,131 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { useSaveSpecialtySettings, useSpecialtySettings, type SpecialtyAnswerRow, type SpecialtyListInput } from "@/hooks/use-person-fields";
+import {
+  useFieldSwitches,
+  useSaveFieldSwitches,
+  useSaveSpecialtySettings,
+  useSpecialtySettings,
+  type FieldSwitches,
+  type SpecialtyAnswerRow,
+  type SpecialtyListInput,
+} from "@/hooks/use-person-fields";
 import { ApiError } from "@/lib/api-fetch";
-import { MAX_PERSON_FIELD_ANSWER, MAX_PERSON_FIELD_OPTIONS, OTHER_ANSWER } from "@/lib/person-fields";
+import { MAX_PERSON_FIELD_ANSWER, MAX_PERSON_FIELD_OPTIONS, OTHER_ANSWER, type ConfigurablePersonField } from "@/lib/person-fields";
+
+const FIELD_ROWS: { key: ConfigurablePersonField; name: string; note: string }[] = [
+  { key: "title", name: "Title", note: "Dr., Mr., Mrs., Ms., Prof." },
+  { key: "role", name: "Role", note: "The person's profession" },
+  { key: "specialty", name: "Specialty", note: "The list below" },
+];
+
+/**
+ * Whether the organisation's forms ask Title, Role and Specialty at all, and
+ * whether an answer is demanded (Nov 13, 2026; step 2 of
+ * docs/ORG_FIELDS_PLAN.md). Every form and every server door reads these
+ * through one rule, so a field switched off here is neither shown nor demanded
+ * anywhere.
+ */
+export function FieldSwitchesCard() {
+  const { data: saved, isLoading, isError, refetch } = useFieldSwitches();
+  const save = useSaveFieldSwitches();
+  // null = no unsaved edits. `base` is what the edits started from (see FormFieldsCard).
+  const [edited, setEdited] = useState<{ switches: FieldSwitches; base: FieldSwitches } | null>(null);
+  const current = edited?.switches ?? saved;
+  const busy = save.isPending;
+  const dirty = saved !== undefined && edited !== null && JSON.stringify(edited.switches) !== JSON.stringify(edited.base);
+
+  const set = (key: ConfigurablePersonField, change: Partial<{ enabled: boolean; required: boolean }>) => {
+    if (!saved || !current) return;
+    setEdited({ switches: { ...current, [key]: { ...current[key], ...change } }, base: edited?.base ?? saved });
+  };
+
+  const onSave = async () => {
+    if (!edited) return;
+    try {
+      await save.mutateAsync({ switches: edited.switches, expected: edited.base });
+      setEdited(null);
+      toast.success("Form fields saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save");
+      if (e instanceof ApiError && e.code === "SWITCHES_CHANGED") {
+        setEdited(null);
+        refetch();
+      }
+    }
+  };
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
+            <ListChecks className="h-4 w-4" />
+          </div>
+          Fields
+        </CardTitle>
+        <CardDescription>
+          Whether the forms people fill in ask these three fields, and whether an answer is required. This applies to every
+          event: registration, completing a registration, group registration, the desk walk-in, sign-up, My Details, and
+          abstract and proposal sign-up. A field that is switched off is not shown and never asked for; what people already
+          answered stays stored. Staff screens in the dashboard (Add Registration, a registration or speaker&apos;s details,
+          Contacts) still show all three.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {isError && saved === undefined && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+            <p className="text-sm text-destructive">The switches could not be loaded, so they cannot be changed yet.</p>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              Try again
+            </Button>
+          </div>
+        )}
+        {current && (
+          <>
+            <ul className="divide-y rounded-lg border">
+              {FIELD_ROWS.map(({ key, name, note }) => (
+                <li key={key} className="flex flex-wrap items-center gap-x-6 gap-y-2 px-3 py-3">
+                  <div className="min-w-40 flex-1">
+                    <p className="text-sm font-medium">{name}</p>
+                    <p className="text-xs text-muted-foreground">{note}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch id={`field-${key}-ask`} checked={current[key].enabled} disabled={busy} onCheckedChange={(enabled) => set(key, { enabled })} />
+                    <Label htmlFor={`field-${key}-ask`}>Ask</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id={`field-${key}-required`}
+                      checked={current[key].enabled && current[key].required}
+                      disabled={busy || !current[key].enabled}
+                      onCheckedChange={(required) => set(key, { required })}
+                    />
+                    <Label htmlFor={`field-${key}-required`} className={current[key].enabled ? "" : "text-muted-foreground"}>
+                      Required
+                    </Label>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="flex justify-end gap-2">
+              {dirty && (
+                <Button variant="ghost" onClick={() => setEdited(null)} disabled={busy}>
+                  Discard changes
+                </Button>
+              )}
+              <Button onClick={onSave} disabled={!dirty || busy}>
+                <Save className="mr-2 h-4 w-4" />
+                {busy ? "Saving..." : "Save fields"}
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 /**
  * The organisation's Specialty answers (Nov 13, 2026; step 1 of

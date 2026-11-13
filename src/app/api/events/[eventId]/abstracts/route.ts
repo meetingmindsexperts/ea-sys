@@ -31,6 +31,7 @@ import {
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 import { linkedRoleAbstractFilter } from "@/lib/abstract-reviewer-access";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
+import { loadPersonFieldRules } from "@/lib/person-field-rules";
 import {
   isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE,
   isSubThemeMissing, SUB_THEME_REQUIRED_CODE, SUB_THEME_REQUIRED_MESSAGE,
@@ -456,7 +457,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // abstract. The form redirects to My Details first — this refusal covers
     // a direct API call. Staff creating on a speaker's behalf are exempt.
     if (session.user.role === "SUBMITTER") {
-      const missing = missingProfileFields(speaker);
+      const missing = missingProfileFields(speaker, await loadPersonFieldRules(event.organizationId));
       if (missing.length > 0) {
         apiLogger.warn({ msg: "abstract-create:profile-incomplete-block", eventId, userId: session.user.id, missing });
         return NextResponse.json(profileIncompletePayload(missing), { status: 403 });

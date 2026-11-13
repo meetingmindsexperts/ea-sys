@@ -19,7 +19,8 @@ import {
   presenterEvidenceShape,
 } from "@/lib/presenter-signup";
 import { becomesSubmitterToAuthor } from "@/lib/abstract-reviewer-access";
-import { presenterDetailsSchema, refinePresenterSpecialty } from "@/lib/schemas";
+import { presenterDetailsSchema } from "@/lib/schemas";
+import { personFieldRefusal } from "@/lib/person-field-rules";
 
 /**
  * "Start an abstract as an EXISTING user" — the sign-in half of the abstract
@@ -62,7 +63,9 @@ const bodySchema = z.object({
   intent: z.enum(["lookup", "start"]).default("start"),
   /** The details the person confirmed on the page. Absent only from a page
    *  loaded before Sep 29, 2026, which keeps the old on-file behaviour. */
-  details: refinePresenterSpecialty(presenterDetailsSchema).optional(),
+  // Role, Specialty and "Others needs the typed specialty" are demanded as the
+  // event's organisation says, once the event is known (below).
+  details: presenterDetailsSchema.optional(),
 });
 
 /** The detail fields, in the order the form shows them. */
@@ -144,6 +147,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    if (parsed.data.details) {
+      const fieldRefusal = await personFieldRefusal(event.organizationId, parsed.data.details);
+      if (fieldRefusal) {
+        apiLogger.warn({ msg: "public/abstract-start:person-fields-refused", eventId: event.id, fields: Object.keys(fieldRefusal.fieldErrors) });
+        // Under `details`, where the form's own errors for these fields sit.
+        const fieldErrors = Object.fromEntries(Object.entries(fieldRefusal.fieldErrors).map(([k, v]) => [`details.${k}`, v]));
+        return NextResponse.json({ error: "Invalid input", details: { formErrors: [], fieldErrors } }, { status: 400 });
+      }
     }
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
