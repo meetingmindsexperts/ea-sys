@@ -109,6 +109,12 @@ The sync only ever fills, never clears, so the effect is a contact that stays
 emptier or older than the record it came from, and the contacts feed to
 Mailchimp carries that. Step 0b closes it.
 
+Size on production (Nov 13, 2026, read-only): 57,835 contacts, 6,323 of them
+with a registration, and 2,667 of those hold no Role although their
+registration does. State is missing on 1 and Zip on 4. Step 0b stops new gaps;
+it does not fill these. Filling them is a one-off script and the owner's
+decision, because the contacts feed Mailchimp.
+
 ## 4. Design
 
 One module decides, and every form, validator, table, export and tool asks it.
@@ -209,7 +215,7 @@ Sizes are estimates, not measurements.
 | Step | What | Changes behaviour? | Size |
 |---|---|---|---|
 | 0a | BUILT Nov 13, 2026. The one declaration of a person's fields and which of the four records hold each (`src/lib/person-field-contract.ts`). `person-field-contract.test.ts` fails when a column is added to Attendee, Speaker, Contact or AccountProfile and not declared, and holds the three hand-written copy lists (speaker and registration sync, contact sync, the account's details) and the public form's fields against it. | No | Done |
-| 0b | The callers of the contact sync stop building its payload by hand (section 3a): one builder per source record, typed so the compiler demands every field the sync accepts. The speaker builder applies `contactCategoryOf`, pinned by a test, and the deliberate gaps in 3a stay. The speaker's profile form starts calling the sync. | Yes: fields that were dropped start reaching the contact | Days |
+| 0b | IN BUILD (Nov 13, 2026: the two builders in `contact-sync.ts`, and the first caller, a person's own edit; 18 calls to go, one per commit). The callers of the contact sync stop building its payload by hand (section 3a): one builder per source record, typed so the compiler demands every field the sync accepts. The speaker builder applies `contactCategoryOf`, pinned by a test, and the deliberate gaps in 3a stay. The speaker's profile form starts calling the sync. | Yes: fields that were dropped start reaching the contact | Days |
 | 0c | The create paths: one all-required input, so a create that does not account for a field fails to compile (`ATTENDEE_FIELDS_REFACTOR_PLAN.md`, phase A). One caller per commit. | No | Days |
 | 0d | The update paths, same treatment (phase B of that plan). | No | Days |
 | 1a | `person-fields.ts` with today's lists as the default; every door, and the two rules in section 2 that are not forms, ask the one refusal function; the hand-copied role lists and the scattered "Others" rules are deleted. No new check on a stored value (section 4). | No | Days |

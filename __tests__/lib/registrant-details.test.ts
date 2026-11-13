@@ -21,7 +21,8 @@ const { mockDb, mockSync } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: typeof mockDb) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock("@/lib/contact-sync", () => ({ syncToContact: mockSync }));
+// The payload builders are real: only the write is stubbed.
+vi.mock("@/lib/contact-sync", async (original) => ({ ...(await original<typeof import("@/lib/contact-sync")>()), syncToContact: mockSync }));
 
 import {
   changedFields,
@@ -80,6 +81,22 @@ describe("copyToUpcomingRegistrations", () => {
     expect(mockDb.attendee.update).toHaveBeenCalledWith({ where: { id: "a1" }, data: { organization: "New Clinic" } });
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({ where: { attendeeId: "a1" }, data: { updatedAt: expect.any(Date) } });
     expect(mockSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("the contact receives every field of the row, Role, State and Zip included (Nov 13, 2026)", async () => {
+    // The hand-typed payload this replaced left those out, so a person's own
+    // edit of them never reached the organisation's contact.
+    mockDb.registration.findMany.mockResolvedValue([{ id: "r1", attendeeId: "a1", eventId: "e1", attendee: { _count: { registrations: 1 } } }]);
+    mockDb.event.findFirst.mockResolvedValue({ organizationId: "org1" });
+    mockDb.attendee.update.mockResolvedValue({
+      email: "anna@example.com", firstName: "Anna", lastName: "Lee", role: "PHYSICIAN", state: "Abu Dhabi", zipCode: "0000",
+      specialty: "Others", customSpecialty: "Sleep medicine", photo: "/uploads/a.jpg", bio: "Bio",
+    });
+    await copyToUpcomingRegistrations("u1", ["organization"], details, NOW);
+    expect(mockSync).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: "org1", eventId: "e1", email: "anna@example.com",
+      role: "PHYSICIAN", state: "Abu Dhabi", zipCode: "0000", customSpecialty: "Sleep medicine", photo: "/uploads/a.jpg", bio: "Bio",
+    }));
   });
 
   it("never writes a shared Attendee (it would rewrite another event's registration)", async () => {

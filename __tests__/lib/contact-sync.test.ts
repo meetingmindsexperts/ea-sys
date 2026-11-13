@@ -21,7 +21,7 @@ const { mockDb } = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
-import { syncToContact, omitBlankFields } from "@/lib/contact-sync";
+import { syncToContact, omitBlankFields, contactSyncFromAttendee, contactSyncFromSpeaker, CONTACT_SYNC_OPTIONAL_FIELDS } from "@/lib/contact-sync";
 
 const base = { organizationId: "org1", email: "Krishna@X.com", firstName: "Krishna", lastName: "P" };
 
@@ -78,5 +78,54 @@ describe("syncToContact — enrich-only merge", () => {
     const args = mockDb.contact.upsert.mock.calls[0][0];
     expect(args.update).not.toHaveProperty("organization");
     expect(args.update.jobTitle).toBe("Prof");
+  });
+});
+
+// Step 0b of docs/ORG_FIELDS_PLAN.md: callers stop typing the payload by hand.
+describe("contactSyncFromAttendee", () => {
+  const attendee = {
+    email: "a@x.com", firstName: "Ana", lastName: "Lima",
+    title: "DR" as const, role: "PHYSICIAN" as const, additionalEmail: "pa@x.com", organization: "Tawam", jobTitle: "Consultant",
+    phone: "+971 1", photo: "/uploads/p.jpg", city: "Al Ain", state: "Abu Dhabi", zipCode: "0000", country: "UAE", bio: "Bio",
+    specialty: "Others", customSpecialty: "Sleep medicine", registrationType: "Physician",
+    associationName: "ESC", memberId: "M1", studentId: "S1", studentIdExpiry: new Date("2027-01-01"),
+  };
+
+  it("carries every field the sync accepts, each from the row", () => {
+    const payload = contactSyncFromAttendee(attendee, { organizationId: "org1", eventId: "e1" }) as unknown as Record<string, unknown>;
+    for (const field of CONTACT_SYNC_OPTIONAL_FIELDS) expect(payload[field]).toBe(attendee[field]);
+    expect(payload).toMatchObject({ organizationId: "org1", eventId: "e1", email: "a@x.com", firstName: "Ana", lastName: "Lima" });
+    // Nothing but the sync's own keys: a row passed whole must not leak other columns.
+    expect(Object.keys(payload).sort()).toEqual([...CONTACT_SYNC_OPTIONAL_FIELDS, "organizationId", "eventId", "email", "firstName", "lastName"].sort());
+  });
+
+  it("does not pass on columns the sync does not take, when handed a whole row", () => {
+    const row = { ...attendee, id: "a1", tags: ["vip"], dietaryReqs: "none", customFields: {}, createdAt: new Date() };
+    const payload = contactSyncFromAttendee(row, { organizationId: "org1" });
+    expect(payload).not.toHaveProperty("id");
+    expect(payload).not.toHaveProperty("tags");
+    expect(payload).not.toHaveProperty("dietaryReqs");
+  });
+});
+
+describe("contactSyncFromSpeaker", () => {
+  const speaker = {
+    email: "s@x.com", firstName: "Sam", lastName: "Okoye",
+    title: "PROF" as const, role: "ACADEMIA" as const, additionalEmail: null, organization: "AUB", jobTitle: "Chair",
+    phone: null, photo: null, city: "Beirut", state: "Beirut", zipCode: "1107", country: "Lebanon", bio: "Bio",
+    specialty: "Cardiology", customSpecialty: null, registrationType: "Faculty",
+  };
+
+  it("carries every field a speaker has", () => {
+    const payload = contactSyncFromSpeaker(speaker, { organizationId: "org1", eventId: "e1" }) as unknown as Record<string, unknown>;
+    expect(payload).toMatchObject({ title: "PROF", role: "ACADEMIA", state: "Beirut", zipCode: "1107", city: "Beirut", bio: "Bio", specialty: "Cardiology" });
+    expect(payload).not.toHaveProperty("memberId");
+    expect(payload).not.toHaveProperty("studentId");
+  });
+
+  it("never writes Faculty as the contact's category: it would replace Physician, and that value feeds Mailchimp", () => {
+    expect(contactSyncFromSpeaker(speaker, { organizationId: "org1" }).registrationType).toBeNull();
+    expect(contactSyncFromSpeaker({ ...speaker, registrationType: "faculty " }, { organizationId: "org1" }).registrationType).toBeNull();
+    expect(contactSyncFromSpeaker({ ...speaker, registrationType: "Physician" }, { organizationId: "org1" }).registrationType).toBe("Physician");
   });
 });

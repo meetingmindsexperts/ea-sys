@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromAttendee, syncToContact } from "@/lib/contact-sync";
 import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { MARKETING_CONSENT_WORDING_VERSION } from "@/lib/marketing-consent";
 
@@ -137,26 +137,10 @@ export async function writeOwnAttendee(
   });
   const event = await db.event.findFirst({ where: { id: registration.eventId }, select: { organizationId: true } });
   if (event) {
-    await syncToContact({
-      organizationId: event.organizationId,
-      eventId: registration.eventId,
-      email: attendee.email,
-      additionalEmail: attendee.additionalEmail,
-      firstName: attendee.firstName,
-      lastName: attendee.lastName,
-      title: attendee.title,
-      organization: attendee.organization,
-      jobTitle: attendee.jobTitle,
-      phone: attendee.phone,
-      city: attendee.city,
-      country: attendee.country,
-      specialty: attendee.specialty,
-      registrationType: attendee.registrationType,
-      associationName: attendee.associationName,
-      memberId: attendee.memberId,
-      studentId: attendee.studentId,
-      studentIdExpiry: attendee.studentIdExpiry,
-    });
+    // Every field the sync accepts, from the row just written. The hand-typed
+    // payload this replaced left out Role, State, Zip, the free-text specialty,
+    // photo and bio, so a person's own edit of those never reached the contact.
+    await syncToContact(contactSyncFromAttendee(attendee, { organizationId: event.organizationId, eventId: registration.eventId }));
   }
   return attendee;
 }

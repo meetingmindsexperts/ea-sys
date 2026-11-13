@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Contacts: a person's own edit now reaches the contact in full (November 13)
+
+Step 0b of `docs/ORG_FIELDS_PLAN.md`, first caller. Every place that copies a
+person into the organisation's contacts typed its own list of fields, and of 19
+such places one sent them all. When a person edited their own details (My
+Details, or the edit on an event's registration page), their Role, State, Zip,
+typed-in specialty, photo and bio were never sent.
+
+`contactSyncFromAttendee` and `contactSyncFromSpeaker` in
+`src/lib/contact-sync.ts` now build the payload from the row, typed so that a
+caller holding fewer columns does not compile. The speaker one keeps the
+existing rule that "Faculty" is never written as a contact's category. The
+self-edit is the first caller moved to them; the other 18 follow one at a
+time.
+
+What changes: after such an edit the contact holds those fields too. The sync
+still only fills and never clears. Nothing existing is repaired: on production
+2,667 of the 6,323 contacts that have a registration hold no Role although
+their registration does (counted Nov 13, 2026). Filling those is a separate
+decision, because the contacts feed Mailchimp.
+
 ### Speaker and registration details: the sync can no longer write another person's record (November 13)
 
 Found by the review of the person fields groundwork, older than it. When a

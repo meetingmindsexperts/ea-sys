@@ -11,8 +11,10 @@
  * operation.
  */
 
+import type { Attendee, Speaker } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { contactCategoryOf } from "@/lib/faculty-filter";
 
 export interface ContactSyncData {
   organizationId: string;
@@ -75,6 +77,66 @@ export const CONTACT_SYNC_OPTIONAL_FIELDS = [
 type ContactSyncKeyWritten = (typeof CONTACT_SYNC_OPTIONAL_FIELDS)[number] | "organizationId" | "email" | "firstName" | "lastName" | "eventId";
 const _everyContactSyncKeyIsWritten: Exclude<keyof ContactSyncData, ContactSyncKeyWritten> extends never ? true : never = true;
 void _everyContactSyncKeyIsWritten;
+
+export type ContactSyncOptionalField = (typeof CONTACT_SYNC_OPTIONAL_FIELDS)[number];
+
+/** Which organisation's contact, and through which event the person came. */
+export interface ContactSyncTarget {
+  organizationId: string;
+  eventId?: string | null;
+}
+
+/**
+ * The columns a contact sync needs from an Attendee row: the name, the email
+ * and EVERY optional field the sync accepts. A caller that selected fewer
+ * columns does not compile, which is the point: until Nov 13, 2026 each caller
+ * typed its own payload and most left fields out (a person's own edit never
+ * sent their Role, State or Zip; docs/ORG_FIELDS_PLAN.md section 3a).
+ */
+export type AttendeeContactSource = Pick<Attendee, "email" | "firstName" | "lastName" | ContactSyncOptionalField>;
+
+/** The contact sync payload for an Attendee row: every field the sync accepts, none typed by hand. */
+export function contactSyncFromAttendee(attendee: AttendeeContactSource, target: ContactSyncTarget): ContactSyncData {
+  const optional = Object.fromEntries(CONTACT_SYNC_OPTIONAL_FIELDS.map((field) => [field, attendee[field]])) as Pick<AttendeeContactSource, ContactSyncOptionalField>;
+  return {
+    organizationId: target.organizationId,
+    eventId: target.eventId,
+    email: attendee.email,
+    firstName: attendee.firstName,
+    lastName: attendee.lastName,
+    ...optional,
+  };
+}
+
+/** The optional fields a Speaker row has; the rest of the list (member and student IDs, association) are an attendee's. */
+type SpeakerContactField = Extract<ContactSyncOptionalField, keyof Speaker>;
+
+/** The columns a contact sync needs from a Speaker row. */
+export type SpeakerContactSource = Pick<Speaker, "email" | "firstName" | "lastName" | SpeakerContactField>;
+
+/**
+ * The contact sync payload for a Speaker row. One field is not a plain copy:
+ * a speaker's registration type reaches the contact only through
+ * `contactCategoryOf`, because "Faculty" is what every speaker carries for the
+ * speakers API and it must never replace a contact's own category (which feeds
+ * `registration_type` in contacts_centralv1, and from there Mailchimp).
+ */
+export function contactSyncFromSpeaker(speaker: SpeakerContactSource, target: ContactSyncTarget): ContactSyncData {
+  const optional: Partial<Record<ContactSyncOptionalField, unknown>> = {};
+  for (const field of CONTACT_SYNC_OPTIONAL_FIELDS) {
+    if (!(field in speaker)) continue;
+    optional[field] = speaker[field as SpeakerContactField];
+  }
+  return {
+    organizationId: target.organizationId,
+    eventId: target.eventId,
+    email: speaker.email,
+    firstName: speaker.firstName,
+    lastName: speaker.lastName,
+    ...(optional as Partial<Pick<ContactSyncData, ContactSyncOptionalField>>),
+    registrationType: contactCategoryOf(speaker.registrationType),
+  };
+}
 
 /**
  * Enrich-only field filter. Drops `undefined`, `null`, AND `""` so a write can

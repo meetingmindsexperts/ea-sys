@@ -32,7 +32,8 @@ vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (t: unknown) =>
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/tenant/resolver", () => ({ resolveRequestOrgId: vi.fn(async () => null) }));
 vi.mock("@/lib/tenant-lane", () => ({ runWithTenantLane: (_o: unknown, _c: unknown, fn: () => unknown) => fn() }));
-vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));
+// The payload builders are real: only the write is stubbed.
+vi.mock("@/lib/contact-sync", async (original) => ({ ...(await original<typeof import("@/lib/contact-sync")>()), syncToContact: vi.fn() }));
 
 import { PUT } from "@/app/api/registrant/registrations/route";
 import { apiLogger } from "@/lib/logger";
