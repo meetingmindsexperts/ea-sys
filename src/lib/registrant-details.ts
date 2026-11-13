@@ -201,18 +201,12 @@ export function changedFields(before: AccountDetails, after: AccountDetails): (k
 
 /** Prisma data for an AccountProfile from details (enum fields typed by the caller's validation). */
 function profileData(d: AccountDetails) {
+  // Built from PROFILE_FIELDS, so a field added to that list is written here too.
+  const { title, role, ...rest } = pickProfile(d);
   return {
-    title: d.title as Prisma.AccountProfileCreateInput["title"],
-    role: d.role as Prisma.AccountProfileCreateInput["role"],
-    organization: d.organization,
-    jobTitle: d.jobTitle,
-    phone: d.phone,
-    city: d.city,
-    state: d.state,
-    zipCode: d.zipCode,
-    country: d.country,
-    specialty: d.specialty,
-    customSpecialty: d.customSpecialty,
+    ...rest,
+    title: title as Prisma.AccountProfileCreateInput["title"],
+    role: role as Prisma.AccountProfileCreateInput["role"],
   };
 }
 

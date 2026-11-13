@@ -144,7 +144,7 @@ describe("each copy between two records carries what they share", () => {
     expectCarries(SYNCED_PERSON_FIELDS, personFieldsShared("attendee", "speaker"), {
       email: "has its own change flow (email-change.ts)",
       tags: "kept in step by person-tag-sync.ts",
-      registrationType: "follows the registration's type, never copied as a detail",
+      registrationType: "copied once when one record is made from the other, not kept in step on edit: it follows the registration's type",
     });
   });
 
@@ -155,6 +155,11 @@ describe("each copy between two records carries what they share", () => {
       lastName: "always written by the sync itself",
       tags: "a contact's tags are its own; event tags are not copied onto it",
     });
+  });
+
+  it("the contact sync accepts everything a speaker shares with a contact", () => {
+    const accepted = new Set<string>([...CONTACT_SYNC_OPTIONAL_FIELDS, "email", "firstName", "lastName", "tags"]);
+    expect(personFieldsShared("speaker", "contact").filter((f) => !accepted.has(f))).toEqual([]);
   });
 
   it("the account's details: PROFILE_FIELDS", () => {

@@ -16,9 +16,16 @@
  *   - a column added to one of the four models fails
  *     `person-field-contract.test.ts` until it is declared here, or listed
  *     there as not a person field, with the reason;
- *   - every hand-written list of person fields is compared with what this file
- *     says the two records share, so a declared field cannot be left out of a
- *     copy without a named exception.
+ *   - the lists that say what a copy MAY carry (the speaker and registration
+ *     sync, the contact sync, the account's details) are compared with what
+ *     this file says the two records share, so a declared field cannot be left
+ *     out of one without a named exception.
+ *
+ * What it does not hold yet: the places that build a copy by hand (each caller
+ * of the contact sync, each create and update). A caller can still leave a
+ * field out of its own payload. Steps 0b to 0d of the plan bring those under
+ * it. The account's name and `User.specialty` live on User, outside the four
+ * records, and are written by the same saves that write the account profile.
  *
  * Pure and client-safe: names only, no database import.
  */
@@ -34,7 +41,7 @@ export const PERSON_RECORD_MODELS: Record<PersonRecord, string> = {
   account: "AccountProfile",
 };
 
-const ALL = ["attendee", "speaker", "contact", "account"] as const;
+const ALL = PERSON_RECORDS;
 /** The three that hold a full person; the account's name and email are on User. */
 const PEOPLE = ["attendee", "speaker", "contact"] as const;
 

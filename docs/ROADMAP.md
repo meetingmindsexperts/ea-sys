@@ -85,6 +85,31 @@ alone.
 - The import's rate limit and its import record use the caller's organisation, not the
   event's; a track the import creates stays when its session is then refused.
 
+## Person fields owned by the organisation: what the Nov 13 review left
+
+Plan: `docs/ORG_FIELDS_PLAN.md`. The review of step 0a (`78a0b8a6`) and of the
+plan found these outside the plan's own steps.
+
+- **Clone drops Role, additional email, State, Zip and the free-text specialty
+  from the speakers it copies** (`events/[eventId]/clone/route.ts`). LOW, older.
+  Not fixed alone: step 0c brings every "record made from another" under the
+  declaration, and the clone is on that list.
+- **A speaker's companion attendee is made without bio and the free-text
+  specialty** (`speaker-companion.ts`). LOW, older. Same reason, same step.
+- **The EventsAir import still passes `session.user.organizationId ?? ""`** to
+  the contact sync (`import/eventsair/route.ts`). LOW, older; the `?? ""` pass
+  of Aug 11 missed it. An empty organisation makes the sync fail and log, it
+  cannot write to another tenant. Fix with the next tenancy sweep.
+- **The agent's bulk registration tool checks for a duplicate with a plain
+  case-insensitive equals** (`agent/tools/registrations.ts`). LOW, older: an
+  underscore in an address matches any character, so `a_b@` is refused as a
+  duplicate of `a.b@`. It refuses a create, it never links a record, which is
+  why it was not in the Nov 10 fix. One of the "about 30 older uses".
+- **A column can be waved past the new test by naming it "not a person
+  field"** in `person-field-contract.test.ts`. LOW, by design: the list is
+  short, each entry carries its reason, and a reviewer reads it. No stronger
+  guard is worth its cost.
+
 ## Registration type naming and the speakers API: what the Nov 12 reviews left (recorded Nov 12, 2026): not started
 
 From the reviews of `f2b53afd` (0 BLOCKER, 0 HIGH, 2 MED, 7 LOW, 1 older MED) and

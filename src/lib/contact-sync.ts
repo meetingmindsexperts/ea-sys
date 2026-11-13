@@ -45,8 +45,9 @@ export interface ContactSyncData {
  * The Contact columns a sync may fill, beside the name and email it always
  * writes. A list, not an object literal inside the function, so
  * person-field-contract.test.ts can hold it against the declared person
- * fields: a field the Attendee and the Contact both have cannot be left out of
- * here without a named exception.
+ * fields: a field a Contact shares with an Attendee or a Speaker cannot be
+ * left out of here without a named exception. It says what the sync ACCEPTS;
+ * each caller still builds its own payload, and can leave a field out.
  */
 export const CONTACT_SYNC_OPTIONAL_FIELDS = [
   "title",
@@ -69,6 +70,11 @@ export const CONTACT_SYNC_OPTIONAL_FIELDS = [
   "studentId",
   "studentIdExpiry",
 ] as const satisfies readonly (keyof ContactSyncData)[];
+
+/** Compile-time: every key of ContactSyncData is written by the sync, here or by name below. */
+type ContactSyncKeyWritten = (typeof CONTACT_SYNC_OPTIONAL_FIELDS)[number] | "organizationId" | "email" | "firstName" | "lastName" | "eventId";
+const _everyContactSyncKeyIsWritten: Exclude<keyof ContactSyncData, ContactSyncKeyWritten> extends never ? true : never = true;
+void _everyContactSyncKeyIsWritten;
 
 /**
  * Enrich-only field filter. Drops `undefined`, `null`, AND `""` so a write can
