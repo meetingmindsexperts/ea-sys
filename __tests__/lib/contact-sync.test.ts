@@ -82,50 +82,97 @@ describe("syncToContact — enrich-only merge", () => {
 });
 
 // Step 0b of docs/ORG_FIELDS_PLAN.md: callers stop typing the payload by hand.
+const COPIED = CONTACT_SYNC_OPTIONAL_FIELDS.filter((f) => f !== "registrationType");
+
 describe("contactSyncFromAttendee", () => {
   const attendee = {
     email: "a@x.com", firstName: "Ana", lastName: "Lima",
     title: "DR" as const, role: "PHYSICIAN" as const, additionalEmail: "pa@x.com", organization: "Tawam", jobTitle: "Consultant",
     phone: "+971 1", photo: "/uploads/p.jpg", city: "Al Ain", state: "Abu Dhabi", zipCode: "0000", country: "UAE", bio: "Bio",
-    specialty: "Others", customSpecialty: "Sleep medicine", registrationType: "Physician",
+    specialty: "Others", customSpecialty: "Sleep medicine",
     associationName: "ESC", memberId: "M1", studentId: "S1", studentIdExpiry: new Date("2027-01-01"),
   };
+  const to = { organizationId: "org1", eventId: "e1" };
 
-  it("carries every field the sync accepts, each from the row", () => {
-    const payload = contactSyncFromAttendee(attendee, { organizationId: "org1", eventId: "e1" }) as unknown as Record<string, unknown>;
-    for (const field of CONTACT_SYNC_OPTIONAL_FIELDS) expect(payload[field]).toBe(attendee[field]);
-    expect(payload).toMatchObject({ organizationId: "org1", eventId: "e1", email: "a@x.com", firstName: "Ana", lastName: "Lima" });
-    // Nothing but the sync's own keys: a row passed whole must not leak other columns.
+  it("carries every copied field, each from the row, and nothing else", () => {
+    const payload = contactSyncFromAttendee(attendee, { ...to, category: "Physician" }) as unknown as Record<string, unknown>;
+    for (const field of COPIED) expect(payload[field]).toBe(attendee[field]);
+    expect(payload).toMatchObject({ organizationId: "org1", eventId: "e1", email: "a@x.com", firstName: "Ana", lastName: "Lima", registrationType: "Physician" });
     expect(Object.keys(payload).sort()).toEqual([...CONTACT_SYNC_OPTIONAL_FIELDS, "organizationId", "eventId", "email", "firstName", "lastName"].sort());
   });
 
   it("does not pass on columns the sync does not take, when handed a whole row", () => {
     const row = { ...attendee, id: "a1", tags: ["vip"], dietaryReqs: "none", customFields: {}, createdAt: new Date() };
-    const payload = contactSyncFromAttendee(row, { organizationId: "org1" });
+    const payload = contactSyncFromAttendee(row, { ...to, category: null });
     expect(payload).not.toHaveProperty("id");
     expect(payload).not.toHaveProperty("tags");
     expect(payload).not.toHaveProperty("dietaryReqs");
+  });
+
+  it("the category is what the caller says, never the row's own type", () => {
+    // An attendee row on the Faculty type holds "Faculty"; the builder does not read it.
+    const row = { ...attendee, registrationType: "Faculty" };
+    expect(contactSyncFromAttendee(row, { ...to, category: null }).registrationType).toBeNull();
+    expect(contactSyncFromAttendee(row, { ...to, category: "Allied Health" }).registrationType).toBe("Allied Health");
+    // And "Faculty" said by a caller is still never a category.
+    expect(contactSyncFromAttendee(row, { ...to, category: "Faculty" }).registrationType).toBeNull();
+  });
+
+  it("`only` sends the fields an edit changed and leaves the rest of the row unsaid", () => {
+    // The row's photo and bio were copied in when the registration was made;
+    // an edit of the phone must not put them over a newer photo on the contact.
+    const payload = contactSyncFromAttendee(attendee, { ...to, category: null, only: ["phone", "role", "dietaryReqs", "firstName"] });
+    expect(payload).toMatchObject({ phone: "+971 1", role: "PHYSICIAN", email: "a@x.com", firstName: "Ana", lastName: "Lima" });
+    expect(payload).not.toHaveProperty("photo");
+    expect(payload).not.toHaveProperty("bio");
+    expect(payload).not.toHaveProperty("organization");
+    expect(payload).not.toHaveProperty("dietaryReqs");
+  });
+
+  it("a row with fewer columns does not compile", () => {
+    const { role: _role, ...withoutRole } = attendee;
+    void _role;
+    // @ts-expect-error the builder demands every copied column: a select that left Role out is refused
+    contactSyncFromAttendee(withoutRole, { ...to, category: null });
+    // @ts-expect-error the category must be said
+    contactSyncFromAttendee(attendee, to);
   });
 });
 
 describe("contactSyncFromSpeaker", () => {
   const speaker = {
     email: "s@x.com", firstName: "Sam", lastName: "Okoye",
-    title: "PROF" as const, role: "ACADEMIA" as const, additionalEmail: null, organization: "AUB", jobTitle: "Chair",
-    phone: null, photo: null, city: "Beirut", state: "Beirut", zipCode: "1107", country: "Lebanon", bio: "Bio",
-    specialty: "Cardiology", customSpecialty: null, registrationType: "Faculty",
+    title: "PROF" as const, role: "ACADEMIA" as const, additionalEmail: "pa@x.com", organization: "AUB", jobTitle: "Chair",
+    phone: "+961 1", photo: "/uploads/s.jpg", city: "Beirut", state: "Beirut", zipCode: "1107", country: "Lebanon", bio: "Bio",
+    specialty: "Others", customSpecialty: "Imaging", registrationType: "Faculty",
   };
+  const SPEAKER_COPIED = COPIED.filter((f) => f in speaker);
 
-  it("carries every field a speaker has", () => {
+  it("carries every copied field a speaker has", () => {
     const payload = contactSyncFromSpeaker(speaker, { organizationId: "org1", eventId: "e1" }) as unknown as Record<string, unknown>;
-    expect(payload).toMatchObject({ title: "PROF", role: "ACADEMIA", state: "Beirut", zipCode: "1107", city: "Beirut", bio: "Bio", specialty: "Cardiology" });
+    expect(SPEAKER_COPIED).toHaveLength(COPIED.length - 4); // all but association, member ID, student ID and its expiry
+    for (const field of SPEAKER_COPIED) expect(payload[field]).toBe((speaker as Record<string, unknown>)[field]);
+  });
+
+  it("never passes on an attendee's fields, even when a merged object carries them", () => {
+    const merged = { ...speaker, memberId: "M1", studentId: "S1", associationName: "ESC" };
+    const payload = contactSyncFromSpeaker(merged, { organizationId: "org1" });
     expect(payload).not.toHaveProperty("memberId");
     expect(payload).not.toHaveProperty("studentId");
+    expect(payload).not.toHaveProperty("associationName");
   });
 
   it("never writes Faculty as the contact's category: it would replace Physician, and that value feeds Mailchimp", () => {
     expect(contactSyncFromSpeaker(speaker, { organizationId: "org1" }).registrationType).toBeNull();
     expect(contactSyncFromSpeaker({ ...speaker, registrationType: "faculty " }, { organizationId: "org1" }).registrationType).toBeNull();
+    expect(contactSyncFromSpeaker({ ...speaker, registrationType: null }, { organizationId: "org1" }).registrationType).toBeNull();
     expect(contactSyncFromSpeaker({ ...speaker, registrationType: "Physician" }, { organizationId: "org1" }).registrationType).toBe("Physician");
+  });
+
+  it("a row with fewer columns does not compile", () => {
+    const { state: _state, ...withoutState } = speaker;
+    void _state;
+    // @ts-expect-error the builder demands every copied column a speaker has
+    contactSyncFromSpeaker(withoutState, { organizationId: "org1" });
   });
 });

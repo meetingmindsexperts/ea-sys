@@ -105,6 +105,22 @@ plan found these outside the plan's own steps.
   underscore in an address matches any character, so `a_b@` is refused as a
   duplicate of `a.b@`. It refuses a create, it never links a record, which is
   why it was not in the Nov 10 fix. One of the "about 30 older uses".
+- **"Faculty" still reaches `registration_type` in `contacts_centralv1`**, and
+  from there Mailchimp, by a second road: the feed collects every
+  registration's type name per email with no Faculty filter
+  (`contacts-central-sync.ts`, `regTypesByEmail`). LOW, older. Not fixed here:
+  it changes what the nightly feed writes, so the readers are traced and the
+  owner told first (the INC-007 rule).
+- **Staff editing a Faculty registration writes "Faculty" as the contact's
+  category** (`registration-service.ts`, the update's contact sync), and My
+  Details skips only speaker companions, not Faculty registrations made with
+  Add Registration. MED, older. Fixed for the self-edit on Nov 13; the staff
+  update is fixed when that caller moves to the builder (step 0b), which makes
+  the category a required argument.
+- **The event's self-edit writes an attendee row shared by registrations at
+  several events** (`PUT /api/registrant/registrations`); My Details skips
+  those rows. LOW, older: 78 legacy rows from Feb and Mar 2026, and the write
+  is the person's own details. Fix: the same count check My Details uses.
 - **A column can be waved past the new test by naming it "not a person
   field"** in `person-field-contract.test.ts`. LOW, by design: the list is
   short, each entry carries its reason, and a reviewer reads it. No stronger

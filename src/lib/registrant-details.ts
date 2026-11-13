@@ -137,10 +137,18 @@ export async function writeOwnAttendee(
   });
   const event = await db.event.findFirst({ where: { id: registration.eventId }, select: { organizationId: true } });
   if (event) {
-    // Every field the sync accepts, from the row just written. The hand-typed
-    // payload this replaced left out Role, State, Zip, the free-text specialty,
-    // photo and bio, so a person's own edit of those never reached the contact.
-    await syncToContact(contactSyncFromAttendee(attendee, { organizationId: event.organizationId, eventId: registration.eventId }));
+    // The contact hears what this edit changed, as the row now holds it, and
+    // nothing else. The hand-typed payload this replaced sent thirteen fixed
+    // fields whatever was edited: it never sent Role (so a person's own change
+    // of it did not reach the contact), and it re-sent fields the edit had not
+    // touched, the type among them, which on a Faculty registration wrote
+    // "Faculty" over the contact's category.
+    await syncToContact(contactSyncFromAttendee(attendee, {
+      organizationId: event.organizationId,
+      eventId: registration.eventId,
+      category: null,
+      only: Object.keys(data),
+    }));
   }
   return attendee;
 }

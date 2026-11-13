@@ -83,20 +83,25 @@ describe("copyToUpcomingRegistrations", () => {
     expect(mockSync).toHaveBeenCalledTimes(1);
   });
 
-  it("the contact receives every field of the row, Role, State and Zip included (Nov 13, 2026)", async () => {
-    // The hand-typed payload this replaced left those out, so a person's own
-    // edit of them never reached the organisation's contact.
+  it("the contact hears what the edit changed, Role included, and nothing the edit did not touch (Nov 13, 2026)", async () => {
+    // The hand-typed payload this replaced never sent Role, and re-sent the
+    // row's type and other untouched fields on every edit.
     mockDb.registration.findMany.mockResolvedValue([{ id: "r1", attendeeId: "a1", eventId: "e1", attendee: { _count: { registrations: 1 } } }]);
     mockDb.event.findFirst.mockResolvedValue({ organizationId: "org1" });
     mockDb.attendee.update.mockResolvedValue({
-      email: "anna@example.com", firstName: "Anna", lastName: "Lee", role: "PHYSICIAN", state: "Abu Dhabi", zipCode: "0000",
-      specialty: "Others", customSpecialty: "Sleep medicine", photo: "/uploads/a.jpg", bio: "Bio",
+      email: "anna@example.com", firstName: "Anna", lastName: "Lee", role: "PHYSICIAN", state: "Abu Dhabi", organization: "Old Clinic",
+      registrationType: "Faculty", photo: "/uploads/old.jpg", bio: "Old bio", memberId: "M1",
     });
-    await copyToUpcomingRegistrations("u1", ["organization"], details, NOW);
-    expect(mockSync).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: "org1", eventId: "e1", email: "anna@example.com",
-      role: "PHYSICIAN", state: "Abu Dhabi", zipCode: "0000", customSpecialty: "Sleep medicine", photo: "/uploads/a.jpg", bio: "Bio",
-    }));
+    await copyToUpcomingRegistrations("u1", ["role", "state"], details, NOW);
+    const payload = mockSync.mock.calls[0][0];
+    expect(payload).toMatchObject({ organizationId: "org1", eventId: "e1", email: "anna@example.com", role: "PHYSICIAN", state: "Abu Dhabi" });
+    // Not edited, so not said: an old photo must not go over a newer one, and
+    // a Faculty registration's type must never become the contact's category.
+    expect(payload).not.toHaveProperty("photo");
+    expect(payload).not.toHaveProperty("bio");
+    expect(payload).not.toHaveProperty("organization");
+    expect(payload).not.toHaveProperty("memberId");
+    expect(payload.registrationType).toBeNull();
   });
 
   it("never writes a shared Attendee (it would rewrite another event's registration)", async () => {

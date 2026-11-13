@@ -103,6 +103,19 @@ Gaps that are deliberate and must stay:
   and from there Mailchimp. Five callers apply it; the public submitter door
   does not, which is an existing gap.
 - `verify-details` sends only the evidence fields it changed.
+
+Two rules the builders hold (review of `eb435b61`, Nov 13):
+
+- **A contact's category is never read off a row.** The attendee builder takes
+  it as a required argument: the type's name for a delegate, null for the
+  Faculty type or when the write does not decide the type. Staff creating a
+  registration already does this by hand (`asFaculty ? null : type name`);
+  staff editing one, and the old self-edit, sent the row's own value, which on
+  a Faculty registration is "Faculty".
+- **An edit sends only what it changed.** The sync replaces a value with any
+  other non-blank value, so re-sending a whole row puts its old photo, bio or
+  phone over a newer one that reached the contact from another event. A row
+  just created sends everything.
 - A contact's tags are its own; event tags are not copied onto it.
 
 The sync only ever fills, never clears, so the effect is a contact that stays

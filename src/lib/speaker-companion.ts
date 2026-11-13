@@ -13,6 +13,7 @@
 import { db, tenantTransaction } from "@/lib/db";
 import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { apiLogger } from "@/lib/logger";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 import { generateBarcode } from "@/lib/utils";
 import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -277,7 +278,11 @@ export async function ensureSpeakerCompanionRegistration(
         // speaker email must still match its lowercased attendee row —
         // an exact-match miss here would mint a DUPLICATE Faculty companion
         // for someone who already holds a real registration.
-        attendee: { email: { equals: speaker.email, mode: "insensitive" } },
+        // Exactly this address, whatever its case (Nov 13, 2026): a bare
+        // insensitive equals is ILIKE, where the underscore in john_smith@
+        // also matches john.smith@, and the row found here is LINKED to the
+        // speaker, after which the details sync writes it.
+        attendee: { email: equalsIgnoringCase(speaker.email) },
         status: { not: "CANCELLED" },
       },
       select: { id: true, qrCode: true, attendanceMode: true },
@@ -318,7 +323,7 @@ export async function ensureSpeakerCompanionRegistration(
       const raced = await tx.registration.findFirst({
         where: {
           eventId: speaker.eventId,
-          attendee: { email: { equals: speaker.email, mode: "insensitive" } },
+          attendee: { email: equalsIgnoringCase(speaker.email) },
           status: { not: "CANCELLED" },
         },
         select: { id: true, qrCode: true, attendanceMode: true },

@@ -6,26 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Contacts: a person's own edit now reaches the contact in full (November 13)
+### Contacts: a person's own edit tells the contact what changed, Role included (November 13)
 
 Step 0b of `docs/ORG_FIELDS_PLAN.md`, first caller. Every place that copies a
 person into the organisation's contacts typed its own list of fields, and of 19
 such places one sent them all. When a person edited their own details (My
-Details, or the edit on an event's registration page), their Role, State, Zip,
-typed-in specialty, photo and bio were never sent.
+Details, or the edit on an event's registration page), thirteen fixed fields
+were sent whatever they had changed: Role was never among them, and the
+registration's type always was, so an edit on a Faculty registration wrote
+"Faculty" over the contact's category.
 
 `contactSyncFromAttendee` and `contactSyncFromSpeaker` in
 `src/lib/contact-sync.ts` now build the payload from the row, typed so that a
-caller holding fewer columns does not compile. The speaker one keeps the
-existing rule that "Faculty" is never written as a contact's category. The
-self-edit is the first caller moved to them; the other 18 follow one at a
-time.
+caller holding fewer columns does not compile. A contact's category is never
+read off a row: the caller says it, and "Faculty" is never one. An edit sends
+only the fields it changed, so a photo or bio copied onto a registration long
+ago cannot replace a newer one on the contact (review of the first version of
+this change). The self-edit is the first caller moved; the other 18 follow one
+at a time.
 
-What changes: after such an edit the contact holds those fields too. The sync
-still only fills and never clears. Nothing existing is repaired: on production
-2,667 of the 6,323 contacts that have a registration hold no Role although
-their registration does (counted Nov 13, 2026). Filling those is a separate
-decision, because the contacts feed Mailchimp.
+What changes: after such an edit the contact holds the changed fields, Role
+among them, and nothing else is re-sent. The sync still only fills and never
+clears. Nothing existing is repaired: on production 2,667 of the 6,323
+contacts that have a registration hold no Role although their registration
+does (counted Nov 13, 2026). Filling those in one go is a separate decision,
+because the contacts feed Mailchimp; from now on they fill one at a time, as
+each person next edits their Role.
+
+Also, older and the same class as the entry below: the lookup that links a
+speaker to an existing registration (`speaker-companion.ts`, two places)
+matched the email as a pattern. It now matches it exactly.
 
 ### Speaker and registration details: the sync can no longer write another person's record (November 13)
 
