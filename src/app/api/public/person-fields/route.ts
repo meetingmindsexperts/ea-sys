@@ -23,8 +23,10 @@ import { DEFAULT_PUBLIC_PERSON_FIELDS, publicPersonFields, readPersonFields } fr
  *   2. the signed-in person's organisation (the dashboard);
  *   3. the organisation whose address the request came to, as sign-in
  *      resolves it (sign-up, My account).
- * With none of them, or when the read fails, the answer is today's lists: a
- * form must never lose its picker.
+ * With none of them the answer is today's lists. When the read fails the
+ * answer is 503, and the picker shows today's lists by itself: a form must
+ * never lose its picker. (Before another organisation launches, that fallback
+ * must stop being the medical list: docs/ORG_FIELDS_PLAN.md section 4.)
  */
 export async function GET(req: Request) {
   const ip = getClientIp(req);
@@ -48,8 +50,11 @@ export async function GET(req: Request) {
     const org = await db.organization.findUnique({ where: { id: organizationId }, select: { settings: true } });
     return respond(publicPersonFields(readPersonFields(org?.settings)));
   } catch (err) {
+    // 503, not the default lists with a 200: the page would keep those as the
+    // organisation's own for five minutes. The picker falls back to the
+    // default lists by itself and asks again the next time it is opened.
     apiLogger.error({ err, msg: "public/person-fields:read-failed" });
-    return respond(DEFAULT_PUBLIC_PERSON_FIELDS);
+    return NextResponse.json({ error: "The form fields could not be read" }, { status: 503 });
   }
 }
 

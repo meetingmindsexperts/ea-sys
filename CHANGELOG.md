@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Form fields: three traps closed before anyone uses it (November 13)
+
+Review of `9e22412a` (no HIGH, three MED), all in the Specialty list that
+shipped in the entry below.
+
+- **A list that offers nothing cannot be saved.** Retiring every answer and
+  switching "Others" off would have left a required picker empty on every
+  form, so nobody could register. The server refuses it and the screen blocks
+  Save with the reason.
+- **Two people editing at once.** A save replaces the whole list, so one made
+  from an older copy silently removed a colleague's new answer. A save now
+  says which list it was edited from; if the stored list has changed, it is
+  refused and the screen reloads with the colleague's change.
+- **A failed read is no longer handed out as the organisation's list.** The
+  forms' read answered the default list with a 200 when the database could not
+  be read, and the page kept that for five minutes. It answers 503; the picker
+  shows the default list by itself and asks again.
+
+Smaller: the number beside an answer is called records, which is what it
+counts (one person can be a contact, a speaker and two registrations); an
+answer with a tab, a line break or a NUL in it is refused; the screen cannot
+be edited while a save is on its way; a read the page works without no longer
+reports a visitor's dropped connection to Sentry; the unused list export is
+gone. Correction to the entry below: "the list as it was before" means the
+built-in default list, and a form that is already open keeps the list it
+loaded until it is opened again, not "up to five minutes".
+
+Verified on the local app, on screen: a save made after a colleague's change
+was refused and the list reloaded with their answer; with every answer retired
+and "Others" switched off, Save was blocked with the reason.
+
 ### Settings, Form fields: the organisation's own Specialty list (November 13)
 
 Step 1 of `docs/ORG_FIELDS_PLAN.md`, the first piece anyone can see. Owner:

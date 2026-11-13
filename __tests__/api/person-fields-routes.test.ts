@@ -50,7 +50,8 @@ import { PERSON_FIELDS_SETTING, DEFAULT_PUBLIC_PERSON_FIELDS } from "@/lib/perso
 const ORG = "org-1";
 const user = (role: string, organizationId: string | null = ORG) => ({ user: { id: "u1", role, organizationId } });
 const put = (body: unknown) => PUT({ json: async () => body } as unknown as Request);
-const VALID = { specialty: { answers: [{ answer: "Cloud" }, { answer: "Data", retired: true }], allowOther: false } };
+const EXPECTED = { answers: [{ answer: "Cloud" }, { answer: "Legacy", retired: true }], allowOther: false };
+const VALID = { specialty: { answers: [{ answer: "Cloud" }, { answer: "Data", retired: true }], allowOther: false, expected: EXPECTED } };
 const OWN_LIST = {
   [PERSON_FIELDS_SETTING]: {
     specialty: { label: "Area", options: [{ key: "Cloud", label: "Cloud" }, { key: "Legacy", label: "Legacy", retired: true }], allowOther: false },
@@ -68,15 +69,17 @@ beforeEach(() => {
 });
 
 describe("Settings, Form fields: who may read and change the list", () => {
-  it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER"])("%s reads the list, retired answers and the people count included", async (role) => {
+  it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER"])("%s reads the list, retired answers and the record count included, in the organisation's lane", async (role) => {
     mockAuth.mockResolvedValue(user(role));
     const res = await getSettings();
     expect(res.status).toBe(200);
     expect((await res.json()).specialty).toEqual({
       label: "Area",
       allowOther: false,
-      answers: [{ answer: "Cloud", retired: false, people: 12 }, { answer: "Legacy", retired: true, people: 0 }],
+      answers: [{ answer: "Cloud", retired: false, records: 12 }, { answer: "Legacy", retired: true, records: 0 }],
     });
+    // The counts read contacts, attendees and speakers, which sit behind a row policy on the platform.
+    expect(lane).toHaveBeenCalledWith(ORG, { route: "organization/person-fields:GET", userId: "u1" });
   });
 
   it.each(["MEMBER", "ONSITE", "CRM_USER", "HR_USER", "REGISTRANT", "SUBMITTER", "REVIEWER"])("%s is refused, read and write", async (role) => {
@@ -99,10 +102,11 @@ describe("Settings, Form fields: who may read and change the list", () => {
     // The in-use count reads contacts, attendees and speakers, which sit behind
     // a row policy on the platform: outside the lane a held answer looks unused.
     expect(lane).toHaveBeenCalledWith(ORG, { route: "organization/person-fields:PUT", userId: "u1" });
-    expect(saveSpecialtyAnswers).toHaveBeenCalledWith({ organizationId: ORG, actorUserId: "u1", answers: VALID.specialty.answers, allowOther: false });
+    // With the list the screen loaded, so a save made from an older copy can be refused.
+    expect(saveSpecialtyAnswers).toHaveBeenCalledWith({ organizationId: ORG, actorUserId: "u1", answers: VALID.specialty.answers, allowOther: false, expected: EXPECTED });
   });
 
-  it("an account with no organisation is refused before anything runs", async () => {
+  it("a role that holds no such key is refused by the permission check, with or without an organisation", async () => {
     mockAuth.mockResolvedValue(user("ADMIN", null));
     expect((await put(VALID)).status).toBe(403);
     expect(saveSpecialtyAnswers).not.toHaveBeenCalled();
@@ -111,8 +115,9 @@ describe("Settings, Form fields: who may read and change the list", () => {
   it.each([
     ["no body", null],
     ["answers that are not a list", { specialty: { answers: "Cloud", allowOther: true } }],
-    ["no Others switch", { specialty: { answers: [] } }],
-    ["more than 200 answers", { specialty: { answers: Array.from({ length: 201 }, (_, i) => ({ answer: `A${i}` })), allowOther: true } }],
+    ["no Others switch", { specialty: { answers: [], expected: EXPECTED } }],
+    ["no list it was edited from", { specialty: { answers: [], allowOther: true } }],
+    ["more than 200 answers", { specialty: { answers: Array.from({ length: 201 }, (_, i) => ({ answer: `A${i}` })), allowOther: true, expected: EXPECTED } }],
   ])("400 on %s", async (_name, body) => {
     mockAuth.mockResolvedValue(user("ADMIN"));
     expect((await put(body)).status).toBe(400);
@@ -121,10 +126,21 @@ describe("Settings, Form fields: who may read and change the list", () => {
 
   it("the service's refusal reaches the screen with its code and who holds the answer", async () => {
     mockAuth.mockResolvedValue(user("ADMIN"));
-    saveSpecialtyAnswers.mockResolvedValue({ ok: false, code: "ANSWER_IN_USE", message: "held", inUse: [{ answer: "Cardiology", people: 3788 }] });
+    saveSpecialtyAnswers.mockResolvedValue({ ok: false, code: "ANSWER_IN_USE", message: "held", inUse: [{ answer: "Cardiology", records: 3788 }] });
     const res = await put(VALID);
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "held", code: "ANSWER_IN_USE", inUse: [{ answer: "Cardiology", people: 3788 }] });
+    expect(await res.json()).toEqual({ error: "held", code: "ANSWER_IN_USE", inUse: [{ answer: "Cardiology", records: 3788 }] });
+  });
+
+  it.each([
+    ["LIST_CHANGED", 409],
+    ["NOTHING_OFFERED", 400],
+  ])("%s reaches the screen as %i with its code", async (code, status) => {
+    mockAuth.mockResolvedValue(user("ORGANIZER"));
+    saveSpecialtyAnswers.mockResolvedValue({ ok: false, code, message: "no" });
+    const res = await put(VALID);
+    expect(res.status).toBe(status);
+    expect(await res.json()).toMatchObject({ code });
   });
 
   it("429 when saved too often", async () => {
@@ -142,7 +158,8 @@ describe("the forms' read: whose list, and never an empty picker", () => {
     ((await res.json()) as { fields: { specialty: { answers: { key: string }[] } } }).fields.specialty.answers.map((a) => a.key);
 
   it("needs no sign-in, sends only the answers on offer, and is never kept by the browser", async () => {
-    mockAuth.mockResolvedValue(user("ADMIN"));
+    mockAuth.mockResolvedValue(null);
+    resolveRequestOrgId.mockResolvedValue(ORG);
     const res = await get();
     expect(res.status).toBe(200);
     // The retired answer is not sent; this organisation offers no Others.
@@ -179,12 +196,14 @@ describe("the forms' read: whose list, and never an empty picker", () => {
     expect(mockDb.organization.findUnique).not.toHaveBeenCalled();
   });
 
-  it("when the read fails, today's lists and a 200: a form must not lose its picker", async () => {
+  it("when the read fails, 503 and not the default lists as if they were the organisation's", async () => {
+    // A 200 with the defaults would be kept by the page for five minutes as
+    // this organisation's own list. The picker falls back by itself.
     mockAuth.mockResolvedValue(user("ADMIN"));
     mockDb.organization.findUnique.mockRejectedValue(new Error("db down"));
     const res = await get();
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ fields: DEFAULT_PUBLIC_PERSON_FIELDS });
+    expect(res.status).toBe(503);
+    expect(await res.json()).not.toHaveProperty("fields");
   });
 
   it("429 with the retry time when flooded", async () => {

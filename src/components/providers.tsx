@@ -85,6 +85,10 @@ export function Providers({ children }: ProvidersProps) {
         queryCache: new QueryCache({
           onError: (error, query) => {
             if (handleExpiredSession(error, { queryKey: query.queryKey })) return;
+            // A read the page works without (it falls back by itself) is not a
+            // fault to report: the form-fields read runs on every public form,
+            // and a visitor's dropped connection would otherwise fill Sentry.
+            if (query.meta?.optional === true) return;
             reportToSentry(error, "query", { queryKey: query.queryKey });
           },
         }),

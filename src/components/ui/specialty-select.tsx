@@ -1,15 +1,8 @@
 "use client";
 
 import { SearchableSelect } from "./searchable-select";
-import { defaultPersonFields, offeredAnswers } from "@/lib/person-fields";
 import { usePersonFields } from "@/hooks/use-person-fields";
 
-/**
- * The specialties offered when an organisation has saved none of its own,
- * "Others" last: one copy, in src/lib/person-fields.ts. The picker below does
- * NOT read this: it offers the organisation's list (Settings, Form fields).
- */
-export const SPECIALTIES: string[] = offeredAnswers(defaultPersonFields().specialty).map((o) => o.key);
 
 interface SpecialtySelectProps {
   /** Put on the button you tap, so a <label htmlFor> can point at the picker. */

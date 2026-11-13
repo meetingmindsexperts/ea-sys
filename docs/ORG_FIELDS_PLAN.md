@@ -240,6 +240,12 @@ Working name `src/lib/person-fields.ts`, client-safe, no database import.
   required as the organisation's default says. Today's rule that an account
   "always holds what a registration would need" becomes "what the
   organisation's default asks".
+- **A picker that cannot read its list shows the default list** (while
+  loading, on a failed read, when no organisation resolves), and no door
+  checks a newly chosen answer against the list yet. On master the default IS
+  MM Group's list, so this is harmless. Before another organisation launches:
+  the picker waits for the list instead, and the doors refuse a new answer
+  that is not offered (review of `9e22412a`).
 - **A new organisation with nothing saved must not get the medical form.**
   "Nothing saved means today's form" is the rule for master only. On the
   platform, creating an organisation writes the starter set it picked, or the
@@ -295,7 +301,7 @@ Sizes are estimates, not measurements.
 | 1a | BUILT Nov 13, 2026, for the Specialty ANSWERS. `src/lib/person-fields.ts` reads `Organization.settings.personFields` and returns today's lists when nothing is saved. Settings, Form fields (`form-fields-card.tsx`) edits the Specialty answers through `person-field-service.ts`, under the new key `formFields.manage` (admins and organisers). Every specialty picker reads the organisation's list (`use-person-fields.ts`, `GET /api/public/person-fields`). Taken first, out of the order below, because Specialty is stored as text and was never checked against its list, so a new answer cannot break an export, a filter or an import (owner agreed the order, Nov 13). Still to do under 1a: the field's label and on/off switch on the forms; every door and the two rules in section 2 that are not forms asking one refusal function; the scattered "Others" rules deleted. | Yes: a new Settings tab; nothing else until a list is saved | Done for Specialty answers |
 | 1b | Role storage (C in section 4), starting with the test of the previous image against the changed database. `docs/ROLLBACK.md` gets its entry. | No for MM Group | Days |
 | 1c | Every outside reader (section 6) reads the organisation's list. BEFORE any screen can add an answer: an answer added while a reader still holds the fixed list is refused by the Contacts filter, blanked by three CSV imports, sent as a raw key to the exports and to `contacts_centralv1`, and refused by the agent tools and the API. | No for MM Group | Days |
-| 1d | The settings screen for labels and answers, the permission key (it will need the grants snapshot test, the roles document test and `check-permission-guards.sh` updated), the audit entries. Written through `updateOrganizationSettings`, read through a projection as `public-brand-server.ts` does. `docs/ROLLBACK.md` gets its entry. | Yes, new screen | Days |
+| 1d | The settings screen for the REST: the field's label, its on/off switch, and the Title and Role answers. (The screen itself, the key `formFields.manage` and the audit entry were built with 1a, for the Specialty answers, with the service taking the organisation's row lock itself.) `docs/ROLLBACK.md` gets its entry when Role's answers can be changed. | Yes | Days |
 | 1e | The event's switches: use, required, order, for Role, Specialty and Title, on every door. | Yes | Days |
 | 2 | New fields created by the organisation, following the person everywhere (D5). Needs a place to store them on Speaker, Contact and AccountProfile (Attendee has `customFields`; the staff API can write it, and on production 0 of 7,496 attendees hold anything in it, counted Nov 13, 2026), and the copy sites from step 0 must carry them. Shown on the public forms, the registration sheet, the CSV export. | Yes | 3 to 4 weeks |
 | 3 | Later, only when asked: new fields in filters, bulk email segments, badges and email tokens; an organisation's own titles; presentation formats and the credit-hours label per organisation. | Yes | Not sized |

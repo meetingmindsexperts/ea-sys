@@ -423,6 +423,8 @@ Clients (including AI agents) should parse `retryAfterSeconds` and back off. Do 
 | Send reviewer invitation to all `/api/events/[id]/reviewers/send-invitations` (per user; requests, a large committee is several) | 60 | 1 hr |
 | Certificate assignments `/api/events/[id]/certificates/assignments` (per user; assign and remove) | 300 | 1 hr |
 | Bulk reviewer assignment `/api/events/[id]/abstracts/reviewer-assignments` (per user; assign and remove, up to 5,000 pairs a request) | 60 | 1 hr |
+| Form fields read `/api/public/person-fields` (per IP; every form asks once per page) | 600 | 60 s |
+| Form fields save `/api/organization/person-fields` (per organisation, shared by everyone who may edit the list) | 60 | 1 hr |
 | Login FAILURES per email (every login door; successes not counted) | 10 | 15 min |
 | Login FAILURES per IP (every login door; successes not counted) | 100 | 15 min |
 

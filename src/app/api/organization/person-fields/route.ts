@@ -11,18 +11,23 @@ import { countSpecialtyUse, saveSpecialtyAnswers, type SaveSpecialtyAnswersError
 
 /**
  * The organisation's Specialty answers, for Settings, Form fields (Nov 13,
- * 2026; step 1 of docs/ORG_FIELDS_PLAN.md). GET the list with how many people
- * hold each answer; PUT the list as a whole. Both need `formFields.manage`
+ * 2026; step 1 of docs/ORG_FIELDS_PLAN.md). GET the list with how many records
+ * store each answer; PUT the list as a whole. Both need `formFields.manage`
  * (admins and organisers, or a custom role given it): the forms themselves
  * read the answers from the public route, which needs no key.
  */
 
+const answerList = z
+  .array(z.object({ answer: z.string().max(MAX_PERSON_FIELD_ANSWER + 20), retired: z.boolean().optional() }))
+  .max(MAX_PERSON_FIELD_OPTIONS);
+
 const putSchema = z.object({
   specialty: z.object({
-    answers: z
-      .array(z.object({ answer: z.string().max(MAX_PERSON_FIELD_ANSWER + 20), retired: z.boolean().optional() }))
-      .max(MAX_PERSON_FIELD_OPTIONS),
+    answers: answerList,
     allowOther: z.boolean(),
+    // The list as the screen loaded it. The whole list is replaced, so a save
+    // made from an older copy is refused (LIST_CHANGED), never applied.
+    expected: z.object({ answers: answerList, allowOther: z.boolean() }),
   }),
 });
 
@@ -33,6 +38,8 @@ const HTTP_STATUS: Record<SaveSpecialtyAnswersErrorCode, number> = {
   INVALID_ANSWER: 400,
   RESERVED_ANSWER: 400,
   DUPLICATE_ANSWER: 409,
+  NOTHING_OFFERED: 400,
+  LIST_CHANGED: 409,
   ANSWER_IN_USE: 409,
   UNKNOWN: 500,
 };
@@ -44,7 +51,7 @@ async function specialtyWithUse(organizationId: string) {
   return {
     label: field.label,
     allowOther: field.allowOther,
-    answers: field.options.map((o) => ({ answer: o.key, retired: o.retired, people: use.get(o.key) ?? 0 })),
+    answers: field.options.map((o) => ({ answer: o.key, retired: o.retired, records: use.get(o.key) ?? 0 })),
   };
 }
 
@@ -59,7 +66,7 @@ export async function GET() {
       apiLogger.warn({ userId: session.user.id, role: session.user.role }, "person-fields:list-no-org");
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    // The session's lane: the people counts read contacts, attendees and speakers.
+    // The session's lane: the record counts read contacts, attendees and speakers.
     return await runWithTenantLane(organizationId, { route: "organization/person-fields:GET", userId: session.user.id }, async () =>
       NextResponse.json({ specialty: await specialtyWithUse(organizationId) }),
     );
@@ -103,6 +110,7 @@ export async function PUT(req: Request) {
         actorUserId: userId,
         answers: parsed.data.specialty.answers,
         allowOther: parsed.data.specialty.allowOther,
+        expected: parsed.data.specialty.expected,
       });
       if (!result.ok) {
         apiLogger.warn({ msg: "person-fields:update-rejected", organizationId, userId, code: result.code });

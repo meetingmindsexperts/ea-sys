@@ -136,6 +136,20 @@ plan found these outside the plan's own steps.
   the write is skipped, and the sync still runs for it). LOW, older; three more
   fields ride on it since Nov 13. A race between two imports of the same
   person, and the sync only fills.
+- **Form fields, what the review of `9e22412a` left** (all LOW unless said):
+  a custom-role holder who opens Settings without `users.read` gets a refused
+  team list on every load, with a log line each time (older; a person given
+  only `formFields.manage` now takes this path, and reaches nothing they
+  should not); the count of where an answer is stored leaves out an account's
+  own profile and an abstract, so an answer held only there can be removed
+  (it still displays); the save's audit entry is written after the
+  transaction and can be lost, like the sponsor tiers'; switching Settings
+  tabs drops unsaved edits without a warning; an operator acting as another
+  organisation gets their own organisation's list (platform only); an answer
+  with no Latin letters or digits gives an event no topic page in the
+  catalogue (older, `topicSlug`); the save limit is per organisation, so one
+  person can use it up for the others; the hook, the picker and the card have
+  no tests of their own (they were checked on screen).
 - **The fill-blanks write is a read followed by a write** (`contact-sync.ts`):
   a value another request puts on the contact in the few milliseconds between
   is overwritten by the fill. LOW (review of `4dfab626`). One field, same

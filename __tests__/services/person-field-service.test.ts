@@ -23,10 +23,11 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 import { planSpecialtyAnswers, saveSpecialtyAnswers } from "@/services/person-field-service";
 import { defaultPersonFields, PERSON_FIELDS_SETTING } from "@/lib/person-fields";
 
-const BASE = { organizationId: "org1", actorUserId: "u1", allowOther: true };
 const DEFAULT_COUNT = defaultPersonFields().specialty.options.length;
 const asInput = (answers: string[]) => answers.map((answer) => ({ answer }));
 const defaults = () => defaultPersonFields().specialty.options.map((o) => ({ answer: o.key }));
+// The list the screen loaded and the edit started from: with nothing saved, today's list.
+const BASE = { organizationId: "org1", actorUserId: "u1", allowOther: true, expected: { answers: defaults(), allowOther: true } };
 const use = (rows: Record<string, number>) => Object.entries(rows).map(([specialty, n]) => ({ specialty, _count: { _all: n } }));
 
 beforeEach(() => {
@@ -48,6 +49,8 @@ describe("planSpecialtyAnswers", () => {
 
   it.each([
     ["a blank answer", asInput(["Cardiology", "  "]), "INVALID_ANSWER"],
+    ["a tab or a line break inside an answer", asInput(["Sleep\tMedicine"]), "INVALID_ANSWER"],
+    ["a NUL, which the database would refuse for the whole setting", asInput(["Sleep\u0000"]), "INVALID_ANSWER"],
     ["an answer that is too long", asInput(["x".repeat(101)]), "INVALID_ANSWER"],
     ["Others, in any case: it is a switch, not an answer", asInput(["OTHERS"]), "RESERVED_ANSWER"],
     ["the same answer twice, whatever its case", asInput(["Cardiology", "cardiology"]), "DUPLICATE_ANSWER"],
@@ -58,8 +61,18 @@ describe("planSpecialtyAnswers", () => {
     if (!plan.ok) expect(plan.result).toMatchObject({ ok: false, code });
   });
 
-  it("an empty list is allowed: an organisation may offer free text only", () => {
-    expect(planSpecialtyAnswers([])).toEqual({ ok: true, next: [] });
+  it("an empty list is allowed while Others is offered: an organisation may take free text only", () => {
+    expect(planSpecialtyAnswers([], true)).toEqual({ ok: true, next: [] });
+  });
+
+  it("refuses a list that would offer nothing: every answer retired, or none, with Others off", () => {
+    // The forms require a specialty, so an empty picker makes every one of them unsubmittable.
+    for (const input of [[], [{ answer: "Cardiology", retired: true }]]) {
+      const plan = planSpecialtyAnswers(input, false);
+      expect(plan.ok).toBe(false);
+      if (!plan.ok) expect(plan.result).toMatchObject({ code: "NOTHING_OFFERED" });
+    }
+    expect(planSpecialtyAnswers([{ answer: "Cardiology" }], false).ok).toBe(true);
   });
 });
 
@@ -79,7 +92,7 @@ describe("saveSpecialtyAnswers", () => {
   it("keeps what is saved for Title and Role, and the Specialty label and switch", async () => {
     const role = { label: "What you do", options: [{ key: "DEV", label: "Developer" }] };
     tx.$queryRaw.mockResolvedValue([{ settings: { [PERSON_FIELDS_SETTING]: { role, specialty: { enabled: false, label: "Area", options: [{ key: "Cloud", label: "Cloud" }], allowOther: false } } } }]);
-    const result = await saveSpecialtyAnswers({ ...BASE, allowOther: false, answers: asInput(["Cloud", "Data"]) });
+    const result = await saveSpecialtyAnswers({ ...BASE, allowOther: false, answers: asInput(["Cloud", "Data"]), expected: { answers: asInput(["Cloud"]), allowOther: false } });
     expect(result.ok).toBe(true);
     const saved = tx.organization.update.mock.calls[0][0].data.settings[PERSON_FIELDS_SETTING];
     expect(saved.role).toEqual(role);
@@ -92,12 +105,14 @@ describe("saveSpecialtyAnswers", () => {
     tx.attendee.groupBy.mockResolvedValue(use({ Cardiology: 700 }));
     tx.speaker.groupBy.mockResolvedValue(use({ Cardiology: 88 }));
     const result = await saveSpecialtyAnswers({ ...BASE, answers: defaults().filter((a) => a.answer !== "Cardiology") });
-    expect(result).toMatchObject({ ok: false, code: "ANSWER_IN_USE", inUse: [{ answer: "Cardiology", people: 3788 }] });
+    expect(result).toMatchObject({ ok: false, code: "ANSWER_IN_USE", inUse: [{ answer: "Cardiology", records: 3788 }] });
     expect(tx.organization.update).not.toHaveBeenCalled();
-    // Only the removed answers are counted, and only inside this organisation.
-    const where = tx.contact.groupBy.mock.calls[0][0].where;
-    expect(where).toEqual({ organizationId: "org1", specialty: { in: ["Cardiology"] } });
-    expect(tx.speaker.groupBy.mock.calls[0][0].where).toEqual({ specialty: { in: ["Cardiology"] }, event: { organizationId: "org1" } });
+    // Only the removed answers are counted, and only inside this organisation, on each of the four tables.
+    const wanted = { in: ["Cardiology"] };
+    expect(tx.contact.groupBy.mock.calls[0][0].where).toEqual({ organizationId: "org1", specialty: wanted });
+    expect(tx.attendee.groupBy.mock.calls[0][0].where).toEqual({ specialty: wanted, registrations: { some: { event: { organizationId: "org1" } } } });
+    expect(tx.speaker.groupBy.mock.calls[0][0].where).toEqual({ specialty: wanted, event: { organizationId: "org1" } });
+    expect(tx.event.groupBy.mock.calls[0][0].where).toEqual({ organizationId: "org1", specialty: wanted });
   });
 
   it("the same answer may be retired while people hold it: nothing is counted and it stays on the list", async () => {
@@ -113,6 +128,31 @@ describe("saveSpecialtyAnswers", () => {
     const result = await saveSpecialtyAnswers({ ...BASE, answers: defaults().filter((a) => a.answer !== "Thalassemia") });
     expect(result.ok).toBe(true);
     expect(tx.organization.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("a save made from a list somebody else has changed since is refused, and writes nothing", async () => {
+    // A colleague added "Sleep Medicine" after this screen loaded. Saving this
+    // screen's whole list would silently remove it.
+    const stored = [...defaultPersonFields().specialty.options, { key: "Sleep Medicine", label: "Sleep Medicine", retired: false }];
+    tx.$queryRaw.mockResolvedValue([{ settings: { [PERSON_FIELDS_SETTING]: { specialty: { label: "Specialty", options: stored, allowOther: true } } } }]);
+    const result = await saveSpecialtyAnswers({ ...BASE, answers: [...defaults(), { answer: "Dental Surgery" }] });
+    expect(result).toMatchObject({ ok: false, code: "LIST_CHANGED" });
+    expect(tx.organization.update).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an answer the colleague retired", (e: { answer: string; retired?: boolean }[]) => e.map((a, i) => (i === 0 ? { ...a, retired: true } : a)), true],
+    ["the Others switch the colleague turned off", (e: { answer: string; retired?: boolean }[]) => e, false],
+    ["a different order", (e: { answer: string; retired?: boolean }[]) => [e[1], e[0], ...e.slice(2)], true],
+  ])("the comparison sees %s", async (_name, change, allowOther) => {
+    const result = await saveSpecialtyAnswers({ ...BASE, answers: defaults(), expected: { answers: change(defaults()), allowOther } });
+    expect(result).toMatchObject({ ok: false, code: "LIST_CHANGED" });
+  });
+
+  it("refuses a save that would offer nothing, before the organisation is locked", async () => {
+    const result = await saveSpecialtyAnswers({ ...BASE, allowOther: false, answers: defaults().map((a) => ({ ...a, retired: true })) });
+    expect(result).toMatchObject({ ok: false, code: "NOTHING_OFFERED" });
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
   });
 
   it("an invalid list is refused before the organisation is locked or read", async () => {
