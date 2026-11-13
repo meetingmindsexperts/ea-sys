@@ -42,18 +42,33 @@ const REQUIRED_FIELDS: Array<{ key: keyof ProfileCompletenessInput; label: strin
  * Human-readable labels of the required fields that are still empty. Role and
  * Specialty count only while the organisation demands them (Nov 13, 2026): an
  * organisation that switched Specialty off must not have every submitter
- * refused as "profile incomplete" for a field no form asks. Callers that know
- * the organisation pass its rules; without them, today's (both demanded).
+ * refused as "profile incomplete" for a field no form asks.
+ *
+ * The rules are NOT optional. They were, defaulting to "both demanded", and
+ * the two browser gates that forgot them sent a submitter round in a loop
+ * between Submit and My Details for a field My Details did not show (review
+ * of f0899baf). The browser gets the event's organisation's rules from
+ * `GET abstracts/my-profile` (`fieldRules`), never from a guess.
  */
-export function missingProfileFields(p: ProfileCompletenessInput, rules: PersonFieldRules = DEFAULT_PERSON_FIELD_RULES): string[] {
+export function missingProfileFields(p: ProfileCompletenessInput, rules: PersonFieldRules): string[] {
   return REQUIRED_FIELDS.filter(({ key }) => {
     if ((key === "role" || key === "specialty") && !rules[key].required) return false;
     return !p[key]?.toString().trim();
   }).map(({ label }) => label);
 }
 
-export function isProfileIncomplete(p: ProfileCompletenessInput, rules: PersonFieldRules = DEFAULT_PERSON_FIELD_RULES): boolean {
+export function isProfileIncomplete(p: ProfileCompletenessInput, rules: PersonFieldRules): boolean {
   return missingProfileFields(p, rules).length > 0;
+}
+
+/**
+ * The rules `GET abstracts/my-profile` sent with a profile: the event's
+ * organisation's. An answer without them comes from a server that does not
+ * send them yet (the other slot during a deploy) and is judged by today's
+ * rules, which is what that server's own submit routes apply.
+ */
+export function rulesSentWith(profile: { fieldRules?: PersonFieldRules }): PersonFieldRules {
+  return profile.fieldRules ?? DEFAULT_PERSON_FIELD_RULES;
 }
 
 /**

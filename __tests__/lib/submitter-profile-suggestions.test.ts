@@ -16,6 +16,7 @@ vi.mock("@/lib/registrant-access", () => ({ loadRegistrantScope }));
 vi.mock("@/lib/own-details-sources", () => ({ loadOwnDetailSources }));
 
 import { pickSuggestions, suggestSpeakerDetails } from "@/lib/submitter-profile-suggestions";
+import { DEFAULT_PERSON_FIELD_RULES } from "@/lib/person-fields";
 
 const blank = {
   title: null, role: null, specialty: null, customSpecialty: null, organization: null, jobTitle: null,
@@ -25,7 +26,7 @@ const account = {
   ...blank, firstName: "A", lastName: "B", title: "DR", role: "PHARMA", specialty: "Cardiology", organization: "Acme",
   jobTitle: "Lead", phone: "+971 50 000 0000", city: "Dubai", country: "United Arab Emirates",
 };
-const args = { userId: "u1", eventId: "ev1", sessionTokenVersion: 3, current: blank };
+const args = { userId: "u1", eventId: "ev1", sessionTokenVersion: 3, current: blank, rules: DEFAULT_PERSON_FIELD_RULES };
 
 const scope = { userId: "u1", email: "a@b.co", confirmed: true };
 
@@ -73,6 +74,13 @@ describe("suggestSpeakerDetails", () => {
   it("a complete profile is asked nothing and offered nothing", async () => {
     const complete = { ...blank, role: "PHARMA", specialty: "Cardiology", organization: "Acme", jobTitle: "Lead", phone: "1", city: "Dubai", country: "UAE", bio: "Bio" };
     expect(await suggestSpeakerDetails({ ...args, current: complete })).toEqual({});
+    expect(loadOwnDetailSources).not.toHaveBeenCalled();
+  });
+
+  it("a profile complete by the ORGANISATION's rules is asked nothing, though it has no specialty", async () => {
+    const noSpecialty = { ...blank, role: "PHARMA", organization: "Acme", jobTitle: "Lead", phone: "1", city: "Dubai", country: "UAE", bio: "Bio" };
+    const specialtyOff = { ...DEFAULT_PERSON_FIELD_RULES, specialty: { shown: false, required: false } };
+    expect(await suggestSpeakerDetails({ ...args, current: noSpecialty, rules: specialtyOff })).toEqual({});
     expect(loadOwnDetailSources).not.toHaveBeenCalled();
   });
 

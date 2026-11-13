@@ -21,7 +21,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (cb: (t: unknown) =>
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { planSpecialtyAnswers, savePersonFieldSwitches, saveSpecialtyAnswers, switchesOf } from "@/services/person-field-service";
-import { defaultPersonFields, PERSON_FIELDS_SETTING } from "@/lib/person-fields";
+import { defaultPersonFields, PERSON_FIELDS_SETTING, readPersonFields } from "@/lib/person-fields";
 
 const DEFAULT_COUNT = defaultPersonFields().specialty.options.length;
 const asInput = (answers: string[]) => answers.map((answer) => ({ answer }));
@@ -191,18 +191,31 @@ describe("savePersonFieldSwitches (step 2: asked or not, demanded or not)", () =
     expect(switchesOf(defaultPersonFields())).toEqual(ALL_ON);
   });
 
-  it("writes the two switches and keeps each field's label, answers and Others as they were", async () => {
+  // Review of f0899baf: this save used to write each field whole, which froze
+  // today's titles, roles and 44 specialties into the organisation's settings
+  // the first time anyone flipped a switch.
+  it("writes ONLY the switches: an organisation with no list of its own gets none, and keeps following today's", async () => {
     const result = await savePersonFieldSwitches({ ...base, switches: NEXT, expected: ALL_ON });
     expect(result).toEqual({ ok: true, switches: NEXT });
     const written = tx.organization.update.mock.calls[0][0].data.settings;
     expect(written.zoom).toEqual({ enabled: true });
-    const saved = written[PERSON_FIELDS_SETTING];
-    expect(saved.title).toMatchObject({ enabled: false, required: true, label: "Title" });
-    expect(saved.role).toMatchObject({ enabled: true, required: false, label: "Role" });
-    // Each field is written whole, so what is stored is something the reader accepts.
-    expect(saved.role.options).toHaveLength(defaultPersonFields().role.options.length);
-    expect(saved.specialty.options).toHaveLength(DEFAULT_COUNT);
-    expect(saved.specialty.allowOther).toBe(true);
+    expect(written[PERSON_FIELDS_SETTING]).toEqual({
+      title: { enabled: false, required: true },
+      role: { enabled: true, required: false },
+      specialty: { enabled: true, required: true },
+    });
+    // What was stored reads back as those switches over today's lists.
+    const read = readPersonFields(written);
+    expect(switchesOf(read)).toEqual(NEXT);
+    expect(read.specialty.options).toHaveLength(DEFAULT_COUNT);
+    expect(read.role.options).toEqual(defaultPersonFields().role.options);
+  });
+
+  it("Title is on or off only: a request cannot change whether it is demanded", async () => {
+    const asked = { ...ALL_ON, title: { enabled: true, required: false } };
+    const result = await savePersonFieldSwitches({ ...base, switches: asked, expected: ALL_ON });
+    expect(result).toEqual({ ok: true, switches: ALL_ON });
+    expect(tx.organization.update.mock.calls[0][0].data.settings[PERSON_FIELDS_SETTING].title).toEqual({ enabled: true, required: true });
   });
 
   it("keeps an organisation's own Specialty list when only a switch changes", async () => {

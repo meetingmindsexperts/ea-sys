@@ -22,7 +22,7 @@ import { ApiError } from "@/lib/api-fetch";
 import { MAX_PERSON_FIELD_ANSWER, MAX_PERSON_FIELD_OPTIONS, OTHER_ANSWER, type ConfigurablePersonField } from "@/lib/person-fields";
 
 const FIELD_ROWS: { key: ConfigurablePersonField; name: string; note: string }[] = [
-  { key: "title", name: "Title", note: "Dr., Mr., Mrs., Ms., Prof." },
+  { key: "title", name: "Title", note: "Dr., Mr., Mrs., Ms., Prof. On or off only." },
   { key: "role", name: "Role", note: "The person's profession" },
   { key: "specialty", name: "Specialty", note: "The list below" },
 ];
@@ -103,17 +103,21 @@ export function FieldSwitchesCard() {
                     <Switch id={`field-${key}-ask`} checked={current[key].enabled} disabled={busy} onCheckedChange={(enabled) => set(key, { enabled })} />
                     <Label htmlFor={`field-${key}-ask`}>Ask</Label>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id={`field-${key}-required`}
-                      checked={current[key].enabled && current[key].required}
-                      disabled={busy || !current[key].enabled}
-                      onCheckedChange={(required) => set(key, { required })}
-                    />
-                    <Label htmlFor={`field-${key}-required`} className={current[key].enabled ? "" : "text-muted-foreground"}>
-                      Required
-                    </Label>
-                  </div>
+                  {/* Title is on or off only (owner, Nov 13, 2026): most forms have never demanded it,
+                      so a Required switch here would promise what they do not do. */}
+                  {key !== "title" && (
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`field-${key}-required`}
+                        checked={current[key].enabled && current[key].required}
+                        disabled={busy || !current[key].enabled}
+                        onCheckedChange={(required) => set(key, { required })}
+                      />
+                      <Label htmlFor={`field-${key}-required`} className={current[key].enabled ? "" : "text-muted-foreground"}>
+                        Required
+                      </Label>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

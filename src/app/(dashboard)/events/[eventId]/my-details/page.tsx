@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -14,7 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
-import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { DEFAULT_PERSON_FIELD_RULES, type PersonFieldRules } from "@/lib/person-fields";
+import { personFieldProblems, type PersonFieldPath } from "@/lib/person-field-check";
 import { CountrySelect } from "@/components/ui/country-select";
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import {
@@ -38,7 +39,7 @@ import { formatPersonName } from "@/lib/utils";
 import { formatAttendeeRole } from "@/lib/schemas";
 import { useEvent, useSubmitterContext } from "@/hooks/use-api";
 import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-surfaces";
-import { isProfileIncomplete, missingProfileFields } from "@/lib/submitter-profile-completeness";
+import { isProfileIncomplete, missingProfileFields, rulesSentWith } from "@/lib/submitter-profile-completeness";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
 import { abstractStatusColor, abstractStatusLabel, PRESENTATION_TYPE_LABELS } from "../abstracts/abstract-enums";
 import { isSafeInternalPath } from "@/lib/safe-redirect";
@@ -95,7 +96,17 @@ interface MyProfile {
    * they fill the form and are saved by the person's own Save, never before.
    */
   suggested?: Partial<Record<SuggestedField, string>>;
+  /** What the event's organisation asks and demands of Title, Role and Specialty. Only on the GET. */
+  fieldRules?: PersonFieldRules;
 }
+
+/** How this form names a field the organisation's rule finds missing. */
+const RULE_FIELD_LABELS: Record<PersonFieldPath, string> = {
+  title: "Title",
+  role: "Role",
+  specialty: "Specialty",
+  customSpecialty: "Custom specialty",
+};
 
 type SuggestedField =
   | "title" | "role" | "specialty" | "customSpecialty" | "organization" | "jobTitle"
@@ -158,11 +169,13 @@ function Field({ icon: Icon, label, value }: { icon: React.ElementType; label: s
 }
 
 export default function SubmitterProfilePage() {
-  // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
-  const fieldRules = usePersonFieldRules();
-  // For the one-time load below, which must not run again when the rules arrive.
-  const fieldRulesRef = useRef(fieldRules);
-  fieldRulesRef.current = fieldRules;
+  // What the EVENT's organisation does with Title, Role and Specialty
+  // (Settings, Form fields). It arrives with the profile, from the same read
+  // the submit gates use, so this page, those gates and the submit routes
+  // cannot disagree, and there is no moment when the profile is here and the
+  // rules are not (review of f0899baf: the rules used to come from a second
+  // read that could land after the profile).
+  const [fieldRules, setFieldRules] = useState<PersonFieldRules>(DEFAULT_PERSON_FIELD_RULES);
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
@@ -202,9 +215,6 @@ export default function SubmitterProfilePage() {
       [form.phone.trim(), "Mobile"],
       [form.jobTitle.trim(), "Job title"],
       [form.organization.trim(), "Organization"],
-      // Demanded as the organisation says (Settings, Form fields).
-      [fieldRules.role.required ? form.role : "not asked", "Role"],
-      [fieldRules.specialty.required ? form.specialty : "not asked", "Specialty"],
       [form.city.trim(), "City"],
       [form.country, "Country"],
       // Owner, Aug 7 2026: the bio is printed in the programme and read out at
@@ -213,9 +223,9 @@ export default function SubmitterProfilePage() {
     ]
       .filter(([value]) => !value)
       .map(([, label]) => label);
-    if (fieldRules.specialty.shown && form.specialty === "Others" && !form.customSpecialty.trim()) {
-      missing.push("Custom specialty");
-    }
+    // Role, Specialty and the typed specialty beside "Others": demanded as the
+    // organisation says, by the one rule the routes apply (person-field-check.ts).
+    missing.push(...personFieldProblems(form, fieldRules).map((problem) => RULE_FIELD_LABELS[problem.path]));
     if (missing.length > 0) {
       toast.error(`Please fill in: ${missing.join(", ")}`);
       return;
@@ -290,11 +300,13 @@ export default function SubmitterProfilePage() {
         }
         const data = (await res.json()) as MyProfile;
         if (!cancelled) {
+          const rules = rulesSentWith(data);
+          setFieldRules(rules);
           setProfile(data);
           // Encourage completion (Aug 4, 2026): a sparse profile (sign-in
           // shortcut mint) opens straight into edit mode so the person fills
           // in the details the signup form would have required.
-          if (isProfileIncomplete(data, fieldRulesRef.current)) {
+          if (isProfileIncomplete(data, rules)) {
             setForm(toProfileForm(data));
             setEditing(true);
           }

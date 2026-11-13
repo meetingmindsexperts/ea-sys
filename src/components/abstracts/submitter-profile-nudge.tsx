@@ -15,7 +15,8 @@ import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { UserRound } from "lucide-react";
-import { isProfileIncomplete, missingProfileFields, type ProfileCompletenessInput } from "@/lib/submitter-profile-completeness";
+import type { PersonFieldRules } from "@/lib/person-fields";
+import { missingProfileFields, rulesSentWith, type ProfileCompletenessInput } from "@/lib/submitter-profile-completeness";
 
 export function SubmitterProfileNudge() {
   const params = useParams();
@@ -28,10 +29,11 @@ export function SubmitterProfileNudge() {
     if (!isSubmitter || !eventId) return;
     let cancelled = false;
     fetch(`/api/events/${eventId}/abstracts/my-profile`)
-      .then(async (res) => (res.ok ? ((await res.json()) as ProfileCompletenessInput) : null))
+      .then(async (res) => (res.ok ? ((await res.json()) as ProfileCompletenessInput & { fieldRules?: PersonFieldRules }) : null))
       .then((profile) => {
         if (cancelled || !profile) return;
-        if (isProfileIncomplete(profile)) setMissing(missingProfileFields(profile));
+        // By the event's organisation's rules, sent with the profile (as the gate and My Details).
+        setMissing(missingProfileFields(profile, rulesSentWith(profile)));
       })
       .catch((err) => console.error("[submitter-profile-nudge] load failed", err));
     return () => {

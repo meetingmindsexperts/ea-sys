@@ -262,6 +262,8 @@ export function switchesOf(config: PersonFieldsConfig): PersonFieldSwitches {
   return { title: one(config.title), role: one(config.role), specialty: one(config.specialty) };
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
 const sameSwitches = (a: PersonFieldSwitches, b: PersonFieldSwitches) =>
   CONFIGURABLE_PERSON_FIELDS.every((f) => a[f].enabled === b[f].enabled && a[f].required === b[f].required);
 
@@ -281,17 +283,24 @@ export async function savePersonFieldSwitches(input: {
       const before = switchesOf(config);
       if (!sameSwitches(before, input.expected)) return { saved: false as const, code: "SWITCHES_CHANGED" as const };
 
-      // Each field is written whole (its label and answers as they are read
-      // today), so the stored setting stays one the reader accepts.
+      // ONLY the two switches are written, onto whatever the field already
+      // holds. A field with no list of its own gets none here: it keeps
+      // following today's lists (readField in person-fields.ts reads the
+      // switches and the list apart).
+      const saved = (isPlainObject(settings[PERSON_FIELDS_SETTING]) ? settings[PERSON_FIELDS_SETTING] : {}) as Record<string, unknown>;
       const next = Object.fromEntries(
-        CONFIGURABLE_PERSON_FIELDS.map((f) => [f, { ...config[f], enabled: input.switches[f].enabled, required: input.switches[f].required }]),
+        CONFIGURABLE_PERSON_FIELDS.map((f) => [
+          f,
+          // Title is on or off only (owner, Nov 13, 2026): whether it is
+          // demanded is not this screen's to change, whatever a request says.
+          { ...(isPlainObject(saved[f]) ? saved[f] : {}), enabled: input.switches[f].enabled, required: f === "title" ? before.title.required : input.switches[f].required },
+        ]),
       );
-      const saved = (settings[PERSON_FIELDS_SETTING] && typeof settings[PERSON_FIELDS_SETTING] === "object" ? settings[PERSON_FIELDS_SETTING] : {}) as Record<string, unknown>;
       await tx.organization.update({
         where: { id: input.organizationId },
         data: { settings: { ...settings, [PERSON_FIELDS_SETTING]: { ...saved, ...next } } as unknown as Prisma.InputJsonValue },
       });
-      return { saved: true as const, before };
+      return { saved: true as const, before, after: switchesOf(readPersonFields({ [PERSON_FIELDS_SETTING]: { ...saved, ...next } })) };
     });
 
     if (!outcome.saved) {
@@ -306,12 +315,12 @@ export async function savePersonFieldSwitches(input: {
           action: "UPDATE",
           entityType: "Organization",
           entityId: input.organizationId,
-          changes: { personFieldSwitches: { before: outcome.before, after: input.switches } } as unknown as Prisma.InputJsonValue,
+          changes: { personFieldSwitches: { before: outcome.before, after: outcome.after } } as unknown as Prisma.InputJsonValue,
         },
       })
       .catch((err) => apiLogger.warn({ err, organizationId: input.organizationId }, "person-fields:audit-failed"));
-    apiLogger.info({ organizationId: input.organizationId, by: input.actorUserId, switches: input.switches }, "person-fields:switches-saved");
-    return { ok: true, switches: input.switches };
+    apiLogger.info({ organizationId: input.organizationId, by: input.actorUserId, switches: outcome.after }, "person-fields:switches-saved");
+    return { ok: true, switches: outcome.after };
   } catch (err) {
     apiLogger.error({ err, organizationId: input.organizationId }, "person-fields:switches-save-failed");
     return { ok: false, code: "UNKNOWN", message: "Failed to save the form fields" };

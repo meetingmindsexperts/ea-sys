@@ -15,6 +15,7 @@ const { mockDb, mockAuth, syncSpy, rateLimitSpy, suggestSpy } = vi.hoisted(() =>
   mockDb: {
     event: { findFirst: vi.fn() },
     speaker: { findFirst: vi.fn(), update: vi.fn() },
+    organization: { findUnique: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
   mockAuth: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("@/lib/event-access", () => ({
 vi.mock("@/lib/submitter-profile-suggestions", () => ({ suggestSpeakerDetails: suggestSpy }));
 
 import { GET, PATCH } from "@/app/api/events/[eventId]/abstracts/my-profile/route";
+import { DEFAULT_PERSON_FIELD_RULES, type PersonFieldRules } from "@/lib/person-fields";
 
 const params = { params: Promise.resolve({ eventId: "ev1" }) };
 const req = (body: unknown) =>
@@ -73,6 +75,8 @@ beforeEach(() => {
   suggestSpy.mockResolvedValue({ phone: "+971 50 000 0000" });
   mockAuth.mockResolvedValue({ user: { id: "u-sub", role: "SUBMITTER", organizationId: null, tokenVersion: 4 } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
+  // Nothing saved for the organisation: today's rules (Role and Specialty demanded).
+  mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
   mockDb.speaker.findFirst.mockResolvedValue(structuredClone(existingSpeaker));
   mockDb.speaker.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
     ...structuredClone(existingSpeaker),
@@ -97,7 +101,40 @@ describe("my-profile GET: details the person already gave", () => {
       eventId: "ev1",
       sessionTokenVersion: 4,
       current: expect.objectContaining({ id: "sp1", phone: null }),
+      rules: DEFAULT_PERSON_FIELD_RULES,
     });
+  });
+
+  // Review of f0899baf: the browser's "profile complete?" gates judged by
+  // today's rules whatever the organisation had switched off, and sent a
+  // submitter round in a loop between Submit and My Details. The rules now
+  // travel with the profile, read for the EVENT's organisation: the caller is
+  // a submitter with no organisation of their own.
+  it("sends the EVENT organisation's rules with the profile, for the gates and My Details", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({
+      settings: { personFields: { specialty: { enabled: false }, role: { enabled: true, required: false } } },
+    });
+    const body = (await (await get()).json()) as { fieldRules: PersonFieldRules };
+    expect(mockDb.organization.findUnique).toHaveBeenCalledWith({ where: { id: "org1" }, select: { settings: true } });
+    expect(body.fieldRules).toEqual({
+      title: { shown: true, required: true },
+      role: { shown: true, required: false },
+      specialty: { shown: false, required: false },
+    });
+    // The suggestions are judged by the same rules.
+    expect(suggestSpy).toHaveBeenCalledWith(expect.objectContaining({ rules: body.fieldRules }));
+    // And by them this record, which has neither a role nor a specialty, is
+    // missing neither: the gate that reads this answer lets the person through
+    // once the fields that ARE demanded are filled.
+    const { missingProfileFields, rulesSentWith } = await import("@/lib/submitter-profile-completeness");
+    const missing = missingProfileFields({ ...structuredClone(existingSpeaker), ...body }, rulesSentWith(body));
+    expect(missing).not.toContain("Role");
+    expect(missing).not.toContain("Specialty");
+  });
+
+  it("an answer without rules (the other slot during a deploy) is judged by today's", async () => {
+    const { rulesSentWith } = await import("@/lib/submitter-profile-completeness");
+    expect(rulesSentWith({})).toEqual(DEFAULT_PERSON_FIELD_RULES);
   });
 
   it("someone with no speaker record here is offered nothing", async () => {
@@ -253,7 +290,8 @@ describe("my-profile PATCH — field semantics", () => {
 describe("profile completeness helper (the nudge's predicate)", () => {
   it("names exactly the missing required fields; complete profiles are quiet", async () => {
     const { missingProfileFields, isProfileIncomplete } = await import("@/lib/submitter-profile-completeness");
-    expect(missingProfileFields(structuredClone(existingSpeaker))).toEqual([
+    const rules = DEFAULT_PERSON_FIELD_RULES;
+    expect(missingProfileFields(structuredClone(existingSpeaker), rules)).toEqual([
       "Role", "Specialty", "Organization", "Job title", "Phone", "City", "Country", "Bio",
     ]);
     const complete = {
@@ -263,9 +301,9 @@ describe("profile completeness helper (the nudge's predicate)", () => {
       // programme, so an accepted speaker without one is a chase later.
       bio: "Consultant cardiologist, 12 years.",
     };
-    expect(isProfileIncomplete(complete)).toBe(false);
+    expect(isProfileIncomplete(complete, rules)).toBe(false);
     // Whitespace-only counts as missing.
-    expect(isProfileIncomplete({ ...complete, phone: "  " })).toBe(true);
-    expect(isProfileIncomplete({ ...complete, bio: "   " })).toBe(true);
+    expect(isProfileIncomplete({ ...complete, phone: "  " }, rules)).toBe(true);
+    expect(isProfileIncomplete({ ...complete, bio: "   " }, rules)).toBe(true);
   });
 });

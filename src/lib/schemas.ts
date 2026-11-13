@@ -24,8 +24,24 @@ export const attendeeRoleEnum = z.enum([
  */
 export const optionalAttendeeRole = attendeeRoleEnum.optional().or(z.literal("").transform(() => undefined));
 
-/** Specialty where a form may leave it out. Demanded, or not, by the organisation's rule (as above). */
-export const optionalSpecialty = z.string().max(255).optional();
+/**
+ * Specialty where a form may leave it out. Demanded, or not, by the
+ * organisation's rule (as above). A blank answer is NO answer: the forms send
+ * "" for a field left empty or switched off, and that must never be stored as
+ * an empty text beside the rows that hold null.
+ */
+export const optionalSpecialty = z
+  .string()
+  .max(255)
+  .optional()
+  .transform((value) => (value && value.trim() ? value : undefined));
+
+/**
+ * Title where a form may leave it out, key and all. `titleEnum` alone refuses
+ * a request with no `title` key, which is what a form sends once the
+ * organisation has switched Title off (review of f0899baf).
+ */
+export const optionalTitle = titleEnum.optional();
 
 /** AttendeeRole enum key type (matches Prisma AttendeeRole). */
 export type AttendeeRoleValue =
@@ -132,7 +148,7 @@ export function parseAttendeeRole(raw: string | null | undefined): AttendeeRoleV
  * "Others needs the typed specialty" rule (Nov 13, 2026).
  */
 export const presenterDetailsSchema = z.object({
-  title: titleEnum,
+  title: optionalTitle,
   role: optionalAttendeeRole,
   firstName: z.string().min(1, "First name is required").max(100),
   lastName: z.string().min(1, "Last name is required").max(100),
@@ -157,7 +173,7 @@ export const presenterDetailsSchema = z.object({
  * Details never changes it).
  */
 export const personalDetailsFields = {
-  title: titleEnum,
+  title: optionalTitle,
   role: optionalAttendeeRole,
   firstName: z.string().min(1, "First name is required").max(100),
   lastName: z.string().min(1, "Last name is required").max(100),

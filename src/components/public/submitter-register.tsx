@@ -1112,6 +1112,8 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           )} />
                       </div>
 
+                      {/* No row at all while both are off: an empty one leaves a gap. */}
+                      {(fieldRules.specialty.shown || fieldRules.role.shown) && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {fieldRules.specialty.shown && (
                         <FormField control={form.control} name="specialty"
@@ -1138,6 +1140,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           )} />
                         )}
                       </div>
+                      )}
 
                       {fieldRules.specialty.shown && (
                       <FormField control={form.control} name="customSpecialty"

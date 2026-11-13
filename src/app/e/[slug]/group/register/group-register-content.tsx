@@ -32,6 +32,7 @@ import { CountrySelect } from "@/components/ui/country-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { personFieldProblems, type PersonFieldPath } from "@/lib/person-field-check";
 import {
   livePrice,
   mainGroupRate,
@@ -94,6 +95,14 @@ const EMPTY_MEMBER: MemberForm = {
 };
 
 /** Why the form is not shown. */
+/** How this form names a field the organisation's rule finds missing. */
+const GROUP_RULE_LABELS: Record<PersonFieldPath, string> = {
+  title: "title",
+  role: "role",
+  specialty: "specialty",
+  customSpecialty: "custom specialty",
+};
+
 function closedMessage(event: PublicEvent): string {
   if (event.eventFull) return "This event has reached its maximum number of attendees.";
   if (!event.groupRegistration.enabled || !event.registrationOpen) {
@@ -293,10 +302,9 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
         !m.phone.trim() && "phone",
         !m.city.trim() && "city",
         !m.country.trim() && "country",
-        // Demanded as the organisation says, as the route does (person-field-check.ts).
-        fieldRules.role.required && !m.role && "role",
-        fieldRules.specialty.required && !m.specialty && "specialty",
-        fieldRules.specialty.shown && m.specialty === "Others" && !m.customSpecialty.trim() && "custom specialty",
+        // Role, Specialty and the typed specialty beside "Others": demanded as the
+        // organisation says, by the one rule the route applies (person-field-check.ts).
+        ...personFieldProblems(m, fieldRules).map((problem) => GROUP_RULE_LABELS[problem.path]),
       ].filter(Boolean);
       if (missing.length > 0) {
         blockSubmit(`Member ${i + 1}: missing ${missing.join(", ")}.`, `grp-member-${i}`);

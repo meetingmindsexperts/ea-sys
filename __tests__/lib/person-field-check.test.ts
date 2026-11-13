@@ -5,7 +5,8 @@ const { mockDb } = vi.hoisted(() => ({ mockDb: { organization: { findUnique: vi.
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { personFieldProblems, withPersonFieldRules } from "@/lib/person-field-check";
+import { blankUnaskedFields, personFieldProblems, withPersonFieldRules } from "@/lib/person-field-check";
+import { personalDetailsFields, presenterDetailsSchema } from "@/lib/schemas";
 import { loadPersonFieldRules, personFieldRefusal } from "@/lib/person-field-rules";
 import { DEFAULT_PERSON_FIELD_RULES, PERSON_FIELDS_SETTING, personFieldRules, type PersonFieldRules } from "@/lib/person-fields";
 
@@ -70,6 +71,92 @@ describe("withPersonFieldRules: a schema with its organisation's demands", () =>
 
   it("the same input passes for an organisation that switched both off", () => {
     expect(withPersonFieldRules(base, rules({ role: off, specialty: off })).safeParse({}).success).toBe(true);
+  });
+
+  // Review of f0899baf. Zod skips an object's refinements while any field has
+  // an error, so with one refinement the three messages appeared only on the
+  // second press, once the terms box was ticked and every other field was
+  // valid. The forms' schemas all have such fields (terms, a second email).
+  it("says what is missing on the FIRST press, whatever else on the form is wrong", () => {
+    const form = base.extend({ agreeTerms: z.literal(true), additionalEmail: z.string().email().optional() });
+    const parsed = withPersonFieldRules(form, DEFAULT_PERSON_FIELD_RULES).safeParse({ specialty: "Others", additionalEmail: "nope" });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      const errors = parsed.error.flatten().fieldErrors as Record<string, string[]>;
+      expect(errors.role).toEqual(["Role is required"]);
+      expect(errors.customSpecialty).toEqual(["Please specify your specialty"]);
+      expect(Object.keys(errors).sort()).toEqual(["additionalEmail", "agreeTerms", "customSpecialty", "role"]);
+    }
+  });
+
+  it("a field with an error of its own keeps that one and gets no second message", () => {
+    const strict = base.extend({ role: z.enum(["PHYSICIAN"]).optional() });
+    const parsed = withPersonFieldRules(strict, DEFAULT_PERSON_FIELD_RULES).safeParse({ role: "SUPERHERO", specialty: "Cardiology" });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      const errors = parsed.error.flatten().fieldErrors as Record<string, string[]>;
+      expect(errors.role).toHaveLength(1);
+      expect(errors.role[0]).not.toBe("Role is required");
+    }
+  });
+
+  it("a later refinement of the caller's still runs once the rules are met", () => {
+    const withOwn = withPersonFieldRules(base, DEFAULT_PERSON_FIELD_RULES).refine((d) => d.specialty !== "Banned", { path: ["specialty"], message: "own rule" });
+    const parsed = withOwn.safeParse({ role: "PHYSICIAN", specialty: "Banned" });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) expect(parsed.error.flatten().fieldErrors).toEqual({ specialty: ["own rule"] });
+  });
+
+  it("something that is not an object is refused by the schema itself, without a throw", () => {
+    expect(withPersonFieldRules(base, DEFAULT_PERSON_FIELD_RULES).safeParse(null).success).toBe(false);
+  });
+});
+
+describe("blankUnaskedFields: what a form that creates a record sends", () => {
+  const filled = { title: "DR", role: "PHYSICIAN", specialty: "Others", customSpecialty: "Sleep medicine", firstName: "A" };
+
+  it("with everything asked, exactly what the form holds", () => {
+    expect(blankUnaskedFields(filled, DEFAULT_PERSON_FIELD_RULES)).toEqual(filled);
+  });
+
+  it("a switched-off field goes blank, with the typed specialty when Specialty is off; nothing else changes", () => {
+    expect(blankUnaskedFields(filled, rules({ specialty: off }))).toEqual({ ...filled, specialty: "", customSpecialty: "" });
+    expect(blankUnaskedFields(filled, rules({ title: off, role: off }))).toEqual({ ...filled, title: "", role: "" });
+  });
+
+  it("an optional field is still asked, so what the person answered is sent", () => {
+    expect(blankUnaskedFields(filled, rules({ title: optional, role: optional, specialty: optional }))).toEqual(filled);
+  });
+});
+
+// Review of f0899baf: the shared schemas the doors build on.
+describe("the lenient fields the doors' schemas take", () => {
+  const details = {
+    firstName: "A", lastName: "B", organization: "Org", jobTitle: "Lead", phone: "1", city: "Dubai", country: "UAE",
+  };
+
+  it("a request with NO title key is taken: what a form sends once Title is switched off", () => {
+    expect(presenterDetailsSchema.safeParse(details).success).toBe(true);
+    expect(z.object(personalDetailsFields).safeParse(details).success).toBe(true);
+    // A title that is not one of the five is still refused.
+    expect(presenterDetailsSchema.safeParse({ ...details, title: "SIR" }).success).toBe(false);
+  });
+
+  it("a blank specialty is no answer: never stored as an empty text", () => {
+    for (const specialty of ["", "   "]) {
+      const parsed = presenterDetailsSchema.safeParse({ ...details, specialty });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) expect(parsed.data.specialty).toBeUndefined();
+    }
+    const kept = presenterDetailsSchema.safeParse({ ...details, specialty: "Cardiology" });
+    expect(kept.success && kept.data.specialty).toBe("Cardiology");
+  });
+
+  it("and a blank one is still refused where the organisation demands Specialty", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
+    const parsed = presenterDetailsSchema.safeParse({ ...details, role: "PHYSICIAN", specialty: " " });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(await personFieldRefusal("org1", parsed.data)).toEqual({ formErrors: [], fieldErrors: { specialty: ["Specialty is required"] } });
   });
 });
 

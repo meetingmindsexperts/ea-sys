@@ -90,6 +90,42 @@ alone.
 Plan: `docs/ORG_FIELDS_PLAN.md`. The review of step 0a (`78a0b8a6`) and of the
 plan found these outside the plan's own steps.
 
+From the review of `f0899baf` (the switches), Nov 13. Fixed: both HIGH, all
+four MED, and LOW 4, 7, 8, 9, 11, 12 and the group part of 1. Left, with why:
+
+- **A hand-made request can still store a value for a field that is switched
+  off.** LOW. The forms send such a field blank (the public form since the
+  review; the others never fill one), and the value is the person's own. Not
+  done at the routes now because each door would have to hand back "the values
+  it kept": the event-level choice touches every door again to pass the
+  event's setting, and returns them from the same call.
+- **A request refused for a missing Role or Specialty is refused later than it
+  was**: after the per-email limiter on public registration, after the
+  password-attempt counter on abstract sign-in, and after an expired
+  completion token is deleted. LOW: no account, token use or desk-QR budget
+  moves, and a form never sends such a request. The group door's member budget
+  was the one real cost and is fixed.
+- **One more read per public POST** for the organisation's rules. LOW. The
+  registration route's event read already joins the organisation and could
+  carry its settings; do it with the event-level choice, which changes that
+  call anyway.
+- **When the rules cannot be read, the doors demand everything**, which for an
+  organisation with a field off asks for something its form does not show.
+  LOW, and deliberate: a registration must not fail closed on a field that IS
+  demanded. It is logged (`person-field-rules:read-failed`).
+- **The settings route answers a mistyped save with "Invalid input" and no
+  field name** (the two saves are one union). LOW: only the settings screen
+  calls it, and it sends the right shape.
+- **Sign-up, both My Details pages, group registration and the self-edit have
+  never demanded a Title**, switch or no switch. Not a defect since Title is
+  on or off only (D8); recorded so nobody "fixes" one form alone.
+- Older, met on the way: **no public form shows the server's field errors**
+  (each toasts "Invalid input"), so any disagreement between a form and its
+  route cannot be diagnosed by the person; **a form's own refinements
+  (password match) are still held back while the terms box is unticked**; and
+  **the coordinator's "add people" route takes Role as free text** and has
+  never asked Role or Specialty, while group registration demands both.
+
 - **Clone drops Role, additional email, State, Zip and the free-text specialty
   from the speakers it copies** (`events/[eventId]/clone/route.ts`). LOW, older.
   Not fixed alone: step 0c brings every "record made from another" under the

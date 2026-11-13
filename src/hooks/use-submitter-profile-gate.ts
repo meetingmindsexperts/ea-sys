@@ -17,10 +17,15 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
+import type { PersonFieldRules } from "@/lib/person-fields";
 import {
   isProfileIncomplete,
+  rulesSentWith,
   type ProfileCompletenessInput,
 } from "@/lib/submitter-profile-completeness";
+
+/** The profile as the route sends it: with the event's organisation's rules for Title, Role and Specialty. */
+type GateProfile = ProfileCompletenessInput & { fieldRules?: PersonFieldRules };
 
 export function useSubmitterProfileGate(eventId: string): void {
   const { data: session } = useSession();
@@ -31,10 +36,13 @@ export function useSubmitterProfileGate(eventId: string): void {
     if (!isSubmitter || !eventId) return;
     let cancelled = false;
     fetch(`/api/events/${eventId}/abstracts/my-profile`)
-      .then(async (res) => (res.ok ? ((await res.json()) as ProfileCompletenessInput) : null))
+      .then(async (res) => (res.ok ? ((await res.json()) as GateProfile) : null))
       .then((profile) => {
         if (cancelled || !profile) return;
-        if (!isProfileIncomplete(profile)) return;
+        // Judged by the rules that came with the profile, the ones My Details
+        // and the submit routes use: a field the organisation does not demand
+        // must not send the person to a form that does not ask it.
+        if (!isProfileIncomplete(profile, rulesSentWith(profile))) return;
         // Effect runs client-only, so window is safe — and reading the live
         // location avoids the useSearchParams Suspense requirement.
         const next = window.location.pathname + window.location.search;

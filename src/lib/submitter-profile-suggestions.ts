@@ -1,6 +1,7 @@
 import { apiLogger } from "@/lib/logger";
 import { loadOwnDetailSources, type OwnDetails } from "@/lib/own-details-sources";
 import { loadRegistrantScope } from "@/lib/registrant-access";
+import type { PersonFieldRules } from "@/lib/person-fields";
 import { isProfileIncomplete, type ProfileCompletenessInput } from "@/lib/submitter-profile-completeness";
 
 /**
@@ -69,8 +70,10 @@ export async function suggestSpeakerDetails(args: {
   eventId: string;
   sessionTokenVersion: number | undefined;
   current: Details & ProfileCompletenessInput;
+  /** What the event's organisation demands: nothing is looked up for a profile that is complete by them. */
+  rules: PersonFieldRules;
 }): Promise<SpeakerDetailSuggestions> {
-  if (!isProfileIncomplete(args.current)) return {};
+  if (!isProfileIncomplete(args.current, args.rules)) return {};
   try {
     const scope = await loadRegistrantScope(args.userId, { sessionTokenVersion: args.sessionTokenVersion });
     const sources = await loadOwnDetailSources({ userId: args.userId, scope, exceptEventId: args.eventId });

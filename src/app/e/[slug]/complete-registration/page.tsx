@@ -722,6 +722,8 @@ function CompleteRegistrationContent() {
                     )}
                   </div>
 
+                  {/* No row at all while Specialty is off: an empty one leaves a gap. */}
+                  {fieldRules.specialty.shown && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {fieldRules.specialty.shown && (
                     <FormField control={form.control} name="specialty"
@@ -746,6 +748,7 @@ function CompleteRegistrationContent() {
                         )} />
                     )}
                   </div>
+                  )}
 
                   {showsField(event.formFields, "dietaryReqs") && (
                   <FormField control={form.control} name="dietaryReqs"

@@ -41,7 +41,7 @@ import { CountrySelect } from "@/components/ui/country-select";
 import { BillingDetailsSection, SupportingDocumentField, billingFromPersonal, missingBillingFields } from "@/components/public/registration-form-extras";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { usePersonFieldRules } from "@/hooks/use-person-fields";
-import { withPersonFieldRules } from "@/lib/person-field-check";
+import { blankUnaskedFields, withPersonFieldRules } from "@/lib/person-field-check";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import {
@@ -786,7 +786,10 @@ function CategoryRegistrationContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...data,
+          // A field the organisation has switched off is sent blank: a restored
+          // draft or the signed-in prefill may hold a value for it that the
+          // person cannot see on this form.
+          ...blankUnaskedFields(data, fieldRules),
           // Desk mode sends the QR's token and no password (§8.3).
           ...(deskQr && { password: undefined, confirmPassword: undefined, deskToken }),
           // Signed in: the session is the account (the route links it).

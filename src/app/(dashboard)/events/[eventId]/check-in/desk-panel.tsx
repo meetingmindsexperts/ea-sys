@@ -27,6 +27,7 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { personFieldProblems, type PersonFieldPath } from "@/lib/person-field-check";
 import type { PersonFieldRules } from "@/lib/person-fields";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SupportingDocumentField, type UploadedDocument } from "@/components/public/registration-form-extras";
@@ -903,20 +904,22 @@ const EMPTY_FIELDS: WalkInFields = {
   cardLast4: "",
 };
 
+/** How the walk-in form names a field the organisation's rule finds missing. */
+const WALK_IN_RULE_LABELS: Record<PersonFieldPath, string> = {
+  title: "Title",
+  role: "Role",
+  specialty: "Specialty",
+  customSpecialty: "Specialty (please specify)",
+};
+
 /**
  * The required fields that a plain input's `required` cannot catch (the
  * pickers). Title, Role and Specialty are demanded as the organisation says,
  * the same rule the walk-in route applies (person-field-check.ts).
  */
 function missingFields(fields: WalkInFields, type: DeskTicketType | undefined, rules: PersonFieldRules): string[] {
-  const pickers: Array<[keyof WalkInFields, string, boolean]> = [
-    ["title", "Title", rules.title.required],
-    ["country", "Country", true],
-    ["specialty", "Specialty", rules.specialty.required],
-    ["role", "Role", rules.role.required],
-  ];
-  const missing = pickers.filter(([key, , demanded]) => demanded && !fields[key].trim()).map(([, label]) => label);
-  if (rules.specialty.shown && fields.specialty === "Others" && !fields.customSpecialty.trim()) missing.push("Specialty (please specify)");
+  const missing = fields.country.trim() ? [] : ["Country"];
+  missing.push(...personFieldProblems(fields, rules, { demandTitle: true }).map((problem) => WALK_IN_RULE_LABELS[problem.path]));
   if (type) {
     missing.push(...missingIdentityEvidence(readIdentityEvidencePolicy(type), fields));
   }

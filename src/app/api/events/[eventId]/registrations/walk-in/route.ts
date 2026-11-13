@@ -11,7 +11,7 @@ import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkInGate, executeCheckIn } from "@/lib/check-in";
 import { HTTP_STATUS_FOR_REGISTRATION_ERROR } from "@/lib/registration-error-status";
-import { titleEnum, optionalAttendeeRole } from "@/lib/schemas";
+import { optionalTitle, optionalAttendeeRole } from "@/lib/schemas";
 import { personFieldRefusal } from "@/lib/person-field-rules";
 import {
   IDENTITY_EVIDENCE_SELECT,
@@ -56,7 +56,7 @@ const walkInSchema = z
   .object({
     // Title, Role and Specialty are demanded as the organisation says, in the
     // handler (personFieldRefusal, which demands the title here as before).
-    title: titleEnum,
+    title: optionalTitle,
     role: optionalAttendeeRole,
     firstName: required(100),
     lastName: required(100),

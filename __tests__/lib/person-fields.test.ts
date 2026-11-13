@@ -157,6 +157,23 @@ describe("a setting that cannot be used falls back whole, never half", () => {
   });
 });
 
+// Review of f0899baf: the switch save wrote today's lists into the setting, so
+// an organisation that only flipped a switch was frozen on them. The switches
+// and the organisation's own list are now read apart.
+describe("the switches stand by themselves", () => {
+  const withRole = (role: unknown) => readPersonFields({ [PERSON_FIELDS_SETTING]: { role } }).role;
+  const fallback = defaultPersonFields().role;
+
+  it("a field with only switches saved follows today's list, with those switches", () => {
+    expect(withRole({ enabled: true, required: false })).toEqual({ ...fallback, required: false });
+    expect(withRole({ enabled: false })).toEqual({ ...fallback, enabled: false });
+  });
+
+  it("a field that was switched off stays off when its saved list cannot be read", () => {
+    expect(withRole({ enabled: false, required: false, label: " ", options: "A,B" })).toEqual({ ...fallback, enabled: false, required: false });
+  });
+});
+
 describe("what a public form is handed", () => {
   it("only the answers on offer, with their labels, Others last: no retired answer, no settings", async () => {
     const { publicPersonFields } = await import("@/lib/person-fields");

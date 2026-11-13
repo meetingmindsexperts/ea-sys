@@ -154,21 +154,41 @@ function readOption(raw: unknown): PersonFieldOption | null {
   return { key, label, retired: raw.retired === true };
 }
 
+type PersonFieldList = Pick<PersonFieldConfig, "label" | "options" | "allowOther">;
+
 /**
- * One field as the organisation saved it, or the default when what is saved
- * is not usable. A field is all or nothing: a half-readable setting falls back
- * whole, so a form never shows a list missing the answers that failed to read.
+ * The organisation's OWN list for a field (label, answers, "Others"), or null
+ * when it has saved none or what is saved is not usable. A list is all or
+ * nothing: a half-readable one is not used at all, so a form never shows a
+ * list missing the answers that failed to read.
+ */
+function readOwnList(raw: Record<string, unknown>): PersonFieldList | null {
+  const label = typeof raw.label === "string" ? raw.label.trim() : "";
+  if (!label || label.length > MAX_PERSON_FIELD_LABEL) return null;
+  if (!Array.isArray(raw.options) || raw.options.length > MAX_PERSON_FIELD_OPTIONS) return null;
+  const options = raw.options.map(readOption);
+  if (options.some((o) => o === null)) return null;
+  const read = options as PersonFieldOption[];
+  if (new Set(read.map((o) => o.key)).size !== read.length) return null;
+  return { label, options: read, allowOther: raw.allowOther === true };
+}
+
+/**
+ * One field as the organisation saved it. Two things are saved, and read,
+ * apart from each other:
+ *   - the SWITCHES (asked at all, demanded), which stand by themselves;
+ *   - the organisation's OWN LIST, when it has saved one.
+ * An organisation that only flipped a switch has no list of its own and keeps
+ * following today's lists as the code holds them, and a switched-off field
+ * stays off even if its saved list cannot be read (review of f0899baf: the
+ * switch save used to write today's lists into the setting, which froze them
+ * for that organisation and made "chose this list" look the same as "flipped
+ * a switch").
  */
 function readField(raw: unknown, fallback: PersonFieldConfig): PersonFieldConfig {
   if (!isRecord(raw)) return fallback;
-  const label = typeof raw.label === "string" ? raw.label.trim() : "";
-  if (!label || label.length > MAX_PERSON_FIELD_LABEL) return fallback;
-  if (!Array.isArray(raw.options) || raw.options.length > MAX_PERSON_FIELD_OPTIONS) return fallback;
-  const options = raw.options.map(readOption);
-  if (options.some((o) => o === null)) return fallback;
-  const read = options as PersonFieldOption[];
-  if (new Set(read.map((o) => o.key)).size !== read.length) return fallback;
-  return { enabled: raw.enabled !== false, required: raw.required !== false, label, options: read, allowOther: raw.allowOther === true };
+  const list = readOwnList(raw) ?? { label: fallback.label, options: fallback.options, allowOther: fallback.allowOther };
+  return { enabled: raw.enabled !== false, required: raw.required !== false, ...list };
 }
 
 /** What the organisation asks about a person. Nothing saved, or nothing readable, is today's form. */

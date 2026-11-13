@@ -15,6 +15,8 @@ const { mockDb, createGroupMock, notifyMock, sendVerifyMock } = vi.hoisted(() =>
     // Written by the shared public-credential guard (review M7).
     loginEvent: { create: vi.fn() },
     event: { findFirst: vi.fn() },
+    // Nothing saved: today's rules for Title, Role and Specialty.
+    organization: { findUnique: vi.fn().mockResolvedValue({ settings: {} }) },
   },
   createGroupMock: vi.fn(),
   notifyMock: vi.fn().mockResolvedValue(undefined),
@@ -150,6 +152,30 @@ describe("POST /group-register — gates", () => {
     const res = await POST(req(bad), params);
     expect(res.status).toBe(400);
     expect(createGroupMock).not.toHaveBeenCalled();
+  });
+
+  // Review of f0899baf: Role and Specialty are demanded once the event (and so
+  // its organisation) is known, which used to be AFTER the per-member budget
+  // was charged, so three refused 50-person posts used up the hour.
+  it("400 on a member with no Role or Specialty, by field, and charges no member budget for it", async () => {
+    const { checkRateLimit } = await import("@/lib/security");
+    const noRole = { ...memberAttendee("b@corp.com"), role: "", specialty: "" };
+    const res = await POST(req({ ...BODY, members: [BODY.members[0], { ticketTypeId: "tt1", attendee: noRole }] }), params);
+    expect(res.status).toBe(400);
+    expect((await res.json()).details.fieldErrors).toEqual({
+      "members.1.attendee.role": ["Role is required"],
+      "members.1.attendee.specialty": ["Specialty is required"],
+    });
+    const charged = vi.mocked(checkRateLimit).mock.calls.filter(([arg]) => String(arg.key).startsWith("group-register-members:"));
+    expect(charged).toHaveLength(0);
+    expect(createGroupMock).not.toHaveBeenCalled();
+  });
+
+  it("a request this door takes is charged once per member", async () => {
+    const { checkRateLimit } = await import("@/lib/security");
+    expect((await POST(req(BODY), params)).status).toBe(201);
+    const charged = vi.mocked(checkRateLimit).mock.calls.filter(([arg]) => String(arg.key).startsWith("group-register-members:"));
+    expect(charged).toHaveLength(BODY.members.length);
   });
 
   it("404 when the event doesn't resolve", async () => {

@@ -17,6 +17,7 @@ import {
   livePrice, purchasableTypes, typesAtRate, type PublicTicketType,
 } from "@/lib/public-ticket-price";
 import { registerTierSlug } from "@/lib/main-register-tiers";
+import { usePersonFieldRules } from "@/hooks/use-person-fields";
 
 /**
  * "Add people" for the My Group portal.
@@ -83,6 +84,8 @@ export function AddGroupMembersDialog({
   const [types, setTypes] = useState<PublicTicketType[]>([]);
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [typesError, setTypesError] = useState(false);
+  // What the event's organisation asks of Title (this dialog asks neither Role nor Specialty).
+  const fieldRules = usePersonFieldRules();
   const [members, setMembers] = useState<MemberForm[]>([{ ...EMPTY }]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -282,13 +285,16 @@ export function AddGroupMembersDialog({
                     )}
                   </div>
 
-                  <div>
-                    <Label className="mb-1 block text-xs">Title</Label>
-                    <TitleSelect
-                      value={m.title}
-                      onChange={(v) => update(i, { title: v })}
-                    />
-                  </div>
+                  {/* Asked only while the organisation asks Title (Settings, Form fields). */}
+                  {fieldRules.title.shown && (
+                    <div>
+                      <Label className="mb-1 block text-xs">Title</Label>
+                      <TitleSelect
+                        value={m.title}
+                        onChange={(v) => update(i, { title: v })}
+                      />
+                    </div>
+                  )}
                   <div>
                     <Label className="mb-1 block text-xs">First name *</Label>
                     <Input

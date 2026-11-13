@@ -6,14 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Form fields: the review of the switches, fixed before anyone flips one (November 13)
+
+Review of `f0899baf` (2 HIGH, 4 MED, 12 LOW). Both HIGH needed a field to be
+switched off, so nothing reached production: this lands with the switches.
+
+- **A submitter was sent round in a loop (HIGH).** With Specialty off, the
+  page that checks "is your profile complete" before Submit Abstract still
+  judged by the old rule, sent the person to My Details, which showed nothing
+  missing, which sent them back. The rules now travel with the profile, read
+  for the event's organisation, and the check cannot be asked without them.
+  The same read fixes My Details opening empty when its two reads raced.
+- **Abstract and proposal sign-up refused everyone once Title was off
+  (HIGH).** The form stopped sending a title and the route refused a request
+  without one, with a message the person could not act on. Title is now taken
+  leniently by every door, like Role and Specialty.
+- **"Role is required" showed only on the second press (MED).** While the
+  terms box was unticked or another field was invalid, the form held the
+  three messages back. They now show on the first press.
+- **An empty text was stored for a blank specialty (MED)** by completing a
+  registration and by abstract sign-up. A blank answer is now no answer.
+- **The public form sent a switched-off field (MED)** when a saved draft or
+  the signed-in prefill held a value for it. It is sent blank.
+- **The guard test promised more than it checked (MED).** It now finds every
+  route that takes these fields and fails until a new one is classed as a door
+  or named as not one; it matches the shapes it missed; the desk walk-in,
+  group registration and My Details check with the one rule, not their own.
+- **Flipping a switch froze today's lists into the organisation's settings.**
+  The save now stores the switches only, so an organisation with no list of
+  its own keeps following today's, and "chose its own list" stays telling.
+- **Title is on or off only**, as decided: its Required switch is gone,
+  because most forms never demanded a title and the switch promised they did.
+- A group registration refused for a missing Role no longer uses up the
+  hour's member budget; the "add people" dialog hides Title when it is off;
+  two forms no longer leave an empty row.
+
+Verified on the local app, on screen: a submitter with no specialty, Specialty
+off, filled Role on My Details and stayed on Submit Abstract; the public form
+showed "Role is required" on the first press with the terms box unticked; both
+abstract doors took a request with no title; the stored setting held the
+switches only. Test rows deleted by id, settings restored.
+
 ### Form fields: Title, Role and Specialty can be switched off or made optional (November 13)
 
 Step 2 of `docs/ORG_FIELDS_PLAN.md`, first part: the organisation's switches.
 Owner: "pushed, step 2".
 
-Settings, Form fields has a new **Fields** card: for each of Title, Role and
-Specialty, "Ask" and "Required". A field that is switched off is not shown and
-never asked for; an optional one is shown without its asterisk.
+Settings, Form fields has a new **Fields** card: "Ask" for each of Title, Role
+and Specialty, and "Required" for Role and Specialty (Title is on or off only).
+A field that is switched off is not shown and never asked for; an optional one
+is shown without its asterisk.
 
 - **Where it applies:** every form people fill in, on every event: public
   registration, completing a registration, group registration, the desk
@@ -30,7 +72,11 @@ never asked for; an optional one is shown without its asterisk.
   the same rule, so an organisation that switches Specialty off does not have
   every submitter refused for a field no form shows.
 - **Nothing changes until someone flips a switch.** With all three on, which
-  is the default, every form and every route demands exactly what it did.
+  is the default, every form and every route demands what it did. Three small
+  differences, none of which a person filling in a form meets: a request with
+  no Role or Specialty is refused a step later in the route (after the event
+  is read); a specialty of spaces only is refused where it was taken; and the
+  sign-up form's wording for the two fields is now the shared one.
 - Each event's own choice (this event uses the field or not) is the next part.
 
 A registration made while Specialty is off stores nothing for it, not an

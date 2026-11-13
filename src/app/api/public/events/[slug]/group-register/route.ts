@@ -163,22 +163,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Review M8: member-count budget per IP — each member triggers a
-    // confirmation email, so the per-REQUEST limits alone allow ~50× the
-    // individual-register email volume. Charge the limiter once PER MEMBER
-    // (150 members/hr/IP) so a burst of max-size groups can't turn the door
-    // into an SES-reputation / harassment amplifier.
-    for (let i = 0; i < data.members.length; i++) {
-      const memberBudget = checkRateLimit({ key: `group-register-members:${clientIp}`, limit: 150, windowMs: 60 * 60 * 1000 });
-      if (!memberBudget.allowed) {
-        apiLogger.warn({ msg: "public/group-register:member-budget-exceeded", ip: clientIp, slug });
-        return NextResponse.json(
-          { error: "Too many registrations from this connection. Please try again later.", retryAfterSeconds: memberBudget.retryAfterSeconds },
-          { status: 429, headers: { "Retry-After": String(memberBudget.retryAfterSeconds) } },
-        );
-      }
-    }
-
     // Coordinator-attending consistency: their row must be in members.
     const memberEmails = data.members.map((m) => m.attendee.email.trim().toLowerCase());
     if (data.coordinator.attending && !memberEmails.includes(coordinatorEmail)) {
@@ -227,6 +211,24 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (Object.keys(memberFieldErrors).length > 0) {
       apiLogger.warn({ msg: "public/group-register:person-fields-refused", slug, eventId: event.id, fields: Object.keys(memberFieldErrors) });
       return NextResponse.json({ error: "Invalid input", details: { formErrors: [], fieldErrors: memberFieldErrors } }, { status: 400 });
+    }
+
+    // Charged only once the request is one this door would take (a refused
+    // one sends no email), so a form mistake cannot use up the hour's budget.
+    // Review M8: member-count budget per IP. Each member triggers a
+    // confirmation email, so the per-REQUEST limits alone allow ~50× the
+    // individual-register email volume. Charge the limiter once PER MEMBER
+    // (150 members/hr/IP) so a burst of max-size groups can't turn the door
+    // into an SES-reputation / harassment amplifier.
+    for (let i = 0; i < data.members.length; i++) {
+      const memberBudget = checkRateLimit({ key: `group-register-members:${clientIp}`, limit: 150, windowMs: 60 * 60 * 1000 });
+      if (!memberBudget.allowed) {
+        apiLogger.warn({ msg: "public/group-register:member-budget-exceeded", ip: clientIp, slug });
+        return NextResponse.json(
+          { error: "Too many registrations from this connection. Please try again later.", retryAfterSeconds: memberBudget.retryAfterSeconds },
+          { status: 429, headers: { "Retry-After": String(memberBudget.retryAfterSeconds) } },
+        );
+      }
     }
 
     return await runWithTenant(event.organizationId, async () => {

@@ -11,6 +11,7 @@ import { contactSyncFromSpeaker } from "@/lib/contact-sync-payload";
 import { computeDetailsDelta, syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { suggestSpeakerDetails } from "@/lib/submitter-profile-suggestions";
+import { loadPersonFieldRules } from "@/lib/person-field-rules";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -144,6 +145,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
       );
     }
 
+    // What the EVENT's organisation asks and demands of Title, Role and
+    // Specialty. Sent with the profile so the browser's "is this profile
+    // complete" gates, the nudge and My Details all judge by the same rules
+    // the submit routes do: a submitter has no organisation of their own, so
+    // the browser cannot work these out by itself.
+    const fieldRules = await loadPersonFieldRules(event.organizationId);
     // The details the person already gave elsewhere, for the form's empty
     // fields. Offered, never written: only their own Save stores them.
     const suggested = await suggestSpeakerDetails({
@@ -151,8 +158,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
       eventId,
       sessionTokenVersion: session.user.tokenVersion,
       current: speaker,
+      rules: fieldRules,
     });
-    return NextResponse.json({ ...speaker, suggested });
+    return NextResponse.json({ ...speaker, suggested, fieldRules });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching submitter profile" });

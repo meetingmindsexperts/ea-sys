@@ -10,7 +10,7 @@ import { rateLimited } from "@/lib/api-errors";
 import { checkLinkRateLimit, getClientIp, hashVerificationToken, VENUE_CROWD_IP_LIMITS } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
-import { titleEnum, optionalAttendeeRole, optionalSpecialty } from "@/lib/schemas";
+import { optionalTitle, optionalAttendeeRole, optionalSpecialty } from "@/lib/schemas";
 import { personFieldRefusal } from "@/lib/person-field-rules";
 import { syncToContact } from "@/lib/contact-sync";
 import { changedContactFields, contactSyncFromAttendee } from "@/lib/contact-sync-payload";
@@ -491,7 +491,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 const completionSchema = z.object({
   token: z.string().min(1),
-  title: titleEnum,
+  title: optionalTitle,
   // Role and Specialty are demanded as the event's organisation says, after
   // the registration is loaded (personFieldRefusal below), not by this schema.
   role: optionalAttendeeRole,
