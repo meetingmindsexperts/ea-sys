@@ -25,6 +25,7 @@ import {
 } from "@/lib/import-ticket-type";
 import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
 
 import { getSponsors } from "@/lib/sponsors";
@@ -485,7 +486,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const attendeeRegistrationType = registrationType || ticketType?.name || null;
 
       try {
-        const newRegId = await tenantTransaction(async (tx) => {
+        const { id: newRegId, attendee: importedAttendee } = await tenantTransaction(async (tx) => {
           // One at a time per person (src/lib/registration-email-lock.ts).
           await lockRegistrationEmails(tx, eventId, [email]);
           // Check for duplicate registration (same email + same event)
@@ -589,34 +590,19 @@ export async function POST(req: Request, { params }: RouteParams) {
             },
             select: { id: true },
           });
-          return registration.id;
+          return { id: registration.id, attendee };
         });
         createdIds.push(newRegId);
         if (!firstRowByEmail.has(email)) firstRowByEmail.set(email, rowNum);
         created++;
 
         // Sync to contact store (awaited — errors caught internally)
-        await syncToContact({
-          organizationId: orgGuard.orgId,
-          eventId,
-          email,
-          firstName,
-          lastName,
-          title: title as string | null,
-          organization: getField(fields, idx.organization) || null,
-          jobTitle: getField(fields, idx.jobTitle) || null,
-          phone: getField(fields, idx.phone) || null,
-          city: getField(fields, idx.city) || null,
-          state: getField(fields, idx.state) || null,
-          zipCode: getField(fields, idx.zipCode) || null,
-          country: getField(fields, idx.country) || null,
-          bio: getField(fields, idx.bio) || null,
-          specialty: getField(fields, idx.specialty) || null,
-          registrationType: attendeeRegistrationType,
-          associationName: getField(fields, idx.associationName) || null,
-          memberId: getField(fields, idx.memberId) || null,
-          studentId: getField(fields, idx.studentId) || null,
-        });
+        // From the row just created, so the contact holds what the registration
+        // holds. The hand-typed payload this replaced left Role out: 2,665
+        // imported people had a Role on their registration and none on their
+        // contact (production, Nov 13, 2026). A faculty type never reaches
+        // this row (refused above), so the type's name is the category.
+        await syncToContact(contactSyncFromAttendee(importedAttendee, { organizationId: orgGuard.orgId, eventId, category: attendeeRegistrationType }));
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {
           skipped++;

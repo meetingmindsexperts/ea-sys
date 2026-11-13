@@ -29,7 +29,8 @@ vi.mock("@/lib/audit-data-transfer", () => ({ recordImport: vi.fn() }));
 vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true }), getClientIp: () => "1.2.3.4" }));
 vi.mock("@/lib/speaker-companion", () => ({ ensureCompanionsForSpeakerEmails: vi.fn(async () => undefined) }));
-vi.mock("@/lib/contact-sync", () => ({ syncManyToContacts: vi.fn() }));
+const mockSyncMany = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/contact-sync", () => ({ syncManyToContacts: mockSyncMany }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/services/speaker-service", () => ({ updateSpeaker: (...a: unknown[]) => mockUpdateSpeaker(...a) }));
 
@@ -70,6 +71,15 @@ describe("speaker CSV import: skipped rows", () => {
     expect(mockLogger.info).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "Import skipped rows", skippedRows: body.skippedRows }),
     );
+  });
+
+  it("the contact receives every field the import writes, State, Zip and the additional email included (Nov 13, 2026)", async () => {
+    const csv = "email,firstName,lastName,state,zipCode,additionalEmail,registrationType\nnew@example.com,Nia,New,Dubai,00000,pa@example.com,Faculty";
+    await POST(csvRequest(csv), params);
+    const [payload] = mockSyncMany.mock.calls[0][0];
+    expect(payload).toMatchObject({ organizationId: "org1", email: "new@example.com", state: "Dubai", zipCode: "00000", additionalEmail: "pa@example.com" });
+    // Faculty is every speaker's type and never a contact's category.
+    expect(payload.registrationType).toBeNull();
   });
 
   it("lists skipped rows even when nothing new was created", async () => {

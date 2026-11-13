@@ -12,9 +12,9 @@ import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
 import { syncManyToContacts } from "@/lib/contact-sync";
+import { contactSyncFromSpeakerInput } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
 import { updateSpeaker } from "@/services/speaker-service";
-import { contactCategoryOf } from "@/lib/faculty-filter";
 import { buildImportPatch, updatedRowMessage } from "@/lib/import-upsert";
 
 const SPEAKER_STATUS_VALUES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
@@ -350,23 +350,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Sync imported speakers to org contact store (fire-and-forget)
     syncManyToContacts(
-      speakers.map((s) => ({
-        organizationId: orgGuard.orgId,
-        eventId,
-        email: s.email,
-        firstName: s.firstName,
-        lastName: s.lastName,
-        title: s.title,
-        organization: s.organization,
-        jobTitle: s.jobTitle,
-        phone: s.phone,
-        city: s.city,
-        country: s.country,
-        bio: s.bio,
-        specialty: s.specialty,
-        role: s.role,
-        registrationType: contactCategoryOf(s.registrationType),
-      }))
+      // Every field the import writes on the speaker. The hand-typed payload
+      // this replaced left out additional email, State and Zip.
+      speakers.map((s) => contactSyncFromSpeakerInput(s, { organizationId: orgGuard.orgId, eventId }))
     );
 
     // Refresh denormalized event stats (fire-and-forget)

@@ -1,7 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { contactSyncFromAttendee, syncToContact } from "@/lib/contact-sync";
+import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { MARKETING_CONSENT_WORDING_VERSION } from "@/lib/marketing-consent";
 

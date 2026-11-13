@@ -74,7 +74,8 @@ vi.mock("@/lib/registration-seat-db", () => ({
   claimSeat: mockClaimSeat,
   incrementEventSeatsOverselling: mockIncrementEventSeats,
 }));
-vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));
+const mockSyncToContact = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/contact-sync", () => ({ syncToContact: mockSyncToContact }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/webinar", () => ({ readSponsors: () => [] }));
 vi.mock("@/lib/audit-data-transfer", () => ({ recordImport: vi.fn() }));
@@ -212,6 +213,18 @@ describe("CSV import — registration type resolution", () => {
     expect(mockClaimSeat).toHaveBeenCalledWith(expect.anything(), { kind: "ticketType", id: "tt-phys" });
     // The attendee's free-text category mirrors the resolved type.
     expect(mockDb.attendee.create.mock.calls[0][0].data.registrationType).toBe("Physician");
+  });
+
+  it("the contact receives the Role the registration holds (Nov 13, 2026)", async () => {
+    // The hand-typed payload this replaced left Role out: on production 2,665
+    // imported people had a Role on their registration and none on their contact.
+    mockDb.attendee.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "att-1", ...data }));
+    const res = await POST(csvRequest("firstName,lastName,email,registrationType,role,state\nJohn,Doe,john@example.com,Physician,Physician,Dubai"), params);
+    expect(res.status).toBe(200);
+    expect(mockDb.attendee.create.mock.calls[0][0].data.role).toBe("PHYSICIAN");
+    expect(mockSyncToContact).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: "org1", eventId: "ev1", email: "john@example.com", role: "PHYSICIAN", state: "Dubai", registrationType: "Physician",
+    }));
   });
 
   it("lets the row's own cell win over the fallback", async () => {

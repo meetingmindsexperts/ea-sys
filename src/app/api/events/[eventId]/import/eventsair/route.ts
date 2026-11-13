@@ -17,6 +17,7 @@ import {
   resolveImportFallbackTicketType,
 } from "@/lib/import-ticket-type";
 import { syncToContact } from "@/lib/contact-sync";
+import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { downloadExternalPhoto } from "@/lib/storage";
 
 export const maxDuration = 60;
@@ -157,7 +158,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           ? await downloadExternalPhoto(contact.photo.url)
           : null;
 
-        await tenantTransaction(async (tx) => {
+        const importedAttendee = await tenantTransaction(async (tx) => {
           const phone = contact.contactPhoneNumbers?.mobile || contact.workPhone || null;
 
           // One at a time per person (src/lib/registration-email-lock.ts).
@@ -233,24 +234,14 @@ export async function POST(req: Request, { params }: RouteParams) {
               source: "eventsair-import",
             });
           }
+          return attendee;
         });
         created++;
 
         // Sync to contact store (awaited — errors caught internally)
-        await syncToContact({
-          organizationId: (session.user.organizationId ?? ""),
-          eventId,
-          email,
-          firstName: contact.firstName,
-          lastName: contact.lastName,
-          organization: contact.organizationName || null,
-          jobTitle: contact.jobTitle || null,
-          phone: contact.contactPhoneNumbers?.mobile || contact.workPhone || null,
-          city: contact.primaryAddress?.city || null,
-          country: contact.primaryAddress?.country || null,
-          bio: contact.biography || null,
-          photo,
-        });
+        // From the row just created. EventsAir gives no type worth calling a
+        // category, so the contact's own is left as it is.
+        await syncToContact(contactSyncFromAttendee(importedAttendee, { organizationId, eventId, category: null }));
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {
           skippedDetails.push({ email, reason: "Already registered" });

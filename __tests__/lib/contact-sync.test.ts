@@ -21,7 +21,8 @@ const { mockDb } = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
-import { syncToContact, omitBlankFields, contactSyncFromAttendee, contactSyncFromSpeaker, CONTACT_SYNC_OPTIONAL_FIELDS } from "@/lib/contact-sync";
+import { syncToContact, omitBlankFields } from "@/lib/contact-sync";
+import { contactSyncFromAttendee, contactSyncFromSpeaker, contactSyncFromSpeakerInput, CONTACT_SYNC_OPTIONAL_FIELDS } from "@/lib/contact-sync-payload";
 
 const base = { organizationId: "org1", email: "Krishna@X.com", firstName: "Krishna", lastName: "P" };
 
@@ -174,5 +175,17 @@ describe("contactSyncFromSpeaker", () => {
     void _state;
     // @ts-expect-error the builder demands every copied column a speaker has
     contactSyncFromSpeaker(withoutState, { organizationId: "org1" });
+  });
+});
+
+describe("contactSyncFromSpeakerInput (a speaker about to be created)", () => {
+  it("sends what the input holds and leaves out what it does not", () => {
+    const payload = contactSyncFromSpeakerInput(
+      { email: "s@x.com", firstName: "Sam", lastName: "Okoye", role: "ACADEMIA", state: "Beirut", zipCode: "1107", additionalEmail: "pa@x.com", registrationType: "Faculty" },
+      { organizationId: "org1", eventId: "e1" },
+    );
+    expect(payload).toMatchObject({ organizationId: "org1", eventId: "e1", email: "s@x.com", role: "ACADEMIA", state: "Beirut", zipCode: "1107", additionalEmail: "pa@x.com" });
+    expect(payload.photo).toBeUndefined();
+    expect(payload.registrationType).toBeNull();
   });
 });

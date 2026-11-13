@@ -21,8 +21,7 @@ const { mockDb, mockSync } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: typeof mockDb) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-// The payload builders are real: only the write is stubbed.
-vi.mock("@/lib/contact-sync", async (original) => ({ ...(await original<typeof import("@/lib/contact-sync")>()), syncToContact: mockSync }));
+vi.mock("@/lib/contact-sync", () => ({ syncToContact: mockSync }));
 
 import {
   changedFields,

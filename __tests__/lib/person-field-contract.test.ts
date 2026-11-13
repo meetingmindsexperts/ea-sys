@@ -15,7 +15,7 @@ import {
 } from "@/lib/person-field-contract";
 import { SYNCED_PERSON_FIELDS } from "@/lib/person-details-sync";
 import { PROFILE_FIELDS } from "@/lib/registrant-details";
-import { CONTACT_SYNC_OPTIONAL_FIELDS } from "@/lib/contact-sync";
+import { CONTACT_SYNC_OPTIONAL_FIELDS } from "@/lib/contact-sync-payload";
 import { personalDetailsFields, presenterDetailsSchema } from "@/lib/schemas";
 
 /**

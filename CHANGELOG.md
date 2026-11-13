@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Contacts: an import now copies Role (and a speaker's State, Zip and additional email) to the contact (November 13)
+
+Step 0b of `docs/ORG_FIELDS_PLAN.md`, the imports group. The registrations CSV
+import saved a row's Role on the registration and never sent it to the
+contact: on production 2,665 imported people have a Role on their registration
+and none on their contact. The speakers CSV import left out the additional
+email, State and Zip. Both, and the EventsAir import, now build what they send
+from the row they just wrote (`src/lib/contact-sync-payload.ts`, where the
+builders moved so a test that stubs the write still runs them).
+
+A speaker about to be created has no row yet, so that import uses
+`contactSyncFromSpeakerInput`: what the input leaves out, the row will not
+have either. "Faculty" is still never written as a contact's category. The
+EventsAir import also stops passing an empty organisation when the session
+had none; it uses the one it already checked.
+
+Verified on the local app with real imports: a registrations row with Role,
+State and Zip produced a contact holding all three, and a speakers row
+produced a contact with State, Zip and the additional email and no category.
+The EventsAir import could not be run locally (it needs the live credentials)
+and is covered by the type check and its tests only. Existing contacts are not
+changed.
+
 ### Contacts: a person's own edit tells the contact what changed, Role included (November 13)
 
 Step 0b of `docs/ORG_FIELDS_PLAN.md`, first caller. Every place that copies a
