@@ -156,6 +156,13 @@ export function safeLogExample(message: string): LogExample {
   return out;
 }
 
+/** Whether one word of a sentence-like name is withheld: an address anywhere, a path or an over-long word after the first. */
+function withholdNameWord(word: string, first: boolean): boolean {
+  if (word.startsWith("/") || word.includes("://")) return true;
+  if (first) return word.length > MAX_CODE_NAME_LENGTH;
+  return word.includes("/") || word.length > MAX_NAME_WORD_LENGTH;
+}
+
 /**
  * A line's name: its `msg`, which every warn and error call in this codebase
  * writes by hand, shortened, with any address in it masked and anything that
@@ -178,10 +185,15 @@ export function logLineName(message: string): string {
       // words. A few call sites put a request's path or a slug into one, so
       // only the first words are kept and a word that looks like a path, or
       // is too long to be a word, is withheld.
+      // The FIRST word is often the developers' own code with a sentence
+      // after it ("stripe:foreign-checkout-session-ignored (no metadata ..."),
+      // so it is judged as a code-like name is: kept up to that length unless
+      // it is an address (the first production run showed such a name as
+      // "[...] (no metadata", which told the reader nothing).
       return text
         .split(" ")
         .slice(0, MAX_NAME_WORDS)
-        .map((word) => (word.includes("/") || word.length > MAX_NAME_WORD_LENGTH ? "[...]" : word))
+        .map((word, i) => (withholdNameWord(word, i === 0) ? "[...]" : word))
         .join(" ")
         .slice(0, MAX_NAME_LENGTH);
     }

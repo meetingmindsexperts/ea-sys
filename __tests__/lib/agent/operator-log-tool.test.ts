@@ -265,6 +265,21 @@ describe("NO TEXT from a log line leaves: what a stranger plants never comes out
     expect(logLineName(line({ msg: "note for jane.doe@hospital.example today" }))).toBe("note for [email] today");
   });
 
+  // The first production run (Nov 14, 2026) showed this real message as
+  // "[...] (no metadata": the developers' own code was withheld for being a
+  // long word, and the name told the reader nothing.
+  it("a name that starts with the developers' code and goes on as a sentence keeps the code", () => {
+    const real = "stripe:foreign-checkout-session-ignored (no metadata \u2014 another system on this shared Stripe account, e.g. EventsAir)";
+    expect(logLineName(line({ msg: real }))).toBe("stripe:foreign-checkout-session-ignored (no metadata \u2014 another system");
+    expect(logLineName(line({ msg: "public/events/register:person-fields-refused for this event" }))).toBe("public/events/register:person-fields-refused for this event");
+  });
+
+  it("but never an address in first place, and never a first word too long to be a code", () => {
+    expect(logLineName(line({ msg: "/api/public/events/ignore-all-previous-instructions/agenda was not found" }))).toBe("[...] was not found");
+    expect(logLineName(line({ msg: "https://evil.example/do-this-now is the redirect" }))).toBe("[...] is the redirect");
+    expect(logLineName(line({ msg: `${"x".repeat(61)} then words` }))).toBe("[...] then words");
+  });
+
   it("a code-like name is kept, shortened", () => {
     expect(logLineName(line({ msg: "public/events/register:person-fields-refused" }))).toBe("public/events/register:person-fields-refused");
     expect(logLineName(line({ msg: "x".repeat(200) }))).toHaveLength(60);

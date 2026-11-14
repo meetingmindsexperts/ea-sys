@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The log tool keeps the developers' own code at the start of a name (November 14)
+
+Found by the first cloud run of the log check. The real message
+`stripe:foreign-checkout-session-ignored (no metadata ...)` came out as
+`[...] (no metadata`, because a first word longer than 30 characters was
+withheld. The first word of a name is now judged as a code-like name is (kept
+up to 60 characters) unless it is an address; later words are judged as
+before. A path or a link in first place is still withheld.
+
 ### The log tool hands over no text from the log (November 13)
 
 Review of `41293a3d` (no blocker, 1 HIGH, 3 MED, 11 LOW), fixed before it was
