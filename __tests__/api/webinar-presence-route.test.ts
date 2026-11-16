@@ -111,7 +111,7 @@ describe("presence heartbeat", () => {
 
   it("never downgrades joined→lobby (update touches lastSeenAt only)", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
-    mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined" });
+    mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000) });
     await call({ phase: "lobby" });
     const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
     expect(arg.update.phase).toBeUndefined();
@@ -171,6 +171,22 @@ describe("presence heartbeat", () => {
       const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
       expect(arg.update.joinCount).toEqual({ increment: 1 });
       expect(arg.update.watchedSeconds).toBeUndefined();
+    });
+
+    it("the page reopened after fifteen minutes: its first beat is a lobby one, and it still counts the return (review of d2200512)", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 15 * 60_000) });
+      await call({ phase: "lobby" });
+      const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+      expect(arg.update.joinCount).toEqual({ increment: 1 });
+      // Never demoted, and the next live-view beat (short gap now) adds time, not another join.
+      expect(arg.update.phase).toBeUndefined();
+    });
+
+    it("back the next day with the room closed (the replay): not a join", async () => {
+      mockDb.eventSession.findFirst.mockResolvedValue({ id: "sess1", status: "COMPLETED" });
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 24 * 3600_000) });
+      await call({ phase: "lobby" });
+      expect(mockDb.webinarPresence.upsert.mock.calls[0][0].update.joinCount).toBeUndefined();
     });
 
     it("five minutes in a hidden tab is not a return", async () => {

@@ -14,6 +14,7 @@ External streams step 6 (docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md §4.8). Fo
 - **Added**: the heartbeat now adds up the time each person spent in the live view while the room was open (a new column, `WebinarPresence.watchedSeconds`, additive migration). Time in a hidden tab or a closed laptop is not counted, so the figures are a floor. Earlier webinars show 0 minutes: there was nothing to add up.
 - **Changed**: "times joined" counts the first time in the live view plus each return after more than ten minutes away. It used to add one on admission from the lobby, so one viewing read as 2; webinars before this one can still read one too high.
 - **Review of 0b3f34ad** (1 HIGH, 3 MED, 6 LOW): the join count above; a DRAFT event's room counts as open for the minutes, as it does for the attendee page; a tab hidden for a few minutes is no longer a new join; the summary is counted by the database instead of loading every row; "Last seen" is "Last on the page"; the card says the record is kept 90 days, then archived.
+- **Review of d2200512** (0 HIGH, 1 MED): a return is counted on any heartbeat after ten minutes away while the room is open. A reopened page sends its first heartbeat from the lobby, which reset the clock, so real returns were missed and only a long-hidden tab counted as one. A visit with the room closed (the closing screen, the replay) is not a join.
 
 ### Webinars: the Partner stream card, so a partner can stream into our webinar (November 16)
 

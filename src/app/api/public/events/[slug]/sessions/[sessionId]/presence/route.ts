@@ -8,7 +8,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
-import { presenceBeatEffect } from "@/lib/webinar/presence-watch";
+import { beatCouldCount, presenceBeatEffect } from "@/lib/webinar/presence-watch";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -114,8 +114,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Whether the room is open, by the rule the attendee page and the stream gate use (a DRAFT event's
     // room counts as open for testing: review of 0b3f34ad). Asked only when this beat could add time,
     // so the heartbeat, the busiest write in the app, gains no query on most beats.
-    const couldWatch = phase === "joined" && existing?.phase === "joined";
-    const roomOpen = couldWatch ? await isViewerRoomOpen(event, sessionId) : false;
+    const roomOpen = beatCouldCount({ beatPhase: phase, previous: existing, now })
+      ? await isViewerRoomOpen(event, sessionId)
+      : false;
     const effect = presenceBeatEffect({ beatPhase: phase, previous: existing, roomOpen, now });
     const escalated = Boolean(existing) && phase === "joined" && existing?.phase !== "joined";
 

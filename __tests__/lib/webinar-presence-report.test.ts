@@ -4,7 +4,7 @@
  * the rows.
  */
 import { describe, it, expect } from "vitest";
-import { COUNTED_GAP_MAX_MS, presenceBeatEffect, REJOIN_GAP_MS } from "@/lib/webinar/presence-watch";
+import { beatCouldCount, COUNTED_GAP_MAX_MS, presenceBeatEffect, REJOIN_GAP_MS } from "@/lib/webinar/presence-watch";
 import { presenceReportCsv, presenceReportSummary, presenceSummaryFromGroups, timesJoined } from "@/lib/webinar/presence-report";
 
 const now = new Date("2026-12-20T10:30:00Z");
@@ -18,8 +18,28 @@ describe("presenceBeatEffect", () => {
   it("a gap just over the limit counts nothing, and is not yet a return", () => {
     expect(presenceBeatEffect({ beatPhase: "joined", previous: joined(COUNTED_GAP_MAX_MS + 1000), roomOpen: true, now })).toEqual({ watchedSeconds: 0, rejoined: false });
   });
-  it("past the return gap it is one more join, even with the room closed", () => {
-    expect(presenceBeatEffect({ beatPhase: "joined", previous: joined(REJOIN_GAP_MS + 1000), roomOpen: false, now })).toEqual({ watchedSeconds: 0, rejoined: true });
+  it("past the return gap with the room open it is one more join, whichever beat says so", () => {
+    const back = { watchedSeconds: 0, rejoined: true };
+    expect(presenceBeatEffect({ beatPhase: "joined", previous: joined(REJOIN_GAP_MS + 1000), roomOpen: true, now })).toEqual(back);
+    // A reopened page beats "lobby" first, before it knows the room is open (review of d2200512).
+    expect(presenceBeatEffect({ beatPhase: "lobby", previous: joined(REJOIN_GAP_MS + 1000), roomOpen: true, now })).toEqual(back);
+  });
+  it("a visit with the room closed (the closing screen, the replay next day) is not a join", () => {
+    const none = { watchedSeconds: 0, rejoined: false };
+    expect(presenceBeatEffect({ beatPhase: "lobby", previous: joined(24 * 3600_000), roomOpen: false, now })).toEqual(none);
+    expect(presenceBeatEffect({ beatPhase: "joined", previous: joined(REJOIN_GAP_MS + 1000), roomOpen: false, now })).toEqual(none);
+  });
+  it("someone who never reached the live view has nothing to return to", () => {
+    expect(
+      presenceBeatEffect({ beatPhase: "lobby", previous: { phase: "lobby", lastSeenAt: ago(REJOIN_GAP_MS + 1000) }, roomOpen: true, now }),
+    ).toEqual({ watchedSeconds: 0, rejoined: false });
+  });
+  it("beatCouldCount: the room is asked only for a live-view beat, or a long gap, from someone who had joined", () => {
+    expect(beatCouldCount({ beatPhase: "joined", previous: joined(30_000), now })).toBe(true);
+    expect(beatCouldCount({ beatPhase: "lobby", previous: joined(REJOIN_GAP_MS + 1000), now })).toBe(true);
+    expect(beatCouldCount({ beatPhase: "lobby", previous: joined(30_000), now })).toBe(false);
+    expect(beatCouldCount({ beatPhase: "joined", previous: { phase: "lobby", lastSeenAt: ago(30_000) }, now })).toBe(false);
+    expect(beatCouldCount({ beatPhase: "joined", previous: null, now })).toBe(false);
   });
   it("nothing for a lobby beat, the first beat, the escalation beat, a closed room, or a clock going backwards", () => {
     const none = { watchedSeconds: 0, rejoined: false };
