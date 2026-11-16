@@ -21,19 +21,22 @@ const ROLE_FIELD = defaultPersonFields().role;
 const parse = (q: string) => parseContactFilters(new URLSearchParams(q), ROLE_FIELD);
 
 describe("parseContactFilters", () => {
-  it("takes Role as one of the organisation's answers, by key or label, retired ones included (step 1c)", () => {
-    const own = { options: [...ROLE_FIELD.options, { key: "ENG", label: "Engineer", retired: false }, { key: "OLD", label: "Old job", retired: true }] };
+  it("takes Role as a STORED value: exact, or a key in another case; never a loose label match (review of 2418a41f)", () => {
+    const own = { options: [...ROLE_FIELD.options, { key: "DOC", label: "Physician", retired: false }, { key: "OLD", label: "Old job", retired: true }] };
     const role = (q: string) => {
       const r = parseContactFilters(new URLSearchParams(q), own);
       return r.ok ? r.filters.role : `refused: ${r.field}`;
     };
-    expect(role("role=ENG")).toBe("ENG");
-    expect(role("role=engineer")).toBe("ENG");
+    expect(role("role=DOC")).toBe("DOC");
+    expect(role("role=doc")).toBe("DOC");
     expect(role("role=OLD")).toBe("OLD");
-    expect(role("role=Others (Spouse)")).toBe("OTHERS");
-    expect(role("role=allied-health")).toBe("ALLIED_HEALTH");
-    expect(role("role=Astronaut")).toBe("refused: role");
+    // A stored value no longer on the list is still filtered by, as stored.
+    expect(role("role=PHYSICIAN")).toBe("PHYSICIAN");
+    // Never swapped for another answer whose LABEL reads the same.
+    expect(role("role=Physician")).toBe("PHYSICIAN");
+    expect(role("role=Astronaut")).toBe("Astronaut");
     expect(role("role=__none__")).toBe(NOT_SET);
+    expect(role(`role=${"x".repeat(101)}`)).toBe("refused: role");
   });
 
 
@@ -69,10 +72,12 @@ describe("parseContactFilters", () => {
     expect(parse(Array.from({ length: MAX_VALUES_PER_FIELD }, (_, i) => `country=c${i}`).join("&")).ok).toBe(true);
   });
 
-  it("refuses an unknown role instead of returning the whole book", () => {
+  it("never returns the whole book for an unknown role: it filters by it, so it matches no one", () => {
     const r = parse("role=astronaut");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.field).toBe("role");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.filters.role).toBe("astronaut");
+    expect(contactFiltersWhere("org1", r.filters).AND).toEqual([{ role: "astronaut" }]);
   });
 });
 

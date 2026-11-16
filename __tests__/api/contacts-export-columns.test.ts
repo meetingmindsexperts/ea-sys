@@ -92,8 +92,9 @@ describe("GET /api/contacts/export with the page's filters", () => {
     expect(JSON.stringify(audit)).not.toContain("amina");
   });
 
-  it("refuses an unknown role with a logged 400 before the rate limit", async () => {
-    const res = await get("?role=astronaut");
+  // An unknown role filters to nobody (step 1c, review of 2418a41f); a malformed one is refused.
+  it("refuses a malformed role with a logged 400 before the rate limit", async () => {
+    const res = await get(`?role=${"x".repeat(101)}`);
     expect(res.status).toBe(400);
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "contacts-export:invalid-filter", field: "role" }));
     expect(rateLimit).not.toHaveBeenCalled();

@@ -72,16 +72,17 @@ describe("GET /api/contacts/filter-options", () => {
     expect(JSON.stringify(whereFor("country"))).not.toContain("Oman");
   });
 
-  it("refuses an unknown role with a logged 400", async () => {
-    const res = await GET(new Request("http://localhost/api/contacts/filter-options?role=astronaut"));
+  // An unknown role filters to nobody (step 1c, review of 2418a41f); a malformed one is refused.
+  it("refuses a malformed role with a logged 400", async () => {
+    const res = await GET(new Request(`http://localhost/api/contacts/filter-options?role=${"x".repeat(101)}`));
     expect(res.status).toBe(400);
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "contacts/filter-options:invalid-filter" }));
   });
 });
 
 describe("GET /api/contacts with a bad role", () => {
-  it("refuses it with a logged 400 instead of returning the whole book", async () => {
-    const res = await listGET(new Request("http://localhost/api/contacts?role=astronaut"));
+  it("refuses a malformed one with a logged 400 instead of returning the whole book", async () => {
+    const res = await listGET(new Request(`http://localhost/api/contacts?role=${"x".repeat(101)}`));
     expect(res.status).toBe(400);
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "contacts:invalid-filter", field: "role" }));
     expect(mockDb.contact.findMany).not.toHaveBeenCalled();

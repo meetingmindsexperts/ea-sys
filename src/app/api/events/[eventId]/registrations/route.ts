@@ -25,7 +25,7 @@ import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { toCsvRow } from "@/lib/csv-escape";
 import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
-import { personFieldHeading } from "@/lib/person-fields";
+import { defaultPersonFields } from "@/lib/person-fields";
 import {
   REGISTRATION_EXPORT_HEADERS,
   buildRegistrationExportRow,
@@ -666,8 +666,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     // 2,000-row export rather than a JSON re-parse.
     const [sponsorNameById, personFields] = await Promise.all([
       getSponsorNameMap(eventId),
-      // Role's label and the field headings are the organisation's (step 1c).
-      loadOrganizationPersonFields(event.organizationId),
+      // Role is written as the organisation's label (step 1c), read only when a
+      // file is asked for: the list itself shows no labels (review of 2418a41f).
+      exportMode === "csv" ? loadOrganizationPersonFields(event.organizationId) : Promise.resolve(defaultPersonFields()),
     ]);
 
     if (searchParams.get("export") === "sales") {
@@ -744,9 +745,10 @@ export async function GET(req: Request, { params }: RouteParams) {
           certificatesByRegistrationId,
         }),
       );
-      const headers = REGISTRATION_EXPORT_HEADERS.map((h) => personFieldHeading(h, personFields));
-      // Escaped like every other cell: an organisation's own label may hold a comma.
-      const csv = [toCsvRow(headers), ...rows.map((row) => toCsvRow(row))].join("\n");
+      // Fixed headings, as the contacts export keeps its column keys: the
+      // registrations import finds its columns by these names, so a file must
+      // read back after an organisation renames a field (review of 2418a41f).
+      const csv = [REGISTRATION_EXPORT_HEADERS.join(","), ...rows.map((row) => toCsvRow(row))].join("\n");
 
       recordExport(req, {
         entityType: "Registration",

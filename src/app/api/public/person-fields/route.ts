@@ -16,7 +16,9 @@ import { DEFAULT_PUBLIC_PERSON_FIELDS, publicPersonFields, readEventPersonFieldC
  * Specialty, the label and the answers on offer (Nov 13, 2026; step 1 of
  * docs/ORG_FIELDS_PLAN.md). Every specialty picker reads this, on the public
  * registration forms as well as in the dashboard, so there is no sign-in: the
- * answers are what the public form shows anyway. Retired answers are not sent.
+ * answers are what the public form shows anyway. Retired answers are not
+ * OFFERED (`answers`); their labels travel in `labels` so a screen can show a
+ * stored one (step 1c). They are the organisation's own words, nothing private.
  *
  * Whose list, in this order:
  *   1. the organisation of the event named by `?event=<slug or id>`: a public

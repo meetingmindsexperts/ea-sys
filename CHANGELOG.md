@@ -18,10 +18,11 @@ Step 1c, part B, of `docs/ORG_FIELDS_PLAN.md`.
 
 Step 1c, part A, of `docs/ORG_FIELDS_PLAN.md`. Nothing changes for MM Group: its list is today's nine with today's labels.
 
-- **Changed**: the registrations export writes each Role as the organisation's label for it, under the organisation's headings for Title, Role and Specialty (the heading row is escaped like every other row). The contacts feed to `contacts_centralv1` sends the contact's organisation's label.
+- **Changed**: the registrations export writes each Role as the organisation's label for it, under the same fixed headings as before. The contacts feed to `contacts_centralv1` sends the contact's organisation's label.
 - **Changed**: the registrations, speakers, contacts and abstracts pages, My Details and the registration, speaker and contact sheets show a person's Role by the organisation's label, under its own caption (`usePersonFieldLabel`). A retired answer still shows by its label.
-- **Changed**: the Contacts Role filter accepts any of the organisation's answers, by key or label, case and punctuation ignored (`answerKeyFor`), and still refuses an unknown one; "Not recorded" also matches an empty Role. A label written loosely, like "Others (Spouse)", now resolves.
+- **Changed**: the Contacts Role filter accepts any of the organisation's answers (it matches the stored value); "Not recorded" also matches an empty Role.
 - **Added**: the public person-fields read carries every answer's label, retired ones included, so screens can show a stored answer the form no longer offers. Forms still offer only live answers.
+- **Review of `2418a41f`** (0 BLOCKER, 0 HIGH, 4 MED, 9 LOW, all latent until a list can be saved; MEDs 1 to 3, the failure half of 4, and LOWs 1, 3 to 6 fixed, the rest in ROADMAP for step 1d): a screen no longer crashes on a reply without labels or a stored value like "constructor"; the matcher ranks exact key, exact label, loose label, loose key and refuses a tie; the Contacts Role filter matches the stored value exactly (or a key in another case), and an unknown one filters to nobody instead of a 400; the contacts feed fails its run on a failed read rather than sending fallback labels; the registrations export keeps its fixed headings (a renamed field must still read back into the import), and reads the organisation only for that file.
 
 ### Event URL slugs: letters, digits and hyphens only; Greek letters written out (November 16)
 

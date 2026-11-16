@@ -29,15 +29,16 @@ export async function GET(req: Request) {
     const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.read", { route: "contacts/filter-options:GET" });
     if (!gate.ok) return gate.response;
 
-    const parsed = parseContactFilters(new URL(req.url).searchParams, (await loadOrganizationPersonFields(ctx.organizationId)).role);
-    if (!parsed.ok) {
-      apiLogger.warn({ msg: "contacts/filter-options:invalid-filter", organizationId: ctx.organizationId, userId: ctx.userId, field: parsed.field });
-      return NextResponse.json({ error: parsed.error }, { status: 400 });
-    }
-    const f = parsed.filters;
     const orgId = ctx.organizationId;
 
     return await runWithTenant(orgId, async () => {
+      // Inside the lane, as the list and the export read it (review of 2418a41f).
+      const parsed = parseContactFilters(new URL(req.url).searchParams, (await loadOrganizationPersonFields(orgId)).role);
+      if (!parsed.ok) {
+        apiLogger.warn({ msg: "contacts/filter-options:invalid-filter", organizationId: orgId, userId: ctx.userId, field: parsed.field });
+        return NextResponse.json({ error: parsed.error }, { status: 400 });
+      }
+      const f = parsed.filters;
       const [specialtyRows, countryRows, roleRows, total] = await Promise.all([
         db.contact.groupBy({ by: ["specialty"], where: contactFiltersWhere(orgId, { ...f, specialty: [] }), _count: { _all: true } }),
         db.contact.groupBy({ by: ["country"], where: contactFiltersWhere(orgId, { ...f, country: [] }), _count: { _all: true } }),

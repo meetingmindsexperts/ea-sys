@@ -176,6 +176,38 @@ reference document. Left, with why:
 Plan: `docs/ORG_FIELDS_PLAN.md`. The review of step 0a (`78a0b8a6`) and of the
 plan found these outside the plan's own steps.
 
+From the review of `2418a41f` (step 1c part A, the readers), Nov 16: 0 BLOCKER,
+0 HIGH, 4 MED, 9 LOW, all latent until a list can be saved. Fixed: M1 and L1
+(a reply without `labels`, or a stored "constructor", crashed a screen), M2 (the
+matcher now ranks exact key, exact label, loose label, loose key, answers null
+when two answers tie, and normalises accents), M3 (the contacts filter matches a
+stored role exactly, or a key in another case, so it never swaps one answer for
+another with the same label; an unknown role filters to nobody), the failure
+half of M4 (the contacts feed reads the organisation strictly: a failed read
+fails the run instead of writing fallback labels for good), L3 (the
+registrations export keeps fixed headings, so a renamed field still reads back
+into the import), L4, L5, L6. Left, each for step 1d, which is when a list can
+first be saved:
+
+- **M4, rest: a Role LABEL change must re-send every contact to
+  `contacts_centralv1`.** The feed sends the label, and its incremental run
+  sends only contacts edited since, so after a rename the central table (and
+  Mailchimp segments keyed on it) would hold old and new words side by side.
+  1d's save of a Role label runs the full reconcile, or the feed moves to the
+  key with n8n told first.
+- **The save must refuse a list the readers cannot read cleanly** (M2, L7): two
+  answers whose keys or labels match once case, accents and punctuation are
+  ignored, and the key `__none__` (the filter's "Not recorded").
+- **L2: a platform operator acting as another organisation sees its own
+  organisation's labels on Contacts** (the person-fields read takes the
+  session's organisation, the contacts routes honour `x-org-id`). Display only,
+  operator only; event pages are right because the event decides.
+- **L8 is step 1c part C:** the detail sheets' edit forms still offer the fixed
+  nine (`RoleSelect`) and the staff edit still validates them.
+- **L9, tests:** no test runs `buildCentralRows` with contacts from two
+  organisations, and the contacts route tests always take the read-failure
+  fallback (their `db` mock has no `organization`).
+
 From the review of `6739135d` (Role stored as text, step 1b), Nov 16: 0 BLOCKER,
 0 HIGH, 1 MED, 8 LOW. Fixed: the MED (the coordinator's "add people" route took
 any text as Role and had relied on the database list to refuse it; it now takes

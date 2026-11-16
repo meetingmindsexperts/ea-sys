@@ -21,8 +21,7 @@
  */
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { answerLabel, defaultPersonFields } from "@/lib/person-fields";
-import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
+import { answerLabel, defaultPersonFields, readPersonFields } from "@/lib/person-fields";
 import type { Title } from "@prisma/client";
 
 const isEnabled = () => process.env.CONTACTS_CENTRAL_ENABLED === "true";
@@ -167,10 +166,13 @@ export async function buildCentralRows(opts: { since?: Date } = {}): Promise<Cen
   if (contacts.length === 0) return [];
 
   // Each organisation's Role labels, read once (one organisation on master).
+  // Read STRICTLY: this feed writes for good, so a failed read fails the run
+  // (the next tick retries) rather than sending today's labels, or a raw key
+  // for an organisation's own answer, into contacts_centralv1 (review of
+  // 2418a41f; a download may fall back, a durable feed may not).
   const orgIds = uniq(contacts.map((c) => c.organizationId));
-  const fieldsByOrg = new Map(
-    await Promise.all(orgIds.map(async (id) => [id, await loadOrganizationPersonFields(id)] as const)),
-  );
+  const orgs = await db.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, settings: true } });
+  const fieldsByOrg = new Map(orgs.map((o) => [o.id, readPersonFields(o.settings)] as const));
 
   const eventIds = uniq(contacts.flatMap((c) => c.eventIds));
   const [events, regs] = await Promise.all([

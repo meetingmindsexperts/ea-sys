@@ -225,24 +225,17 @@ export function answerLabel(field: PersonFieldConfig, stored: string | null | un
  */
 export function storedAnswerLabel(field: Pick<PublicPersonField, "labels">, stored: string | null | undefined, fallback = ""): string {
   if (!stored) return fallback;
-  return field.labels[stored] ?? stored;
-}
-
-/**
- * The column heading or caption for a field: the organisation's own label for
- * Title, Role and Specialty, any other heading as it is.
- */
-export function personFieldHeading(heading: string, fields: Record<ConfigurablePersonField, { label: string }>): string {
-  if (heading === "Title") return fields.title.label;
-  if (heading === "Role") return fields.role.label;
-  if (heading === "Specialty") return fields.specialty.label;
-  return heading;
+  // `labels` may be missing (a reply from an image older than step 1c, during
+  // a rollback), and a stored value may be a name every object has
+  // ("constructor"): only the map's own entries count (review of 2418a41f).
+  const labels = field.labels;
+  return labels && Object.hasOwn(labels, stored) ? labels[stored] : stored;
 }
 
 /**
  * What a form needs of a field, and nothing more: safe to hand to a public
- * page. Retired answers are left out; "Others" is the last answer where the
- * field allows it.
+ * page. Retired answers are left out of `answers` (a form never offers one) and
+ * kept in `labels`; "Others" is the last answer where the field allows it.
  */
 export interface PublicPersonField {
   enabled: boolean;
@@ -353,7 +346,8 @@ export function withEventChoices<T extends { enabled: boolean; required: boolean
 
 /** Lower case, every run of anything that is not a letter or a digit read as one space. */
 function looseForm(text: string): string {
-  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  // NFKC first, so "Médecin" typed with a separate accent matches "Médecin".
+  return text.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 /**
@@ -363,16 +357,30 @@ function looseForm(text: string): string {
  * "Others (Spouse)"). Null when nothing matches. The ONE matcher for every
  * reader that takes a written answer: CSV imports, the contacts filter, the
  * contacts feed from contacts_centralv1 (step 1c of docs/ORG_FIELDS_PLAN.md).
- * An exact key wins over a looser match.
+ *
+ * Matched in four steps, and the first step that finds anything decides: the
+ * exact key, the exact label, the label loosely, the key loosely. A step that
+ * finds TWO different answers answers null, never a guess (review of
+ * 2418a41f: after a label is renamed, "Nurse practitioner" must not land on
+ * the retired answer that merely comes first in the list). Retired answers are
+ * read too: an import carries the history it is given.
  */
 export function answerKeyFor(field: Pick<PersonFieldConfig, "options">, written: string | null | undefined): string | null {
   const raw = written?.trim();
   if (!raw) return null;
-  const exact = field.options.find((o) => o.key === raw);
-  if (exact) return exact.key;
   const loose = looseForm(raw);
-  if (!loose) return null;
-  return field.options.find((o) => looseForm(o.key) === loose || looseForm(o.label) === loose)?.key ?? null;
+  const steps: ((o: PersonFieldOption) => boolean)[] = [
+    (o) => o.key === raw,
+    (o) => o.label === raw,
+    (o) => !!loose && looseForm(o.label) === loose,
+    (o) => !!loose && looseForm(o.key) === loose,
+  ];
+  for (const matches of steps) {
+    const keys = new Set(field.options.filter(matches).map((o) => o.key));
+    if (keys.size === 1) return [...keys][0];
+    if (keys.size > 1) return null;
+  }
+  return null;
 }
 
 /** Whether a NEWLY chosen answer is one the field offers. A stored answer is never judged by this. */

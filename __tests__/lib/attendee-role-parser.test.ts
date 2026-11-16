@@ -73,6 +73,34 @@ describe("answerKeyFor on an organisation's own answers", () => {
   it("never reads another organisation's answers", () => {
     expect(answerKeyFor(own, "Physician")).toBeNull();
   });
+
+  // Review of 2418a41f: the first answer in list order used to win.
+  it("an exact label beats a looser match on an earlier answer", () => {
+    const renamed = {
+      options: [
+        { key: "NURSE_PRACTITIONER", label: "NP", retired: true },
+        { key: "NURSE_PRACTITIONER_2", label: "Nurse practitioner", retired: false },
+      ],
+    };
+    expect(answerKeyFor(renamed, "Nurse practitioner")).toBe("NURSE_PRACTITIONER_2");
+    expect(answerKeyFor(renamed, "NURSE_PRACTITIONER")).toBe("NURSE_PRACTITIONER");
+  });
+
+  it("answers null when two answers match equally, never a guess", () => {
+    const twins = {
+      options: [
+        { key: "A", label: "Data science", retired: false },
+        { key: "B", label: "data-science", retired: false },
+      ],
+    };
+    expect(answerKeyFor(twins, "DATA SCIENCE")).toBeNull();
+    expect(answerKeyFor(twins, "Data science")).toBe("A");
+  });
+
+  it("matches an accented label however the accent was typed", () => {
+    const fr = { options: [{ key: "MED", label: "Médecin", retired: false }] };
+    expect(answerKeyFor(fr, "Me\u0301decin")).toBe("MED");
+  });
 });
 
 /**

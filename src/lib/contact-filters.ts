@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { answerKeyFor, type PersonFieldConfig } from "@/lib/person-fields";
+import { MAX_PERSON_FIELD_ANSWER, type PersonFieldConfig } from "@/lib/person-fields";
 
 /**
  * The "Not recorded" choice for specialty, country and role. A sentinel no real
@@ -61,16 +61,28 @@ export type ParsedContactFilters =
   | { ok: false; error: string; field: string };
 
 /**
- * `roleField` is the organisation's Role field (`loadOrganizationPersonFields`):
- * a role is accepted when it names one of its answers, retired or not, by key
- * or label (`answerKeyFor`), and is filtered by that answer's key.
+ * Role is a STORED value, not something a person wrote: the page offers the
+ * values the contacts hold (filter-options groups them), so it is matched
+ * exactly, never loosely (review of 2418a41f: a loose match could swap a
+ * stored "PHYSICIAN" for another answer labelled "Physician", and refused a
+ * value held but no longer on the list). One courtesy for API callers who
+ * write a key in another case: it is read as the organisation's key when one
+ * matches ignoring case. An unknown value matches no contact; it no longer
+ * widens anything, so it is not refused.
  */
+function storedRole(roleParam: string, roleField: Pick<PersonFieldConfig, "options">): string {
+  if (roleParam === NOT_SET) return NOT_SET;
+  const exact = roleField.options.find((o) => o.key === roleParam);
+  if (exact) return exact.key;
+  const lower = roleParam.toLowerCase();
+  return roleField.options.find((o) => o.key.toLowerCase() === lower)?.key ?? roleParam;
+}
+
 export function parseContactFilters(params: URLSearchParams, roleField: Pick<PersonFieldConfig, "options">): ParsedContactFilters {
   const roleParam = params.get("role")?.trim() || "";
-  const role = roleParam === NOT_SET ? NOT_SET : answerKeyFor(roleField, roleParam);
-  // An unknown role is refused, not ignored: ignoring it would return the
-  // whole book while the caller believes it filtered.
-  if (roleParam && !role) return { ok: false, error: `Unknown role: ${roleParam}`, field: "role" };
+  // Refused, not cut short: a shortened value would filter by something else.
+  if (roleParam.length > MAX_PERSON_FIELD_ANSWER) return { ok: false, error: "Role is too long", field: "role" };
+  const role = roleParam ? storedRole(roleParam, roleField) : null;
   const specialty = allValues(params, "specialty");
   const country = allValues(params, "country");
   // Refused, not trimmed: dropping values would quietly widen or narrow the result.

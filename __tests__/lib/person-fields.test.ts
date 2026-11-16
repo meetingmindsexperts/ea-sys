@@ -197,7 +197,7 @@ describe("what a public form is handed", () => {
   });
 
   it("a screen shows a stored answer by the organisation's label, retired or not, and an unknown one as stored", async () => {
-    const { publicPersonFields, storedAnswerLabel, personFieldHeading } = await import("@/lib/person-fields");
+    const { publicPersonFields, storedAnswerLabel } = await import("@/lib/person-fields");
     const fields = publicPersonFields(
       readPersonFields({
         [PERSON_FIELDS_SETTING]: {
@@ -209,8 +209,10 @@ describe("what a public form is handed", () => {
     expect(storedAnswerLabel(fields.role, "OLD")).toBe("Old job");
     expect(storedAnswerLabel(fields.role, "PHYSICIAN")).toBe("PHYSICIAN");
     expect(storedAnswerLabel(fields.role, null, "—")).toBe("—");
-    expect(personFieldHeading("Role", fields)).toBe("Profession");
-    expect(personFieldHeading("Email", fields)).toBe("Email");
+    // An older image's reply has no labels (a rollback); a stored value may be any text.
+    expect(storedAnswerLabel({ labels: undefined as unknown as Record<string, string> }, "ENG")).toBe("ENG");
+    expect(storedAnswerLabel(fields.role, "constructor")).toBe("constructor");
+    expect(storedAnswerLabel(fields.role, "__proto__")).toBe("__proto__");
   });
 });
 
