@@ -40,6 +40,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { surveyConfigSchema } from "@/lib/survey/schema";
 import { applyLegacyEventSurveyWrite } from "@/services/survey-service";
 import { readWebinarSettings } from "@/lib/webinar";
+import { normalizeEventSlug } from "@/lib/event-slug";
 import {
   updateSession as updateSessionService,
   syncZoomMeetingTimes,
@@ -380,19 +381,33 @@ export async function PUT(req: Request, { params }: RouteParams) {
       shiftSchedule,
     } = validated.data;
 
+    // A changed slug is cleaned to letters, digits and hyphens (event-slug.ts; Nov 16, 2026: a pasted
+    // name with spaces and a Greek letter broke every link to a webinar). An unchanged one is left as it
+    // is, so saving Settings never moves a link already sent (MEHF2027 stays MEHF2027).
+    const slugChanged = slug !== undefined && slug !== existingEvent.slug;
+    const nextSlug = slugChanged ? normalizeEventSlug(slug) : undefined;
+    if (nextSlug !== undefined && nextSlug.length < 2) {
+      apiLogger.warn({ eventId, userId: session.user.id }, "event-update:slug-invalid");
+      return NextResponse.json(
+        { error: "The URL slug needs at least two letters or digits.", code: "INVALID_SLUG" },
+        { status: 400 },
+      );
+    }
+
     // If slug is being changed, check for uniqueness
-    if (slug && slug !== existingEvent.slug) {
+    if (nextSlug && nextSlug !== existingEvent.slug) {
       const slugExists = await db.event.findFirst({
         where: {
           organizationId: orgGuard.orgId,
-          slug,
+          slug: nextSlug,
           id: { not: eventId },
         },
       });
 
       if (slugExists) {
+        apiLogger.warn({ eventId, userId: session.user.id, slug: nextSlug }, "event-update:slug-taken");
         return NextResponse.json(
-          { error: "An event with this slug already exists" },
+          { error: `The URL slug "${nextSlug}" is already used by another event.`, code: "SLUG_TAKEN" },
           { status: 400 }
         );
       }
@@ -687,7 +702,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const eventUpdateData = {
         ...(name && { name }),
-        ...(slug && { slug }),
+        ...(nextSlug && nextSlug !== existingEvent.slug && { slug: nextSlug }),
         ...(description !== undefined && { description }),
         ...(eventType !== undefined && { eventType }),
         ...(tag !== undefined && { tag }),

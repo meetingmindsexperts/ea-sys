@@ -14,6 +14,7 @@ import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-s
 import { ZoomSettingsCard } from "@/components/zoom/zoom-settings-card";
 import { SpeakerAgreementTemplateCard } from "@/components/events/speaker-agreement-template-card";
 import { GroupRateLinks } from "@/components/events/group-rate-links";
+import { EventSlugField } from "@/components/events/event-slug-field";
 import { isWebinar } from "@/lib/webinar";
 import { localDateTimeInTz, resolveTimezone, tzLabel, wallTimeInTzToIso } from "@/lib/event-time";
 import { readPresenterRegistrationSettings } from "@/lib/presenter-registration-settings";
@@ -1152,19 +1153,12 @@ export default function EventSettingsPage() {
                     }
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="slug">URL Slug</Label>
-                  <Input
-                    id="slug"
-                    value={generalFormData.slug}
-                    onChange={(e) =>
-                      setGeneralFormData({ ...generalFormData, slug: e.target.value })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Your public registration page: /e/{generalFormData.slug || "your-event-slug"}
-                  </p>
-                </div>
+                <EventSlugField
+                  value={generalFormData.slug}
+                  name={generalFormData.name}
+                  savedSlug={event?.slug}
+                  onChange={(slug) => setGeneralFormData((current) => ({ ...current, slug }))}
+                />
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
                   <Textarea

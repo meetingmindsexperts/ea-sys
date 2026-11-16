@@ -428,7 +428,46 @@ describe("PUT /api/events/[eventId]", () => {
     const res = await PUT(makePutRequest({ slug: "taken-slug" }), makeParams("evt-1"));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toContain("slug already exists");
+    expect(body.code).toBe("SLUG_TAKEN");
+    expect(body.error).toContain("already used by another event");
+  });
+
+  describe("the slug is cleaned when it changes (Nov 16, 2026: a pasted name broke every link to a webinar)", () => {
+    const savedScalars = () => mockDb.event.update.mock.calls[0]?.[0]?.data ?? {};
+
+    it("a pasted name becomes a safe address, Greek letters written out", async () => {
+      mockAuth.mockResolvedValue(adminSession);
+      mockDb.event.findFirst
+        .mockResolvedValueOnce({ id: "evt-1", slug: "old-slug", settings: {} })
+        .mockResolvedValueOnce(null); // the cleaned slug is free
+      mockDb.event.update.mockResolvedValue(sampleEvent);
+      mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+
+      const res = await PUT(makePutRequest({ slug: "Improving Outcomes in β-Thalassemia" }), makeParams("evt-1"));
+      expect(res.status).toBe(200);
+      expect(savedScalars().slug).toBe("Improving-Outcomes-in-beta-Thalassemia");
+      expect(mockDb.event.findFirst.mock.calls[1][0].where.slug).toBe("Improving-Outcomes-in-beta-Thalassemia");
+    });
+
+    it("an unchanged slug is left exactly as it is, so a save never moves a link already sent", async () => {
+      mockAuth.mockResolvedValue(adminSession);
+      mockDb.event.findFirst.mockResolvedValue({ id: "evt-1", slug: "MEHF2027", settings: {} });
+      mockDb.event.update.mockResolvedValue(sampleEvent);
+      mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+
+      await PUT(makePutRequest({ slug: "MEHF2027", name: "Renamed" }), makeParams("evt-1"));
+      expect(savedScalars()).not.toHaveProperty("slug");
+    });
+
+    it("a slug with no letters or digits left is refused and logged", async () => {
+      mockAuth.mockResolvedValue(adminSession);
+      mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", slug: "old-slug", settings: {} });
+
+      const res = await PUT(makePutRequest({ slug: "!! ??" }), makeParams("evt-1"));
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe("INVALID_SLUG");
+      expect(mockDb.event.update).not.toHaveBeenCalled();
+    });
   });
 
   it("merges settings with existing settings", async () => {

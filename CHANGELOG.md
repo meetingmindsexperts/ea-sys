@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event URL slugs: letters, digits and hyphens only; Greek letters written out (November 16)
+
+A webinar's slug was saved as its pasted name, "Improving Outcomes in β-Thalassemia": every link to it was invalid, Zoom refused its custom stream setup four times, and its handouts would not load. One rule now (`src/lib/event-slug.ts`): Greek letters are written in English (β becomes beta), accents are removed, spaces become hyphens, anything else goes. The Settings slug box cleans as you type, has a "Generate from name" button, and warns about a broken saved slug or a change to a live link. The save route cleans a CHANGED slug the same way (an unchanged one such as MEHF2027 is never rewritten) and refuses one with nothing left (`INVALID_SLUG`). New events get the Greek letters too (`slugify`).
+
 ### Person fields: Role is stored as text (November 16)
 
 Step 1b of `docs/ORG_FIELDS_PLAN.md` (owner decision D15, option C). Nothing changes on any screen: every door still accepts only the nine Role values.
