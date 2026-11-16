@@ -26,6 +26,10 @@ describe("toAsciiLetters", () => {
     expect(toAsciiLetters("Straße Ærø")).toBe("Strasse AEro");
   });
 
+  it("letters NFKD cannot take apart are written out (review of 0da5457b)", () => {
+    expect(toAsciiLetters("ıstanbul ẞ ð ŋ")).toBe("istanbul SS d ng");
+  });
+
   it("the micro sign is mu", () => {
     expect(toAsciiLetters("5 µg")).toBe("5 mug");
   });
@@ -45,6 +49,13 @@ describe("the slug box", () => {
     expect(normalizeEventSlug("--x--")).toBe("x");
     expect(normalizeEventSlug("مؤتمر")).toBe("");
     expect(normalizeEventSlug("a".repeat(250)).length).toBe(200);
+  });
+
+  it("dashes and separators keep words apart instead of gluing them (review of 0da5457b)", () => {
+    expect(eventSlugFromName("Advancing β\u2011Thalassemia Care 2026")).toBe("advancing-beta-thalassemia-care-2026");
+    expect(eventSlugFromName("COVID\u201319")).toBe("covid-19");
+    expect(eventSlugFromName("Heart/Lung: Dr. Who")).toBe("heart-lung-dr-who");
+    expect(slugify("Advancing β\u2011Thalassemia")).toBe("advancing-beta-thalassemia");
   });
 
   it("one made from the name is lower case", () => {

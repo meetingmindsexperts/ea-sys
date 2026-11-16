@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { toAsciiLetters } from "./event-slug"
+import { separatorsToHyphens, toAsciiLetters } from "./event-slug"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -96,7 +96,7 @@ export function getTitleLabel(title: string | null | undefined): string {
 
 /** Lower-case hyphenated words. Greek letters are spelled out and accents removed first (event-slug.ts). */
 export function slugify(text: string): string {
-  return toAsciiLetters(text)
+  return separatorsToHyphens(toAsciiLetters(text))
     .toLowerCase()
     .replace(/[^\w\s-]/g, "")
     .replace(/[\s_-]+/g, "-")

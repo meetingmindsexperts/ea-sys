@@ -11,6 +11,8 @@ import { webinarVideoSource } from "@/lib/webinar/video-source";
 import { partnerStreamReadiness } from "@/lib/webinar/partner-stream-readiness";
 import { PARTNER_STREAM_NOT_OFFERED_MESSAGE } from "@/lib/webinar/partner-stream-availability";
 import { Prisma } from "@prisma/client";
+import { eventSlugFromName, isValidEventSlug } from "@/lib/event-slug";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 
 /**
  * What the organizer chose to carry across (Sep 17, 2026). Both default to
@@ -149,11 +151,14 @@ export async function POST(
     const sessionsToClone = includeAgenda ? (source.eventSessions ?? []) : [];
     const certificateTemplatesToClone = includeCertificates ? (source.certificateTemplates ?? []) : [];
 
-    // Generate unique slug
-    const baseSlug = `${source.slug}-copy`;
+    // Generate unique slug. A source slug that is not safe in a web address (one saved before Nov 16,
+    // 2026, such as "Improving Outcomes in β-Thalassemia") is not carried over: the copy starts from the
+    // name instead (review of 0da5457b).
+    const sourceBase = isValidEventSlug(source.slug) ? source.slug : eventSlugFromName(source.name) || "event";
+    const baseSlug = `${sourceBase}-copy`;
     let slug = baseSlug;
     const existing = await db.event.findFirst({
-      where: { organizationId: source.organizationId, slug },
+      where: { organizationId: source.organizationId, slug: equalsIgnoringCase(slug) },
       select: { id: true },
     });
     if (existing) {

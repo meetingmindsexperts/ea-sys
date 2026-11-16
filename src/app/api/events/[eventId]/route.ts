@@ -41,6 +41,7 @@ import { surveyConfigSchema } from "@/lib/survey/schema";
 import { applyLegacyEventSurveyWrite } from "@/services/survey-service";
 import { readWebinarSettings } from "@/lib/webinar";
 import { normalizeEventSlug } from "@/lib/event-slug";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 import {
   updateSession as updateSessionService,
   syncZoomMeetingTimes,
@@ -399,7 +400,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       const slugExists = await db.event.findFirst({
         where: {
           organizationId: orgGuard.orgId,
-          slug: nextSlug,
+          // Whatever its case: MEHF2027 and mehf2027 would be two events nobody can tell apart (review of
+          // 0da5457b). Safe as a LIKE: a normalised slug has no "_" or "%".
+          slug: equalsIgnoringCase(nextSlug),
           id: { not: eventId },
         },
       });
@@ -970,6 +973,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...JSON.parse(JSON.stringify(validated.data)),
           ip: getClientIp(req),
           ...(shiftReport && { scheduleShift: shiftReport }),
+          // The slug as SAVED (cleaned) and the one it replaced; validated.data holds what was typed.
+          ...(nextSlug && nextSlug !== existingEvent.slug && { slugFrom: existingEvent.slug, slugTo: nextSlug }),
         },
       },
     });

@@ -446,7 +446,10 @@ describe("PUT /api/events/[eventId]", () => {
       const res = await PUT(makePutRequest({ slug: "Improving Outcomes in β-Thalassemia" }), makeParams("evt-1"));
       expect(res.status).toBe(200);
       expect(savedScalars().slug).toBe("Improving-Outcomes-in-beta-Thalassemia");
-      expect(mockDb.event.findFirst.mock.calls[1][0].where.slug).toBe("Improving-Outcomes-in-beta-Thalassemia");
+      // Checked against the saved one whatever its case (review of 0da5457b).
+      expect(mockDb.event.findFirst.mock.calls[1][0].where.slug).toEqual({ equals: "Improving-Outcomes-in-beta-Thalassemia", mode: "insensitive" });
+      const audit = mockDb.auditLog.create.mock.calls[0]?.[0]?.data?.changes;
+      expect(audit).toMatchObject({ slugFrom: "old-slug", slugTo: "Improving-Outcomes-in-beta-Thalassemia" });
     });
 
     it("an unchanged slug is left exactly as it is, so a save never moves a link already sent", async () => {

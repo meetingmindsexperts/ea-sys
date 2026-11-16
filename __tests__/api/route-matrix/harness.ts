@@ -110,6 +110,12 @@ function matchesScalar(cond: unknown, value: string): boolean {
   if (cond && typeof cond === "object" && Array.isArray((cond as { in?: unknown }).in)) {
     return ((cond as { in: string[] }).in).includes(value);
   }
+  // equalsIgnoringCase (like-escape.ts): an ILIKE with "_", "%" and "\" escaped, so unescape and compare
+  // without case. Used by the event slug checks since Nov 16, 2026.
+  const ci = cond as { equals?: unknown; mode?: unknown };
+  if (cond && typeof cond === "object" && typeof ci.equals === "string" && ci.mode === "insensitive" && Object.keys(cond).length === 2) {
+    return ci.equals.replace(/\\(.)/g, "$1").toLowerCase() === value.toLowerCase();
+  }
   throw new Error(`route-matrix: unsupported scalar filter ${JSON.stringify(cond)}`);
 }
 

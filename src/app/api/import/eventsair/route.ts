@@ -6,6 +6,8 @@ import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { decryptSecret, fetchEventDetails } from "@/lib/eventsair-client";
+import { eventSlugFromName } from "@/lib/event-slug";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 
 export const maxDuration = 60;
 
@@ -72,17 +74,15 @@ export async function POST(req: Request) {
     const eaEvent = await fetchEventDetails(creds, validated.data.eventsAirEventId);
 
     // Generate a unique slug
-    const baseSlug = (eaEvent.alias || eaEvent.name)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 80);
+    // The one slug rule (event-slug.ts): Greek letters written out, not dropped; a name with no Latin
+    // letters falls back to "event" (review of 0da5457b).
+    const baseSlug = eventSlugFromName(eaEvent.alias || eaEvent.name).slice(0, 80).replace(/-+$/, "") || "event";
 
     let slug = baseSlug;
     let suffix = 1;
     while (
       await db.event.findFirst({
-        where: { organizationId: session.user.organizationId, slug },
+        where: { organizationId: session.user.organizationId, slug: equalsIgnoringCase(slug) },
         select: { id: true },
       })
     ) {

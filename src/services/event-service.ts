@@ -37,6 +37,7 @@ import { readDefaultRegistrationTypes } from "@/lib/default-registration-types";
 import { DEFAULT_TIER_NAMES } from "@/lib/presenter-tiers";
 import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -229,7 +230,9 @@ async function findFreeSlug(organizationId: string, baseSlug: string): Promise<s
   for (let i = 0; i <= SLUG_SUFFIX_ATTEMPTS; i++) {
     const candidate = i === 0 ? baseSlug : `${baseSlug}-${i}`;
     const existing = await db.event.findFirst({
-      where: { organizationId, slug: candidate },
+      // Whatever its case (review of 0da5457b): an older MEHF2027 and a new mehf2027 would clash in
+      // people's eyes. Safe as a LIKE: a slugified candidate has no "_" or "%".
+      where: { organizationId, slug: equalsIgnoringCase(candidate) },
       select: { id: true },
     });
     if (!existing) return candidate;

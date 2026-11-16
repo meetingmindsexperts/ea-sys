@@ -44,7 +44,40 @@ const GREEK: Record<string, string> = {
 };
 
 /** Latin letters that do not decompose into a base letter and an accent. */
-const LATIN_EXTRA: Record<string, string> = { ß: "ss", æ: "ae", Æ: "AE", ø: "o", Ø: "O", œ: "oe", Œ: "OE", đ: "d", Đ: "D", ł: "l", Ł: "L", þ: "th", Þ: "TH" };
+const LATIN_EXTRA: Record<string, string> = {
+  ß: "ss",
+  ẞ: "SS",
+  æ: "ae",
+  Æ: "AE",
+  ø: "o",
+  Ø: "O",
+  œ: "oe",
+  Œ: "OE",
+  đ: "d",
+  Đ: "D",
+  ð: "d",
+  Ð: "D",
+  ł: "l",
+  Ł: "L",
+  þ: "th",
+  Þ: "TH",
+  ı: "i",
+  ŋ: "ng",
+  Ŋ: "NG",
+};
+
+/**
+ * Characters that separate words and must become a hyphen rather than vanish:
+ * every Unicode dash (a name typed in Word often has U+2011 or an en dash),
+ * the minus sign, and / \ . : , ; | (review of 0da5457b: "β‑Thalassemia" with
+ * a non-breaking hyphen came out "betathalassemia", "Heart/Lung" "heartlung").
+ */
+const WORD_SEPARATORS = /[‐-―⁃−﹘﹣－/\\.:,;|]/g;
+
+/** Word separators written as plain hyphens, so the words either side stay apart. */
+export function separatorsToHyphens(text: string): string {
+  return text.replace(WORD_SEPARATORS, "-");
+}
 
 /** Combining accents, left behind by NFKD (é becomes e plus an accent). */
 const COMBINING_MARKS = /[̀-ͯ]/g;
@@ -73,7 +106,7 @@ export function toAsciiLetters(text: string): string {
  * NOT trimmed, or a hyphen could never be typed.
  */
 export function cleanEventSlugInput(text: string): string {
-  return toAsciiLetters(text)
+  return separatorsToHyphens(toAsciiLetters(text))
     .replace(/[\s_]+/g, "-")
     .replace(/[^A-Za-z0-9-]/g, "")
     .replace(/-{2,}/g, "-");

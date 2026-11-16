@@ -477,6 +477,15 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(mockDb.$transaction).toHaveBeenCalledOnce();
     });
 
+    it("a source slug unsafe in a web address is not carried over: the copy starts from the name (review of 0da5457b)", async () => {
+      setupSuccessfulClone({ slug: "Improving Outcomes in β-Thalassemia", name: "Improving Outcomes in β-Thalassemia" });
+      await POST(makeRequest(), makeParams("evt-1"));
+      expect(mockDb.event.findFirst.mock.calls[1][0].where.slug).toEqual({
+        equals: "improving-outcomes-in-beta-thalassemia-copy",
+        mode: "insensitive",
+      });
+    });
+
     it("creates the event with DRAFT status", async () => {
       setupSuccessfulClone();
       await POST(makeRequest(), makeParams("evt-1"));

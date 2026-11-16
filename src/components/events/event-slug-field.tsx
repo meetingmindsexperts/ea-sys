@@ -26,8 +26,11 @@ export function EventSlugField({
   onChange: (slug: string) => void;
 }) {
   const fromName = eventSlugFromName(name);
+  const unchanged = value === savedSlug;
   const savedIsBroken = Boolean(savedSlug) && !isValidEventSlug(savedSlug ?? "");
-  const changingLiveLink = Boolean(savedSlug) && !savedIsBroken && value !== savedSlug;
+  // Said for a broken saved slug too: its encoded links may still work, and a change ends them
+  // (review of 0da5457b).
+  const changingLiveLink = Boolean(savedSlug) && !unchanged;
 
   return (
     <div className="space-y-2">
@@ -37,7 +40,11 @@ export function EventSlugField({
           id="slug"
           value={value}
           onChange={(e) => onChange(cleanEventSlugInput(e.target.value))}
-          onBlur={() => onChange(normalizeEventSlug(value))}
+          // Never on the saved slug untouched: tabbing past a broken one and saving another tab would
+          // move its live link without anyone choosing to (review of 0da5457b).
+          onBlur={() => {
+            if (!unchanged) onChange(normalizeEventSlug(value));
+          }}
           autoComplete="off"
           spellCheck={false}
         />
@@ -56,7 +63,7 @@ export function EventSlugField({
         Your public registration page: /e/{value || "your-event-slug"}. Letters, digits and hyphens only; Greek
         letters are written out (β becomes beta).
       </p>
-      {savedIsBroken && (
+      {savedIsBroken && unchanged && (
         <p className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           The saved address has spaces or symbols that break links and Zoom&apos;s stream setup. Press Generate from
