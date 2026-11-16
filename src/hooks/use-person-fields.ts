@@ -136,6 +136,8 @@ export interface RoleAnswerRow {
 
 export interface RoleSettings {
   label: string;
+  /** False while the contacts feed (Mailchimp) is connected: answers can be added and retired, not renamed. */
+  renameAllowed: boolean;
   answers: (RoleAnswerRow & { key: string })[];
 }
 

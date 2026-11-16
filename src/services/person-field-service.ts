@@ -26,6 +26,7 @@
  * no other settings key is lost. The caller must be inside the organisation's
  * tenant lane (the route enters it).
  */
+import { isCentralSyncConfigured } from "@/lib/contacts-central-sync";
 import type { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -347,13 +348,16 @@ export async function savePersonFieldSwitches(input: {
  *     contacts filter's "Not recorded" and is never an answer.
  *   - Something must be offered: Role has no free-text "Others".
  *   - A save made from an older copy of the list is refused (LIST_CHANGED).
- *   - A RELABEL marks every contact holding that answer as updated in the
- *     same transaction, so the contacts feed (contacts_centralv1, read by
- *     Mailchimp through n8n, which keys segments on the label) re-sends them
- *     with the new word on its next run, instead of holding old and new words
- *     side by side.
+ *   - A RENAME is refused while the contacts feed is connected
+ *     (`roleRenameAllowed`). The feed (contacts_centralv1, read by Mailchimp
+ *     through n8n, which keys segments on the label) only FILLS a blank role
+ *     on a row it already holds (`mergeWithExisting`), so a rename would leave
+ *     every existing row on the old word and new rows on the new one: the
+ *     segments would split (review of a7e87df6, HIGH). Adding and retiring
+ *     answers are allowed. Where no feed runs (the platform), renames are.
  */
 export type SaveRoleAnswersErrorCode =
+  | "RENAME_NOT_ALLOWED"
   | "ORGANIZATION_NOT_FOUND"
   | "TOO_MANY"
   | "INVALID_ANSWER"
@@ -384,6 +388,18 @@ export interface RoleAnswerInput {
 
 export interface RoleListSnapshot {
   answers: { key: string; label: string; retired?: boolean }[];
+}
+
+/**
+ * Whether a Role answer may be renamed here: not while the contacts feed is
+ * connected, which keeps the old word on every row it already holds (see
+ * saveRoleAnswers). Every production container reads the same .env, so the
+ * web app sees what the worker's feed sees. The feed never runs on the
+ * platform (TENANCY_ENFORCE_HOST), so renames are allowed there.
+ */
+export function roleRenameAllowed(): boolean {
+  if (process.env.TENANCY_ENFORCE_HOST === "1") return true;
+  return !isCentralSyncConfigured();
 }
 
 /** The reserved "Not recorded" choice of the contacts filter (contact-filters.ts NOT_SET). */
@@ -496,7 +512,7 @@ export async function countRoleUse(tx: Tx | typeof db, organizationId: string, k
 
 type RoleSaveOutcome =
   | { saved: false; result: SaveRoleAnswersResult }
-  | { saved: true; before: PersonFieldConfig; after: PersonFieldConfig; removed: string[]; relabelled: string[]; contactsResent: number };
+  | { saved: true; before: PersonFieldConfig; after: PersonFieldConfig; removed: string[]; relabelled: string[] };
 
 export async function saveRoleAnswers(input: {
   organizationId: string;
@@ -518,6 +534,15 @@ export async function saveRoleAnswers(input: {
       }
       const plan = planRoleAnswers(input.answers, before.options);
       if (!plan.ok) return { saved: false, result: plan.result };
+      if (plan.relabelled.length > 0 && !roleRenameAllowed()) {
+        return {
+          saved: false,
+          result: roleFail(
+            "RENAME_NOT_ALLOWED",
+            "Answers cannot be renamed while the contacts feed (Mailchimp) is connected: it would keep the old name for everyone it already holds. Add a new answer and retire the old one instead.",
+          ),
+        };
+      }
 
       const kept = new Set(plan.next.map((o) => o.key));
       const removed = before.options.map((o) => o.key).filter((key) => !kept.has(key));
@@ -539,12 +564,7 @@ export async function saveRoleAnswers(input: {
         where: { id: input.organizationId },
         data: { settings: { ...settings, [PERSON_FIELDS_SETTING]: { ...saved, role: after } } as unknown as Prisma.InputJsonValue },
       });
-      // A relabel: the contacts holding the answer are marked updated, so the
-      // contacts feed re-sends them with the new label on its next run.
-      const resent = plan.relabelled.length
-        ? await tx.contact.updateMany({ where: { organizationId: input.organizationId, role: { in: plan.relabelled } }, data: { updatedAt: new Date() } })
-        : { count: 0 };
-      return { saved: true, before, after, removed, relabelled: plan.relabelled, contactsResent: resent.count };
+      return { saved: true, before, after, removed, relabelled: plan.relabelled };
     });
 
     if (!outcome.saved) return outcome.result;
@@ -567,7 +587,6 @@ export async function saveRoleAnswers(input: {
         count: outcome.after.options.length,
         removed: outcome.removed,
         relabelled: outcome.relabelled,
-        contactsResent: outcome.contactsResent,
       },
       "person-fields:role-saved",
     );

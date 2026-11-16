@@ -48,6 +48,9 @@ vi.mock("@/lib/tenant-lane", () => ({
 // The two saves and the count are stubbed; reading the switches off a config is the real function.
 vi.mock("@/services/person-field-service", async (original) => ({
   switchesOf: (await original<typeof import("@/services/person-field-service")>()).switchesOf,
+  labelsOf: (await original<typeof import("@/services/person-field-service")>()).labelsOf,
+  roleRenameAllowed: () => true,
+  saveFieldLabels: vi.fn(),
   saveSpecialtyAnswers,
   savePersonFieldSwitches,
   countSpecialtyUse,

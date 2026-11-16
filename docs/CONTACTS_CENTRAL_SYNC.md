@@ -51,7 +51,7 @@ all control on the EA-SYS side (nothing to install in the target project).
 | `mobile` | `phone` |
 | `city` / `country` | `city` / `country` |
 | `speciality` | `specialty` (or `customSpecialty` when specialty = "Others") |
-| `role` | `role` → human label (`formatAttendeeRole`) |
+| `role` | `role` → the contact's organisation's label for the stored key (`answerLabel`, since Nov 16, 2026). Only fills a blank: a row keeps the role it already holds, which is why Settings refuses renaming a Role answer while this feed is connected |
 | `tags` (union) | `tags` |
 | `events_attended` (union) | names of events in `eventIds` |
 | `registration_type` (union) | the person's ticket-type names (from registrations) |

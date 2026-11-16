@@ -80,16 +80,6 @@ export const ATTENDEE_ROLE_LABELS: Record<AttendeeRoleValue, string> = {
   OTHERS: "Others (Spouse)",
 };
 
-/** Format an AttendeeRole value for display; falls back to a dash when empty.
- *  Unknown values pass through unchanged (defensive against enum drift). */
-export function formatAttendeeRole(
-  role: string | null | undefined,
-  fallback = "—",
-): string {
-  if (!role) return fallback;
-  return ATTENDEE_ROLE_LABELS[role as AttendeeRoleValue] ?? role;
-}
-
 /** The Prisma `Title` enum values, as a CSV-parseable set. */
 export type TitleValue = "DR" | "MR" | "MRS" | "MS" | "PROF";
 const TITLE_SET = new Set<string>(["DR", "MR", "MRS", "MS", "PROF"]);

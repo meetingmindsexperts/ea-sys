@@ -41,6 +41,9 @@ export function RoleAnswersCard() {
   const rows = edited?.rows ?? savedRows;
   const base = edited?.base ?? savedRows;
   const canEdit = saved !== undefined;
+  // While the contacts feed (Mailchimp) is connected, existing answers keep
+  // their names (review of a7e87df6): it would hold the old name for good.
+  const renameAllowed = saved?.renameAllowed === true;
   const busy = save.isPending;
   const dirty = canEdit && edited !== null && JSON.stringify(strip(rows)) !== JSON.stringify(strip(base));
   const full = rows.length >= MAX_PERSON_FIELD_OPTIONS;
@@ -97,10 +100,8 @@ export function RoleAnswersCard() {
           Role answers
         </CardTitle>
         <CardDescription>
-          The answers every Role picker offers, on the registration forms and in the dashboard. An answer can be renamed:
-          everyone who chose it keeps it and sees the new name. Renaming one re-sends its contacts to the contacts feed
-          (Mailchimp), so lists built on the old name change. An answer held by records can be retired, not removed. A change
-          shows the next time a form is opened.
+          The answers every Role picker offers, on the registration forms and in the dashboard. An answer held by records can
+          be retired, not removed. A change shows the next time a form is opened.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -118,6 +119,12 @@ export function RoleAnswersCard() {
             {offered} offered{rows.length > offered ? `, ${rows.length - offered} retired` : ""}.
           </p>
         )}
+        {canEdit && !renameAllowed && (
+          <p className="rounded-lg border px-3 py-2 text-sm text-muted-foreground">
+            Existing answers cannot be renamed while the contacts feed (Mailchimp) is connected: it keeps the name it already
+            holds for everyone, so lists built on it would split. To change a name, add the new answer and retire the old one.
+          </p>
+        )}
         {rows.length > 0 && (
           <ol className="divide-y rounded-lg border max-h-[28rem] overflow-y-auto">
             {rows.map((row, i) => (
@@ -128,6 +135,8 @@ export function RoleAnswersCard() {
                   className={`h-8 flex-1 ${row.retired ? "text-muted-foreground line-through" : ""}`}
                   value={row.label}
                   maxLength={MAX_PERSON_FIELD_ANSWER}
+                  // A saved answer's name is fixed while the feed is connected; a new one is still being written.
+                  readOnly={!renameAllowed && !!row.key}
                   disabled={busy}
                   onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, label: e.target.value } : r)))}
                 />
@@ -194,8 +203,7 @@ export function RoleAnswersCard() {
             {relabelled.length > 0 && (
               <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
                 Renaming {relabelled.length === 1 ? "this answer" : `${relabelled.length} answers`} changes how{" "}
-                {relabelledRecords === 1 ? "1 record reads" : `${relabelledRecords.toLocaleString("en-US")} records read`} everywhere, and re-sends
-                those contacts to the contacts feed (Mailchimp) on its next run. Lists built on the old name change.
+                {relabelledRecords === 1 ? "1 record reads" : `${relabelledRecords.toLocaleString("en-US")} records read`} on every form, screen and export.
               </p>
             )}
             {canEdit && offered === 0 && (

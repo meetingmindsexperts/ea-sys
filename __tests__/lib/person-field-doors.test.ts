@@ -258,8 +258,11 @@ describe("every route that takes these fields is a door, or named as not one", (
   it("every classified route takes Role through a Role validator, never free text", () => {
     // Role is text in the database since Nov 16, 2026 (docs/ORG_FIELDS_PLAN.md
     // step 1b): nothing below the route refuses an unknown answer any more.
-    const loose = [...Object.keys(DOORS), ...Object.keys(NOT_A_DOOR)].filter((file) =>
-      /\brole\s*:\s*z\.string\(/.test(read(file)),
+    // Settings, Form fields: there `role` is the Role FIELD's own name and
+    // answer list (step 1d), never a person's role.
+    const NAMES_THE_FIELD = new Set(["src/app/api/organization/person-fields/route.ts"]);
+    const loose = [...Object.keys(DOORS), ...Object.keys(NOT_A_DOOR)].filter(
+      (file) => !NAMES_THE_FIELD.has(file) && /\brole\s*:\s*z\.string\(/.test(read(file)),
     );
     expect(loose).toEqual([]);
   });

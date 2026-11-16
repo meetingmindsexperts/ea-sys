@@ -11,6 +11,7 @@ import {
   countRoleUse,
   countSpecialtyUse,
   labelsOf,
+  roleRenameAllowed,
   saveFieldLabels,
   savePersonFieldSwitches,
   saveRoleAnswers,
@@ -77,6 +78,7 @@ const HTTP_STATUS: Record<SaveSpecialtyAnswersErrorCode, number> = {
 };
 
 const ROLE_HTTP_STATUS: Record<SaveRoleAnswersErrorCode, number> = {
+  RENAME_NOT_ALLOWED: 409,
   ORGANIZATION_NOT_FOUND: 404,
   TOO_MANY: 400,
   INVALID_ANSWER: 400,
@@ -105,6 +107,8 @@ async function specialtyWithUse(organizationId: string) {
     // Role's own answers (step 1d): a key that never changes, a label that may.
     role: {
       label: config.role.label,
+      // False while the contacts feed is connected: renaming would split its lists.
+      renameAllowed: roleRenameAllowed(),
       answers: config.role.options.map((o) => ({ key: o.key, label: o.label, retired: o.retired, records: roleUse.get(o.key) ?? 0 })),
     },
     // Asked or not, and demanded or not, for each of the three fields.

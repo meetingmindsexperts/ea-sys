@@ -22,9 +22,10 @@
  * `personFieldRules` is what every form and every server door asks
  * (src/lib/person-field-rules.ts holds the server's check), with each EVENT's
  * own choice laid over them (`withEventChoices`, at the end of this file).
- * Not yet: the field's label is stored and read but no form shows it, Title
- * and Role still offer their fixed lists, and Role is still a fixed database
- * list (docs/ORG_FIELDS_PLAN.md, the later slices).
+ * Since Nov 16, 2026 (steps 1b to 1d): Role is text holding an answer KEY,
+ * every reader and door follows the organisation's Role list, Settings edits
+ * the Role answers and the names of Role and Specialty, and every form shows
+ * those names. Title is on or off only, with its five answers (D8).
  *
  * Pure and client-safe: no database import. The server reads the setting and
  * hands the parsed result to whoever needs it.
@@ -354,8 +355,9 @@ export function withEventChoices<T extends { enabled: boolean; required: boolean
  * file or a person typing (the Role save refuses them).
  */
 export function looseForm(text: string): string {
-  // NFKC first, so "Médecin" typed with a separate accent matches "Médecin".
-  return text.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  // Accents are ignored ("Médecin" and "Medecin" read the same, review of
+  // a7e87df6): decomposed, then the marks dropped; NFKC folds the rest.
+  return text.normalize("NFKD").replace(/\p{M}+/gu, "").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 /**

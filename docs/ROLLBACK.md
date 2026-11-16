@@ -219,7 +219,7 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   older image reads and writes `"role"` and the trigger copies its writes into `"roleKey"`.
   Since step 1d (Nov 16, 2026) Settings, Form fields, Role answers can add, rename and retire
   answers, so check before a rollback whether any organisation has saved its own list:
-  `SELECT id FROM "Organization" WHERE settings->'personFields' ? 'role';` (none means the
+  `SELECT id FROM "Organization" WHERE settings->'personFields'->'role' ? 'options';` (none means the
   older image is safe). Once an organisation has its own answers, the older image reads NO role for those people
   (the enum column is empty for an answer outside the nine), and anything there that sets one
   of the nine replaces the organisation's answer: a staff edit, and also writers that fill

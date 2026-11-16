@@ -201,6 +201,27 @@ done before 1d ships:**
   key "(no longer offered)". Fix: expose `isPlaceholderData` / `isError` from
   `usePersonFields` and disable the picker (or drop the suffix) until the real
   list is in.
+- **From the review of `a7e87df6` (step 1d part 2, Role answers in Settings;
+  0 BLOCKER, 1 HIGH, 2 MED, 7 LOW; the HIGH, M1, L1 and L4 fixed).** HIGH:
+  renames are refused while the contacts feed is connected. **To allow them
+  on MM Group one day, an owner decision**: either rewrite the feed's rows
+  for the old word on a rename (a PATCH on contacts_centralv1, which also
+  rewrites rows from other sources), or make `role` an EA-owned field in
+  `mergeWithExisting` for relabelled keys. **M2**, a rename forgets the old
+  word, so an old export, a CSV or the inbound feed carrying it reads back as
+  no role; keep former labels on the option and read them in `answerKeyFor`
+  (only reachable where renames are allowed, which is no organisation today).
+  **L2**, a door that read the list before a save and writes after it can
+  store a key the save just removed (the Specialty save has the same race;
+  only unused answers can be removed). **L3**, an account profile is not
+  counted when removing an answer. **L5**, a clash with another answer's
+  KEY names that answer without saying it is the key; non-Latin labels get
+  keys ANSWER, ANSWER_2. **L6**, the card's disabled Remove explains itself
+  only by hover; new rows remount when moved. **L7**, a count failing after
+  a successful save answers 500. **Older**: a staff correction of a contact's
+  role never reaches contacts_centralv1 either (the same enrich-only rule);
+  `formatAttendeeRole` in schemas.ts is now unused; the header of
+  person-fields.ts still says Role is a fixed list.
 - **From the review of `bef0c980` (step 1d part 1; 0 HIGH, 0 MED, 6 LOW;
   LOW 2 and 4 fixed): LOW 1**, the person-fields read answers 200 with today's
   lists when no organisation resolves, and `ready` counts it, so a picker could

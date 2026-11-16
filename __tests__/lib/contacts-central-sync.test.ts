@@ -20,7 +20,6 @@ vi.mock("@/lib/db", () => ({
     registration: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
-import { formatAttendeeRole } from "@/lib/schemas";
 import { db } from "@/lib/db";
 
 const NOW = "2026-07-06T00:00:00.000Z";
@@ -62,7 +61,8 @@ describe("buildCentralRow", () => {
     expect(r.organization_name).toBe("Analytical Engines");
     expect(r.job_title).toBe("Mathematician");
     expect(r.mobile).toBe("+441234");
-    expect(r.role).toBe(formatAttendeeRole(AttendeeRole.PHYSICIAN));
+    // Today's label for the key, as the feed has always sent it.
+    expect(r.role).toBe("Physician");
     expect(r.tags).toEqual(["vip", "gold"]);
     expect(r.events_attended).toEqual(["MedCon 2026", "Heart Forum"]);
     expect(new Set(r.event_type)).toEqual(new Set(["CONFERENCE", "WEBINAR"]));
