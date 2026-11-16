@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Person fields: the CSV imports read Role in the organisation's words (November 16)
+
+Step 1c, part B, of `docs/ORG_FIELDS_PLAN.md`.
+
+- **Changed**: the contacts, speakers and registrations CSV imports and the inbound `contacts_centralv1` import read a Role cell through the organisation's own answers, by key or label, case and punctuation ignored. An unknown one is still left blank and counted; the contacts import's warning names the field and lists the answers as the organisation calls them.
+- **Fixed**: "Others (Spouse)", the label the contacts feed sends, now reads back as Others; the old parser dropped it.
+- **Removed**: `parseAttendeeRole`, the fixed-list parser. Its test cases now run against the shared matcher.
+
 ### Person fields: every screen and file shows Role in the organisation's words (November 16)
 
 Step 1c, part A, of `docs/ORG_FIELDS_PLAN.md`. Nothing changes for MM Group: its list is today's nine with today's labels.

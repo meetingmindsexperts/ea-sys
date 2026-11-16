@@ -8,7 +8,9 @@ import { getOrgContext } from "@/lib/api-auth";
 import { auth } from "@/lib/auth";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
-import { ATTENDEE_ROLE_ORDER, formatAttendeeRole, parseAttendeeRole, parseTitle, type AttendeeRoleValue, type TitleValue } from "@/lib/schemas";
+import { parseTitle, type TitleValue } from "@/lib/schemas";
+import { answerKeyFor, offeredAnswers } from "@/lib/person-fields";
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
 import { IMPORT_MAX_LENGTH, IMPORT_REQUIRED_MAX, IMPORT_TEXT_COLUMNS, parseImportDate, type ImportCappedColumn } from "@/lib/contact-export";
 import { unescapeCsvCell } from "@/lib/csv-escape";
 
@@ -94,6 +96,8 @@ export async function POST(req: Request) {
     // reporting a clean import. Counted, then warn-logged once below.
 
     let unrecognizedRole = 0;
+    // The organisation's own Role answers, by key or label (step 1c): never the fixed nine.
+    const roleField = (await loadOrganizationPersonFields(ctx.organizationId)).role;
 
     let unrecognizedTitle = 0;
 
@@ -108,7 +112,7 @@ export async function POST(req: Request) {
       title?: TitleValue | null;
       firstName: string;
       lastName: string;
-      role?: AttendeeRoleValue | null;
+      role?: string | null;
       tags: string[];
       studentIdExpiry?: Date | null;
     } & Partial<Record<ImportCappedColumn, string>>)[] = [];
@@ -141,7 +145,7 @@ export async function POST(req: Request) {
       const title = parseTitle(titleCell);
       if (titleCell && !title) unrecognizedTitle++;
       const roleCell = cell(idx.role);
-      const role = parseAttendeeRole(roleCell);
+      const role = answerKeyFor(roleField, roleCell);
       if (roleCell && !role) unrecognizedRole++;
 
       const expiryCell = cell(idx.studentIdExpiry);
@@ -215,7 +219,7 @@ export async function POST(req: Request) {
     const warnings: string[] = [];
     if (unrecognizedRole > 0 || unrecognizedTitle > 0) {
       apiLogger.warn({ msg: "Import unrecognized enum cells", importType: "contacts", source: "csv", userId: ctx.userId, organizationId: ctx.organizationId, unrecognizedRole, unrecognizedTitle });
-      if (unrecognizedRole > 0) warnings.push(`${unrecognizedRole} role value(s) were not recognised and were left blank. Use one of: ${ATTENDEE_ROLE_ORDER.map((r) => formatAttendeeRole(r)).join(", ")}.`);
+      if (unrecognizedRole > 0) warnings.push(`${unrecognizedRole} ${roleField.label.toLowerCase()} value(s) were not recognised and were left blank. Use one of: ${offeredAnswers(roleField).map((o) => o.label).join(", ")}.`);
       if (unrecognizedTitle > 0) warnings.push(`${unrecognizedTitle} title value(s) were not recognised and were left blank. Use one of: Dr, Prof, Mr, Mrs, Ms.`);
     }
     if (unreadableExpiry > 0 || invalidAdditionalEmail > 0 || tooLong > 0) {

@@ -111,28 +111,10 @@ export function parseTitle(raw: string | null | undefined): TitleValue | null {
   return TITLE_SET.has(normalized) ? (normalized as TitleValue) : null;
 }
 
-const ATTENDEE_ROLE_SET = new Set<string>(ATTENDEE_ROLE_ORDER);
-
-/**
- * Parse a free-text CSV cell into an AttendeeRole, or null when it's empty or
- * unrecognized.
- *
- * Accepts the human labels operators actually type — case-insensitive, with
- * spaces or hyphens where the enum has underscores, so "Allied Health",
- * "allied-health" and "ALLIED_HEALTH" all resolve.
- *
- * ONE implementation for every CSV import (registrations / speakers /
- * contacts). It previously existed only inside the registrations importer,
- * which is why the other two silently dropped the column.
- *
- * An unrecognized value returns null (the field is optional and a typo must
- * not fail the whole row) — the caller decides whether to surface that.
- */
-export function parseAttendeeRole(raw: string | null | undefined): AttendeeRoleValue | null {
-  if (!raw) return null;
-  const normalized = raw.trim().toUpperCase().replace(/[\s-]/g, "_");
-  return ATTENDEE_ROLE_SET.has(normalized) ? (normalized as AttendeeRoleValue) : null;
-}
+// A written Role answer is read with `answerKeyFor` in src/lib/person-fields.ts,
+// against the ORGANISATION's answers (step 1c of docs/ORG_FIELDS_PLAN.md). The
+// fixed-list parser that stood here (parseAttendeeRole) is gone: it could only
+// read the nine, and could not read "Others (Spouse)".
 
 /**
  * A presenter's contact details, as BOTH public abstract doors collect them:

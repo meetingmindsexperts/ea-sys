@@ -1,45 +1,77 @@
 /**
- * Shared AttendeeRole CSV parser.
+ * Reading a written Role answer (CSV cells, the contacts filter, the inbound
+ * contacts_centralv1 import) through the ONE matcher, `answerKeyFor`, against
+ * the organisation's own answers (step 1c of docs/ORG_FIELDS_PLAN.md).
  *
  * `role` (the profession category) used to be parsed ONLY by the registrations
- * importer — the speakers and contacts importers silently dropped the column,
- * and the downloadable templates didn't even offer it. One parser now backs all
- * three, so the acceptance rules can't diverge again.
+ * importer: the speakers and contacts importers silently dropped the column,
+ * and the downloadable templates did not offer it. One reader now backs all
+ * three. These cases are the old fixed-list parser's, kept so nothing it read
+ * stops being read, plus what it could not read.
  */
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseAttendeeRole, parseTitle, ATTENDEE_ROLE_ORDER } from "@/lib/schemas";
+import { parseTitle, ATTENDEE_ROLE_ORDER } from "@/lib/schemas";
+import { answerKeyFor, defaultPersonFields } from "@/lib/person-fields";
 
-describe("parseAttendeeRole", () => {
-  it("accepts every canonical enum value", () => {
+const ROLE = defaultPersonFields().role;
+const parse = (written: string | null | undefined) => answerKeyFor(ROLE, written);
+
+describe("answerKeyFor on today's Role answers", () => {
+  it("accepts every stored key", () => {
     for (const role of ATTENDEE_ROLE_ORDER) {
-      expect(parseAttendeeRole(role)).toBe(role);
+      expect(parse(role)).toBe(role);
     }
   });
 
   it("accepts the human labels operators actually type", () => {
-    expect(parseAttendeeRole("Physician")).toBe("PHYSICIAN");
-    expect(parseAttendeeRole("Allied Health")).toBe("ALLIED_HEALTH");
-    expect(parseAttendeeRole("allied-health")).toBe("ALLIED_HEALTH");
-    expect(parseAttendeeRole("Medical Devices")).toBe("MEDICAL_DEVICES");
+    expect(parse("Physician")).toBe("PHYSICIAN");
+    expect(parse("Allied Health")).toBe("ALLIED_HEALTH");
+    expect(parse("allied-health")).toBe("ALLIED_HEALTH");
+    expect(parse("Medical Devices")).toBe("MEDICAL_DEVICES");
+  });
+
+  it("reads the label the contacts feed sends, which the old parser dropped", () => {
+    expect(parse("Others (Spouse)")).toBe("OTHERS");
+    expect(parse("Others")).toBe("OTHERS");
   });
 
   it("tolerates surrounding whitespace from spreadsheet cells", () => {
-    expect(parseAttendeeRole("  Physician  ")).toBe("PHYSICIAN");
+    expect(parse("  Physician  ")).toBe("PHYSICIAN");
   });
 
   it("returns null for empty / missing cells", () => {
-    expect(parseAttendeeRole("")).toBeNull();
-    expect(parseAttendeeRole(null)).toBeNull();
-    expect(parseAttendeeRole(undefined)).toBeNull();
-    expect(parseAttendeeRole("   ")).toBeNull();
+    expect(parse("")).toBeNull();
+    expect(parse(null)).toBeNull();
+    expect(parse(undefined)).toBeNull();
+    expect(parse("   ")).toBeNull();
+    expect(parse("---")).toBeNull();
   });
 
-  // A typo must not fail the whole row — role is optional.
+  // A typo must not fail the whole row: role is optional.
   it("returns null for an unrecognized value rather than throwing", () => {
-    expect(parseAttendeeRole("Doctor")).toBeNull();
-    expect(parseAttendeeRole("PHYSICIAN_X")).toBeNull();
+    expect(parse("Doctor")).toBeNull();
+    expect(parse("PHYSICIAN_X")).toBeNull();
+  });
+});
+
+describe("answerKeyFor on an organisation's own answers", () => {
+  const own = {
+    options: [
+      { key: "ENG", label: "Software engineer", retired: false },
+      { key: "PM", label: "Product manager", retired: true },
+      { key: "Ärztin", label: "Ärztin", retired: false },
+    ],
+  };
+  it("reads its keys and labels, retired ones included, and letters beyond English", () => {
+    expect(answerKeyFor(own, "software-engineer")).toBe("ENG");
+    expect(answerKeyFor(own, "PM")).toBe("PM");
+    expect(answerKeyFor(own, "product manager")).toBe("PM");
+    expect(answerKeyFor(own, "ärztin")).toBe("Ärztin");
+  });
+  it("never reads another organisation's answers", () => {
+    expect(answerKeyFor(own, "Physician")).toBeNull();
   });
 });
 

@@ -10,7 +10,9 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
-import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
+import { parseTitle } from "@/lib/schemas";
+import { answerKeyFor } from "@/lib/person-fields";
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
 import { syncManyToContacts } from "@/lib/contact-sync";
 import { contactSyncFromSpeakerInput } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -156,6 +158,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // reporting a clean import. Counted, then warn-logged once below.
 
     let unrecognizedRole = 0;
+    // The organisation's own Role answers, by key or label (step 1c): never the fixed nine.
+    const roleField = (await loadOrganizationPersonFields(orgGuard.orgId)).role;
 
     let unrecognizedTitle = 0;
     // An additional email that is not an address is dropped, not saved: it is
@@ -196,7 +200,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const title = parseTitle(titleCell);
       if (titleCell && !title) unrecognizedTitle++;
       const roleCell = getField(fields, idx.role);
-      const role = parseAttendeeRole(roleCell);
+      const role = answerKeyFor(roleField, roleCell);
       if (roleCell && !role) unrecognizedRole++;
       const additionalEmailCell = getField(fields, idx.additionalEmail)?.trim().toLowerCase() || undefined;
       const additionalEmail = additionalEmailCell && EMAIL_RE.test(additionalEmailCell) ? additionalEmailCell : undefined;

@@ -71,7 +71,7 @@
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
 import dotenv from "dotenv";
-import { parseAttendeeRole } from "@/lib/schemas";
+import { answerKeyFor, readPersonFields, type PersonFieldConfig } from "@/lib/person-fields";
 import { screenContact } from "@/lib/contact-import-blocklist";
 import { recordImport } from "@/lib/audit-data-transfer";
 
@@ -282,7 +282,7 @@ interface Mapped {
   country: string | null;
   specialty: string | null;
   registrationType: string | null;
-  role: ReturnType<typeof parseAttendeeRole>;
+  role: string | null;
   tags: string[];
 }
 
@@ -298,7 +298,7 @@ const ENRICHABLE = [
 ] as const;
 
 /** Map a mirror row, or explain why it cannot be mapped. */
-function mapRow(r: MirrorRow): { ok: true; value: Mapped } | { ok: false; reason: string } {
+function mapRow(r: MirrorRow, roleField: Pick<PersonFieldConfig, "options">): { ok: true; value: Mapped } | { ok: false; reason: string } {
   const email = nz(r.email)?.toLowerCase();
   if (!email) return { ok: false, reason: "no email" };
 
@@ -345,7 +345,10 @@ function mapRow(r: MirrorRow): { ok: true; value: Mapped } | { ok: false; reason
       specialty: nz(r.speciality),
       // registration_type is an array on the mirror, a scalar here. First wins.
       registrationType: nz(r.registration_type?.[0] ?? null),
-      role: parseAttendeeRole(r.role),
+      // The mirror holds the LABEL our feed sends ("Physician", "Others (Spouse)");
+      // read back through the organisation's own answers (step 1c). The old
+      // parser could not read "Others (Spouse)" and dropped it.
+      role: answerKeyFor(roleField, r.role),
       tags,
     },
   };
@@ -510,7 +513,7 @@ async function main() {
     // --org wins; otherwise refuse to guess when there is more than one. An
     // unordered findFirst let heap order decide which org received ~57k rows.
     const orgArg = arg("org");
-    const orgs = await db.organization.findMany({ select: { id: true, name: true, slug: true } });
+    const orgs = await db.organization.findMany({ select: { id: true, name: true, slug: true, settings: true } });
     if (orgs.length === 0) throw new Error("[import-central] no Organization row found.");
     const pickOrg = () => {
       if (orgArg) return orgs.find((o) => o.id === orgArg || o.slug === orgArg);
@@ -534,6 +537,8 @@ async function main() {
       return;
     }
 
+    // The target organisation's own Role answers, read once (step 1c).
+    const roleField = readPersonFields(org.settings).role;
     const before = await db.contact.count({ where: { organizationId: org.id } });
 
     console.log(`\n  target org:     ${org.name} (${org.id})`);
@@ -565,7 +570,7 @@ async function main() {
       // 1. Map, dropping rows we cannot represent.
       const mappedRows: Mapped[] = [];
       for (const r of raw) {
-        const m = mapRow(r);
+        const m = mapRow(r, roleField);
         if (!m.ok) {
           skipped++;
           skipReasons.set(m.reason, (skipReasons.get(m.reason) ?? 0) + 1);

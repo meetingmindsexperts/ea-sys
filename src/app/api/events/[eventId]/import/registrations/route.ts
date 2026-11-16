@@ -23,7 +23,9 @@ import {
   untypedImportPaymentStatus,
   type ImportTicketType,
 } from "@/lib/import-ticket-type";
-import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
+import { parseTitle } from "@/lib/schemas";
+import { answerKeyFor } from "@/lib/person-fields";
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
 import { syncToContact } from "@/lib/contact-sync";
 import { contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -201,6 +203,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // reporting a clean import. Counted, then warn-logged once below.
 
     let unrecognizedRole = 0;
+    // The organisation's own Role answers, by key or label (step 1c): never the fixed nine.
+    const roleField = (await loadOrganizationPersonFields(orgGuard.orgId)).role;
 
     let unrecognizedTitle = 0;
     const createdIds: string[] = [];
@@ -312,7 +316,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // "Role" is the AttendeeRole profession category (Physician, Academia, …).
       // Shared parser — same acceptance rules as the speakers/contacts imports.
       const roleCell = getField(fields, idx.role);
-      const role = parseAttendeeRole(roleCell);
+      const role = answerKeyFor(roleField, roleCell);
       if (roleCell && !role) unrecognizedRole++;
       const registrationType = getField(fields, idx.registrationType);
       const tags = parseTags(getField(fields, idx.tags));
