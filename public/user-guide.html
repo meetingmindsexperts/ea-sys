@@ -2140,6 +2140,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
         <p><strong>Step 5: on the day.</strong> Click <strong>Open the room / Go live</strong> in the Go live card. If the partner&rsquo;s video is not arriving yet, the console says so; attendees see &ldquo;Waiting for stream to start&rdquo; until it does. Questions, polls, chat and handouts work as for any custom-stream webinar.</p>
 
+        <p><strong>A red warning on the Partner stream card</strong> (&ldquo;The stream server&rsquo;s control connection is not answering&rdquo;, or &ldquo;refused&rdquo;) means <strong>Cut the feed</strong> and <strong>Replace the key</strong> can stop new connections but cannot end a stream already running. Tell the system administrator before the webinar; the server is asked again every minute and the warning clears by itself once it is fixed. If you issue the key after opening the room, attendees already watching get the player by themselves, with no need to reload.</p>
         <p><strong>If the partner&rsquo;s stream drops.</strong> We cannot restart it from our side. The event&rsquo;s admins get a <strong>Partner stream stopped</strong> notification: call the partner. Attendees&rsquo; players pick the video up again by themselves when it returns, and a <strong>Partner stream is back</strong> notification follows.</p>
 
         <p><strong>The three buttons.</strong></p>
@@ -2506,6 +2507,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <img src="user-guide/screenshots/07-settings-event/01-general.png" alt="Event general settings with name, dates, location">
           <div class="ss-img-cap">Event name, dates, timezone, venue, status, support email, abstract submission toggle.</div>
         </figure>
+        <div class="callout c-info"><div class="c-icon">&#x1F517;</div><div class="c-body"><div class="c-title">The URL slug (November 16, 2026)</div><div class="c-text">The <strong>URL Slug</strong> is the event&rsquo;s web address: <code>/e/[slug]</code>. It may hold only <strong>letters, digits and hyphens</strong>; the box cleans what you type as you go (a space becomes a hyphen, Greek letters are written out so <strong>&beta;</strong> becomes <strong>beta</strong>, accents are dropped). <strong>Generate from name</strong> fills it from the event name, for example <code>improving-outcomes-in-beta-thalassemia</code>. <strong>Changing the slug of an event you have already shared breaks the links already sent</strong>, emails and QR codes included, and the box warns you before you save. If the box shows an amber warning that the saved address breaks links, press Generate from name and save: an address with spaces or symbols stops Zoom&rsquo;s stream setup and some page features from working.</div></div></div>
         <figure class="ss-img">
           <div class="ss-img-head"><span class="ss-img-label">Event Registration</span><span class="ss-img-ref">IMG-046</span></div>
           <img src="user-guide/screenshots/07-settings-event/02-registration.png" alt="Registration settings with tax rate and bank details">

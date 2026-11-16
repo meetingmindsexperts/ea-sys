@@ -27,6 +27,8 @@ Step 1c, part A, of `docs/ORG_FIELDS_PLAN.md`. Nothing changes for MM Group: its
 
 A webinar's slug was saved as its pasted name, "Improving Outcomes in β-Thalassemia": every link to it was invalid, Zoom refused its custom stream setup four times, and its handouts would not load. One rule now (`src/lib/event-slug.ts`): Greek letters are written in English (β becomes beta), accents are removed, spaces become hyphens, anything else goes. The Settings slug box cleans as you type, has a "Generate from name" button, and warns about a broken saved slug or a change to a live link. The save route cleans a CHANGED slug the same way (an unchanged one such as MEHF2027 is never rewritten) and refuses one with nothing left (`INVALID_SLUG`). New events get the Greek letters too (`slugify`).
 
+Review of it (`337c9156`): a clone of an event with an unsafe slug starts from the name, not "...-copy" of the broken one; Unicode dashes and / . : become hyphens instead of gluing words ("β‑Thalassemia" with a Word hyphen gave "betathalassemia"); the box no longer rewrites an untouched saved slug when you tab past it; uniqueness ignores case everywhere a slug is made; the audit row records `slugFrom` and `slugTo`; the EventsAir import uses the same rule.
+
 ### Person fields: Role is stored as text (November 16)
 
 Step 1b of `docs/ORG_FIELDS_PLAN.md` (owner decision D15, option C). Nothing changes on any screen: every door still accepts only the nine Role values.
@@ -47,6 +49,7 @@ Step 1b of `docs/ORG_FIELDS_PLAN.md` (owner decision D15, option C). Nothing cha
 - The Partner stream card now says when the stream server's control API does not answer or refuses us (`checkControlApi`, cached 30 s). Before this, "ready" was read from the environment alone, and Cut the feed failed only when it was needed.
 - The registrants of a partner's webinar whose key is not issued yet get the waiting room, then "Getting the stream ready". They used to get a 404 and "Click Join Webinar above", with no button.
 - The partner bar has a copy button for the attendee page. Zoom's details are labelled "hosts only": panelists join from their own invitation.
+- Review of it (`91c57362`): a partner's key issued after the room opened reaches attendees already watching (lobby-status says `streamReady`, and the page asks once more), never-opened rooms long past their slot ask before re-opening, the control check logs once per change, and the tab triggers read the same list as the fallback.
 
 ### Promo codes: a code that takes the whole fee makes the registration Complimentary, whenever it is entered (November 16)
 

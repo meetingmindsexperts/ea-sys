@@ -500,6 +500,15 @@ is broken if it fails (every piece refuses when unsure), but no partner's
 stream could be cut, so no key should be issued. Disconnecting itself is
 tested at the rehearsal, with a real stream.
 
+**The console checks it too (Nov 16, 2026).** The Partner stream card's
+read (`GET .../webinar/partner-stream`) asks MediaMTX for the first page of the
+path list (`checkControlApi`, cached 30 seconds per container) and answers
+`controlApi`: `ok`, `UNREACHABLE`, `REFUSED` or `BAD_ANSWER`. Anything but `ok`
+shows a red warning on the card, so a server whose step 3 was skipped or whose
+step 6 fails is visible to the producer before the webinar, not when Cut the
+feed fails. The log says it once per change: `mediamtx-control:check-failed`,
+then `mediamtx-control:check-recovered`.
+
 ## 12. Future work
 
 - ~~Fold the nginx `/stream/` proxy into `deploy/nginx.conf`~~ — **done**
