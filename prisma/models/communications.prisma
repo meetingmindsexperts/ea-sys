@@ -5,7 +5,12 @@ model Contact {
   organizationId   String
   org              Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   title            Title?
-  role             AttendeeRole?
+  /// Role's answer KEY, as text (Nov 16, 2026; docs/ORG_FIELDS_PLAN.md step 1b). MM Group's keys are
+  /// the nine AttendeeRole values. Physical column "roleKey": raw SQL must use that name.
+  role             String?       @map("roleKey")
+  /// The old enum column, kept in step by the person_role_key_sync trigger for the previous image
+  /// only. NEVER read or write it from this code: a database built by db push has no trigger.
+  roleLegacy       AttendeeRole? @map("role")
   email            String
   additionalEmail  String?
   firstName        String

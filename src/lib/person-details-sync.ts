@@ -35,7 +35,7 @@
  *  - Email is NOT synced: it has its own change flow (email-change.ts). Tags
  *    are synced by person-tag-sync.ts.
  */
-import type { AttendeeRole, Prisma, Title } from "@prisma/client";
+import type { Prisma, Title } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { equalsIgnoringCase } from "@/lib/like-escape";
@@ -64,7 +64,7 @@ export type SyncedPersonField = (typeof SYNCED_PERSON_FIELDS)[number];
 /** The synced columns as both tables store them. */
 export interface PersonDetails {
   title?: Title | null;
-  role?: AttendeeRole | null;
+  role?: string | null;
   firstName?: string | null;
   lastName?: string | null;
   additionalEmail?: string | null;

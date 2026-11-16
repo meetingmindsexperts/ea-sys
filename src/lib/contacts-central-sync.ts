@@ -22,7 +22,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { formatAttendeeRole } from "@/lib/schemas";
-import type { AttendeeRole, Title } from "@prisma/client";
+import type { Title } from "@prisma/client";
 
 const isEnabled = () => process.env.CONTACTS_CENTRAL_ENABLED === "true";
 const baseUrl = () => (process.env.CONTACTS_CENTRAL_URL || "").replace(/\/+$/, "");
@@ -71,7 +71,7 @@ export interface ContactForSync {
   country: string | null;
   specialty: string | null;
   customSpecialty: string | null;
-  role: AttendeeRole | null;
+  role: string | null;
   tags: string[];
   eventIds: string[];
   registrationType: string | null;

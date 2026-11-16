@@ -210,6 +210,20 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   `SELECT id, "abstractId", "recommendedFormat" FROM "AbstractReviewSubmission" WHERE "recommendedFormat" IN ('VIDEO','WORKSHOP');`.
   Never delete the enum values.
 
+- **Role stored as text (Nov 16, 2026; migration `20261116130000_role_key_text_column`).**
+  Attendee, Speaker, Contact and AccountProfile gained a text column `"roleKey"`, which the
+  code reads as `role`; the old enum column `"role"` stays and the trigger
+  `person_role_key_sync` keeps the two in step. Rolling back is safe while every role is one
+  of the nine values (Physician, Pharma and so on), which is all that any door accepts until
+  an organisation can add its own Role answers (step 1d of docs/ORG_FIELDS_PLAN.md): the
+  older image reads and writes `"role"` and the trigger copies its writes into `"roleKey"`.
+  Once an organisation has its own answers, the older image reads NO role for those people
+  (the enum column is empty for an answer outside the nine) and an edit there that sets one
+  of the nine replaces the organisation's answer. Count them first:
+  `SELECT count(*) FROM "Contact" WHERE "roleKey" IS NOT NULL AND "role" IS NULL;` (and the
+  same on the other three tables). Never drop the trigger or `"role"` while an image older
+  than this migration may still run.
+
 - **CRM corporate projects (Nov 12, 2026; migration `20261112150000_add_crm_project`).** The
   migration is additive, so an image older than it runs against the new table and column
   without error. The hazard is a write: the older image does not know `CrmDeal.projectId`, and

@@ -183,6 +183,16 @@ function createPrismaClient(datasourceUrl: string | undefined = process.env.DATA
     ],
     // Connection pool settings for better reliability
     datasourceUrl,
+    // Role's old enum column (docs/ORG_FIELDS_PLAN.md step 1b) is kept in step
+    // by a database trigger for the PREVIOUS image only. Left out of every read
+    // so a full-row read (the speakers API the website sync reads, a contact's
+    // detail, audit diffs) never shows it. Never select it in app code.
+    omit: {
+      attendee: { roleLegacy: true },
+      speaker: { roleLegacy: true },
+      contact: { roleLegacy: true },
+      accountProfile: { roleLegacy: true },
+    },
   });
 
   // Handle Prisma events with our logger

@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Person fields: Role is stored as text (November 16)
+
+Step 1b of `docs/ORG_FIELDS_PLAN.md` (owner decision D15, option C). Nothing changes on any screen: every door still accepts only the nine Role values.
+
+- **Why**: an organisation will hold its own Role answers, and its own answers cannot be members of the fixed database list `AttendeeRole`. Specialty never needed this: it was text from the start (Feb 2026); Role was added a month later (Mar 23, 2026) as a fixed list copying Title, though nothing ever compared a role value.
+- **Changed**: migration `20261116130000_role_key_text_column` adds a text column `"roleKey"` to Attendee, Speaker, Contact and AccountProfile, backfilled from the enum column. In Prisma `role` is now that text column and `roleLegacy` the old one. Raw SQL must name `"roleKey"`.
+- **Added**: the first database trigger, `person_role_key_sync`, keeps the two columns in step for the image still running during a deploy or a rollback: its writes to the old column are copied into the key; a key that is one of the nine is copied back, any other empties the old column; a blank key is stored as NULL.
+- **Added**: the shared Prisma client omits `roleLegacy` from every read, so a full-row read (the speakers API the website sync reads, a contact's detail, audit diffs) never shows it. `role-legacy-unread.test.ts` keeps application code off it; `tests/integration-db/role-key-sync.db.test.ts` pins the trigger on a real Postgres.
+- **Docs**: `docs/ROLLBACK.md` (what an older image sees once an organisation has its own answers), the plan, CLAUDE.md.
+
 ### Webinar Console: review of c1b4ae83, and step-8 readiness (November 16)
 
 - Closing the room no longer moves the producer from Setup to Analytics: the opening tab is chosen once, when the console loads (`src/lib/webinar/console-rules.ts`). A tab that disappears while selected falls back to Setup.

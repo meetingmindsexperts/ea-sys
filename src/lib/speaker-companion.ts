@@ -19,7 +19,7 @@ import { ensureEntryBarcode } from "@/lib/entry-barcode-mint";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { completedAtOnCreate } from "@/lib/registration-completion";
 import { refreshEventStats } from "@/lib/event-stats";
-import { Prisma, type Title, type AttendeeRole, type SpeakerStatus } from "@prisma/client";
+import { Prisma, type Title, type SpeakerStatus } from "@prisma/client";
 
 /** The speakers' type's name when an ordinary "Faculty" already exists and cannot be adopted. */
 export const SPEAKER_FACULTY_FALLBACK_NAME = "Faculty (speakers)";
@@ -162,9 +162,9 @@ export interface CompanionSpeakerInput {
    * this column to the website sync). Null when nothing was recorded.
    */
   registrationType?: string | null;
-  /** The speaker's `role` (AttendeeRole profession category, e.g. PHYSICIAN).
+  /** The speaker's `role`: its answer key as text (e.g. PHYSICIAN; text since Nov 16, 2026).
    *  Copied onto the companion attendee so the "Role" surfaces the same value. */
-  role?: AttendeeRole | null;
+  role?: string | null;
   sourceRegistrationId?: string | null;
 }
 
@@ -494,7 +494,7 @@ export interface EventSpeakerProfile {
   firstName: string;
   lastName: string;
   title?: Title | null;
-  role?: AttendeeRole | null;
+  role?: string | null;
   additionalEmail?: string | null;
   organization?: string | null;
   jobTitle?: string | null;
