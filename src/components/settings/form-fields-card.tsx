@@ -20,6 +20,7 @@ import {
 } from "@/hooks/use-person-fields";
 import { ApiError } from "@/lib/api-fetch";
 import { MAX_PERSON_FIELD_ANSWER, MAX_PERSON_FIELD_OPTIONS, OTHER_ANSWER, type ConfigurablePersonField } from "@/lib/person-fields";
+import { FieldNameEditor } from "./field-name-editor";
 
 const FIELD_ROWS: { key: ConfigurablePersonField; name: string; note: string }[] = [
   { key: "title", name: "Title", note: "Dr., Mr., Mrs., Ms., Prof. On or off only." },
@@ -216,7 +217,7 @@ export function FormFieldsCard() {
   };
 
   return (
-    <Card>
+    <Card className="h-full">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
@@ -232,6 +233,7 @@ export function FormFieldsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <FieldNameEditor field="specialty" />
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {isError && saved === undefined && (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">

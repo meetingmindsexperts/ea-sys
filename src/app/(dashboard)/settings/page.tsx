@@ -96,7 +96,6 @@ import { BillingAccountsCard } from "@/components/settings/billing-accounts-card
 import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
 import { FieldSwitchesCard, FormFieldsCard } from "@/components/settings/form-fields-card";
 import { RoleAnswersCard } from "@/components/settings/role-answers-card";
-import { FieldLabelsCard } from "@/components/settings/field-labels-card";
 import { CatalogueSettingsCard } from "@/components/settings/catalogue-settings-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { OrgStripeCredentials } from "@/components/settings/org-stripe-credentials";
@@ -1487,9 +1486,11 @@ export default function SettingsPage() {
         {canManageFormFields && (
           <TabsContent value="form-fields">
             <FieldSwitchesCard />
-            <FieldLabelsCard />
-            <RoleAnswersCard />
-            <FormFieldsCard />
+            {/* Role and Specialty side by side, each with its name and its answers. */}
+            <div className="grid gap-6 lg:grid-cols-2 items-start">
+              <RoleAnswersCard />
+              <FormFieldsCard />
+            </div>
           </TabsContent>
         )}
 

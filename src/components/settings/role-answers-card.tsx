@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { useRoleSettings, useSaveRoleAnswers, type RoleAnswerRow } from "@/hooks/use-person-fields";
 import { ApiError } from "@/lib/api-fetch";
 import { MAX_PERSON_FIELD_ANSWER, MAX_PERSON_FIELD_OPTIONS, looseForm } from "@/lib/person-fields";
+import { FieldNameEditor } from "./field-name-editor";
 
 type Row = RoleAnswerRow;
 
@@ -91,13 +92,13 @@ export function RoleAnswersCard() {
   };
 
   return (
-    <Card className="mb-6">
+    <Card className="h-full">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
             <Briefcase className="h-4 w-4" />
           </div>
-          Role answers
+          Role
         </CardTitle>
         <CardDescription>
           The answers every Role picker offers, on the registration forms and in the dashboard. An answer held by records can
@@ -105,6 +106,7 @@ export function RoleAnswersCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <FieldNameEditor field="role" />
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {isError && saved === undefined && (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
