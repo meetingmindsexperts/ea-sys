@@ -183,7 +183,7 @@ export default function MyDetailsPage() {
                   <Label htmlFor="details-role">
                     Role{fieldRules.role.required && <span className="text-destructive"> *</span>}
                   </Label>
-                  <Controller control={control} name="role" render={({ field }) => <RoleSelect id="details-role" value={field.value} onChange={field.onChange} />} />
+                  <Controller control={control} name="role" render={({ field }) => <RoleSelect id="details-role" value={field.value} held={loaded?.details.role} onChange={field.onChange} />} />
                   {fieldError("role")}
                 </div>
               )}

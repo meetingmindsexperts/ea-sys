@@ -183,16 +183,21 @@ blanked by Radix's hidden native select; reproduced, now ignored) and LOW 2 (the
 new-registration and new-speaker forms' Role label pointed at no id). **Must be
 done before 1d ships:**
 
-- **MED 2: "no longer offered" is decided from the form's VALUE, not the
-  record's stored answer.** A create form prefilled from an account profile
+- ~~**MED 2: "no longer offered" is decided from the form's VALUE, not the
+  record's stored answer.**~~ DONE Nov 16, 2026 (step 1d part 1): `RoleSelect`
+  takes `held` (the eight edit forms pass the stored role), drops a value
+  neither offered nor held once the real list is in, and the register page
+  marks a refused field and says why. A create form prefilled from an account profile
   holding a retired answer shows it as chosen, and the door refuses it with
   only an "Invalid input" toast; on an edit form, moving off the held answer
   loses it from the list. Fix: a `held` prop that edit forms fill with the
   stored role (only that value gets the item), create-form prefills drop a
   role not on offer, and the register page puts `details.fieldErrors` on the
   fields.
-- **LOW 1: while the list loads, or after a failed read, the picker shows
-  today's nine** and an edit form shows the organisation's own answer as its
+- ~~**LOW 1: while the list loads, or after a failed read, the picker shows
+  today's nine**~~ DONE Nov 16, 2026: `usePersonFieldsState` says whether the
+  real list is in; until it is, the picker judges nothing (no suffix, nothing
+  dropped). and an edit form shows the organisation's own answer as its
   key "(no longer offered)". Fix: expose `isPlaceholderData` / `isError` from
   `usePersonFields` and disable the picker (or drop the suffix) until the real
   list is in.

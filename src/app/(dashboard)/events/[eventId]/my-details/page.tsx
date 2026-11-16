@@ -524,7 +524,7 @@ export default function SubmitterProfilePage() {
                 {fieldRules.role.shown && (
                   <div>
                     <Label className="text-xs">Role{fieldRules.role.required ? " *" : ""}</Label>
-                    <RoleSelect value={form.role} onChange={(v) => setForm({ ...form, role: v })} placeholder="Select a role" />
+                    <RoleSelect value={form.role} held={profile?.role} onChange={(v) => setForm({ ...form, role: v })} placeholder="Select a role" />
                   </div>
                 )}
                 {fieldRules.specialty.shown && (

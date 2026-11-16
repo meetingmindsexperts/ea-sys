@@ -790,7 +790,7 @@ export function SpeakerDetailSheet({
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Role</Label>
-                          <RoleSelect value={editData.role} onChange={(role) => setEditData({ ...editData, role })} placeholder="Select a role (optional)" />
+                          <RoleSelect value={editData.role} held={speaker?.role} onChange={(role) => setEditData({ ...editData, role })} placeholder="Select a role (optional)" />
                         </div>
                         <div className="space-y-2">
                           <Label>Specialty</Label>

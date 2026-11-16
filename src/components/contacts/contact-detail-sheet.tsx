@@ -410,6 +410,7 @@ export function ContactDetailSheet({
                     <Label>Role</Label>
                     <RoleSelect
                       value={editData.role}
+                      held={contact.role}
                       onChange={(role) => setEditData({ ...editData, role })}
                       placeholder="Select a role (optional)"
                     />

@@ -45,11 +45,21 @@ export function eventOfPage(pathname: string): string | null {
  * they cannot be read, this is today's lists: a form never loses its picker.
  */
 export function usePersonFields(opts: { organisationOnly?: boolean } = {}): PublicPersonFields {
+  return usePersonFieldsState(opts).fields;
+}
+
+/**
+ * The same, and whether they are the organisation's REAL list (`ready`), not
+ * today's lists shown while it loads or after a failed read (step 1d). A
+ * picker must not judge a stored answer "no longer offered", or drop it,
+ * against a list that is not the organisation's.
+ */
+export function usePersonFieldsState(opts: { organisationOnly?: boolean } = {}): { fields: PublicPersonFields; ready: boolean } {
   // On an event's pages the list is the event's organisation's, whoever is
   // looking and whatever address serves the page, with the event's own choice.
   const pathname = usePathname() ?? "";
   const event = opts.organisationOnly ? null : eventOfPage(pathname);
-  const { data } = useQuery({
+  const { data, isPlaceholderData, isSuccess } = useQuery({
     queryKey: [...PUBLIC_FIELDS_KEY, event],
     queryFn: async () => (await fetchApi<{ fields: PublicPersonFields }>(`/api/public/person-fields${event ? `?event=${encodeURIComponent(event)}` : ""}`)).fields,
     placeholderData: DEFAULT_PUBLIC_PERSON_FIELDS,
@@ -57,7 +67,7 @@ export function usePersonFields(opts: { organisationOnly?: boolean } = {}): Publ
     // The page works without it: not a fault to report (see providers.tsx).
     meta: { optional: true },
   });
-  return data ?? DEFAULT_PUBLIC_PERSON_FIELDS;
+  return { fields: data ?? DEFAULT_PUBLIC_PERSON_FIELDS, ready: isSuccess && !isPlaceholderData };
 }
 
 /**

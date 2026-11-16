@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Person fields: the Role picker keeps a record's own answer and never submits a stale one (November 16)
+
+Step 1d, part 1, of `docs/ORG_FIELDS_PLAN.md` (owner, Nov 16: build 1d; MM Group's Role field and answers stay as they are). Nothing changes for MM Group.
+
+- **Changed**: the Role picker marks an answer "(no longer offered)" only when the RECORD being edited holds it (`held`, passed by the eight edit forms), and keeps it choosable after the person moves off it. On a create form, a prefilled or restored answer the organisation no longer offers is dropped once its real list has loaded, so the person picks again instead of being refused.
+- **Changed**: nothing is judged against the list shown while the organisation's own is loading or could not be read (`usePersonFieldsState`).
+- **Fixed**: the public registration page marks a refused Title, Role or Specialty on its field and says why, instead of an "Invalid input" toast.
+
 ### System logs are archived, no longer deleted after 30 days (November 16)
 
 The daily `system-log-prune` job deleted SystemLog rows older than 30 days, and the monthly `log-archive` job only reaches months older than the previous one, so every row was gone before it could be archived: no archive file exists after August 2026, and September's warnings and errors are lost (the box's log files and CloudWatch, 90 days for errors, still had them). Owner decision: retire the prune. `log-archive` is now the only thing that removes rows, after writing the month to `logs/archive/`, which the box crontab copies nightly to `s3://ea-sys-dr-singapore/logs-archive/` (installed the same day). The table holds the current and previous month, a few thousand rows. Job id 1014 stays reserved; `__tests__/lib/system-log-deleters.test.ts` fails if anything but the archive and the operator's Clear Logs deletes log rows. October 1 to 16 were already deleted when this was written; the rest of October is kept once it deploys.

@@ -914,7 +914,7 @@ export default function SpeakerDetailPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Role</Label>
-                      <RoleSelect value={formData.role} onChange={(role) => setFormData({ ...formData, role })} placeholder="Select a role (optional)" />
+                      <RoleSelect value={formData.role} held={speaker.role} onChange={(role) => setFormData({ ...formData, role })} placeholder="Select a role (optional)" />
                     </div>
                     <div className="space-y-2">
                       <Label>Specialty</Label>

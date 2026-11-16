@@ -848,7 +848,16 @@ function CategoryRegistrationContent() {
         console.warn("[register] Registration rejected:", res.status, result.error);
         // At the desk, staff can find someone already registered.
         const deskDuplicate = deskQr && result.code === "ALREADY_REGISTERED";
-        toast.error(deskDuplicate ? "You are already registered. Please go to the desk." : result.error || "Registration failed");
+        // A refused Title, Role or Specialty is marked on its field, and the
+        // toast says why, not "Invalid input" (review of 45b4ba3b).
+        const fieldErrors: Record<string, string[] | undefined> = result.details?.fieldErrors ?? {};
+        const personFieldMessages = (["title", "role", "specialty", "customSpecialty"] as const).flatMap((field) => {
+          const message = fieldErrors[field]?.[0];
+          if (!message) return [];
+          form.setError(field, { message });
+          return [message];
+        });
+        toast.error(deskDuplicate ? "You are already registered. Please go to the desk." : personFieldMessages[0] || result.error || "Registration failed");
         setSubmitting(false);
         return;
       }

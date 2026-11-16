@@ -714,7 +714,7 @@ function CompleteRegistrationContent() {
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Role{fieldRules.role.required && <span className="text-red-400"> *</span>}</FormLabel>
                           <FormControl>
-                            <RoleSelect value={field.value} onChange={field.onChange} />
+                            <RoleSelect value={field.value} held={data?.attendee.role} onChange={field.onChange} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>

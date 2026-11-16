@@ -1321,6 +1321,7 @@ export function RegistrationDetailSheet({
                         <RoleSelect
                           id="edit-role"
                           value={editData.role}
+                          held={selectedRegistration.attendee.role}
                           onChange={(role) => setEditData({ ...editData, role })}
                         />
                       </div>

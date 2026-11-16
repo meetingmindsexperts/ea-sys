@@ -788,7 +788,7 @@ export default function EventMyRegistrationPage() {
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {fieldRules.specialty.shown && <div className="space-y-1"><Label className="text-xs">Specialty</Label><SpecialtySelect value={editData.specialty || ""} onChange={(v) => setEditData({ ...editData, specialty: v })} /></div>}
-                        {fieldRules.role.shown && <div className="space-y-1"><Label className="text-xs">Role</Label><RoleSelect value={editData.role || ""} onChange={(v) => setEditData({ ...editData, role: v })} /></div>}
+                        {fieldRules.role.shown && <div className="space-y-1"><Label className="text-xs">Role</Label><RoleSelect value={editData.role || ""} held={reg.attendee.role} onChange={(v) => setEditData({ ...editData, role: v })} /></div>}
                       </div>
                       {showsField(event?.formFields, "dietaryReqs") && (
                         <div className="space-y-1"><Label className="text-xs">Dietary Requirements</Label><Input value={editData.dietaryReqs || ""} onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })} /></div>
