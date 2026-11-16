@@ -1,5 +1,7 @@
 "use client";
 
+import { usePersonFields } from "@/hooks/use-person-fields";
+import { sampleRoleKey } from "@/lib/person-fields";
 import { useState, useRef } from "react";
 import {
   Dialog,
@@ -175,6 +177,7 @@ const ENTITY_CONFIG = {
 };
 
 export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuccess }: CSVImportDialogProps) {
+  const roleSample = sampleRoleKey(usePersonFields().role);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string[][] | null>(null);
   const [previewHeaders, setPreviewHeaders] = useState<string[] | null>(null);
@@ -282,7 +285,10 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
     const allColumns = config.columns.map((c) => c.name);
     const headerRow = allColumns.join(",");
     // Wrap sample values in quotes to handle commas inside values
-    const sampleValues = config.sampleRow.map((v) =>
+    // The sample Role is one this organisation offers (step 1d), so the
+    // template's own row is never refused by the import.
+    const roleColumn = config.columns.findIndex((c) => c.name === "role");
+    const sampleValues = config.sampleRow.map((v, i) => (i === roleColumn ? roleSample : v)).map((v) =>
       v.includes(",") || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
     );
     const sampleRow = sampleValues.join(",");

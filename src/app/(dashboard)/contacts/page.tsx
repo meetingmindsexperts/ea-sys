@@ -64,7 +64,8 @@ import {
 import { contactFiltersQuery } from "@/lib/contact-filters";
 import { TagFilterPopover, getTagColor, type TagUsage } from "@/components/contacts/tag-filter-popover";
 import { formatDate, formatPersonName } from "@/lib/utils";
-import { usePersonFieldLabel } from "@/hooks/use-person-fields";
+import { usePersonFieldLabel, usePersonFields } from "@/hooks/use-person-fields";
+import { sampleRoleKey } from "@/lib/person-fields";
 import { useCan } from "@/hooks/use-can";
 
 interface Contact {
@@ -124,6 +125,8 @@ export default function ContactsPage() {
 
   const queryClient = useQueryClient();
   const roleField = usePersonFieldLabel("role");
+  // The template's sample Role is one this organisation offers (step 1d).
+  const roleFieldsForTemplate = usePersonFields({ organisationOnly: true }).role;
   const [page, setPage] = useState(1);
   const [exportOpen, setExportOpen] = useState(false);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -328,7 +331,7 @@ export default function ContactsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={downloadContactsTemplate}
+              onClick={() => downloadContactsTemplate(sampleRoleKey(roleFieldsForTemplate))}
               className="h-8 text-xs border-gray-200 text-gray-600 hover:text-gray-900"
             >
               <FileDown className="h-3.5 w-3.5 mr-1.5" />

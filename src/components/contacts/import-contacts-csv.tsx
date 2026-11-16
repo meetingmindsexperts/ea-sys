@@ -1,5 +1,7 @@
 "use client";
 
+import { usePersonFields } from "@/hooks/use-person-fields";
+import { sampleRoleKey } from "@/lib/person-fields";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { FileDown, Upload } from "lucide-react";
@@ -26,11 +28,13 @@ import {
 // column by name, and these are the names the export writes.
 const TEMPLATE_HEADER =
   "title,firstName,lastName,email,phone,additionalEmail,organization,jobTitle,specialty,customSpecialty,role,registrationType,city,state,zipCode,country,associationName,memberId,studentId,studentIdExpiry,bio,tags,notes";
-const TEMPLATE_EXAMPLE =
-  'Dr,John,Smith,john@example.com,+1-555-0123,,Acme Corp,CEO,Cardiology,,PHYSICIAN,Physician,Dubai,,,United Arab Emirates,,,,,,"VIP, Speaker",Met at conference 2025';
+const templateExample = (role: string) =>
+  `Dr,John,Smith,john@example.com,+1-555-0123,,Acme Corp,CEO,Cardiology,,${role},Physician,Dubai,,,United Arab Emirates,,,,,,"VIP, Speaker",Met at conference 2025`;
 
-export function downloadContactsTemplate() {
-  const blob = new Blob([[TEMPLATE_HEADER, TEMPLATE_EXAMPLE].join("\n")], { type: "text/csv" });
+/** `role` is the sample answer: one the organisation offers (`sampleRoleKey`). */
+export function downloadContactsTemplate(role = "PHYSICIAN") {
+  const safe = /^[\w-]+$/.test(role) ? role : `"${role.replace(/"/g, '""')}"`;
+  const blob = new Blob([[TEMPLATE_HEADER, templateExample(safe)].join("\n")], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -51,6 +55,8 @@ function plural(n: number, one: string, many: string): string {
 }
 
 export function ImportContactsCsv({ onImported }: { onImported: () => void }) {
+  // The template's sample Role is one this organisation offers (step 1d).
+  const roleSample = sampleRoleKey(usePersonFields({ organisationOnly: true }).role);
   const fileRef = useRef<HTMLInputElement>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -127,7 +133,7 @@ export function ImportContactsCsv({ onImported }: { onImported: () => void }) {
             <li>Up to 5,000 rows per file. After the import you will see what was added and anything that was not.</li>
           </ul>
           <DialogFooter className="gap-2 sm:justify-between">
-            <Button variant="outline" onClick={downloadContactsTemplate}>
+            <Button variant="outline" onClick={() => downloadContactsTemplate(roleSample)}>
               <FileDown className="h-4 w-4 mr-1.5" />
               Download template
             </Button>

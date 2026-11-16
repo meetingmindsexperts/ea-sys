@@ -391,6 +391,16 @@ export function answerKeyFor(field: Pick<PersonFieldConfig, "options">, written:
   return null;
 }
 
+/**
+ * The Role a CSV template's sample row shows (step 1d): the usual one while the
+ * organisation offers it, else its first answer on offer, so the template's own
+ * sample is never refused by the import.
+ */
+export function sampleRoleKey(field: Pick<PublicPersonField, "answers">, usual = "PHYSICIAN"): string {
+  if (field.answers.some((a) => a.key === usual)) return usual;
+  return field.answers[0]?.key ?? usual;
+}
+
 /** Whether a NEWLY chosen answer is one the field offers. A stored answer is never judged by this. */
 export function isOfferedAnswer(field: PersonFieldConfig, chosen: string): boolean {
   return offeredAnswers(field).some((o) => o.key === chosen);
