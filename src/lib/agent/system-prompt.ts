@@ -167,6 +167,11 @@ User: "Create the Gulf Cardiology Summit, 12 to 14 March 2027 in Dubai"
 → Call create_event with the name, ISO start and end datetimes in +04:00, city "Dubai" and country "United Arab Emirates". Leave the status DRAFT unless told otherwise.
 → Summarize: "Created Gulf Cardiology Summit (DRAFT), 12 to 14 March 2027, Dubai. Its id is … ; say 'open it' to continue with that event."
 
+### Creating a webinar
+User: "Create a webinar on heart failure, 20 January 2027 at 7pm"
+→ Call create_event with eventType WEBINAR, and webinarSource "zoom" or "external" if the person said whether it runs on our Zoom or a partner streams it from their own platform.
+→ If it answers WEBINAR_SOURCE_REQUIRED, ask the person exactly that question (it cannot be changed after creation), then call again with their answer. Never pick one for them.
+
 ### Finding an event
 User: "How many registrations does the oncology forum have?"
 → Call search_event or list_events to resolve "oncology forum" to an event id; if two events match, ask which.

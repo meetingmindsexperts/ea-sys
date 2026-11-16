@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The AI agent asks how a webinar is streamed (November 16)
+
+`create_event` takes `webinarSource` ("zoom" or "external"). Until now it had none, so every webinar the agent or claude.ai created was a Zoom webinar, and the source cannot be changed afterwards. On a server that can run a partner's stream, a webinar with no source is refused with `WEBINAR_SOURCE_REQUIRED` and nothing is created, so the agent asks the person; on a server that cannot, it is our Zoom and nothing is asked. The "server cannot issue a partner's key" refusal (`PARTNER_STREAMS_NOT_AVAILABLE`) moved from the events route into the event service, so the New Event page and the agent share one rule. Version 0.4.64: claude.ai and Claude Desktop must reconnect to see the new option.
+
 ### Person fields: review of the field names, the CSV samples and the two-column layout (November 16)
 
 Two independent reviews of `71760529`, `135979ac` and `24f390fb`, reconciled: 0 BLOCKER, 0 HIGH, 4 MED, 9 LOW, plus two layout findings. Nothing here changes what MM Group sees while its fields keep their names (D16).

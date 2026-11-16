@@ -6,12 +6,44 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { eventCodeReferences, isEventCodeTaken } from "@/lib/event-code";
 import { resolveDtcmEventConfig } from "@/lib/dtcm-performance-code";
 import { createEvent as createEventInService } from "@/services/event-service";
+import { partnerStreamReadiness } from "@/lib/webinar/partner-stream-readiness";
 import type { ToolExecutor } from "./_shared";
 
 const EVENT_TYPES = new Set(["CONFERENCE", "WEBINAR", "HYBRID"]);
 const EVENT_STATUSES = new Set(["DRAFT", "PUBLISHED", "LIVE", "COMPLETED", "CANCELLED"]);
 
 const CODE_RE = /^[A-Z0-9-]+$/;
+const WEBINAR_SOURCES = new Set(["zoom", "external"]);
+
+/**
+ * A webinar's video source, for create_event (Nov 16, 2026). It is fixed at creation (a Zoom
+ * webinar is made within seconds), so on a server that can run a partner's stream the agent must
+ * ASK rather than default to Zoom: a missing source is refused with WEBINAR_SOURCE_REQUIRED. On a
+ * server that cannot, the only answer is Zoom and nothing is asked. "external" on such a server is
+ * refused by the event service (PARTNER_STREAMS_NOT_AVAILABLE), the same rule as the New Event page.
+ */
+function resolveWebinarSource(
+  eventType: string | undefined,
+  raw: unknown,
+): { ok: true; source: "zoom" | "external" | null } | { ok: false; error: string; code: string } {
+  if (eventType !== "WEBINAR") return { ok: true, source: null };
+  if (raw != null) {
+    const source = String(raw);
+    if (!WEBINAR_SOURCES.has(source)) {
+      return { ok: false, error: 'webinarSource must be "zoom" or "external"', code: "INVALID_WEBINAR_SOURCE" };
+    }
+    return { ok: true, source: source as "zoom" | "external" };
+  }
+  if (!partnerStreamReadiness().ready) return { ok: true, source: "zoom" };
+  return {
+    ok: false,
+    code: "WEBINAR_SOURCE_REQUIRED",
+    error:
+      "Ask the person how this webinar is streamed before creating it, and call again with webinarSource: " +
+      '"zoom" (we run it on our Zoom) or "external" (a partner streams it from their own platform; no Zoom ' +
+      "webinar is made). It cannot be changed after the webinar is created.",
+  };
+}
 
 const listEventInfo: ToolExecutor = async (_input, ctx) => {
   try {
@@ -138,6 +170,11 @@ const createEvent: ToolExecutor = async (input, ctx) => {
     if (eventType && !EVENT_TYPES.has(eventType)) {
       return { error: `Invalid eventType. Must be one of: ${[...EVENT_TYPES].join(", ")}` };
     }
+    const webinarSource = resolveWebinarSource(eventType, input.webinarSource);
+    if (!webinarSource.ok) {
+      apiLogger.warn({ msg: "agent:create_event-refused", code: webinarSource.code, organizationId: ctx.organizationId, source: ctx.source });
+      return { error: webinarSource.error, code: webinarSource.code };
+    }
     const status = input.status ? String(input.status) : undefined;
     if (status && !EVENT_STATUSES.has(status)) {
       return { error: `Invalid status. Must be one of: ${[...EVENT_STATUSES].join(", ")}` };
@@ -171,6 +208,7 @@ const createEvent: ToolExecutor = async (input, ctx) => {
       city: input.city ? String(input.city).slice(0, 255) : null,
       country: input.country ? String(input.country).slice(0, 255) : null,
       eventType: (eventType as EventType | undefined) ?? null,
+      webinarSource: webinarSource.source,
       tag: input.tag ? String(input.tag).slice(0, 255) : null,
       specialty: input.specialty ? String(input.specialty).slice(0, 255) : null,
       // Dubai (DET/DTCM) compliance toggle — defaults off.

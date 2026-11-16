@@ -38,6 +38,8 @@ import { DEFAULT_TIER_NAMES } from "@/lib/presenter-tiers";
 import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
 import { equalsIgnoringCase } from "@/lib/like-escape";
+import { partnerStreamReadiness } from "@/lib/webinar/partner-stream-readiness";
+import { PARTNER_STREAM_NOT_OFFERED_MESSAGE } from "@/lib/webinar/partner-stream-availability";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -79,6 +81,7 @@ export type CreateEventErrorCode =
   | "INVALID_DATE_RANGE"
   | "SLUG_TAKEN"
   | "EVENT_CODE_TAKEN"
+  | "PARTNER_STREAMS_NOT_AVAILABLE"
   | DtcmEventConfigErrorCode;
 
 export type CreateEventResult =
@@ -100,6 +103,16 @@ export function createEvent(input: CreateEventInput): Promise<CreateEventResult>
 async function createEventInTenant(input: CreateEventInput): Promise<CreateEventResult> {
   if (input.endDate < input.startDate) {
     return fail("INVALID_DATE_RANGE", "endDate must be on or after startDate", input);
+  }
+
+  // A partner-streamed webinar is fixed at creation and cannot stream until its key can be issued,
+  // so it is refused on a server that cannot issue one (partner-stream-readiness.ts). Refused, never
+  // quietly made a Zoom webinar. Here, not in a route, since the AI agent creates webinars too (Nov 16, 2026).
+  if (input.eventType === "WEBINAR" && input.webinarSource === "external") {
+    const readiness = partnerStreamReadiness();
+    if (!readiness.ready) {
+      return fail("PARTNER_STREAMS_NOT_AVAILABLE", PARTNER_STREAM_NOT_OFFERED_MESSAGE, input, { missing: readiness.missing });
+    }
   }
 
   const dtcm = resolveDtcmEventConfig(

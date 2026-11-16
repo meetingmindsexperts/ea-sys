@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { PARTNER_STREAM_NOT_OFFERED_MESSAGE } from "@/lib/webinar/partner-stream-availability";
-import { partnerStreamReadiness } from "@/lib/webinar/partner-stream-readiness";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { resolveActingOrgId } from "@/lib/platform-operator";
@@ -158,17 +156,8 @@ export async function POST(req: Request) {
     const outOfScope = refuseOutOfScope(gate.principal, "events.create", { eventType: eventType ?? "" }, { route: "events:POST" });
     if (outOfScope) return outOfScope;
 
-    // A partner-produced webinar is fixed at creation and cannot stream until
-    // its key can be issued, so it is refused on a server that cannot issue
-    // one (partner-stream-readiness.ts). Refused, not quietly made a Zoom webinar.
-    if (webinarSource === "external") {
-      const readiness = partnerStreamReadiness();
-      if (!readiness.ready) {
-        apiLogger.warn({ msg: "events:partner-stream-not-offered", userId: session.user.id, missing: readiness.missing });
-        return NextResponse.json({ error: PARTNER_STREAM_NOT_OFFERED_MESSAGE, code: "PARTNER_STREAMS_NOT_AVAILABLE" }, { status: 400 });
-      }
-    }
-
+    // A partner-streamed webinar on a server that cannot issue its key is refused by the service
+    // (PARTNER_STREAMS_NOT_AVAILABLE, a 400 below), which the AI agent's create_event shares.
     const result = await createEvent({
       organizationId: orgGuard.orgId,
       userId: session.user.id,

@@ -177,7 +177,7 @@ export function registerAllMcpTools(
 
   server.tool(
     "create_event",
-    "Create a new event in the organization. Required: name, startDate (ISO 8601), endDate (ISO 8601). Optional: slug (auto-generated from name), code (invoice-number prefix, 1-20 chars A-Z0-9-; auto-derived from name as word-initials if omitted, e.g. 'Heart Failure Forum 2026' → 'HFF2026'), description, timezone (default Asia/Dubai), venue, address, city, country, eventType (CONFERENCE/WEBINAR/HYBRID — WEBINAR auto-provisions a Zoom webinar + email sequence), tag, specialty, status (DRAFT/PUBLISHED/LIVE/COMPLETED/CANCELLED — default DRAFT).",
+    "Create a new event in the organization. Required: name, startDate (ISO 8601), endDate (ISO 8601). Optional: slug (auto-generated from name), code (invoice-number prefix, 1-20 chars A-Z0-9-; auto-derived from name as word-initials if omitted, e.g. 'Heart Failure Forum 2026' → 'HFF2026'), description, timezone (default Asia/Dubai), venue, address, city, country, eventType (CONFERENCE/WEBINAR/HYBRID — WEBINAR auto-provisions its session + email sequence, and a Zoom webinar unless webinarSource is external), webinarSource (WEBINAR only: zoom or external; ask the person which before creating a webinar, it cannot be changed later; refused with WEBINAR_SOURCE_REQUIRED when the server can run partner streams and none is given), tag, specialty, status (DRAFT/PUBLISHED/LIVE/COMPLETED/CANCELLED — default DRAFT).",
     {
       name: z.string().min(2).max(255),
       startDate: z.string().describe("ISO 8601 datetime string"),
@@ -191,6 +191,7 @@ export function registerAllMcpTools(
       city: z.string().optional(),
       country: z.string().optional(),
       eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).optional(),
+      webinarSource: z.enum(["zoom", "external"]).optional().describe("WEBINAR only. zoom: we run it on our Zoom. external: a partner streams it from their own platform and no Zoom webinar is made. Ask the person which before creating a webinar; it cannot be changed afterwards."),
       tag: z.string().optional(),
       specialty: z.string().optional(),
       requiresDtcmBarcode: z.boolean().optional().describe("Dubai (DET/DTCM) compliance toggle — surfaces the DTCM barcode field. Dubai events only; default false. When true, dtcmPerformanceCode is required."),

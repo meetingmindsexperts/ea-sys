@@ -47,6 +47,9 @@ Reports
 - "Give me the dashboard for the Oman forum: registrations by status, speakers, sessions, check-in rate."
 - "Export the attendance for last week's webinar as a table."
 
+Creating a webinar
+- "Create a webinar on heart failure, 20 January 2027 at 7pm." Where this server can run a partner's stream, Claude asks how it is streamed: on our Zoom, or by a partner from their own platform. Answer before it creates anything: the choice cannot be changed afterwards, and a wrong one means deleting the webinar and creating it again.
+
 ## 3. Habits that keep it safe
 
 - **Name the event.** If your words could match two events, Claude should ask which one. If it guesses, correct it before it writes anything.

@@ -9,7 +9,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Prisma } from "@prisma/client";
 
-const { mockDb, mockApiLogger, mockResolveCode, mockProvision, mockRefreshStats } = vi.hoisted(() => ({
+const { mockDb, mockApiLogger, mockResolveCode, mockProvision, mockRefreshStats, partner } = vi.hoisted(() => ({
+  partner: { ready: true },
   mockDb: {
     event: { findFirst: vi.fn(), create: vi.fn() },
     emailTemplate: { createMany: vi.fn() },
@@ -28,6 +29,10 @@ vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/event-code", () => ({ resolveUniqueEventCode: mockResolveCode }));
 vi.mock("@/lib/webinar-provisioner", () => ({ provisionWebinar: mockProvision }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: mockRefreshStats }));
+vi.mock("@/lib/webinar/partner-stream-readiness", () => ({
+  partnerStreamReadiness: () =>
+    partner.ready ? { ready: true, missing: [] } : { ready: false, missing: ["STREAM_PUBLISH_SECRET", "MEDIAMTX_CONTROL"] },
+}));
 vi.mock("@/lib/email", () => ({
   DEFAULT_TEMPLATES: [
     { slug: "registration-confirmation", name: "Confirmation", subject: "s", htmlContent: "<p/>", textContent: "t" },
@@ -50,6 +55,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  partner.ready = true;
   mockDb.event.findFirst.mockResolvedValue(null);
   mockDb.event.create.mockImplementation(async ({ data }) => ({ id: "evt-1", ...data }));
   mockDb.emailTemplate.createMany.mockResolvedValue({ count: 1 });
@@ -214,6 +220,22 @@ describe("createEvent", () => {
     await createEvent({ ...BASE, eventType: "WEBINAR", webinarSource: "zoom" });
     await createEvent({ ...BASE, eventType: "CONFERENCE", webinarSource: "external" });
     for (const call of mockDb.event.create.mock.calls) expect(call[0].data).not.toHaveProperty("settings");
+  });
+
+  it("a partner webinar on a server that cannot issue its key is refused for every caller, never made a Zoom webinar", async () => {
+    partner.ready = false;
+    for (const source of ["rest", "agent", "mcp"] as const) {
+      const res = await createEvent({ ...BASE, source, eventType: "WEBINAR", webinarSource: "external" });
+      expect(res).toMatchObject({ ok: false, code: "PARTNER_STREAMS_NOT_AVAILABLE" });
+    }
+    expect(mockDb.event.create).not.toHaveBeenCalled();
+    expect(mockProvision).not.toHaveBeenCalled();
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "PARTNER_STREAMS_NOT_AVAILABLE", missing: ["STREAM_PUBLISH_SECRET", "MEDIAMTX_CONTROL"] }),
+    );
+    // A Zoom webinar, and a source on another event type, are unaffected.
+    expect((await createEvent({ ...BASE, eventType: "WEBINAR", webinarSource: "zoom" })).ok).toBe(true);
+    expect((await createEvent({ ...BASE, eventType: "CONFERENCE", webinarSource: "external" })).ok).toBe(true);
   });
 
   it("a failed seed is logged and does not undo the event", async () => {

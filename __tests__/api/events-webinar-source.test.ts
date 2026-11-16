@@ -5,7 +5,7 @@
  * schema line and zod strips it silently, so every "partner" webinar would get
  * a Zoom webinar), and that the choice is refused while a partner's key cannot
  * be issued yet. Since Nov 16, 2026 "can be issued" is the SERVER's answer
- * (partner-stream-readiness.ts), no longer a constant in the code.
+ * (partner-stream-readiness.ts), and the refusal is the event service's.
  */
 import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -55,14 +55,14 @@ beforeEach(() => {
 });
 
 describe("POST /api/events: a webinar's video source", () => {
-  it("on a server that cannot issue a partner's key, the partner choice is REFUSED, not quietly made a Zoom webinar", async () => {
+  it("the service's refusal on a server that cannot issue a partner's key is a 400 with its code", async () => {
+    // The refusal itself lives in the event service since Nov 16, 2026 (the AI agent creates
+    // webinars too); event-service.test.ts pins it. The route only carries it.
+    mockCreateEvent.mockResolvedValue({ ok: false, code: "PARTNER_STREAMS_NOT_AVAILABLE", message: "no" });
     const res = await POST(req({ eventType: "WEBINAR", webinarSource: "external" }));
     expect(res.status).toBe(400);
     expect((await res.json()).code).toBe("PARTNER_STREAMS_NOT_AVAILABLE");
-    expect(mockCreateEvent).not.toHaveBeenCalled();
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ msg: "events:partner-stream-not-offered", missing: ["STREAM_PUBLISH_SECRET", "MEDIAMTX_CONTROL"] }),
-    );
+    expect(readFileSync("src/app/api/events/route.ts", "utf8")).not.toContain("partnerStreamReadiness");
   });
 
   it("an ordinary webinar, and one that says 'zoom', are created as before", async () => {
