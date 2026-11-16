@@ -233,7 +233,7 @@ describe("the shown key does not outlive its use (reviews of d86921d4 and 20265a
     const { readFileSync } = await import("node:fs");
     const card = readFileSync("src/components/webinar/partner-stream-card.tsx", "utf8");
     // Keyed by the version: after Replace the old, dead value cannot stay on screen to be copied.
-    expect(card).toContain("<KeyReveal key={stream.secretVersion}");
+    expect(card).toMatch(/<KeyReveal\s+key=\{stream\.secretVersion\}/);
     const hooks = readFileSync("src/hooks/use-api.ts", "utf8");
     const reveal = hooks.slice(hooks.indexOf("export function useRevealWebinarPartnerStreamKey"));
     expect(reveal.slice(0, reveal.indexOf("\n}\n"))).toContain("gcTime: 0");

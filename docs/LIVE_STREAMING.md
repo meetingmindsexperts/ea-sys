@@ -379,6 +379,18 @@ session's scheduled end, or the key's own end date). Each refusal is logged as
 `mediamtx-auth:publish-external-refused` with its reason: `BAD_PASSWORD`,
 `SWITCHED_OFF`, `NOT_YET_VALID` or `EXPIRED`.
 
+**In the console (Nov 16, 2026).** On a webinar created with "A partner streams
+from their own platform", the Webinar Console's Partner stream card issues the
+key, shows it (audited, "See Zoom host details" only), copies a handover message
+for the partner (server, key, period, encoder settings, contact), replaces it,
+cuts the feed and switches it back on, and shows whether the video is arriving.
+The watchdog notifies the event's admins when a partner's stream drops and
+returns; the room's safety net closes a partner's room two hours after the
+scheduled end once the stream has stopped (six hours at the latest). Staff steps
+are in the user guide, "A partner streams into our webinar". The choice is
+offered only on a server where the owner steps below are done
+(`partnerStreamReadiness()`).
+
 **Why a control API.** MediaMTX asks the publish check only when a stream
 starts. An encoder already connected keeps its connection when its key is
 replaced, switched off or expires. With our own Zoom we tell Zoom to stop; a

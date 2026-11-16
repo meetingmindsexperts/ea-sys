@@ -251,6 +251,7 @@ describe("every file that names the stream key is known", () => {
     ["src/app/api/events/[eventId]/webinar/livestream/route.ts", "asks sessionStream for the preview address"],
     ["src/components/webinar/partner-stream-card.tsx", "shows the partner's key that revealExternalStreamCredentials returned, held only while shown"],
     ["src/hooks/use-api.ts", "types the answer of the credentials route"],
+    ["src/lib/webinar/partner-handover.ts", "writes the key the console was just shown into the handover message"],
     ["src/app/api/public/events/[slug]/sessions/[sessionId]/stream-status/route.ts", "asks cachedSessionStream"],
     ["src/app/api/public/events/[slug]/sessions/[sessionId]/zoom-join/route.ts", "loads the Zoom meeting to join it, hands both rows to pickSessionStream"],
     ["src/app/api/events/[eventId]/sessions/[sessionId]/zoom/route.ts", "the session's Zoom form: creates and edits OUR Zoom meeting"],

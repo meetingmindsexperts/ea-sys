@@ -442,7 +442,11 @@ export default function WebinarConsolePage() {
           <div className="grid items-start gap-6 lg:grid-cols-3">
             <div className="space-y-6 lg:col-span-2">
               {partner && (
-                <PartnerStreamCard eventId={eventId} timezone={data?.event?.timezone || DEFAULT_EVENT_TIMEZONE} />
+                <PartnerStreamCard
+                  eventId={eventId}
+                  timezone={data?.event?.timezone || DEFAULT_EVENT_TIMEZONE}
+                  eventName={data?.event?.name ?? ""}
+                />
               )}
               <OverviewCard
                 status={status}

@@ -39,16 +39,9 @@ import {
   type WebinarPartnerStreamView,
 } from "@/hooks/use-api";
 import { formatDateTimeInTz, localDateTimeInTz, wallTimeInTzToIso } from "@/lib/event-time";
+import { PARTNER_ENCODER_SETTINGS, partnerHandoverText } from "@/lib/webinar/partner-handover";
 
 type Signal = WebinarPartnerStreamState["signal"];
-
-/** What we ask the partner's encoder for: the server passes the picture through untouched (plan §4.4). */
-export const PARTNER_ENCODER_SETTINGS: ReadonlyArray<{ setting: string; value: string; why: string }> = [
-  { setting: "Video", value: "H.264", why: "The player and iPhones need it" },
-  { setting: "Audio", value: "AAC", why: "The same" },
-  { setting: "Keyframe", value: "Every 2 seconds", why: "A longer gap freezes iPhones" },
-  { setting: "Size and rate", value: "720p, 30 frames, about 2.5 Mbps (up to 1080p at 4.5 Mbps)", why: "Every attendee downloads exactly this" },
-];
 
 export function partnerSignalLabel(signal: Signal, enabled: boolean): { text: string; tone: string } {
   if (!enabled) return { text: "Key switched off", tone: "bg-slate-200 text-slate-700" };
@@ -80,7 +73,7 @@ async function copy(value: string, label: string) {
   }
 }
 
-export function PartnerStreamCard({ eventId, timezone }: { eventId: string; timezone: string }) {
+export function PartnerStreamCard({ eventId, timezone, eventName }: { eventId: string; timezone: string; eventName: string }) {
   const access = useCan("webinar.manage", eventId);
   const canManage = access === "allowed";
   const state = useWebinarPartnerStream(eventId, canManage);
@@ -113,7 +106,7 @@ export function PartnerStreamCard({ eventId, timezone }: { eventId: string; time
   const { partnerStream, signal, serverReady, canSeeKey } = state.data;
   if (!partnerStream) return <IssueKey eventId={eventId} timezone={timezone} serverReady={serverReady} />;
   return (
-    <IssuedKey eventId={eventId} timezone={timezone} stream={partnerStream} signal={signal} canSeeKey={canSeeKey} />
+    <IssuedKey eventId={eventId} timezone={timezone} eventName={eventName} stream={partnerStream} signal={signal} canSeeKey={canSeeKey} />
   );
 }
 
@@ -205,12 +198,14 @@ function IssueKey({ eventId, timezone, serverReady }: { eventId: string; timezon
 function IssuedKey({
   eventId,
   timezone,
+  eventName,
   stream,
   signal,
   canSeeKey,
 }: {
   eventId: string;
   timezone: string;
+  eventName: string;
   stream: WebinarPartnerStreamView;
   signal: Signal;
   canSeeKey: boolean;
@@ -236,7 +231,12 @@ function IssuedKey({
         </p>
       )}
       {/* Keyed by the version: a replaced key remounts this, so the dead value is gone from the screen. */}
-      <KeyReveal key={stream.secretVersion} eventId={eventId} canSeeKey={canSeeKey} />
+      <KeyReveal
+        key={stream.secretVersion}
+        eventId={eventId}
+        canSeeKey={canSeeKey}
+        handover={{ eventName, timezone, validFrom: stream.validFrom, validUntil: stream.validUntil }}
+      />
       <KeyDetails key={`${stream.issuedTo ?? ""}:${stream.validUntil}`} eventId={eventId} timezone={timezone} stream={stream} />
       <KeyActions eventId={eventId} enabled={stream.enabled} />
       <EncoderSettings />
@@ -253,9 +253,20 @@ function Fact({ term, value }: { term: string; value: string }) {
   );
 }
 
-function KeyReveal({ eventId, canSeeKey }: { eventId: string; canSeeKey: boolean }) {
+function KeyReveal({
+  eventId,
+  canSeeKey,
+  handover,
+}: {
+  eventId: string;
+  canSeeKey: boolean;
+  /** What the handover message says besides the key: the webinar and the key's period. */
+  handover: { eventName: string; timezone: string; validFrom: string; validUntil: string };
+}) {
   const reveal = useRevealWebinarPartnerStreamKey(eventId);
   const [shown, setShown] = useState<{ serverUrl: string; streamKey: string } | null>(null);
+  // Who the partner calls on the day. Only in the message: never saved.
+  const [contact, setContact] = useState("");
   // The mutation keeps its answer in React Query's cache after the card lets go of it: clear it too.
   const { reset } = reveal;
   useEffect(() => reset, [reset]);
@@ -308,6 +319,45 @@ function KeyReveal({ eventId, canSeeKey }: { eventId: string; canSeeKey: boolean
       <p className="text-xs text-muted-foreground">
         The stream key includes its password after the question mark: the partner pastes the whole value.
       </p>
+      <div className="space-y-2 border-t pt-3">
+        <p className="text-sm font-medium">Handover message for the partner</p>
+        <p className="text-xs text-muted-foreground">
+          The two values, when the key works, the encoder settings and who to call, ready to paste into an email.
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-[220px] flex-1 space-y-1">
+            <Label htmlFor="partner-handover-contact" className="text-xs">Contact on the day (optional, not saved)</Label>
+            <Input
+              id="partner-handover-contact"
+              value={contact}
+              maxLength={200}
+              onChange={(e) => setContact(e.target.value)}
+              placeholder="Name, phone"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void copy(
+                partnerHandoverText({
+                  eventName: handover.eventName,
+                  serverUrl: shown.serverUrl,
+                  streamKey: shown.streamKey,
+                  validFrom: new Date(handover.validFrom),
+                  validUntil: new Date(handover.validUntil),
+                  timezone: handover.timezone,
+                  contact,
+                }),
+                "Handover message",
+              )
+            }
+          >
+            <Copy className="mr-2 h-4 w-4" />
+            Copy handover message
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

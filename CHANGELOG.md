@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinars: the partner's handover message, and the user guide for partner streams (November 16)
+
+External streams step 7 (docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md).
+
+- **Added**: "Copy handover message" in the Partner stream card, once the key is shown: the server address, the stream key, when the key works (in the event's timezone), the encoder settings and an optional contact for the day, ready to paste into an email to the partner. The contact is never saved.
+- **Docs**: the user guide's new "A partner streams into our webinar" (create, issue, hand over, rehearse, go live, drops, the three buttons, ending, attendance, what to do when) and a note on the page attendance report for custom-stream webinars; `docs/LIVE_STREAMING.md` §11b says what the console does.
+
 ### Webinars: attendance from our own page, with minutes watched (November 16)
 
 External streams step 6 (docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md §4.8). For a webinar watched as the custom stream, Zoom's report sees only the speakers, and for one a partner streams in there is no Zoom at all: our page's own record is the attendance.

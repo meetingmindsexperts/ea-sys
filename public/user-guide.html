@@ -2103,6 +2103,71 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Which mode to choose</div><div class="c-text">Choose <strong>Custom stream</strong> for broadcast-style webinars with a large audience that mainly watches. Choose <strong>Zoom embed</strong> for smaller interactive sessions where attendees need Zoom&rsquo;s Q&amp;A, chat or to speak, and the delay must stay around a second.</div></div></div>
       </div>
 
+      <div class="sub" id="s11-partner">
+        <div class="sub-title">A partner streams into our webinar</div>
+        <div class="callout c-new"><div class="c-icon">&#x1F4E1;</div><div class="c-body"><div class="c-title">Partner stream (November 16, 2026)</div><div class="c-text">A partner (an agency, a society, a sponsor&rsquo;s own platform) produces the webinar themselves and sends their video to our server. Attendees register, sign in and watch on our event page, with our Q&amp;A, polls, chat and handouts. No Zoom webinar of ours is created, so it needs no Zoom licence and can run at the same time as one of ours.</div></div></div>
+        <p><strong>Before you start.</strong> The server must be set up for partner streams. If the <strong>Video source</strong> choice does not appear on the new-event form, it is not: ask the system administrator.</p>
+
+        <p><strong>Step 1: create the webinar.</strong></p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Events &rarr; New event</strong>, type <strong>Webinar</strong>, and set <strong>Video source</strong> to <strong>A partner streams from their own platform</strong>.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">This is chosen once. It cannot be changed after the webinar is created; if it was wrong, create the webinar again.</div></div>
+        </div>
+
+        <p><strong>Step 2: issue the partner&rsquo;s key</strong> (Webinar Console &rsaquo; Setup &rsaquo; <strong>Partner stream</strong> card).</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Fill in <strong>Given to</strong> (the agency or technician) so everyone knows who holds it.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Works until</strong> is optional. Left empty, the key works until 24 hours after the webinar&rsquo;s scheduled end, and moves with it if you change the date.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Issue the key</strong>.</div></div>
+        </div>
+
+        <p><strong>Step 3: hand it over.</strong></p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Show the key</strong>. It needs the <strong>See Zoom host details</strong> permission, and each look is recorded with your name.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Type a <strong>Contact on the day</strong> (name and phone; it is not saved) and click <strong>Copy handover message</strong>. Paste it into an email to the partner. It holds the server address, the stream key, when the key works and the encoder settings below.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">The stream key includes its password after the question mark. The partner pastes the whole value into their platform&rsquo;s stream key field.</div></div>
+        </div>
+        <table class="st">
+          <thead><tr><th>Encoder setting we ask for</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td>Video H.264, audio AAC</td><td>The player and iPhones need them</td></tr>
+            <tr><td>A keyframe every 2 seconds</td><td>A longer gap freezes iPhones</td></tr>
+            <tr><td>720p, 30 frames, about 2.5 Mbps (up to 1080p at 4.5 Mbps)</td><td>Every attendee downloads exactly this, so more costs viewers on weak connections</td></tr>
+          </tbody>
+        </table>
+
+        <p><strong>Step 4: rehearse.</strong> The partner can send video any time while the key works. The card&rsquo;s signal reads <strong>Receiving</strong>, and <strong>Preview the stream</strong> in the Waiting Room card shows what attendees will see. With the room closed, attendees see nothing. One exception: a <strong>Draft</strong> event&rsquo;s room counts as open for testing, so rehearse on a published event, or expect registered people to see the rehearsal.</p>
+
+        <p><strong>Step 5: on the day.</strong> Click <strong>Open the room / Go live</strong> in the Go live card. If the partner&rsquo;s video is not arriving yet, the console says so; attendees see &ldquo;starting shortly&rdquo; until it does. Questions, polls, chat and handouts work as for any custom-stream webinar.</p>
+
+        <p><strong>If the partner&rsquo;s stream drops.</strong> We cannot restart it from our side. The event&rsquo;s admins get a <strong>Partner stream stopped</strong> notification: call the partner. Attendees&rsquo; players pick the video up again by themselves when it returns, and a <strong>Partner stream is back</strong> notification follows.</p>
+
+        <p><strong>The three buttons.</strong></p>
+        <ul>
+          <li><strong>Replace the key</strong>: the key the partner holds stops working at once and their running stream is cut. Show the new key and hand it over. Use it if the key was shared by mistake. The address attendees watch on does not change.</li>
+          <li><strong>Cut the feed</strong>: the stream stops now and cannot reconnect. Attendees see the stream end.</li>
+          <li><strong>Switch the key on</strong>: after a cut, lets the partner connect again with the same key.</li>
+        </ul>
+
+        <p><strong>Ending.</strong> Close the room from the Go live card when the partner finishes. If nobody does, the room closes by itself two hours after the scheduled end once the partner&rsquo;s stream has stopped, and never later than six hours after it. The thank-you email follows the close.</p>
+
+        <p><strong>Attendance.</strong> Zoom&rsquo;s reports do not apply. Use Analytics &rsaquo; <strong>Attendance on our page</strong> and <strong>Export CSV</strong>: who opened the page, when, how many times they joined and the minutes they watched. Export it within 90 days: the page record is archived after that.</p>
+
+        <p><strong>Not available on a partner&rsquo;s webinar:</strong> Panelists, Start as Host and Zoom&rsquo;s recording. For a replay, ask the partner for the file, upload it to Vimeo and paste the link (see <a href="#s11-5">Recording &amp; replay</a>).</p>
+
+        <table class="st">
+          <thead><tr><th>What you see</th><th>What to do</th></tr></thead>
+          <tbody>
+            <tr><td>&ldquo;This server is not set up to issue a partner&rsquo;s stream key yet&rdquo;</td><td>Ask the system administrator to finish the stream server set-up.</td></tr>
+            <tr><td>&ldquo;Can&rsquo;t open the room: the partner&rsquo;s stream key has not been issued&rdquo;</td><td>Issue the key in the Partner stream card and hand it over first.</td></tr>
+            <tr><td>&ldquo;The partner&rsquo;s key is switched off&rdquo;</td><td>Click <strong>Switch the key on</strong> in the Partner stream card.</td></tr>
+            <tr><td>Signal says <strong>Not receiving</strong> while the partner says they are streaming</td><td>Ask them to check the server address and that they pasted the whole stream key, including the part after the question mark, and that the key is still within its <strong>Works until</strong> date.</td></tr>
+            <tr><td>&ldquo;&hellip;but the running stream could not be cut yet&rdquo;</td><td>The key change has already taken effect. The stream is cut again automatically within a minute.</td></tr>
+            <tr><td>Notification &ldquo;Partner stream cut: the key reached its end date&rdquo;</td><td>Set a later <strong>Works until</strong> date in the card; the partner can then reconnect.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
       <div class="sub" id="s11-2">
         <div class="sub-title">Webinar Console</div>
         <figure class="ss-img">
@@ -2120,6 +2185,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <div class="ss-img-cap">After the webinar ends, attendance data is pulled from Zoom automatically. KPIs at top: registered count, attended count, attendance rate, average watch time. Per-attendee table below with join/leave times and total duration.</div>
         </figure>
         <p>Attendance is updated every 10 minutes for 24 hours post-event. Export to CSV for CME reporting.</p>
+        <p><strong>Custom-stream webinars (November 16, 2026).</strong> In custom stream mode Zoom&rsquo;s report sees only the speakers, because attendees watch on our page, not in Zoom. The Analytics tab then also shows <strong>Attendance on our page</strong>: people who opened the page, people who reached the live view, and the average and total minutes watched, with <strong>Export CSV</strong> (name, email, registration number, first and last time on the page, times joined, minutes watched, in the event&rsquo;s timezone). Minutes count while the page is open and in view, so most time listening from a hidden tab is not counted. A return after more than ten minutes away counts as another join. The page record is kept for 90 days, then archived: export it before then.</p>
       </div>
 
       <div class="sub" id="s11-4">
