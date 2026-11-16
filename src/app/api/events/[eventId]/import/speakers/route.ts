@@ -12,7 +12,7 @@ import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { parseTitle } from "@/lib/schemas";
 import { answerKeyFor } from "@/lib/person-fields";
-import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
+import { loadOrganizationPersonFieldsStrict } from "@/lib/person-field-rules";
 import { syncManyToContacts } from "@/lib/contact-sync";
 import { contactSyncFromSpeakerInput } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -158,8 +158,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // reporting a clean import. Counted, then warn-logged once below.
 
     let unrecognizedRole = 0;
-    // The organisation's own Role answers, by key or label (step 1c): never the fixed nine.
-    const roleField = (await loadOrganizationPersonFields(orgGuard.orgId)).role;
+    // The organisation's own Role answers, by key or label (step 1c): never the
+    // fixed nine. Read strictly: an import stores what it reads for good.
+    const roleField = (await loadOrganizationPersonFieldsStrict(orgGuard.orgId)).role;
 
     let unrecognizedTitle = 0;
     // An additional email that is not an address is dropped, not saved: it is

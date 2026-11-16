@@ -8,6 +8,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, mockLogger, mockUpdateSpeaker } = vi.hoisted(() => ({
   mockUpdateSpeaker: vi.fn(),
   mockDb: {
+    // The organisation's settings: none saved means today's nine (step 1c).
+    organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
     event: { findFirst: vi.fn() },
     speaker: { findMany: vi.fn(), createMany: vi.fn() },
     auditLog: { create: vi.fn() },

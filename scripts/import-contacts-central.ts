@@ -513,7 +513,7 @@ async function main() {
     // --org wins; otherwise refuse to guess when there is more than one. An
     // unordered findFirst let heap order decide which org received ~57k rows.
     const orgArg = arg("org");
-    const orgs = await db.organization.findMany({ select: { id: true, name: true, slug: true, settings: true } });
+    const orgs = await db.organization.findMany({ select: { id: true, name: true, slug: true } });
     if (orgs.length === 0) throw new Error("[import-central] no Organization row found.");
     const pickOrg = () => {
       if (orgArg) return orgs.find((o) => o.id === orgArg || o.slug === orgArg);
@@ -537,8 +537,11 @@ async function main() {
       return;
     }
 
-    // The target organisation's own Role answers, read once (step 1c).
-    const roleField = readPersonFields(org.settings).role;
+    // The target organisation's own Role answers, read once (step 1c). Only
+    // ITS settings are read: on the platform the others hold other tenants'
+    // encrypted credentials (review of 5c89e2b8).
+    const targetOrgSettings = await db.organization.findUniqueOrThrow({ where: { id: org.id }, select: { settings: true } });
+    const roleField = readPersonFields(targetOrgSettings.settings).role;
     const before = await db.contact.count({ where: { organizationId: org.id } });
 
     console.log(`\n  target org:     ${org.name} (${org.id})`);
@@ -554,6 +557,7 @@ async function main() {
     let skipped = 0;
     let collapsed = 0;
     const skipReasons = new Map<string, number>();
+    let unreadRoles = 0;
     const startedAt = Date.now();
 
     for (let offset = 0; fetched < limit; ) {
@@ -577,6 +581,9 @@ async function main() {
           if (verbose) console.log(`  SKIP    ${r.email ?? "(no email)"} — ${m.reason}`);
           continue;
         }
+        // A role the mirror holds that no answer reads is left blank: counted,
+        // so a dropped label shows (that is how "Others (Spouse)" went unseen).
+        if (r.role?.trim() && !m.value.role) unreadRoles++;
         mappedRows.push(m.value);
       }
 
@@ -671,6 +678,7 @@ async function main() {
     console.log(`  unchanged:      ${unchanged}`);
     console.log(`  skipped:        ${skipped}`);
     for (const [r, n] of skipReasons) console.log(`      ${r}: ${n}`);
+    console.log(`  role unread:    ${unreadRoles}  (imported with no role: no answer of this organisation reads it)`);
     console.log(`  case-collapsed: ${collapsed}  (same person, two rows in the mirror)`);
     console.log(`  contacts:       ${before} → ${after}`);
     console.log(`  elapsed:        ${((Date.now() - startedAt) / 1000).toFixed(0)}s`);

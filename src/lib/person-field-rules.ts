@@ -58,6 +58,16 @@ export async function loadOrganizationPersonFields(organizationId: string | null
   }
 }
 
+/**
+ * The same, for a WRITER that stores answers for good (the CSV imports): no
+ * fallback. A failed read throws, so the import fails and is run again, rather
+ * than reading cells against today's nine and storing keys the organisation
+ * does not have (review of 5c89e2b8). A download may fall back; a write may not.
+ */
+export async function loadOrganizationPersonFieldsStrict(organizationId: string): Promise<PersonFieldsConfig> {
+  return readOrganizationFields(organizationId);
+}
+
 /** For a door with NO event: the organisation's rules as they stand. */
 export async function loadOrganizationPersonFieldRules(organizationId: string | null | undefined): Promise<PersonFieldRules> {
   if (!organizationId) return DEFAULT_PERSON_FIELD_RULES;

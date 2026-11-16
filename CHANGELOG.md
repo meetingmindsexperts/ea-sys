@@ -13,6 +13,7 @@ Step 1c, part B, of `docs/ORG_FIELDS_PLAN.md`.
 - **Changed**: the contacts, speakers and registrations CSV imports and the inbound `contacts_centralv1` import read a Role cell through the organisation's own answers, by key or label, case and punctuation ignored. An unknown one is still left blank and counted; the contacts import's warning names the field and lists the answers as the organisation calls them.
 - **Fixed**: "Others (Spouse)", the label the contacts feed sends, now reads back as Others; the old parser dropped it.
 - **Removed**: `parseAttendeeRole`, the fixed-list parser. Its test cases now run against the shared matcher.
+- **Review of `5c89e2b8`** (0 BLOCKER, 0 HIGH, 3 MED, 5 LOW; all latent until a list can be saved; the MEDs and LOWs 1, 3, 4, 5 fixed, LOW 2 and an older defect in ROADMAP): the imports read the organisation's list strictly, so a failed read fails the import instead of storing keys the organisation does not have; route tests run an organisation's own list; the contacts warning lists only the organisation's live answers; the inbound script reads only the target organisation's settings and counts the roles it could not read.
 
 ### Person fields: every screen and file shows Role in the organisation's words (November 16)
 

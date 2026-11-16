@@ -176,6 +176,21 @@ reference document. Left, with why:
 Plan: `docs/ORG_FIELDS_PLAN.md`. The review of step 0a (`78a0b8a6`) and of the
 plan found these outside the plan's own steps.
 
+From the review of `5c89e2b8` (step 1c part B, the CSV imports), Nov 16: 0
+BLOCKER, 0 HIGH, 3 MED, 5 LOW, all latent until a list can be saved. Fixed: M1
+(the imports read the organisation strictly: a failed read fails the import
+instead of reading cells against today's nine), M2 (fixed export headings,
+already in `885b08ee`), M3 (route tests with an organisation's own list and a
+failed read), L1, L3, L4, L5. Left:
+
+- **L2, for step 1d: the CSV templates' sample row says `PHYSICIAN`**
+  (`csv-import-dialog.tsx`, `import-contacts-csv.tsx`). For an organisation
+  without that answer, the template's own sample is refused. Take the sample
+  from the organisation's first live answer when lists can be saved.
+- **Older defect: the speakers and registrations imports only LOG unread Role
+  and Title cells**; unlike the contacts import they tell the person nothing.
+  Matters more once lists differ between organisations.
+
 From the review of `2418a41f` (step 1c part A, the readers), Nov 16: 0 BLOCKER,
 0 HIGH, 4 MED, 9 LOW, all latent until a list can be saved. Fixed: M1 and L1
 (a reply without `labels`, or a stored "constructor", crashed a screen), M2 (the

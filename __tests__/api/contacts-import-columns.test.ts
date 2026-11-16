@@ -11,6 +11,8 @@ const { mockDb } = vi.hoisted(() => ({
       count: vi.fn(),
       createMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
+    // The organisation's settings: none saved means today's nine (step 1c).
+    organization: { findUnique: vi.fn() },
   },
 }));
 
@@ -42,6 +44,7 @@ function upload(csv: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.contact.count.mockResolvedValueOnce(10).mockResolvedValueOnce(11);
+  mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
 });
 
 describe("POST /api/contacts/import columns", () => {
@@ -136,5 +139,38 @@ describe("POST /api/contacts/import unrecognised role and title", () => {
     expect(row.title).toBeNull();
     expect(body.warnings.join(" ")).toMatch(/1 role value\(s\) were not recognised.*Physician/);
     expect(body.warnings.join(" ")).toMatch(/1 title value\(s\).*Dr, Prof/);
+  });
+});
+
+describe("POST /api/contacts/import, Role read through the organisation's own answers (step 1c)", () => {
+  const ownList = {
+    personFields: {
+      role: {
+        label: "Profession",
+        options: [
+          { key: "ENGINEER", label: "Engineer" },
+          { key: "OLD", label: "Old job", retired: true },
+        ],
+      },
+    },
+  };
+
+  it("reads the importing organisation's list, stores its answers and refuses one it does not have", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: ownList });
+    const csv = ["firstName,lastName,email,role", "A,B,a@x.com,engineer", "C,D,c@x.com,Physician", "E,F,e@x.com,Old job"].join("\n");
+    const body = await (await POST(upload(csv))).json();
+    expect(mockDb.organization.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "org1" } }));
+    const rows = mockDb.contact.createMany.mock.calls[0][0].data as { email: string; role: string | null }[];
+    expect(rows.map((r) => [r.email, r.role])).toEqual([["a@x.com", "ENGINEER"], ["c@x.com", null], ["e@x.com", "OLD"]]);
+    // In the organisation's words, live answers only (never a made-up "Others").
+    expect(body.warnings.join(" ")).toMatch(/1 profession value\(s\) were not recognised.*Use one of: Engineer\./);
+  });
+
+  it("fails the import rather than read the file against today's nine when the organisation cannot be read", async () => {
+    mockDb.organization.findUnique.mockRejectedValue(new Error("pool timeout"));
+    const csv = ["firstName,lastName,email,role", "A,B,a@x.com,Physician"].join("\n");
+    const res = await POST(upload(csv));
+    expect(res.status).toBe(500);
+    expect(mockDb.contact.createMany).not.toHaveBeenCalled();
   });
 });

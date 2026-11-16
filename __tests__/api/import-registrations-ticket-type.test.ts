@@ -21,6 +21,8 @@ vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: mockLo
 const { mockClaimSeat } = vi.hoisted(() => ({ mockClaimSeat: vi.fn() }));
 const { mockDb, mockAuth, mockApiLogger, mockIncrementEventSeats, mockSerial } = vi.hoisted(() => ({
   mockDb: {
+    // The organisation's settings: none saved means today's nine (step 1c).
+    organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
     ticketType: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
