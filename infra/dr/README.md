@@ -101,9 +101,15 @@ On the Mumbai box (`sudo -iu ubuntu`, then `crontab -e`):
 # to know the sync RAN (see §"Triage: Uploads mirror stale"). && = heartbeat
 # only on a successful sync.
 0 * * * * aws s3 sync s3://ea-sys-uploads/ s3://ea-sys-dr-singapore/uploads/ --source-region ap-south-1 --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1 && echo ok | aws s3 cp - s3://ea-sys-dr-singapore/heartbeats/uploads-mirror --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
+
+# Daily copy of logs/archive/ (21:30 UTC = 01:30 GST; installed Nov 16, 2026): the monthly
+# SystemLog archives, MediaMTX's rotated logs and the webinar page-attendance archive
+# (webinar-presence/, registration ids, no names). Never --delete: the box's copy may go, the
+# bucket's stays (owner: archive, never delete logs).
+30 21 * * * aws s3 sync /home/ubuntu/ea-sys/logs/archive/ s3://ea-sys-dr-singapore/logs-archive/ --region ap-southeast-1 >> /home/ubuntu/cron-dr-logs-archive.log 2>&1
 ```
 
-Both require the Mumbai EC2's IAM role (`ea-sys-mumbai-ec2-role`) to have
+All of them require the Mumbai EC2's IAM role (`ea-sys-mumbai-ec2-role`) to have
 `s3:PutObject` on `arn:aws:s3:::ea-sys-dr-singapore/*` and
 `kms:GenerateDataKey`/`kms:Encrypt` on the Singapore KMS key — attach the
 inline policy `DRBackupToSingapore` to the role. The bucket-sourced mirror
