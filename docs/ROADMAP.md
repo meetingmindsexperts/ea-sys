@@ -1452,6 +1452,43 @@ the server-side waiting room, export headers, presence archive); see CHANGELOG, 
 5. **Per-tenant egress and logs (platform).** Meter streaming egress per organisation and tag
    MediaMTX log lines with it before billing tenants for streaming.
 
+## Organization has no row policy (recorded Nov 16, 2026): before a second tenant, not started
+
+Owner asked on Nov 16 why `Organization` carries no row security and agreed to record it. Nothing
+is wrong on master (one organisation, row security off by design). It is a gap for the platform
+instance.
+
+**Why it has none.** Two reasons, and neither is "it does not need one":
+
+1. **The coverage test cannot see it.** `__tests__/lib/rls-coverage.test.ts` checks every model
+   that carries an `organizationId` column. `Organization` has none: its own `id` IS the
+   organisation. So it is not policied, not on `DELIBERATELY_UNPOLICIED`, and nothing fails.
+2. **It is read before anyone is identified**, the same problem `Event` has: working out which
+   organisation a web address belongs to, the sign-in path, the public brand, the public
+   person-fields read, the health check. A policy switched on today would return nothing to all
+   of them.
+
+**What it holds that another tenant must never read.** `Organization.settings` carries the
+encrypted Zoom, EventsAir and DET eTicketing credentials, the public brand, the person fields,
+default registration types and sponsor tiers; the row also carries billing and contact details.
+Today the only wall is each query's own `where: { id: organizationId }`, in about 47 files.
+
+**The shape of the fix (the Event pattern, smaller).**
+
+1. A policy on the tenant's own row: `USING ("id" = current_setting('app.current_org', true))`,
+   with the same `WITH CHECK`.
+2. One sanctioned before-identity read (like `resolveEventTenant`): the columns a signed-out
+   page may see and no others, through the privileged client. Never `settings` as a whole.
+3. Every other read and write inside the organisation's lane. The settings writers already take
+   the row lock inside `tenantTransaction` (`person-field-service.ts`) or `mergeSettingsLocked`
+   (a tenant transaction since Nov 16), so most of them are ready.
+4. Put `Organization` in the coverage test by name, so the gap is visible until it is closed.
+5. A `tests/tenancy` case: tenant A cannot read or write tenant B's row, with and without a
+   filter.
+
+**Order.** After Event row security (its discovery pattern is the model, and its sweep touches
+the same routes). Size: small next to Event, roughly 47 files against Event's several hundred.
+
 ## Event RLS: the shadow detector in production (recorded Nov 5, 2026): web COLLECTED Nov 16; flag stays ON for the worker until Nov 23
 
 **Nov 16, 2026:** eleven days collected from CloudWatch and written into
