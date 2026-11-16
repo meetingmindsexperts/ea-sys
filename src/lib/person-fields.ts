@@ -188,7 +188,11 @@ function readOwnList(raw: Record<string, unknown>): PersonFieldList | null {
  */
 function readField(raw: unknown, fallback: PersonFieldConfig): PersonFieldConfig {
   if (!isRecord(raw)) return fallback;
-  const list = readOwnList(raw) ?? { label: fallback.label, options: fallback.options, allowOther: fallback.allowOther };
+  // The field's own name is read by itself too (step 1d): renaming a field
+  // must not freeze its answers into the setting, which would stop it
+  // following today's list (the same reason the switches are stored apart).
+  const ownLabel = typeof raw.label === "string" && raw.label.trim() && raw.label.trim().length <= MAX_PERSON_FIELD_LABEL ? raw.label.trim() : null;
+  const list = readOwnList(raw) ?? { label: ownLabel ?? fallback.label, options: fallback.options, allowOther: fallback.allowOther };
   return { enabled: raw.enabled !== false, required: raw.required !== false, ...list };
 }
 

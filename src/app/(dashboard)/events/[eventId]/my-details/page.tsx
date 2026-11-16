@@ -176,6 +176,7 @@ export default function SubmitterProfilePage() {
   // rules are not (review of f0899baf: the rules used to come from a second
   // read that could land after the profile).
   const [fieldRules, setFieldRules] = useState<PersonFieldRules>(DEFAULT_PERSON_FIELD_RULES);
+  const specialtyField = usePersonFieldLabel("specialty");
   const roleField = usePersonFieldLabel("role");
   const params = useParams();
   const router = useRouter();
@@ -453,7 +454,7 @@ export default function SubmitterProfilePage() {
                 <Field icon={Mail} label="Email" value={profile.email} />
                 <Field icon={Mail} label="Additional email" value={profile.additionalEmail} />
                 <Field icon={Briefcase} label={roleField.caption} value={profile.role ? roleField.of(profile.role, "—") : null} />
-                <Field icon={Stethoscope} label="Specialty" value={specialty} />
+                <Field icon={Stethoscope} label={specialtyField.caption} value={specialty} />
                 <Field icon={Building2} label="Organization" value={profile.organization} />
                 <Field icon={Briefcase} label="Job title" value={profile.jobTitle} />
                 <Field icon={Phone} label="Phone" value={profile.phone} />
@@ -523,13 +524,13 @@ export default function SubmitterProfilePage() {
                 </div>
                 {fieldRules.role.shown && (
                   <div>
-                    <Label className="text-xs">Role{fieldRules.role.required ? " *" : ""}</Label>
+                    <Label className="text-xs">{roleField.caption}{fieldRules.role.required ? " *" : ""}</Label>
                     <RoleSelect value={form.role} held={profile?.role} onChange={(v) => setForm({ ...form, role: v })} placeholder="Select a role" />
                   </div>
                 )}
                 {fieldRules.specialty.shown && (
                   <div>
-                    <Label className="text-xs">Specialty{fieldRules.specialty.required ? " *" : ""}</Label>
+                    <Label className="text-xs">{specialtyField.caption}{fieldRules.specialty.required ? " *" : ""}</Label>
                     <SpecialtySelect value={form.specialty} onChange={(v) => setForm({ ...form, specialty: v })} />
                   </div>
                 )}

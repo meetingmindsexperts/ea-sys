@@ -1,5 +1,6 @@
 "use client";
 
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCreateContact, useContactTags } from "@/hooks/use-api";
@@ -80,6 +81,8 @@ const inputCls =
   "h-9 text-sm border-gray-200 focus-visible:ring-primary/20 focus-visible:border-primary";
 
 export default function NewContactPage() {
+  const roleField = usePersonFieldLabel("role");
+  const specialtyField = usePersonFieldLabel("specialty");
   const router = useRouter();
   const [form, setForm] = useState(emptyForm);
   const createContact = useCreateContact();
@@ -204,14 +207,14 @@ export default function NewContactPage() {
                     className={inputCls}
                   />
                 </FormField>
-                <FormField label="Role">
+                <FormField label={roleField.caption}>
                   <RoleSelect
                     value={form.role}
                     onChange={(role) => setForm((f) => ({ ...f, role }))}
                     placeholder="Select a role (optional)"
                   />
                 </FormField>
-                <FormField label="Specialty">
+                <FormField label={specialtyField.caption}>
                   <SpecialtySelect
                     value={form.specialty}
                     onChange={(specialty) => setForm((f) => ({ ...f, specialty }))}

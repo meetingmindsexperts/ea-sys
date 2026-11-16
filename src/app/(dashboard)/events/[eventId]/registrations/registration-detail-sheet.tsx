@@ -201,6 +201,7 @@ export function RegistrationDetailSheet({
   open,
   onOpenChange,
 }: RegistrationDetailSheetProps) {
+  const specialtyField = usePersonFieldLabel("specialty");
   const roleField = usePersonFieldLabel("role");
   const queryClient = useQueryClient();
   const { data: userSession } = useSession();
@@ -1317,7 +1318,7 @@ export function RegistrationDetailSheet({
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="edit-role">Role</Label>
+                        <Label htmlFor="edit-role">{roleField.caption}</Label>
                         <RoleSelect
                           id="edit-role"
                           value={editData.role}
@@ -1326,7 +1327,7 @@ export function RegistrationDetailSheet({
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="edit-specialty">Specialty</Label>
+                        <Label htmlFor="edit-specialty">{specialtyField.caption}</Label>
                         <SpecialtySelect
                           value={editData.specialty}
                           onChange={(specialty) => setEditData({ ...editData, specialty })}
@@ -1577,7 +1578,7 @@ export function RegistrationDetailSheet({
                       <div className="flex items-center gap-3">
                         <ClipboardList className="h-4 w-4 text-muted-foreground shrink-0" />
                         <div>
-                          <div className="text-xs text-muted-foreground">Specialty</div>
+                          <div className="text-xs text-muted-foreground">{specialtyField.caption}</div>
                           <div>{selectedRegistration.attendee.specialty}</div>
                         </div>
                       </div>

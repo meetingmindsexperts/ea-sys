@@ -139,10 +139,17 @@ export interface RoleSettings {
   answers: (RoleAnswerRow & { key: string })[];
 }
 
+/** The names of Role and Specialty as every form shows them (step 1d). */
+export interface FieldLabels {
+  role: string;
+  specialty: string;
+}
+
 interface FormFieldSettings {
   fields: FieldSwitches;
   specialty: SpecialtySettings;
   role: RoleSettings;
+  labels: FieldLabels;
 }
 
 /** Everything Settings, Form fields edits, in one read. */
@@ -174,6 +181,28 @@ export function useSaveRoleAnswers() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: input }),
+      }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(SPECIALTY_SETTINGS_KEY, saved);
+      queryClient.invalidateQueries({ queryKey: PUBLIC_FIELDS_KEY });
+    },
+  });
+}
+
+/** The names of Role and Specialty as Settings edits them. */
+export function useFieldLabels() {
+  const query = useFormFieldSettings();
+  return { ...query, data: query.data?.labels };
+}
+
+export function useSaveFieldLabels() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { labels: FieldLabels; expected: FieldLabels }) =>
+      fetchApi<FormFieldSettings>("/api/organization/person-fields", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labels: input }),
       }),
     onSuccess: (saved) => {
       queryClient.setQueryData(SPECIALTY_SETTINGS_KEY, saved);

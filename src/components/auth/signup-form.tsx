@@ -18,7 +18,7 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
-import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { usePersonFieldRules, usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { withPersonFieldRules } from "@/lib/person-field-check";
 
 const signupSchema = z
@@ -69,6 +69,8 @@ export function SignupForm({
   privacyUrl: string | null;
 }) {
   const [sentTo, setSentTo] = useState<string | null>(null);
+  const roleField = usePersonFieldLabel("role");
+  const specialtyField = usePersonFieldLabel("specialty");
   const [isLoading, setIsLoading] = useState(false);
   // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
   const fieldRules = usePersonFieldRules();
@@ -155,12 +157,12 @@ export function SignupForm({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {fieldRules.role.shown && (
                 <FormField control={form.control} name="role" render={({ field }) => (
-                  <FormItem><FormLabel>Role</FormLabel><RoleSelect value={field.value} onChange={field.onChange} /><FormMessage /></FormItem>
+                  <FormItem><FormLabel>{roleField.caption}</FormLabel><RoleSelect value={field.value} onChange={field.onChange} /><FormMessage /></FormItem>
                 )} />
               )}
               {fieldRules.specialty.shown && (
                 <FormField control={form.control} name="specialty" render={({ field }) => (
-                  <FormItem><FormLabel>Specialty</FormLabel><SpecialtySelect value={field.value} onChange={field.onChange} /><FormMessage /></FormItem>
+                  <FormItem><FormLabel>{specialtyField.caption}</FormLabel><SpecialtySelect value={field.value} onChange={field.onChange} /><FormMessage /></FormItem>
                 )} />
               )}
               {fieldRules.specialty.shown && specialty === "Others" && <TextInput form={form} name="customSpecialty" label="Your specialty" className="sm:col-span-2" />}

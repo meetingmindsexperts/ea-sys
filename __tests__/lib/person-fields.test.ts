@@ -299,3 +299,16 @@ describe("one event's own choice", () => {
   });
 });
 
+
+describe("a field's own name, saved by itself (step 1d)", () => {
+  it("is read without freezing the answers: they keep following today's list", () => {
+    const fields = readPersonFields({ [PERSON_FIELDS_SETTING]: { role: { label: "Profession", enabled: true, required: true } } });
+    expect(fields.role.label).toBe("Profession");
+    expect(fields.role.options).toEqual(defaultPersonFields().role.options);
+  });
+
+  it("ignores a blank or over-long name", () => {
+    expect(readPersonFields({ [PERSON_FIELDS_SETTING]: { role: { label: "  " } } }).role.label).toBe("Role");
+    expect(readPersonFields({ [PERSON_FIELDS_SETTING]: { specialty: { label: "x".repeat(61) } } }).specialty.label).toBe("Specialty");
+  });
+});

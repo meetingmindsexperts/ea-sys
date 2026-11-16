@@ -69,7 +69,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
-import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { usePersonFieldRules, usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { claimLinkCopy, readClaimLinkState, type ClaimLinkState } from "@/lib/claim-link-copy";
 import { withPersonFieldRules } from "@/lib/person-field-check";
 import { TitleSelect } from "@/components/ui/title-select";
@@ -255,6 +255,8 @@ function BrandedShell({
 export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterVariant }) {
   const copy = VARIANT_COPY[variant];
 
+  const roleField = usePersonFieldLabel("role");
+  const specialtyField = usePersonFieldLabel("specialty");
   const params = useParams();
   const slug = params.slug as string;
 
@@ -1123,7 +1125,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                         <FormField control={form.control} name="specialty"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Specialty{fieldRules.specialty.required && <span className="text-red-400"> *</span>}</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">{specialtyField.caption}{fieldRules.specialty.required && <span className="text-red-400"> *</span>}</FormLabel>
                               <FormControl>
                                 <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
                               </FormControl>
@@ -1135,7 +1137,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                         <FormField control={form.control} name="role"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Role{fieldRules.role.required && <span className="text-red-400"> *</span>}</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">{roleField.caption}{fieldRules.role.required && <span className="text-red-400"> *</span>}</FormLabel>
                               <FormControl>
                                 <RoleSelect value={field.value} onChange={field.onChange} />
                               </FormControl>

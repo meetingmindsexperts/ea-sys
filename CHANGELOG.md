@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Person fields: rename the Role and Specialty fields (November 16)
+
+Step 1d, part 3, of `docs/ORG_FIELDS_PLAN.md`. MM Group's fields keep their names (D16).
+
+- **Added**: Settings, Form fields, Field names: what Role and Specialty are called on every form and screen, for example "Profession". Title keeps its name (D8). Saved and read by itself, so a rename never freezes the field's answers. Stale saves are refused; audited.
+- **Changed**: every form's Role and Specialty caption follows the name: public registration, completion, group registration, my-registration, abstract and proposal sign-up, account sign-up, My account, My Details, the desk, the registration, speaker and contact sheets and pages, new contact and new registration or speaker. File exports keep their fixed column headings, so a file still reads back into the imports.
+
 ### Person fields: Role answers in Settings (November 16)
 
 Step 1d, part 2, of `docs/ORG_FIELDS_PLAN.md`. MM Group's Role answers are not changed (D16); the screen is for an organisation that needs its own.

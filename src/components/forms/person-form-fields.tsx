@@ -1,5 +1,6 @@
 "use client";
 
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -70,6 +71,8 @@ export function PersonFormFields({
   isReviewer = false,
   tagSuggestions,
 }: PersonFormFieldsProps) {
+  const roleField = usePersonFieldLabel("role");
+  const specialtyField = usePersonFieldLabel("specialty");
   const updateField = (field: keyof PersonFormData, value: PersonFormData[keyof PersonFormData]) => {
     onChange({ ...data, [field]: value });
   };
@@ -265,7 +268,7 @@ export function PersonFormFields({
       <div className="grid grid-cols-2 gap-4">
         {showRole && data.role !== undefined && (
           <div className="space-y-2">
-            <Label htmlFor="role">Role</Label>
+            <Label htmlFor="role">{roleField.caption}</Label>
             <RoleSelect
               id="role"
               value={data.role}
@@ -276,7 +279,7 @@ export function PersonFormFields({
           </div>
         )}
         <div className="space-y-2">
-          <Label htmlFor="specialty">Specialty</Label>
+          <Label htmlFor="specialty">{specialtyField.caption}</Label>
           <SpecialtySelect
             value={data.specialty || ""}
             onChange={(specialty) =>

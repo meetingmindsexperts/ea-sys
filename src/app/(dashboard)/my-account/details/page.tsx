@@ -17,7 +17,7 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
-import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { usePersonFieldRules, usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { withPersonFieldRules } from "@/lib/person-field-check";
 import { PageHeader } from "@/components/ui/typography";
 
@@ -65,6 +65,8 @@ const EMPTY: FormValues = {
 
 export default function MyDetailsPage() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const roleField = usePersonFieldLabel("role");
+  const specialtyField = usePersonFieldLabel("specialty");
   const [loadError, setLoadError] = useState(false);
   // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
   const fieldRules = usePersonFieldRules();
@@ -183,7 +185,7 @@ export default function MyDetailsPage() {
               {fieldRules.role.shown && (
                 <div className="space-y-1.5">
                   <Label htmlFor="details-role">
-                    Role{fieldRules.role.required && <span className="text-destructive"> *</span>}
+                    {roleField.caption}{fieldRules.role.required && <span className="text-destructive"> *</span>}
                   </Label>
                   <Controller control={control} name="role" render={({ field }) => <RoleSelect id="details-role" value={field.value} held={loaded?.details.role} onChange={field.onChange} />} />
                   {fieldError("role")}
@@ -192,7 +194,7 @@ export default function MyDetailsPage() {
               {fieldRules.specialty.shown && (
               <div className="space-y-1.5">
                 <Label htmlFor="details-specialty">
-                  Specialty{fieldRules.specialty.required && <span className="text-destructive"> *</span>}
+                  {specialtyField.caption}{fieldRules.specialty.required && <span className="text-destructive"> *</span>}
                 </Label>
                 <Controller control={control} name="specialty" render={({ field }) => <SpecialtySelect id="details-specialty" value={field.value} onChange={field.onChange} />} />
                 {fieldError("specialty")}

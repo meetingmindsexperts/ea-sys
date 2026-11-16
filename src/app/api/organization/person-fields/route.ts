@@ -10,6 +10,8 @@ import { MAX_PERSON_FIELD_ANSWER, MAX_PERSON_FIELD_OPTIONS, readPersonFields } f
 import {
   countRoleUse,
   countSpecialtyUse,
+  labelsOf,
+  saveFieldLabels,
   savePersonFieldSwitches,
   saveRoleAnswers,
   saveSpecialtyAnswers,
@@ -43,7 +45,9 @@ const fieldSwitch = z.object({ enabled: z.boolean(), required: z.boolean() });
 const switches = z.object({ title: fieldSwitch, role: fieldSwitch, specialty: fieldSwitch });
 
 // One save at a time: the Specialty answers, the Role answers (step 1d), or the three fields' switches.
+const fieldLabels = z.object({ role: z.string().max(MAX_PERSON_FIELD_ANSWER), specialty: z.string().max(MAX_PERSON_FIELD_ANSWER) });
 const putSchema = z.union([
+  z.object({ labels: z.object({ labels: fieldLabels, expected: fieldLabels }) }).strict(),
   z.object({ role: z.object({ answers: roleList, expected: z.object({ answers: roleSnapshot }) }) }).strict(),
   z
     .object({
@@ -85,6 +89,7 @@ const ROLE_HTTP_STATUS: Record<SaveRoleAnswersErrorCode, number> = {
 };
 
 const SWITCHES_HTTP_STATUS = { ORGANIZATION_NOT_FOUND: 404, SWITCHES_CHANGED: 409, UNKNOWN: 500 } as const;
+const LABELS_HTTP_STATUS = { ORGANIZATION_NOT_FOUND: 404, INVALID_LABEL: 400, LABELS_CHANGED: 409, UNKNOWN: 500 } as const;
 
 async function specialtyWithUse(organizationId: string) {
   const org = await db.organization.findUnique({ where: { id: organizationId }, select: { settings: true } });
@@ -95,6 +100,8 @@ async function specialtyWithUse(organizationId: string) {
     countRoleUse(db, organizationId, config.role.options.map((o) => o.key)),
   ]);
   return {
+    // The names of Role and Specialty (step 1d); Title keeps its name.
+    labels: labelsOf(config),
     // Role's own answers (step 1d): a key that never changes, a label that may.
     role: {
       label: config.role.label,
@@ -165,6 +172,14 @@ export async function PUT(req: Request) {
         if (!saved.ok) {
           apiLogger.warn({ msg: "person-fields:switches-rejected", organizationId, userId, code: saved.code });
           return NextResponse.json({ error: saved.message, code: saved.code }, { status: SWITCHES_HTTP_STATUS[saved.code] });
+        }
+        return NextResponse.json(await specialtyWithUse(organizationId));
+      }
+      if ("labels" in parsed.data) {
+        const saved = await saveFieldLabels({ organizationId, actorUserId: userId, ...parsed.data.labels });
+        if (!saved.ok) {
+          apiLogger.warn({ msg: "person-fields:labels-rejected", organizationId, userId, code: saved.code });
+          return NextResponse.json({ error: saved.message, code: saved.code }, { status: LABELS_HTTP_STATUS[saved.code] });
         }
         return NextResponse.json(await specialtyWithUse(organizationId));
       }

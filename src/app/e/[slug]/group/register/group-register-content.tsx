@@ -31,7 +31,7 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
-import { usePersonFieldRules } from "@/hooks/use-person-fields";
+import { usePersonFieldRules, usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { personFieldProblems, type PersonFieldPath } from "@/lib/person-field-check";
 import {
   livePrice,
@@ -113,6 +113,8 @@ function closedMessage(event: PublicEvent): string {
 
 function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
   // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
+  const roleField = usePersonFieldLabel("role");
+  const specialtyField = usePersonFieldLabel("specialty");
   const fieldRules = usePersonFieldRules();
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
@@ -604,10 +606,10 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
                     <div><Label htmlFor={`grp-m${idx}-city`}>City *</Label><Input id={`grp-m${idx}-city`} autoComplete="off" value={m.city} onChange={(e) => updateMember(idx, { city: e.target.value })} /></div>
                     <div><Label htmlFor={`grp-m${idx}-country`}>Country *</Label><CountrySelect id={`grp-m${idx}-country`} value={m.country} onChange={(v) => updateMember(idx, { country: v })} /></div>
                     {fieldRules.role.shown && (
-                      <div><Label htmlFor={`grp-m${idx}-role`}>Role{fieldRules.role.required ? " *" : ""}</Label><RoleSelect id={`grp-m${idx}-role`} value={m.role} onChange={(v) => updateMember(idx, { role: v })} /></div>
+                      <div><Label htmlFor={`grp-m${idx}-role`}>{roleField.caption}{fieldRules.role.required ? " *" : ""}</Label><RoleSelect id={`grp-m${idx}-role`} value={m.role} onChange={(v) => updateMember(idx, { role: v })} /></div>
                     )}
                     {fieldRules.specialty.shown && (
-                      <div><Label htmlFor={`grp-m${idx}-specialty`}>Specialty{fieldRules.specialty.required ? " *" : ""}</Label><SpecialtySelect id={`grp-m${idx}-specialty`} value={m.specialty} onChange={(v) => updateMember(idx, { specialty: v })} /></div>
+                      <div><Label htmlFor={`grp-m${idx}-specialty`}>{specialtyField.caption}{fieldRules.specialty.required ? " *" : ""}</Label><SpecialtySelect id={`grp-m${idx}-specialty`} value={m.specialty} onChange={(v) => updateMember(idx, { specialty: v })} /></div>
                     )}
                     {fieldRules.specialty.shown && m.specialty === "Others" && (
                       <div><Label htmlFor={`grp-m${idx}-custom-specialty`}>Custom specialty *</Label><Input id={`grp-m${idx}-custom-specialty`} autoComplete="off" value={m.customSpecialty} onChange={(e) => updateMember(idx, { customSpecialty: e.target.value })} /></div>

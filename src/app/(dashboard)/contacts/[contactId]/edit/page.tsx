@@ -1,5 +1,6 @@
 "use client";
 
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useContact, useUpdateContact, useContactTags } from "@/hooks/use-api";
@@ -62,6 +63,7 @@ const inputCls =
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function EditContactForm({ contactId, contact }: { contactId: string; contact: any }) {
+  const specialtyField = usePersonFieldLabel("specialty");
   const router = useRouter();
   const updateContact = useUpdateContact(contactId);
   const contactTagsQuery = useContactTags();
@@ -212,7 +214,7 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
                     className={inputCls}
                   />
                 </FormField>
-                <FormField label="Specialty">
+                <FormField label={specialtyField.caption}>
                   <SpecialtySelect
                     value={form.specialty}
                     onChange={(specialty) => setForm((f) => ({ ...f, specialty }))}

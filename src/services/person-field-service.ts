@@ -32,6 +32,7 @@ import { apiLogger } from "@/lib/logger";
 import {
   CONFIGURABLE_PERSON_FIELDS,
   MAX_PERSON_FIELD_ANSWER,
+  MAX_PERSON_FIELD_LABEL,
   MAX_PERSON_FIELD_OPTIONS,
   OTHER_ANSWER,
   PERSON_FIELDS_SETTING,
@@ -574,5 +575,88 @@ export async function saveRoleAnswers(input: {
   } catch (err) {
     apiLogger.error({ err, organizationId: input.organizationId }, "person-fields:role-save-failed");
     return roleFail("UNKNOWN", "Failed to save the role answers");
+  }
+}
+
+/* ─────────────────────────────── Field names ──────────────────────────────── */
+
+/**
+ * The names of the Role and Specialty fields as every form and screen shows
+ * them (step 1d of docs/ORG_FIELDS_PLAN.md), for example "Profession" for
+ * Role. Title keeps its name (owner, Nov 13, 2026: Title is on or off only).
+ * Only the `label` key is written: the answers and switches stay as they are,
+ * and a field with no list of its own keeps following today's list. Exports
+ * keep their fixed column headings (a renamed field must still read back
+ * into the imports). Same lock, stale-save refusal and audit as the other
+ * saves here.
+ */
+export const RENAMEABLE_PERSON_FIELDS = ["role", "specialty"] as const;
+export type RenameablePersonField = (typeof RENAMEABLE_PERSON_FIELDS)[number];
+export type PersonFieldLabels = Record<RenameablePersonField, string>;
+
+export type SaveFieldLabelsResult =
+  | { ok: true; labels: PersonFieldLabels }
+  | { ok: false; code: "ORGANIZATION_NOT_FOUND" | "INVALID_LABEL" | "LABELS_CHANGED" | "UNKNOWN"; message: string };
+
+export function labelsOf(config: PersonFieldsConfig): PersonFieldLabels {
+  return { role: config.role.label, specialty: config.specialty.label };
+}
+
+export async function saveFieldLabels(input: {
+  organizationId: string;
+  actorUserId: string;
+  labels: PersonFieldLabels;
+  /** The names as the screen loaded them. */
+  expected: PersonFieldLabels;
+}): Promise<SaveFieldLabelsResult> {
+  const next = {} as PersonFieldLabels;
+  for (const field of RENAMEABLE_PERSON_FIELDS) {
+    const label = typeof input.labels[field] === "string" ? input.labels[field].trim() : "";
+    if (!label || label.length > MAX_PERSON_FIELD_LABEL || CONTROL_CHARACTER.test(label) || !looseForm(label)) {
+      return { ok: false, code: "INVALID_LABEL", message: `A field's name needs 1 to ${MAX_PERSON_FIELD_LABEL} characters, with a letter or a digit.` };
+    }
+    next[field] = label;
+  }
+  if (looseForm(next.role) === looseForm(next.specialty)) {
+    return { ok: false, code: "INVALID_LABEL", message: "The two fields cannot have the same name." };
+  }
+  try {
+    const outcome = await tenantTransaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ settings: Prisma.JsonValue | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${input.organizationId} FOR UPDATE`;
+      if (rows.length === 0) return { saved: false as const, code: "ORGANIZATION_NOT_FOUND" as const };
+      const settings = (rows[0].settings ?? {}) as Record<string, unknown>;
+      const before = labelsOf(readPersonFields(settings));
+      if (before.role !== input.expected.role || before.specialty !== input.expected.specialty) return { saved: false as const, code: "LABELS_CHANGED" as const };
+      const saved = (isPlainObject(settings[PERSON_FIELDS_SETTING]) ? settings[PERSON_FIELDS_SETTING] : {}) as Record<string, unknown>;
+      const written = Object.fromEntries(
+        RENAMEABLE_PERSON_FIELDS.map((f) => [f, { ...(isPlainObject(saved[f]) ? saved[f] : {}), label: next[f] }]),
+      );
+      await tx.organization.update({
+        where: { id: input.organizationId },
+        data: { settings: { ...settings, [PERSON_FIELDS_SETTING]: { ...saved, ...written } } as unknown as Prisma.InputJsonValue },
+      });
+      return { saved: true as const, before };
+    });
+    if (!outcome.saved) {
+      return outcome.code === "ORGANIZATION_NOT_FOUND"
+        ? { ok: false, code: "ORGANIZATION_NOT_FOUND", message: "Organisation not found" }
+        : { ok: false, code: "LABELS_CHANGED", message: "Someone else renamed these fields after you opened them. They have been reloaded: make your change again." };
+    }
+    db.auditLog
+      .create({
+        data: {
+          userId: input.actorUserId,
+          action: "UPDATE",
+          entityType: "Organization",
+          entityId: input.organizationId,
+          changes: { personFieldLabels: { before: outcome.before, after: next } } as unknown as Prisma.InputJsonValue,
+        },
+      })
+      .catch((err) => apiLogger.warn({ err, organizationId: input.organizationId }, "person-fields:audit-failed"));
+    apiLogger.info({ organizationId: input.organizationId, by: input.actorUserId, labels: next }, "person-fields:labels-saved");
+    return { ok: true, labels: next };
+  } catch (err) {
+    apiLogger.error({ err, organizationId: input.organizationId }, "person-fields:labels-save-failed");
+    return { ok: false, code: "UNKNOWN", message: "Failed to save the field names" };
   }
 }

@@ -26,7 +26,7 @@ import { asksForIdentityEvidence, missingIdentityEvidence, readIdentityEvidenceP
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
-import { PUBLIC_FIELDS_KEY, usePersonFieldRules } from "@/hooks/use-person-fields";
+import { PUBLIC_FIELDS_KEY, usePersonFieldRules, usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { personFieldProblems, type PersonFieldPath } from "@/lib/person-field-check";
 import type { PersonFieldRules } from "@/lib/person-fields";
 import { CountrySelect } from "@/components/ui/country-select";
@@ -970,6 +970,8 @@ function WalkInForm({
   onDone: (email: string, created: WalkInCreated) => Promise<void>;
 }) {
   // What this organisation's forms do with Title, Role and Specialty (Settings, Form fields).
+  const roleField = usePersonFieldLabel("role");
+  const specialtyField = usePersonFieldLabel("specialty");
   const fieldRules = usePersonFieldRules();
   const { data: ticketTypes = [] } = useTickets(eventId);
   const types = useMemo(
@@ -1236,12 +1238,12 @@ function WalkInForm({
               <Input id="walkin-city" value={fields.city} onChange={set("city")} required />
             </Field>
             {fieldRules.specialty.shown && (
-              <Field label="Specialty" required={fieldRules.specialty.required}>
+              <Field label={specialtyField.caption} required={fieldRules.specialty.required}>
                 <SpecialtySelect value={fields.specialty} onChange={pick("specialty")} />
               </Field>
             )}
             {fieldRules.role.shown && (
-              <Field label="Role" required={fieldRules.role.required}>
+              <Field label={roleField.caption} required={fieldRules.role.required}>
                 <RoleSelect value={fields.role} onChange={pick("role")} />
               </Field>
             )}

@@ -181,6 +181,7 @@ interface Speaker {
 }
 
 export default function SpeakerDetailPage() {
+  const specialtyField = usePersonFieldLabel("specialty");
   const roleField = usePersonFieldLabel("role");
   const params = useParams();
   const router = useRouter();
@@ -913,11 +914,11 @@ export default function SpeakerDetailPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Role</Label>
+                      <Label>{roleField.caption}</Label>
                       <RoleSelect value={formData.role} held={speaker.role} onChange={(role) => setFormData({ ...formData, role })} placeholder="Select a role (optional)" />
                     </div>
                     <div className="space-y-2">
-                      <Label>Specialty</Label>
+                      <Label>{specialtyField.caption}</Label>
                       <SpecialtySelect value={formData.specialty} onChange={(specialty) => setFormData({ ...formData, specialty })} />
                     </div>
                   </div>
@@ -998,7 +999,7 @@ export default function SpeakerDetailPage() {
                     <div className="flex items-center gap-3">
                       <Stethoscope className="h-4 w-4 text-muted-foreground shrink-0" />
                       <div>
-                        <div className="text-xs text-muted-foreground">Specialty</div>
+                        <div className="text-xs text-muted-foreground">{specialtyField.caption}</div>
                         <div className="text-sm">{speaker.specialty}</div>
                       </div>
                     </div>
