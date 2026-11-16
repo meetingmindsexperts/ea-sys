@@ -27,7 +27,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) =
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/permissions/require-permission", () => ({
-  requirePermission: () => ({ ok: true, eventWhere: { id: "ev1", organizationId: "org1" } }),
+  requirePermission: () => ({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "ev1", organizationId: "org1" } }),
 }));
 vi.mock("@/lib/registration-email-lock", () => ({ lockRegistrationEmails: vi.fn() }));
 vi.mock("@/lib/badge-layout", () => ({ exhibitorBadgeData: () => ({}) }));

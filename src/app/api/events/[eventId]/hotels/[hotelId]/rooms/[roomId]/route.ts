@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -42,8 +43,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
 
@@ -133,8 +133,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
 
@@ -287,8 +286,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
 

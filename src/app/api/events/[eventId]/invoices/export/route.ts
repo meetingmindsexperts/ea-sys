@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
@@ -43,9 +44,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "invoices:export", userId: session.user.id }, async () => {
-    const event = await db.event.findFirst({
+    const event = await findGatedEvent(gate, {
       // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
-      where: gate.eventWhere,
       select: { id: true, code: true },
     });
     if (!event) {

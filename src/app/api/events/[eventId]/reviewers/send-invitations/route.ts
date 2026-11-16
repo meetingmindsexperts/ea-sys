@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -72,7 +73,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
 
-      const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true, name: true, slug: true, settings: true } });
+      const event = await findGatedEvent(gate, { select: { id: true, name: true, slug: true, settings: true } });
       if (!event) {
         apiLogger.warn({ msg: "reviewer-invitations-send:event-not-found", eventId, userId: session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

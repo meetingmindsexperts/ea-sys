@@ -20,7 +20,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/require-org", () => ({ requireOrgId: () => ({ orgId: "org-1" }) }));
-vi.mock("@/lib/permissions/require-permission", () => ({ requirePermission: () => ({ ok: true, eventWhere: { id: "ev-1" } }) }));
+vi.mock("@/lib/permissions/require-permission", () => ({ requirePermission: () => ({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "ev-1" } }) }));
 vi.mock("@/lib/audit-data-transfer", () => ({ recordImport: vi.fn() }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4" }));

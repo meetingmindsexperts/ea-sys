@@ -17,6 +17,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
@@ -69,8 +70,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "certificates.read", { route: "events/[eventId]/certificates/templates:GET", eventId: eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {
@@ -120,8 +120,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "certificates.templates.manage", { route: "events/[eventId]/certificates/templates:POST", eventId: eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {

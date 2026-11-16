@@ -19,6 +19,7 @@ import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { isVenueServed } from "@/lib/venue/event-venue";
 import { isVenueModuleEnabled } from "@/lib/module-flags";
@@ -93,7 +94,7 @@ export async function venueGuard(by: { id: string } | { slug: string }, route: s
     const gate = requirePermission(session, "events.read", { route, eventId });
     if (!gate.ok) return { ok: false as const, response: gate.response };
     // The caller's own assignment row only: an ASSIGNED-scope grant asks whether they are on this event (review L3).
-    const row = await db.event.findFirst({ where: gate.eventWhere, select: { ...EVENT_SELECT, staffAssignments: { where: { userId: session.user.id }, select: { userId: true } } } });
+    const row = await findGatedEvent(gate, { select: { ...EVENT_SELECT, staffAssignments: { where: { userId: session.user.id }, select: { userId: true } } } });
     if (!row || !row.organizationId) {
       apiLogger.warn({ msg: `${route}:event-not-visible`, userId: session.user.id, eventId });
       return { ok: false as const, response: notFound() };

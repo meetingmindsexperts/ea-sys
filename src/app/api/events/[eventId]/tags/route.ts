@@ -29,6 +29,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -58,8 +59,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // WEBINARS user opening a CONFERENCE's registrations saw the rows (tags
     // included, per row) while this call 404'd behind them. The payload is
     // tag names + counts, nothing the list does not already show.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       // organizationId, not just id: the read below is on a POLICIED table and
       // needs the event's tenant lane. Event carries no policy, so resolving it
       // first works without one — which is exactly why this route (and the two

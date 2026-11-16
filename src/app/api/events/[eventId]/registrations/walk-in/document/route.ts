@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
@@ -49,7 +49,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
       // Resolve the event BEFORE reading the body: a wrong event costs a
       // lookup, not 5MB of buffering.
-      const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+      const event = await findGatedEvent(gate, { select: { id: true } });
       if (!event) {
         apiLogger.warn({ msg: "walk-in-document:event-not-found", eventId, userId: session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

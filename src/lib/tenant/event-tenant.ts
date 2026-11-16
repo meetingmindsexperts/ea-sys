@@ -37,6 +37,8 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { publicEventWhere, type PublicEventScopeOptions } from "@/lib/public-event";
 import { asEventDiscovery } from "@/lib/tenant/lane-shadow";
+import { runWithTenant } from "@/lib/tenant-context";
+import { isTeamRole } from "@/lib/team-roles";
 
 export interface EventTenant {
   id: string;
@@ -64,4 +66,76 @@ export async function resolvePublicEventOrg(
 ): Promise<string | null> {
   const event = await resolveEventTenant(await publicEventWhere(req, slug, opts));
   return event?.organizationId ?? null;
+}
+
+/** What a permission gate hands a route: who is asking, and which events they may reach. */
+interface EventGate {
+  principal: { organizationId: string | null; baseRole: string | null; fromApiKey: boolean };
+  eventWhere: Prisma.EventWhereInput;
+}
+
+/**
+ * The lane a caller can be put in BEFORE the event is known: their own
+ * organisation's, and only when their reach IS that organisation (a team role,
+ * or an organisation's API key). A reviewer, submitter or registrant reaches an
+ * event through their link to it, whatever organisation their account carries
+ * (the internal-domain rule attaches one), so the event may belong to another
+ * organisation: for them the event's organisation is discovered.
+ */
+function ownLane(principal: EventGate["principal"]): string | null {
+  if (!principal.organizationId) return null;
+  return principal.fromApiKey || isTeamRole(principal.baseRole) ? principal.organizationId : null;
+}
+
+type GatedEventArgs = Omit<Prisma.EventFindFirstArgs, "where">;
+
+/** The two columns the sanctioned discovery read may return. */
+const DISCOVERY_COLUMNS = new Set(["id", "organizationId"]);
+
+function asksOnlyDiscoveryColumns(args: GatedEventArgs): boolean {
+  const select = args.select;
+  if (!select || args.include) return false;
+  const asked = Object.entries(select).filter(([, on]) => on);
+  return asked.length > 0 && asked.every(([column, on]) => on === true && DISCOVERY_COLUMNS.has(column));
+}
+
+/**
+ * The event behind a permission gate, read the way that survives an Event
+ * policy (Event RLS step 2, Nov 16 2026). It is `db.event.findFirst({ where:
+ * gate.eventWhere, ...args })`, and on master it IS that query, unchanged.
+ *
+ * WHY A ROUTE CALLS THIS AND NOT `db.event.findFirst`. A per-event route opens
+ * with that read, outside any lane, and only then enters
+ * `runWithTenant(event.organizationId)`. Under a policy the first read returns
+ * null and the route answers 404 with nothing logged; production's shadow
+ * detector listed 115 routes doing it (docs/SECURITY_AUDIT_ACTION_PLAN.md
+ * §3.1). Here the read happens:
+ *
+ *   - for a caller whose reach is their organisation (a team role, an API
+ *     key): inside that organisation's lane, entered first. The policy then
+ *     applies to the read as to everything after it, so a mistake in a gate's
+ *     filter still cannot reach another tenant's event.
+ *   - for anyone else (a reviewer, a submitter, a registrant, an operator with
+ *     no organisation): through the sanctioned discovery. When the route asks for no more than the id
+ *     and the organisation, that IS the discovery read. When it asks for more,
+ *     the event is found first and then read inside ITS organisation's lane,
+ *     so event content never comes back from a read outside a lane.
+ *
+ * The route goes on to `runWithTenant(event.organizationId, ...)` exactly as
+ * before. Never pass a filter here that the gate did not build.
+ */
+export async function findGatedEvent<A extends GatedEventArgs>(
+  gate: EventGate,
+  args: Prisma.SelectSubset<A, GatedEventArgs>,
+): Promise<Prisma.EventGetPayload<A> | null> {
+  const read = (where: Prisma.EventWhereInput) =>
+    db.event.findFirst({ ...(args as GatedEventArgs), where }) as unknown as Promise<Prisma.EventGetPayload<A> | null>;
+
+  const organizationId = ownLane(gate.principal);
+  if (organizationId) return runWithTenant(organizationId, () => read(gate.eventWhere));
+  if (asksOnlyDiscoveryColumns(args as GatedEventArgs)) return asEventDiscovery(() => read(gate.eventWhere));
+
+  const tenant = await resolveEventTenant(gate.eventWhere);
+  if (!tenant) return null;
+  return runWithTenant(tenant.organizationId, () => read({ AND: [gate.eventWhere, { id: tenant.id }] }));
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
@@ -144,8 +144,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const data = parsed.data;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: MANUAL_PAYMENT_EVENT_SELECT,
     });
     if (!event) {

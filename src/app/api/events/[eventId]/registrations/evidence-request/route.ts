@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
@@ -62,7 +63,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // The grant's own event scope: an event outside it is a 404 here, before
       // the service, which scopes by organisation only.
       const [event, signer] = await Promise.all([
-        db.event.findFirst({ where: gate.eventWhere, select: { id: true } }),
+        findGatedEvent(gate, { select: { id: true } }),
         db.user.findUnique({ where: { id: session.user.id }, select: { emailSignature: true } }),
       ]);
       if (!event) {

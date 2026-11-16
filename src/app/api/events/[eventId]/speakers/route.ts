@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { speakerApiRegistrationType } from "@/lib/speaker-registration-type";
@@ -266,8 +267,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // lookup is org-scoped only, which is fine for ADMIN/ORGANIZER but would
     // let the WEBINARS role (allowed above) create speakers on a CONFERENCE.
     // buildEventAccessWhere confines it to webinar events.
-    const accessibleEvent = await db.event.findFirst({
-      where: gate.eventWhere,
+    const accessibleEvent = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!accessibleEvent) {

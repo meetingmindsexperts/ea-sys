@@ -337,8 +337,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ eventId
   const gate = requirePermission(session, "speakers.update", { route: "events/[eventId]/speakers:POST", eventId });
   if (!gate.ok) return gate.response;
 
-  const event = await db.event.findFirst({
-    where: gate.eventWhere,                      // the grant's own event filter (scope + org)
+  // The event behind the gate: the grant's own event filter (scope + org), read
+  // inside the caller's tenant lane. NEVER `db.event.findFirst({ where:
+  // gate.eventWhere })`: outside a lane that read returns null once Event has a
+  // row policy (src/lib/tenant/event-tenant.ts; a test refuses the bare form).
+  const event = await findGatedEvent(gate, {
     select: { id: true },                        // select, never include, for existence checks
   });
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });

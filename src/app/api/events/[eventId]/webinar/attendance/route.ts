@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
@@ -112,8 +113,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
 
     // Verify access + locate anchor session via parallel queries
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, name: true, settings: true },
     });
     if (!event) {
@@ -291,8 +291,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, settings: true },
     });
     if (!event) {

@@ -17,6 +17,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -55,8 +56,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "speakers.documents.write", { route: "events/[eventId]/speakers/[speakerId]/profile-form:GET", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, slug: true, organizationId: true },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -109,8 +109,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, slug: true, name: true, organizationId: true, organization: { select: { name: true } } },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -262,8 +261,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });

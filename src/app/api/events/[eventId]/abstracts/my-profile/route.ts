@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -124,8 +125,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // an org-null SUBMITTER caller works). This also adds an eventId-scoped
     // existence check the handler previously lacked. The speaker read's nested
     // `abstracts` select reads a swept table, so it runs INSIDE the wrap.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       // `settings` holds the event's own choice for Title, Role and Specialty.
       select: { id: true, organizationId: true, settings: true },
     });
@@ -196,8 +196,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
     const data = parsed.data;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
     if (!event) {

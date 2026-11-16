@@ -4,6 +4,7 @@ import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -96,8 +97,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org,
     // so an org-null SUBMITTER caller works). The swept abstract read runs
     // INSIDE the wrap.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
 
@@ -175,8 +175,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org,
     // so an org-null REVIEWER/SUBMITTER caller works). The swept abstract read +
     // all downstream swept writes run INSIDE the wrap.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, name: true, settings: true },
     });
 
@@ -721,8 +720,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // Resolve the event FIRST — its org opens the tenant wrap. The swept
     // abstract read + delete run INSIDE the wrap.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
 

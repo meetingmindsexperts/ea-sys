@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -51,8 +52,7 @@ export async function GET(
 
     // Event must belong to the caller's org (ADMIN/ORGANIZER are org-scoped to
     // all events; 404 rather than 403 to avoid cross-org existence leaks).
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {

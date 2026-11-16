@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import {
@@ -83,8 +84,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Resolve the event FIRST — its org opens the tenant wrap. The swept
     // abstract read + everything downstream (token mint, send, audit) run
     // INSIDE the wrap.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, name: true, slug: true, venue: true, city: true, country: true, organizationId: true },
     });
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -46,7 +46,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // The event must be one the grant reaches: the service below checks only
     // the organisation, equivalent only while every holder of the key is org-wide.
-    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    const inScope = await findGatedEvent(gate, { select: { id: true } });
     if (!inScope) {
       apiLogger.warn({ msg: "events/abstracts/reviewers:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

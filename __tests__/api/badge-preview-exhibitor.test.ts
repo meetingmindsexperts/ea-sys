@@ -25,7 +25,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/tenant-lane", () => ({ runWithTenantLane: (_o: unknown, _c: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/lib/permissions/require-permission", () => ({
-  requirePermission: () => ({ ok: true, eventWhere: { id: "evt-1" } }),
+  requirePermission: () => ({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "evt-1" } }),
 }));
 vi.mock("@/lib/security", () => ({
   getClientIp: () => "127.0.0.1",

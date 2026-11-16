@@ -6,6 +6,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, sendRegistrationConfirmation, eventLocationVars } from "@/lib/email";
@@ -94,8 +95,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, registration] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         // Company block + logo needed for the confirmation delegation's quote PDF.
         include: {
           organization: {
@@ -735,8 +735,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, registration] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, organizationId: true },
       }),
       db.registration.findFirst({

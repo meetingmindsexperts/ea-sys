@@ -38,7 +38,7 @@ const VALID = { registrationIds: ["r1"], expiryDays: 14 };
 beforeEach(() => {
   vi.clearAllMocks();
   authSpy.mockResolvedValue({ user: { id: "u1", organizationId: "org1", firstName: "A", lastName: "B" } });
-  gateSpy.mockReturnValue({ ok: true, eventWhere: { id: "ev1", organizationId: "org1" } });
+  gateSpy.mockReturnValue({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "ev1", organizationId: "org1" } });
   eventFindFirst.mockResolvedValue({ id: "ev1" });
   rateSpy.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   sendSpy.mockResolvedValue({ ok: true, sent: 1, skipped: [], errors: [] });

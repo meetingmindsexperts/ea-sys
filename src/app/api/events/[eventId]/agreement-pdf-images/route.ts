@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -43,7 +44,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
     // The image service binds the event by organisation only; bind it to the
     // grant's events first, so a scoped grant cannot reach the rest.
-    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    const inScope = await findGatedEvent(gate, { select: { id: true } });
     if (!inScope) {
       apiLogger.warn({ msg: "events/agreement-pdf-images:event-not-found", method: "POST", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -145,7 +146,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
     // The image service binds the event by organisation only; bind it to the
     // grant's events first, so a scoped grant cannot reach the rest.
-    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    const inScope = await findGatedEvent(gate, { select: { id: true } });
     if (!inScope) {
       apiLogger.warn({ msg: "events/agreement-pdf-images:event-not-found", method: "DELETE", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
@@ -74,8 +75,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       // eventId in the where binds the session to THIS event — without it a
@@ -150,8 +150,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     // Verify event access and get session details
     const [event, eventSession, existingZoom] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, organizationId: true, timezone: true, slug: true, eventType: true, settings: true },
       }),
       db.eventSession.findFirst({
@@ -408,8 +407,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, organizationId: true },
       }),
       // eventId binds the session to THIS event — without it a caller who owns
@@ -476,8 +474,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, organizationId: true },
       }),
       // eventId binds the session to THIS event — without it a caller who owns

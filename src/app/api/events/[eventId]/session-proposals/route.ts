@@ -4,6 +4,7 @@ import { z } from "zod";
 import { SessionProposalStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { getNextSessionProposalSerialId, formatSessionProposalSerial } from "@/lib/session-proposal-serial";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -142,8 +143,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Resolve the event (+ resource org) FIRST, un-wrapped — Event is not yet a
     // swept table, and its org is the tenant lane for the SessionProposal read.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, name: true, organizationId: true },
     });
 
@@ -268,8 +268,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Event (+ resource org) FIRST, un-wrapped (Event is not swept); its org is
     // the tenant lane for the Speaker (swept #9), theme, and proposal writes.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, settings: true },
     });
 

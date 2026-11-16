@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -77,8 +78,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // the template — both eventId and templateId come from the URL, so
     // without this any authenticated user could read another org's
     // templates. 404 (not 403) to avoid existence enumeration.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {
@@ -127,8 +127,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:PUT", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {
@@ -227,8 +226,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:DELETE", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {
@@ -284,8 +282,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Org-scoped: a null event here means the event isn't in the caller's
       // org (or doesn't exist) — POST renders + can email template content,
       // so this must be tenant-isolated like the other handlers.
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: {
           // Full branding set — must match getEventTemplate so a test/preview
           // renders the SAME header image, footer image, and footer HTML a real
@@ -448,8 +445,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:PATCH", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {

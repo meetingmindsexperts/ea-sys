@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
@@ -43,8 +44,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar/livestream:GET", eventId });
     if (!gate.ok) return gate.response;
     return await runWithTenant(orgGuard.orgId, async () => {
-      const event = await db.event.findFirst({
-        where: gate.eventWhere,
+      const event = await findGatedEvent(gate, {
         select: { id: true, settings: true },
       });
       if (!event) {
@@ -125,8 +125,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const event = await db.event.findFirst({
-        where: gate.eventWhere,
+      const event = await findGatedEvent(gate, {
         select: { id: true, slug: true, settings: true },
       });
       if (!event) {

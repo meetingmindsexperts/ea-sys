@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { HELD_SEAT_WHERE } from "@/lib/registration-seat-db";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { deleteRemoteZoomMeeting } from "@/lib/zoom/cleanup";
@@ -167,10 +168,16 @@ export async function GET(req: Request, { params }: RouteParams) {
     // narrow shape is FETCHED, not filtered afterwards, so a column added to
     // Event later cannot ride along. See `event-visibility`.
     if (!isTeamRole(session.user.role)) {
-      const restricted = await db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: RESTRICTED_EVENT_DETAIL_SELECT,
-      });
+      // Read as every per-event route reads its event (Event RLS step 2): a
+      // linked role reaches the event through its link to it, so the event's
+      // organisation is found first and the row read inside that lane.
+      const restricted = await findGatedEvent(
+        {
+          principal: { organizationId: session.user.organizationId ?? null, baseRole: session.user.role, fromApiKey: false },
+          eventWhere: buildEventAccessWhere(session.user, eventId),
+        },
+        { select: RESTRICTED_EVENT_DETAIL_SELECT },
+      );
       if (!restricted) {
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
       }
@@ -187,8 +194,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // (CRM_USER, HR_USER) gets the same 404 a missing event gives.
     const gate = requirePermission(session, "events.read", { route: "events/[eventId]:GET", eventId, onMissing: "hide" });
     if (!gate.ok) return gate.response;
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       include: {
         _count: {
           select: {
@@ -255,8 +261,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // The events this person may update (WEBINARS: webinars only), with the
     // stored value of every editable field for the per-field check below.
-    const existingEvent = await db.event.findFirst({
-      where: gate.eventWhere,
+    const existingEvent = await findGatedEvent(gate, {
       select: {
         id: true,
         slug: true,
@@ -397,15 +402,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // If slug is being changed, check for uniqueness
     if (nextSlug && nextSlug !== existingEvent.slug) {
-      const slugExists = await db.event.findFirst({
-        where: {
-          organizationId: orgGuard.orgId,
-          // Whatever its case: MEHF2027 and mehf2027 would be two events nobody can tell apart (review of
-          // 0da5457b). Safe as a LIKE: a normalised slug has no "_" or "%".
-          slug: equalsIgnoringCase(nextSlug),
-          id: { not: eventId },
-        },
-      });
+      // Inside the organisation's lane, as every Event read and write below is
+      // (Event RLS step 2: outside one, a policy would answer "no such slug").
+      const slugExists = await runWithTenant(orgGuard.orgId, () =>
+        db.event.findFirst({
+          where: {
+            organizationId: orgGuard.orgId,
+            // Whatever its case: MEHF2027 and mehf2027 would be two events nobody can tell apart (review of
+            // 0da5457b). Safe as a LIKE: a normalised slug has no "_" or "%".
+            slug: equalsIgnoringCase(nextSlug),
+            id: { not: eventId },
+          },
+        }),
+      );
 
       if (slugExists) {
         apiLogger.warn({ eventId, userId: session.user.id, slug: nextSlug }, "event-update:slug-taken");
@@ -812,7 +821,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
         throw err;
       }
     } else {
-      event = await db.event.update({ where: { id: eventId }, data: eventUpdateData });
+      // A WRITE outside a lane matches no row once Event has a policy, and
+      // answers as if the event did not exist (the shadow inventory's first item).
+      event = await runWithTenant(orgGuard.orgId, () => db.event.update({ where: { id: eventId }, data: eventUpdateData }));
     }
 
     apiLogger.info({ msg: "Event updated", eventId, userId: session.user.id, fields: Object.keys(validated.data) });
@@ -1027,8 +1038,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     // Verify event belongs to user's organization (select only needed fields)
-    const existingEvent = await db.event.findFirst({
-      where: gate.eventWhere,
+    const existingEvent = await findGatedEvent(gate, {
       select: { id: true, name: true, settings: true },
     });
 
@@ -1172,9 +1182,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // A partner's stream into this event is ended once its key is gone with
     // the event (external-stream-service.ts): read before the delete, cut after it.
     const endPartnerStreams = await capturePartnerStreamsBeforeDelete({ eventId });
-    await db.event.delete({
-      where: { id: eventId },
-    });
+    // Inside the organisation's lane: outside one, a policy on Event would match no row.
+    await runWithTenant(orgGuard.orgId, () =>
+      db.event.delete({
+        where: { id: eventId },
+      }),
+    );
     await endPartnerStreams();
 
     apiLogger.info({ msg: "Event deleted", eventId, name: existingEvent.name, userId: session.user.id });

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -74,8 +75,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // status matrix caught: ONSITE reached unassigned events, WEBINARS
     // conferences, and CRM_USER and HR_USER (confined to their modules) any
     // event, each seeing attendee names and emails given a promo code id.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {
@@ -165,8 +165,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept promoCode read.
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, existing] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       db.promoCode.findFirst({
@@ -338,8 +337,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept promoCode read.
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, promoCode] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       db.promoCode.findFirst({

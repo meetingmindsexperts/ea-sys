@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenantLane } from "@/lib/tenant-lane";
@@ -99,8 +100,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "events:dtcm-eticket:GET", userId: session.user.id }, async () => {
-      const event = await db.event.findFirst({
-        where: gate.eventWhere,
+      const event = await findGatedEvent(gate, {
         select: { id: true, organizationId: true, requiresDtcmBarcode: true, dtcmPerformanceCode: true, settings: true },
       });
       if (!event) {
@@ -171,8 +171,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenantLane(session.user.organizationId, { route: "events:dtcm-eticket:PUT", userId: session.user.id }, async () => {
-      const event = await db.event.findFirst({
-        where: gate.eventWhere,
+      const event = await findGatedEvent(gate, {
         select: { id: true, organizationId: true, requiresDtcmBarcode: true, dtcmPerformanceCode: true, settings: true },
       });
       if (!event) {

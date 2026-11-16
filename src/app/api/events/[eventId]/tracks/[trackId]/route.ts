@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
@@ -75,8 +76,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "sessions.read", { route: "events/[eventId]/tracks/[trackId]:GET", eventId, onMissing: "hide", linkedRoles: "linked" });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
     if (!event) {

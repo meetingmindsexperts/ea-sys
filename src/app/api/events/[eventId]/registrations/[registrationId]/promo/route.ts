@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { requireOrgId } from "@/lib/require-org";
@@ -62,8 +62,7 @@ async function authorize(eventId: string) {
   const gate = requirePermission(session, "registrations.promo.apply", { route: "events/[eventId]/registrations/[registrationId]/promo:gate", eventId });
   if (!gate.ok) return { error: gate.response };
 
-  const event = await db.event.findFirst({
-    where: gate.eventWhere,
+  const event = await findGatedEvent(gate, {
     select: { id: true },
   });
   if (!event) return { error: NextResponse.json({ error: "Event not found" }, { status: 404 }) };

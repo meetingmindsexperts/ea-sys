@@ -14,7 +14,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
@@ -42,7 +42,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     // The event must be one the grant reaches: the reissue service checks only
     // the organisation, equivalent only while every holder of the key is org-wide.
-    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    const inScope = await findGatedEvent(gate, { select: { id: true } });
     if (!inScope) {
       apiLogger.warn({ msg: "certificates:reissue-event-not-found", eventId: p.eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

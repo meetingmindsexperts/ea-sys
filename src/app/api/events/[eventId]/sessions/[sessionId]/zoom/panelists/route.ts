@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
@@ -39,8 +40,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting, sessionSpeakers] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, organizationId: true },
       }),
       db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),
@@ -106,8 +106,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, organizationId: true },
       }),
       db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),
@@ -154,8 +153,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, organizationId: true },
       }),
       db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { can } from "@/lib/permissions/can";
@@ -66,8 +67,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:barcode", userId: session.user.id }, async () => {
     const [event, registration] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, requiresDtcmBarcode: true },
       }),
       db.registration.findFirst({

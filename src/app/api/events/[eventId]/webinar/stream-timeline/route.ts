@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -32,7 +32,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true, settings: true } });
+      const event = await findGatedEvent(gate, { select: { id: true, settings: true } });
       if (!event) {
         apiLogger.warn({ eventId, userId: session.user.id }, "webinar-stream-timeline:event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

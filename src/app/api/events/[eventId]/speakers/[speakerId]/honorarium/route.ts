@@ -22,6 +22,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -44,8 +45,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "honorarium.manage", { route: "events/[eventId]/speakers/[speakerId]/honorarium:GET", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
     if (!event) {
@@ -97,8 +97,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return zodErrorResponse(parsed, { route, eventId, speakerId, userId: session.user.id });
     }
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
     if (!event) {

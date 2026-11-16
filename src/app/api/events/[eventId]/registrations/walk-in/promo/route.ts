@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
@@ -65,7 +66,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
       const [event, ticketType, promo] = await Promise.all([
-        db.event.findFirst({ where: gate.eventWhere, select: { id: true } }),
+        findGatedEvent(gate, { select: { id: true } }),
         db.ticketType.findFirst({
           where: { id: ticketTypeId, eventId },
           select: { price: true, pricingTiers: { where: { id: pricingTierId ?? "" }, select: { price: true } } },

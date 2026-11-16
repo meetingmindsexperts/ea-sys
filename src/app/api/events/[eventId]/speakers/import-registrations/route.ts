@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
@@ -43,8 +44,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Verify event belongs to org, fetch registrations with attendee data, and existing speaker emails
     const [event, registrations, existingSpeakers] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       db.registration.findMany({

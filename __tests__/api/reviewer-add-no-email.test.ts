@@ -27,7 +27,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 vi.mock("@/lib/require-org", () => ({ requireOrgId: () => ({ orgId: "org1" }) }));
 vi.mock("@/lib/permissions/require-permission", () => ({
-  requirePermission: () => ({ ok: true, eventWhere: { id: "ev1" } }),
+  requirePermission: () => ({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "ev1" } }),
   isLinkedRole: (role: string) => ["REVIEWER", "SUBMITTER", "REGISTRANT"].includes(role),
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));

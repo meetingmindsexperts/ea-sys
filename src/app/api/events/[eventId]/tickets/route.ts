@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { redactFinancialFields } from "@/lib/finance-visibility";
@@ -78,8 +79,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, ticketTypes] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       db.ticketType.findMany({
@@ -140,8 +140,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "tickets.write", { route: "tickets:create", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
 

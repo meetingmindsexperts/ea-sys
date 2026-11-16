@@ -3,6 +3,7 @@ import { z } from "zod";
 import { SessionRole, SessionStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { can } from "@/lib/permissions/can";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
@@ -202,8 +203,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // L4: buildEventAccessWhere instead of a hand-rolled organizationId filter
     // (denyReviewer already blocked restricted roles; the hand-rolled filter
     // 404'd an org-null SUPER_ADMIN).
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
     if (!event) {

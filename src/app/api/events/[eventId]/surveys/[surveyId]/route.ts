@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -57,8 +58,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "surveys.read", { route: "events/[eventId]/surveys/[surveyId]:GET", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, name: true, slug: true, organizationId: true, surveyConfig: true, surveyIntroHtml: true, surveyThankYouHtml: true },
     });
     if (!event) {
@@ -94,7 +94,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
-    const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true, organizationId: true } });
+    const event = await findGatedEvent(gate, { select: { id: true, organizationId: true } });
     if (!event) {
       apiLogger.warn({ msg: "surveys:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -124,7 +124,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "surveys.manage", { route: "events/[eventId]/surveys/[surveyId]:DELETE", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true, organizationId: true } });
+    const event = await findGatedEvent(gate, { select: { id: true, organizationId: true } });
     if (!event) {
       apiLogger.warn({ msg: "surveys:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

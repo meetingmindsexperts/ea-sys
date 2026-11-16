@@ -19,6 +19,7 @@ import { z } from "zod";
 import type { Prisma, CertificateType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
@@ -84,7 +85,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // tenancy: swept CertificateTemplate read runs inside the session org.
     const [event, template] = await runWithTenant(orgId, () =>
       Promise.all([
-        db.event.findFirst({ where: gate.eventWhere, select: { id: true } }),
+        findGatedEvent(gate, { select: { id: true } }),
         db.certificateTemplate.findFirst({ where: { id: templateId, eventId }, select: { id: true, category: true } }),
       ]),
     );

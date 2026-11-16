@@ -18,7 +18,7 @@ vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true }) }))
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/require-org", () => ({ requireOrgId: () => ({ orgId: "org-1" }) }));
 vi.mock("@/lib/permissions/require-permission", () => ({
-  requirePermission: () => ({ ok: true, eventWhere: { id: "ev-1", organizationId: "org-1" } }),
+  requirePermission: () => ({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "ev-1", organizationId: "org-1" } }),
 }));
 vi.mock("@/services/registration-form-service", () => ({ sendRegistrationForms: sendMock }));
 

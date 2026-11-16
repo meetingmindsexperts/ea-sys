@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 
@@ -41,8 +42,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Resource org: event resolved first, un-wrapped, for its org (the
     // session-proposal-themes pattern) — org-null submitters linked to the
     // event pass; a foreign event still 404s.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
     if (!event) {
@@ -94,8 +94,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {

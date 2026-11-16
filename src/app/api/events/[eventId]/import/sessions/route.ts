@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -179,8 +180,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Access-scoped, not just org-scoped — buildEventAccessWhere keeps this
     // consistent with the sessions/tracks routes (an org-null SUPER_ADMIN
     // used to 404 on the hand-rolled organizationId check).
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, timezone: true, organizationId: true },
     });
     if (!event) {

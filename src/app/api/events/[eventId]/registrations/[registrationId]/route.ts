@@ -10,6 +10,7 @@ import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -156,8 +157,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     // Parallelize event check, registration fetch, and the credited-so-far sum.
     const [event, registration, creditedAgg] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         // taxRate/taxLabel feed the `financials` block so the Payment
         // block + Payment Summary match the quote/invoice VAT math.
         select: { id: true, taxRate: true, taxLabel: true },
@@ -323,11 +323,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // ORDERING (404 / EMAIL_IMMUTABLE / Zod before any domain error) and the
     // access gate; do not "optimize" it away.
     const [event, existingRegistration] = await Promise.all([
-      db.event.findFirst({
+      findGatedEvent(gate, {
         // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user
         // may only edit registrations for events they're assigned to. Org-scoped
         // (unchanged) for admin/organizer. Mirrors the GET above.
-        where: gate.eventWhere,
         // taxRate/taxLabel feed the recomputed `financials` attached to the
         // PUT response so the detail sheet's Payment Summary refreshes after an
         // inline edit (e.g. a pricing-tier re-classification) without a
@@ -529,9 +528,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
-    });
+    const event = await findGatedEvent(gate, {});
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

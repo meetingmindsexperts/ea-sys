@@ -4,6 +4,7 @@ import { PaymentStatus, RegistrationStatus, type Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters, dateRangeAuditFilters } from "@/lib/date-range-filter";
@@ -341,10 +342,9 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Parallelize event validation and registrations fetch
     const [event, registrations] = await Promise.all([
-      db.event.findFirst({
+      findGatedEvent(gate, {
         // The grant's own filter: assignment-scoped for ONSITE, every org
         // event for WEBINARS (the desk), org-wide for staff and API keys.
-        where: gate.eventWhere,
         // taxRate feeds the hand-flipped-PAID fallback in the cancelled
         // "needs credit note" computation below (mirrors the detail route).
         // taxLabel is carried for the CSV export's financials call so the
@@ -833,8 +833,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     // Event-assignment gate: an ONSITE user may only create registrations on the
     // events they're assigned to, through the grant's own filter.
-    const accessibleEvent = await db.event.findFirst({
-      where: gate.eventWhere,
+    const accessibleEvent = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!accessibleEvent) {

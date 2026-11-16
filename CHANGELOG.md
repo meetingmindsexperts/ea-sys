@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Tenancy: every per-event route finds its event inside a tenant lane (November 16)
+
+Event RLS step 2, first sweep (`docs/SECURITY_AUDIT_ACTION_PLAN.md` §3.1). Preparation for a second organisation; **nothing a person sees changes**, and that was measured, not assumed.
+
+- **Changed**: 238 reads of the form `db.event.findFirst({ where: gate.eventWhere, ... })` in 154 files now call `findGatedEvent(gate, { ... })` (`src/lib/tenant/event-tenant.ts`): the same query, made inside the caller's lane (a team role or API key), or through the sanctioned discovery (a reviewer, submitter or registrant, who then reads the event inside ITS organisation's lane). The event update and its slug check, the event delete and the certificate settings writes run inside the organisation's lane. A linked role's event read costs one extra indexed lookup when it asks for more than the id.
+- **Added**: `event-lane-ratchet.test.ts` refuses the bare form; `find-gated-event.test.ts` pins the helper. The shadow detector names the worker job a read runs in (`asWorkerJob`), so the worker's week of lines is usable.
+- **Verified**: the previous commit and this one built side by side on one test database, 870 identical questions as five roles: every status the same, every successful answer the same byte for byte bar one time-based report; a browser walk of 20 pages, 31 reads and the three writes with no error. The detector reported 32 unlaned per-event pairs before and 7 after for the same requests.
+
 ### The AI agent asks how a webinar is streamed (November 16)
 
 `create_event` takes `webinarSource` ("zoom" or "external"). Until now it had none, so every webinar the agent or claude.ai created was a Zoom webinar, and the source cannot be changed afterwards. On a server that can run a partner's stream, a webinar with no source is refused with `WEBINAR_SOURCE_REQUIRED` and nothing is created, so the agent asks the person; on a server that cannot, it is our Zoom and nothing is asked. The "server cannot issue a partner's key" refusal (`PARTNER_STREAMS_NOT_AVAILABLE`) moved from the events route into the event service, so the New Event page and the agent share one rule. Version 0.4.64: claude.ai and Claude Desktop must reconnect to see the new option.

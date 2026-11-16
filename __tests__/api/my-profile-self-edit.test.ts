@@ -137,8 +137,11 @@ describe("my-profile GET: details the person already gave", () => {
     const body = (await (await get()).json()) as { fieldRules: PersonFieldRules };
     expect(body.fieldRules.role).toMatchObject({ shown: true, required: false });
     expect(body.fieldRules.specialty).toMatchObject({ shown: false, required: false });
-    // The event is read with its settings, which hold that choice.
-    expect(mockDb.event.findFirst.mock.calls[0][0].select).toMatchObject({ settings: true });
+    // The event is read with its settings, which hold that choice. A submitter
+    // has no organisation, so the event is found first (id and organisation
+    // only) and then read inside its organisation's lane (Event RLS step 2).
+    expect(mockDb.event.findFirst.mock.calls[0][0].select).toEqual({ id: true, organizationId: true });
+    expect(mockDb.event.findFirst.mock.calls.at(-1)![0].select).toMatchObject({ settings: true });
   });
 
   it("an answer without rules (the other slot during a deploy) is judged by today's", async () => {

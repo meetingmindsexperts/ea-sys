@@ -8,6 +8,7 @@ import { can } from "@/lib/permissions/can";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { buildRegistrationActivity } from "@/lib/activity-feed";
 import { submissionVisibilityFor } from "@/lib/speaker-submission-visibility";
@@ -35,8 +36,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:activity", userId: session.user.id }, async () => {
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
     if (!event) {

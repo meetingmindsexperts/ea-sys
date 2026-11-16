@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { STREAM_TIMELINE_ACTION } from "@/lib/webinar/stream-timeline";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -23,8 +24,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     // Verify event access
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
 

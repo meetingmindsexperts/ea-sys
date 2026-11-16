@@ -4,6 +4,7 @@ import { z } from "zod";
 import { SessionRole, SessionStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { readWebinarSettings } from "@/lib/webinar";
@@ -68,8 +69,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "sessions.read", { route: "events/[eventId]/sessions/[sessionId]:GET", eventId, onMissing: "hide", linkedRoles: "linked" });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
 
@@ -116,8 +116,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // (denyReviewer already blocked restricted roles). Load the event FIRST/
     // alone — its org opens the tenant wrap around the swept eventSession read
     // + the updateSession service (which touches swept child tables).
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, startDate: true, endDate: true, timezone: true },
     });
 
@@ -217,8 +216,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "sessions.delete", { route: "events/[eventId]/sessions/[sessionId]:DELETE", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       // `settings` carries the webinar anchor pointer we must protect below.
       select: { id: true, organizationId: true, settings: true },
     });

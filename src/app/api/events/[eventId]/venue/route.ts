@@ -26,6 +26,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
@@ -63,8 +64,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const gate = requirePermission(session, "events.read", { route: ROUTE, eventId });
     if (!gate.ok) return gate.response;
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, slug: true, organizationId: true, settings: true, organization: { select: { companyEmail: true } } },
     });
     if (!event?.organizationId) {
@@ -117,7 +117,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
     const gate = requirePermission(session, "events.update", { route: ROUTE, eventId });
     if (!gate.ok) return gate.response;
-    const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true, organizationId: true } });
+    const event = await findGatedEvent(gate, { select: { id: true, organizationId: true } });
     if (!event?.organizationId) {
       apiLogger.warn({ msg: `${ROUTE}:event-not-found`, eventId, userId: session.user.id });
       return notFound();

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { lockRegistrationEmails } from "@/lib/registration-email-lock";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { apiLogger } from "@/lib/logger";
@@ -171,8 +172,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Verify event belongs to org, and pull settings so sponsor names in the
     // CSV can be resolved against Event.settings.sponsors[] without N+1.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, settings: true },
     });
     if (!event) {

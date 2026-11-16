@@ -16,7 +16,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { isVenueModuleEnabled } from "@/lib/module-flags";
 import { requireOrgId } from "@/lib/require-org";
@@ -59,7 +59,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!rl.allowed) return rateLimited(rl, { route: ROUTE, eventId, userId: session.user.id, limit: UPLOADS_PER_HOUR, windowSeconds: 3600 });
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+      const event = await findGatedEvent(gate, { select: { id: true } });
       if (!event) {
         apiLogger.warn({ eventId, userId: session.user.id }, "venue-drawing:event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -123,7 +123,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+      const event = await findGatedEvent(gate, { select: { id: true } });
       if (!event) {
         apiLogger.warn({ eventId, userId: session.user.id }, "venue-drawing:event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

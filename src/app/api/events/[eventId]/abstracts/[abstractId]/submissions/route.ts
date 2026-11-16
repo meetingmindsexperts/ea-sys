@@ -4,6 +4,7 @@ import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
@@ -69,8 +70,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org, so
     // an org-null reviewer/submitter caller works). The swept abstract read +
     // computeSubmissionAggregates run INSIDE the wrap.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, settings: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });

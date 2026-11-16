@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { isRegistrationFormCompleted } from "@/lib/registration-completion";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -48,7 +49,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+      const event = await findGatedEvent(gate, { select: { id: true } });
       if (!event) {
         apiLogger.warn({ msg: "completion-status:event-not-found", eventId, userId: session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

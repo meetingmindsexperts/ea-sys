@@ -15,6 +15,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
@@ -46,8 +47,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Bind event to org before listing — same pattern as the templates
     // route. Returns 404 (not 403) for cross-tenant to avoid enumeration.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { SessionProposalStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
@@ -85,8 +86,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     // Event (+ resource org) first, un-wrapped; its org is the lane for the
     // SessionProposal read (whose nested `speaker` include is swept too).
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
     const proposal = event
@@ -137,8 +137,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Event (+ resource org) first, un-wrapped; its org is the tenant lane for
     // the existing-proposal read, the theme read, and the update (all swept).
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {
@@ -300,8 +299,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // Event (+ resource org) first, un-wrapped; its org is the lane for the
     // existing-proposal read + delete (swept).
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
     if (!event) {

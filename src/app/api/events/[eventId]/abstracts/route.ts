@@ -4,6 +4,7 @@ import { z } from "zod";
 import { AbstractStatus, PresentationType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getNextAbstractSerialId } from "@/lib/abstract-serial";
 import { apiLogger } from "@/lib/logger";
@@ -282,8 +283,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Resolve the event FIRST — its org opens the tenant wrap. buildEventAccessWhere
     // scopes by role (a SUBMITTER → their own linked event), so event.organizationId
     // is the RESOURCE org even for an org-null submitter/reviewer caller.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, name: true, organizationId: true },
     });
 
@@ -413,8 +413,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org, so a
     // SUBMITTER creating their own abstract works even though their session org is
     // null). The theme lookup below reads a swept table, so it must run INSIDE.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, settings: true, organizationId: true },
     });
 

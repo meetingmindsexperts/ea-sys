@@ -66,7 +66,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.rate.allowed = true;
   h.mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN", organizationId: "org1" } });
-  h.permSpy.mockReturnValue({ ok: true, eventWhere: { id: "ev1" } });
+  h.permSpy.mockReturnValue({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "ev1" } });
   h.mockDb.event.findFirst.mockResolvedValue({ id: "ev1", settings: { webinar: { sessionId: "s1" } }, timezone: "Asia/Dubai" });
   h.mockDb.webinarPresence.findMany.mockResolvedValue([ROW]);
 });

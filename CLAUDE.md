@@ -270,13 +270,13 @@ export async function GET/POST/PUT/DELETE(
   if (!gate.ok) return gate.response;
 
   // The grant's own event filter (org + scope: assigned events, webinars, ...)
-  const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+  const event = await findGatedEvent(gate, { select: { id: true } });
 
   // ... handle request
 }
 ```
 
-**Important:** Every handler asks `requirePermission()` for its operation's key and looks the event up through `gate.eventWhere` (custom roles Phase 6, Oct 6, 2026). Never add a role comparison or the deleted `denyReviewer` back to a route: `scripts/check-permission-guards.sh` fails CI on it. Reviewers, submitters and registrants reach their routes through `linkedRoles`.
+**Important:** Every handler asks `requirePermission()` for its operation's key and looks the event up through `findGatedEvent(gate, ...)` (`src/lib/tenant/event-tenant.ts`, Nov 16, 2026), which is `db.event.findFirst({ where: gate.eventWhere, ... })` made inside the caller's tenant lane. **Never write the bare `db.event.findFirst({ where: gate.eventWhere })`**: outside a lane it returns null once Event has a row policy, and a test (`event-lane-ratchet.test.ts`) refuses it. Never add a role comparison or the deleted `denyReviewer` back to a route: `scripts/check-permission-guards.sh` fails CI on it. Reviewers, submitters and registrants reach their routes through `linkedRoles`.
 
 ## Styling
 
@@ -499,7 +499,7 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 1. **API Routes:** Use Promise.all for parallel queries, validate with Zod
 2. **Error Handling:** Use try/catch with apiLogger for errors
 3. **Auth:** All dashboard routes require authentication via `auth()`
-4. **Auth Guards:** Every API route calls `requirePermission(session, key, { route, eventId })` and uses `gate.eventWhere`; never a role check (the role predicates were deleted in custom roles Phase 6)
+4. **Auth Guards:** Every API route calls `requirePermission(session, key, { route, eventId })` and finds its event with `findGatedEvent(gate, ...)`; never a role check (the role predicates were deleted in custom roles Phase 6)
 5. **Forms:** Use react-hook-form with Zod validation
 6. **Toasts:** Use sonner for notifications
 7. **State:** Use React Query for server state, local useState for UI state

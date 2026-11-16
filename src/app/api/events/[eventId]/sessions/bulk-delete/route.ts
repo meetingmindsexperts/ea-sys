@@ -20,6 +20,7 @@ import { capturePartnerStreamsBeforeDelete } from "@/services/external-stream-se
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -84,8 +85,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Dedupe so a repeated id cannot inflate the count or double-tear-down.
     const requested = Array.from(new Set(parsed.data.sessionIds));
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {

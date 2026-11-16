@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -56,11 +57,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:badges", userId: session.user.id }, async () => {
-    const event = await db.event.findFirst({
+    const event = await findGatedEvent(gate, {
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only print badges for events they're assigned to (badge PDFs carry entry
       // barcodes). Org-scoped (unchanged) for admin/organizer.
-      where: gate.eventWhere,
       select: { id: true, badgeVerticalOffset: true, settings: true, requiresDtcmBarcode: true },
     });
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { generateQuotePDF } from "@/lib/quote-pdf";
 import { formatQuoteNumber } from "@/lib/invoice-numbering";
@@ -27,9 +28,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:quote", userId: session.user.id }, async () => {
-    const event = await db.event.findFirst({
+    const event = await findGatedEvent(gate, {
       // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
-      where: gate.eventWhere,
       select: { id: true },
     });
 

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { HELD_SEAT_WHERE } from "@/lib/registration-seat-db";
 import { apiLogger } from "@/lib/logger";
 import { isFacultyLookalikeName, reservedTypeNameRefusal, TYPE_NAME_RESERVED_CODE } from "@/lib/faculty-filter";
@@ -54,8 +55,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // rides the tenant store (a read outside the wrap fail-closes on platform).
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, ticketType] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       db.ticketType.findFirst({
@@ -109,8 +109,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, existing] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       db.ticketType.findFirst({
@@ -300,8 +299,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, ticketType] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       db.ticketType.findFirst({

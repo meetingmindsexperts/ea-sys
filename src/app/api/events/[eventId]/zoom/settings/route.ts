@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings } from "@/lib/event-settings";
@@ -61,8 +62,7 @@ export async function GET(
     // (no keys/identifiers), letting the event-level card render for organizers
     // without depending on the admin-only credentials route.
     const [event, org] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, settings: true, eventType: true },
       }),
       db.organization.findUnique({
@@ -121,8 +121,7 @@ export async function PUT(
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, settings: true, eventType: true },
     });
 

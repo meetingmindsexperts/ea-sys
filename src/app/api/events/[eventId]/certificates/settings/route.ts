@@ -19,6 +19,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
@@ -73,8 +74,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // tenancy: wrap the event read for consistency with the cert sweep (Event
     // is not a swept cert table, so this is a harmless passthrough on master).
     const event = await runWithTenant(orgId, () =>
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, cmeHours: true, settings: true },
       }),
     );
@@ -134,8 +134,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // tenancy: wrap the event read for consistency with the cert sweep (Event
     // is not a swept cert table, so this is a harmless passthrough on master).
     const event = await runWithTenant(orgId, () =>
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, settings: true },
       }),
     );
@@ -162,21 +161,28 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     // Settings (cme blob) goes through the atomic merge helper. The
     // scalar cmeHours column is updated separately when provided.
-    const mergedSettings = await updateEventSettings(eventId, { cme: nextCme });
+    // Both writes and the re-read run inside the organisation's lane (Event
+    // RLS step 2): a write outside one matches no row once Event has a policy.
+    const mergedSettings = await runWithTenant(orgId, () => updateEventSettings(eventId!, { cme: nextCme }));
 
     let finalCmeHours: Prisma.Decimal | number | null;
     if (parsed.data.cmeHours !== undefined) {
-      const updated = await db.event.update({
-        where: { id: eventId },
-        data: { cmeHours: parsed.data.cmeHours },
-        select: { cmeHours: true },
-      });
+      const cmeHours = parsed.data.cmeHours;
+      const updated = await runWithTenant(orgId, () =>
+        db.event.update({
+          where: { id: eventId },
+          data: { cmeHours },
+          select: { cmeHours: true },
+        }),
+      );
       finalCmeHours = updated.cmeHours;
     } else {
-      const fresh = await db.event.findUnique({
-        where: { id: eventId },
-        select: { cmeHours: true },
-      });
+      const fresh = await runWithTenant(orgId, () =>
+        db.event.findUnique({
+          where: { id: eventId },
+          select: { cmeHours: true },
+        }),
+      );
       finalCmeHours = fresh?.cmeHours ?? null;
     }
 

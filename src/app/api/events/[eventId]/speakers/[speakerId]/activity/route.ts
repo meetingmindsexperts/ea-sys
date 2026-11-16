@@ -8,6 +8,7 @@ import { can } from "@/lib/permissions/can";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { buildSpeakerActivity } from "@/lib/activity-feed";
@@ -38,8 +39,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgId = session.user.organizationId;
     return await runWithTenantLane(orgId, { route: "speakers:activity", userId: session.user.id }, async () => {
     // Role-scoped event access (404 to avoid existence leak).
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
     if (!event) {

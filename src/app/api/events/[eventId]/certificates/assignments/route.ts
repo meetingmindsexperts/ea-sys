@@ -39,6 +39,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
@@ -130,7 +131,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Provide registrationId OR speakerId" }, { status: 400 });
     }
 
-    const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    const event = await findGatedEvent(gate, { select: { id: true } });
     if (!event) {
       apiLogger.warn({ msg: "cert-assignments:get-event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -186,7 +187,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const body = parsed.data;
 
-    const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true, organizationId: true } });
+    const event = await findGatedEvent(gate, { select: { id: true, organizationId: true } });
     if (!event) {
       apiLogger.warn({ msg: "cert-assignments:assign-event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -292,7 +293,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
     const body = parsed.data;
 
-    const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    const event = await findGatedEvent(gate, { select: { id: true } });
     if (!event) {
       apiLogger.warn({ msg: "cert-assignments:unassign-event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

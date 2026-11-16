@@ -217,12 +217,19 @@ describe("GET /api/events/[eventId]", () => {
     const res = await GET(makeGetRequest(), makeParams("evt-1"));
     expect(res.status).toBe(200);
 
-    const select = mockDb.event.findFirst.mock.calls[0][0].select;
-    expect(select).toBeDefined();
-    for (const column of ["taxRate", "taxLabel", "bankDetails", "emailCcAddresses"]) {
-      expect(select).not.toHaveProperty(column);
+    // Two reads since Event RLS step 2: a submitter has no organisation, so the
+    // event is found first (id and organisation only), then read inside its
+    // organisation's lane. NEITHER may fetch an organiser column.
+    const selects = mockDb.event.findFirst.mock.calls.map(([args]) => args.select);
+    expect(selects).toHaveLength(2);
+    for (const select of selects) {
+      expect(select).toBeDefined();
+      for (const column of ["taxRate", "taxLabel", "bankDetails", "emailCcAddresses"]) {
+        expect(select).not.toHaveProperty(column);
+      }
     }
-    expect(select).toHaveProperty("name");
+    expect(selects[0]).toEqual({ id: true, organizationId: true });
+    expect(selects[1]).toHaveProperty("name");
   });
 });
 

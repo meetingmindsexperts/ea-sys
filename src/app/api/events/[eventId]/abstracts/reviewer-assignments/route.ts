@@ -3,7 +3,7 @@ import type { Session } from "next-auth";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -103,7 +103,7 @@ async function admit(session: Session | null, eventId: string, verb: Verb): Prom
   if (!gate.ok) return { ok: false, response: gate.response };
 
   // The event must be one the grant reaches: the service checks only the organisation.
-  const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+  const inScope = await findGatedEvent(gate, { select: { id: true } });
   if (!inScope) {
     apiLogger.warn({ msg: "abstracts/reviewer-assignments:event-not-found", eventId, userId: session.user.id, verb });
     return { ok: false, response: NextResponse.json({ error: "Event not found" }, { status: 404 }) };

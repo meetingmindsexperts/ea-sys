@@ -5,6 +5,7 @@ import { MAX_MANUAL_CC } from "@/lib/email-address-list";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -112,9 +113,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const [event, speaker, user] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
-      }),
+      findGatedEvent(gate, {}),
       db.speaker.findFirst({
         where: { id: speakerId, eventId },
         include: { sessions: { include: { session: true } } },
@@ -596,8 +595,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
 
     const [event, speaker] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, organizationId: true },
       }),
       db.speaker.findFirst({

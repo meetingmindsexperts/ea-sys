@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { reservedTypeNameRefusal } from "@/lib/faculty-filter";
@@ -87,8 +88,7 @@ export async function POST(
     // WITH CHECK. Passthrough on master (flag off).
     return await runWithTenantLane(session.user.organizationId, { route: "events:clone", userId: session.user.id }, async () => {
     // Fetch source event with all structural data
-    const source = await db.event.findFirst({
-      where: gate.eventWhere,
+    const source = await findGatedEvent(gate, {
       include: {
         ticketTypes: { include: { pricingTiers: true } },
         // Not read at all when the organizer left the box unticked.

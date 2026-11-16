@@ -16,6 +16,15 @@
  *     Many are libraries that inherit their caller's lane, which is fine; the
  *     list is still pinned so a NEW one is a decision, not an accident.
  *
+ *  3. BARE GATED READS (Nov 16, 2026). A per-event route used to open with
+ *     `db.event.findFirst({ where: gate.eventWhere, ... })` outside any lane.
+ *     All 238 of them now call `findGatedEvent(gate, ...)` in
+ *     src/lib/tenant/event-tenant.ts, which makes the same read inside the
+ *     caller's lane (or through the sanctioned discovery for a caller with no
+ *     organisation). This count is ZERO and stays zero. The wraps of shape 1
+ *     that follow such a read are no longer a debt, but the count of shape 1
+ *     cannot tell them apart, so it is unchanged by that sweep.
+ *
  * BOTH ARE EXACT. Going up fails, with what to do instead. Going down fails
  * too, with the new number to write here: that is what makes it a ratchet
  * rather than a ceiling that quietly drifts back up.
@@ -46,6 +55,9 @@ const EVENT_READ = /\b(?:db|tx)\.event\.(?:find\w*|count|aggregate|groupBy|updat
 /** Any sign the file runs inside, or deliberately outside, a lane. */
 const LANE_MARKER = /runWithTenant|tenantTransaction|dbOperator|resolveEventTenant|resolvePublicEventOrg/;
 
+/** Shape 3: the gate's own filter handed straight to an Event query, whatever comments sit between. */
+const BARE_GATED_READ = /\b(?:db|tx)\.event\.find\w*\(\s*\{\s*where:\s*gate\.eventWhere\b/g;
+
 const DISCOVERY_WRAP_BASELINE = 126;
 
 const UNLANED_EVENT_FILES_BASELINE: string[] = [
@@ -56,19 +68,10 @@ const UNLANED_EVENT_FILES_BASELINE: string[] = [
   "src/app/(dashboard)/events/page.tsx",
   "src/app/api/analytics/traffic/route.ts",
   "src/app/api/auth/forgot-password/route.ts",
-  "src/app/api/events/[eventId]/agreement-pdf-images/route.ts",
-  "src/app/api/events/[eventId]/analytics/traffic/route.ts",
-  "src/app/api/events/[eventId]/email-attachments/route.ts",
-  "src/app/api/events/[eventId]/email-templates/[templateId]/duplicate/route.ts",
-  "src/app/api/events/[eventId]/email-templates/[templateId]/route.ts",
-  "src/app/api/events/[eventId]/email-templates/route.ts",
-  "src/app/api/events/[eventId]/import-logs/route.ts",
   "src/app/api/events/[eventId]/onsite-staff/route.ts",
   "src/app/api/events/[eventId]/speaker-agreement-template/route.ts",
-  "src/app/api/events/[eventId]/sponsors/route.ts",
   // A helper of the partner-stream routes, called only inside their runWithTenant (Nov 16, 2026).
   "src/app/api/events/[eventId]/webinar/partner-stream/shared.ts",
-  "src/app/api/events/[eventId]/zoom/settings/route.ts",
   "src/app/api/events/route.ts",
   "src/app/api/import/eventsair/route.ts",
   "src/app/api/organization/catalogue/route.ts",
@@ -169,6 +172,19 @@ describe("Event lane ratchet", () => {
       total,
       `Discovery wraps went DOWN to ${total}. Good: set DISCOVERY_WRAP_BASELINE to ${total} in this file.`,
     ).toBe(DISCOVERY_WRAP_BASELINE);
+  });
+
+  it("reads the event behind a permission gate through findGatedEvent, never bare", () => {
+    const bare = files
+      .map((f) => [f, sources.get(f)!.match(BARE_GATED_READ)?.length ?? 0] as const)
+      .filter(([, n]) => n > 0);
+    expect(
+      bare.map(([f, n]) => `${f} (${n})`),
+      "A route reads its event with `db.event.findFirst({ where: gate.eventWhere, ... })`. Outside a lane that " +
+        "read returns null once Event has a policy, and the route answers 404 with nothing logged. Call " +
+        "`findGatedEvent(gate, { select: ... })` from src/lib/tenant/event-tenant.ts: the same query, made " +
+        "inside the caller's lane.",
+    ).toEqual([]);
   });
 
   it("does not add files that read Event and never enter a lane", () => {

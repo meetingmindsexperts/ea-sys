@@ -5,6 +5,7 @@ import { AccommodationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -72,8 +73,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Parallelize event validation and accommodations fetch
     const [event, accommodations] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       db.accommodation.findMany({
@@ -167,7 +167,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // The event must be one the grant reaches: the booking service checks only
     // the organisation, equivalent only while every holder of the key is org-wide.
-    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    const inScope = await findGatedEvent(gate, { select: { id: true } });
     if (!inScope) {
       apiLogger.warn({ msg: "accommodations:create-event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

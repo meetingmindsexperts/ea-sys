@@ -30,7 +30,7 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/permissions/require-permission", () => ({
-  requirePermission: () => ({ ok: true, eventWhere: { id: "ev1" } }),
+  requirePermission: () => ({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "ev1" } }),
 }));
 
 import { POST as createRoute } from "@/app/api/events/[eventId]/surveys/route";

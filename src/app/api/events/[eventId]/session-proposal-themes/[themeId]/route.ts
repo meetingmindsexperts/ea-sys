@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 
@@ -35,8 +36,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Event first, un-wrapped (bound to the session org); its org is the lane
     // for the theme read + update (swept).
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {
@@ -94,8 +94,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
 
     // Event first, un-wrapped (bound to the session org); its org is the lane
     // for the theme read (+ its proposal _count, swept) and delete.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true },
     });
     if (!event) {

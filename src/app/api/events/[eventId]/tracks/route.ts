@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
@@ -36,8 +37,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Resolve the event FIRST — its org (RESOURCE org) opens the tenant wrap
     // around the swept track read.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
 
@@ -106,8 +106,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // L4: org-scope via buildEventAccessWhere like the GET (denyReviewer has
     // already blocked restricted roles) — the hand-rolled organizationId
     // filter 404'd a SUPER_ADMIN with no org.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
 

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { speakerApiRegistrationType } from "@/lib/speaker-registration-type";
@@ -91,8 +92,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgId = orgGuard.orgId;
     return await runWithTenant(orgId, async () => {
     const [event, speaker] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
       }),
       db.speaker.findFirst({
@@ -218,8 +218,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // AUTHORIZATION stays here (the service takes `organizationId` on trust and
     // binds the speaker to {id, eventId} — it does not re-check that the event
     // belongs to the caller's org). 404, not 403, to avoid existence leaks.
-    const event = await db.event.findFirst({
-      where: gate.eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
 
@@ -351,8 +350,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgId = orgGuard.orgId;
     return await runWithTenant(orgId, async () => {
     const [event, speaker] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       db.speaker.findFirst({

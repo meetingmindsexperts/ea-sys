@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { eventWhereFor } from "@/lib/permissions/can";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -60,7 +61,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
       const [event, managed] = await Promise.all([
-        db.event.findFirst({ where: gate.eventWhere, select: { id: true, timezone: true } }),
+        findGatedEvent(gate, { select: { id: true, timezone: true } }),
         db.event.count({ where: eventWhereFor(gate.principal, "payments.refund", eventId) }),
       ]);
       if (!event) {

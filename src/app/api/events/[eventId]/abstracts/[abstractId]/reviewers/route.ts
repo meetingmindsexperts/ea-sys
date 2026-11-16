@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -64,7 +65,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // The event must be one the grant reaches: the service below checks only
     // the organisation, equivalent only while every holder of the key is org-wide.
-    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    const inScope = await findGatedEvent(gate, { select: { id: true } });
     if (!inScope) {
       apiLogger.warn({ msg: "events/abstracts/reviewers:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -183,8 +184,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // (47870cc3, July 2 2026). Its org-null branches are now unreachable from
     // this route by design — the guards above admit staff only.
     const [event, abstract] = await Promise.all([
-      db.event.findFirst({
-        where: gate.eventWhere,
+      findGatedEvent(gate, {
         select: { id: true },
       }),
       db.abstract.findFirst({
