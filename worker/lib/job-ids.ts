@@ -28,7 +28,9 @@ export const JOB_IDS = {
   EMAIL_LOG_PRUNE: 1011,
   CRM_INBOUND_EMAIL: 1012,
   LOGIN_EVENT_PRUNE: 1013,
-  SYSTEM_LOG_PRUNE: 1014,
+  // 1014 was SYSTEM_LOG_PRUNE, retired Nov 16, 2026 (it deleted SystemLog rows before log-archive
+  // could keep them). Never reuse a retired id: it is an advisory-lock key.
+  RETIRED_SYSTEM_LOG_PRUNE: 1014,
   DAILY_DIGEST: 1015,
   RESIDENT_LETTER_PRUNE: 1016,
   ANALYTICS_PRUNE: 1017,

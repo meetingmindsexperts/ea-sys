@@ -309,7 +309,10 @@ function initLogger(): pino.Logger {
       // table was NEVER written and everything reading it showed zero
       // forever: the /admin/infra "Error rate" + "Abuse & auth" cards, and
       // the /logs database source. warn+ (not info) keeps the write volume
-      // small; retention via the system-log-prune worker job (30 days).
+      // small. The log-archive job moves each month older than the previous
+      // one to logs/archive/ and deletes those rows; nothing else deletes
+      // them (the 30-day system-log-prune was retired Nov 16, 2026: it ran
+      // first, so no month was ever archived).
       // Both web AND worker containers run this branch, so worker errors
       // finally surface on the dashboard too.
       { level: "warn", stream: createDbLogStream() },

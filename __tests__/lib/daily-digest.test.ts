@@ -376,8 +376,8 @@ describe("assessInfra — verdict", () => {
     const s = healthySnapshot();
     s.jobs.rows = [
       {
-        job: "system-log-prune",
-        cadence: "daily 04:45 UTC",
+        job: "login-event-prune",
+        cadence: "daily 04:15 UTC",
         lastStatus: "OK",
         lastRunAt: "x",
         lastDurationMs: 40,
@@ -388,7 +388,7 @@ describe("assessInfra — verdict", () => {
     ];
     const a = assessInfra(s);
     expect(a.verdict).toBe("warn");
-    expect(a.findings[0].label).toContain("system-log-prune");
+    expect(a.findings[0].label).toContain("login-event-prune");
   });
 
   it("a stale database backup is CRITICAL", () => {

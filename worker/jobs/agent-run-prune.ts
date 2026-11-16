@@ -1,8 +1,8 @@
 /**
  * agent-run-prune job — retention for the Event Agent's stored runs.
  *
- * Cadence: 04:30 UTC daily, between login-event-prune (04:15) and
- * system-log-prune (04:45) so the retention sweeps never share a DB window.
+ * Cadence: 04:30 UTC daily, after login-event-prune (04:15) so the retention
+ * sweeps never share a DB window.
  *
  * Deletes `AgentRun` rows older than 180 days; their `AgentStep` rows go with
  * them (FK cascade). Batched + per-tick capped; self-healing.

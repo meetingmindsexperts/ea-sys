@@ -659,7 +659,7 @@ Pino-based structured JSON logging with three output modes:
 
 - **Development**: Pretty-print to console + JSON to `logs/app.log` and `logs/error.log`
 - **Vercel (production)**: stdout (Vercel's built-in logs) + database (`SystemLog` table) for the `/logs` web viewer
-- **EC2/Docker (production)**: stdout + `logs/app.log` + `logs/error.log` + **warn+error → `SystemLog` table** (Aug 4, 2026 — the DB stream was historically Vercel-only, so on the EC2 box the table was NEVER written and everything reading it — the `/admin/infra` "Error rate" + "Abuse & auth" cards, the `/logs` database source — showed zero forever). warn+ only (no info flood); retention 30 days via the `system-log-prune` worker job (04:45 UTC daily, JOB_ID 1014); both web AND worker containers write it.
+- **EC2/Docker (production)**: stdout + `logs/app.log` + `logs/error.log` + **warn+error → `SystemLog` table** (Aug 4, 2026 — the DB stream was historically Vercel-only, so on the EC2 box the table was NEVER written and everything reading it — the `/admin/infra` "Error rate" + "Abuse & auth" cards, the `/logs` database source — showed zero forever). warn+ only (no info flood); kept: the `log-archive` job (1st of the month) moves each month older than the previous one to `logs/archive/` (copied nightly to the DR bucket) and deletes those rows; nothing else deletes them (`system-log-prune`, the 30-day sweep, was retired Nov 16, 2026: it ran first, so no month after August 2026 was ever archived); both web AND worker containers write it.
 
 ### Log Viewer (`/logs`)
 - SUPER_ADMIN-only web UI at `/logs` with retro terminal theme

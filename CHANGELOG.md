@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### System logs are archived, no longer deleted after 30 days (November 16)
+
+The daily `system-log-prune` job deleted SystemLog rows older than 30 days, and the monthly `log-archive` job only reaches months older than the previous one, so every row was gone before it could be archived: no archive file exists after August 2026, and September's warnings and errors are lost (the box's log files and CloudWatch, 90 days for errors, still had them). Owner decision: retire the prune. `log-archive` is now the only thing that removes rows, after writing the month to `logs/archive/`, which the box crontab copies nightly to `s3://ea-sys-dr-singapore/logs-archive/` (installed the same day). The table holds the current and previous month, a few thousand rows. Job id 1014 stays reserved; `__tests__/lib/system-log-deleters.test.ts` fails if anything but the archive and the operator's Clear Logs deletes log rows.
+
 ### Person fields: the Role picker offers the organisation's answers (November 16)
 
 Step 1c, part C2, of `docs/ORG_FIELDS_PLAN.md`; step 1c is complete. Nothing changes for MM Group: its answers are today's nine.

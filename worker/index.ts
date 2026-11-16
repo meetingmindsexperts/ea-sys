@@ -65,7 +65,6 @@ import * as crmInboundEmail from "./jobs/crm-inbound-email";
 import * as loginEventPrune from "./jobs/login-event-prune";
 import * as unconfirmedAccountPrune from "./jobs/unconfirmed-account-prune";
 import * as webinarPresenceArchive from "./jobs/webinar-presence-archive";
-import * as systemLogPrune from "./jobs/system-log-prune";
 import * as supportingDocumentPrune from "./jobs/supporting-document-prune";
 import * as emailAttachmentPrune from "./jobs/email-attachment-prune";
 import * as dailyDigest from "./jobs/daily-digest";
@@ -115,7 +114,6 @@ const JOBS = [
   loginEventPrune,
   unconfirmedAccountPrune,
   webinarPresenceArchive,
-  systemLogPrune,
   supportingDocumentPrune,
   emailAttachmentPrune,
   dailyDigest,

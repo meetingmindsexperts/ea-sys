@@ -2,8 +2,8 @@
  * unconfirmed-account-prune job: removes accounts made at /signup that were
  * never confirmed within 30 days (src/lib/unconfirmed-account-prune-worker.ts).
  *
- * Cadence: 04:35 UTC daily, between agent-run-prune (04:30) and
- * system-log-prune (04:45) so the retention sweeps never share a window.
+ * Cadence: 04:35 UTC daily, after agent-run-prune (04:30) so the retention
+ * sweeps never share a window.
  */
 
 import { runUnconfirmedAccountPruneTick } from "@/lib/unconfirmed-account-prune-worker";

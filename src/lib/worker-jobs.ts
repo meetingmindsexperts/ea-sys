@@ -49,7 +49,6 @@ export const EXPECTED_JOBS: ExpectedJob[] = [
   { name: "email-log-prune", cadence: "daily 03:45 UTC", expectedPerDay: 1 },
   { name: "login-event-prune", cadence: "daily 04:15 UTC", expectedPerDay: 1 },
   { name: "webinar-presence-archive", cadence: "daily 04:20 UTC", expectedPerDay: 1 },
-  { name: "system-log-prune", cadence: "daily 04:45 UTC", expectedPerDay: 1 },
   { name: "resident-letter-prune", cadence: "daily 05:05 UTC", expectedPerDay: 1 },
   { name: "email-attachment-prune", cadence: "daily 05:15 UTC", expectedPerDay: 1 },
   { name: "analytics-prune", cadence: "daily 03:15 UTC", expectedPerDay: 1 },

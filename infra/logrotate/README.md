@@ -33,7 +33,7 @@ unique:
 | Where | Retention | Bounded by |
 |---|---|---|
 | `logs/*.log` on the box | 7 rotations at 100 MB | **this config** |
-| `SystemLog` table | 30 days hot, then archived | `system-log-prune` + `log-archive` jobs |
+| `SystemLog` table | current + previous month hot, then archived to `logs/archive/` and copied nightly to the DR bucket (`system-log-prune` retired Nov 16, 2026) | `log-archive` job + the box crontab |
 | CloudWatch Logs | 30 days app / 90 days error | `infra/cloudwatch/` |
 
 ## Two things in the config that are load-bearing

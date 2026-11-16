@@ -463,9 +463,11 @@ and a lease lost mid-tick logs at error. Full write-up: `docs/BACKGROUND_JOBS.md
 - **Worker watchdog** — cron every 2 minutes, restarts a *frozen* worker container
   (a crashed one already self-heals). Emails on every restart on purpose. **Requires
   a crontab line on the box** — see `docs/AWS_OPERATIONS.md §1.7 D`.
-- **`system-log-prune`** (04:45 UTC) and **`login-event-prune`** (04:15 UTC) — 30-day
-  and 180-day retention sweeps respectively. If the database grows unexpectedly,
-  confirm these are running.
+- **`login-event-prune`** (04:15 UTC), a 180-day retention sweep, and **`log-archive`**
+  (03:30 UTC on the 1st), which moves each month of the SystemLog table older than the
+  previous one to `logs/archive/` (copied nightly to the DR bucket). If the database grows
+  unexpectedly, confirm these are running. (`system-log-prune` was retired Nov 16, 2026: it
+  deleted log rows before the archive could keep them.)
 
 **Sign-in activity. ⚙️ Ops.** Every sign-in attempt is now recorded (who, when,
 approximate location) and readable by ADMIN+ under Settings. This also added the

@@ -31,7 +31,6 @@ nothing enforces this table, so it is the one that rots.
 | `email-log-prune` | `45 3 * * *` (daily 03:45 UTC) | 1011 | `src/lib/email-log-prune-worker.ts` → `runEmailLogPruneTick` |
 | `crm-inbound-email` | `* * * * *` (every minute) | 1012 | `src/crm/inbound-email-worker.ts` → `runTick` |
 | `login-event-prune` | `15 4 * * *` (daily 04:15 UTC) | 1013 | `src/lib/login-event-prune-worker.ts` → `runLoginEventPruneTick` |
-| `system-log-prune` | `45 4 * * *` (daily 04:45 UTC) | 1014 | `src/lib/system-log-prune-worker.ts` → `runSystemLogPruneTick` |
 | `daily-digest` | `30 5 * * *` (daily 05:30 UTC) | 1015 | `src/lib/daily-digest-worker.ts` → `runDailyDigestTick` |
 | `hr-year-roll` | `5 1 * * *` (daily 01:05 UTC; acts in January only) | 1018 | `src/hr/hr-year-roll-worker.ts` → `runHrYearRollTick` |
 | `approval-escalation` | `*/10 * * * *` (every 10 min) | 1021 | `src/lib/approvals/approval-notifications-worker.ts` → `runApprovalNotificationsTick` |

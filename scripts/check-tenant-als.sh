@@ -436,7 +436,7 @@ SWEPT_MODULES=(
 # reaps by row AGE across every tenant plus the NULL-org pool, and that pool
 # has no owning org to borrow a lane from.
 #
-# NOT here, deliberately: system-log-prune, log-archive, oauth-cleanup and
+# NOT here, deliberately: log-archive, oauth-cleanup and
 # login-event-prune. They scan SystemLog / McpOAuth* / LoginEvent, none of
 # which carry an RLS policy today, so they need no exemption. When LoginEvent
 # is swept, its prune job joins this list.

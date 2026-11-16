@@ -3,7 +3,7 @@
  *
  * Cadence: 05:30 UTC = 09:30 Dubai, so it lands as the operator starts the
  * day. Deliberately AFTER the nightly retention sweeps (email-log-prune
- * 03:45, login-event-prune 04:15, system-log-prune 04:45) so the numbers it
+ * 03:45, login-event-prune 04:15, agent-run-prune 04:30) so the numbers it
  * reports are the post-sweep steady state rather than a mid-prune snapshot.
  *
  * Unlike the alarm + error-alert paths, this one sends whether or not
