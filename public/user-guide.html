@@ -2124,7 +2124,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <p><strong>Step 3: hand it over.</strong></p>
         <div class="steps">
           <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Show the key</strong>. It needs the <strong>See Zoom host details</strong> permission, and each look is recorded with your name.</div></div>
-          <div class="step"><div class="step-n"></div><div class="step-b">Type a <strong>Contact on the day</strong> (name and phone; it is not saved) and click <strong>Copy handover message</strong>. Paste it into an email to the partner. It holds the server address, the stream key, when the key works and the encoder settings below.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Type a <strong>Contact on the day</strong> (name and phone; it is not saved) and click <strong>Copy handover message</strong>. Paste it into an email to the partner. It holds the webinar&rsquo;s start time, the server address, the stream key, the event page address (Zoom&rsquo;s streaming form asks for one), when the key works and the encoder settings below. The button stays off while the key is switched off or past its end date. On a <strong>Draft</strong> event the message asks the partner to tell you before they test, because a draft event&rsquo;s room counts as open.</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">The stream key includes its password after the question mark. The partner pastes the whole value into their platform&rsquo;s stream key field.</div></div>
         </div>
         <table class="st">
@@ -2138,20 +2138,20 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
         <p><strong>Step 4: rehearse.</strong> The partner can send video any time while the key works. The card&rsquo;s signal reads <strong>Receiving</strong>, and <strong>Preview the stream</strong> in the Waiting Room card shows what attendees will see. With the room closed, attendees see nothing. One exception: a <strong>Draft</strong> event&rsquo;s room counts as open for testing, so rehearse on a published event, or expect registered people to see the rehearsal.</p>
 
-        <p><strong>Step 5: on the day.</strong> Click <strong>Open the room / Go live</strong> in the Go live card. If the partner&rsquo;s video is not arriving yet, the console says so; attendees see &ldquo;starting shortly&rdquo; until it does. Questions, polls, chat and handouts work as for any custom-stream webinar.</p>
+        <p><strong>Step 5: on the day.</strong> Click <strong>Open the room / Go live</strong> in the Go live card. If the partner&rsquo;s video is not arriving yet, the console says so; attendees see &ldquo;Waiting for stream to start&rdquo; until it does. Questions, polls, chat and handouts work as for any custom-stream webinar.</p>
 
         <p><strong>If the partner&rsquo;s stream drops.</strong> We cannot restart it from our side. The event&rsquo;s admins get a <strong>Partner stream stopped</strong> notification: call the partner. Attendees&rsquo; players pick the video up again by themselves when it returns, and a <strong>Partner stream is back</strong> notification follows.</p>
 
         <p><strong>The three buttons.</strong></p>
         <ul>
           <li><strong>Replace the key</strong>: the key the partner holds stops working at once and their running stream is cut. Show the new key and hand it over. Use it if the key was shared by mistake. The address attendees watch on does not change.</li>
-          <li><strong>Cut the feed</strong>: the stream stops now and cannot reconnect. Attendees see the stream end.</li>
+          <li><strong>Cut the feed</strong>: the stream stops now and cannot reconnect. The room stays open: attendees see &ldquo;The stream was interrupted&rdquo; and wait for it to come back. To end the webinar for them, close the room.</li>
           <li><strong>Switch the key on</strong>: after a cut, lets the partner connect again with the same key.</li>
         </ul>
 
-        <p><strong>Ending.</strong> Close the room from the Go live card when the partner finishes. If nobody does, the room closes by itself two hours after the scheduled end once the partner&rsquo;s stream has stopped, and never later than six hours after it. The thank-you email follows the close.</p>
+        <p><strong>Ending.</strong> Close the room from the Go live card when the partner finishes. If nobody does, the room closes by itself two hours after the scheduled end (or two hours after it was last re-opened, if later) once the partner&rsquo;s stream has stopped. While the stream keeps arriving it waits, up to six hours after the scheduled end. The thank-you email goes out about 30 minutes after the room closes.</p>
 
-        <p><strong>Attendance.</strong> Zoom&rsquo;s reports do not apply. Use Analytics &rsaquo; <strong>Attendance on our page</strong> and <strong>Export CSV</strong>: who opened the page, when, how many times they joined and the minutes they watched. Export it within 90 days: the page record is archived after that.</p>
+        <p><strong>Attendance.</strong> Zoom&rsquo;s reports do not apply. Use Analytics &rsaquo; <strong>Attendance on our page</strong> and <strong>Export CSV</strong> (the button needs the permission to export webinar attendance): who opened the page, when, how many times they joined and the minutes they watched. Export it within 90 days: the page record is archived after that.</p>
 
         <p><strong>Not available on a partner&rsquo;s webinar:</strong> Panelists, Start as Host and Zoom&rsquo;s recording. For a replay, ask the partner for the file, upload it to Vimeo and paste the link (see <a href="#s11-5">Recording &amp; replay</a>).</p>
 
@@ -2162,7 +2162,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
             <tr><td>&ldquo;Can&rsquo;t open the room: the partner&rsquo;s stream key has not been issued&rdquo;</td><td>Issue the key in the Partner stream card and hand it over first.</td></tr>
             <tr><td>&ldquo;The partner&rsquo;s key is switched off&rdquo;</td><td>Click <strong>Switch the key on</strong> in the Partner stream card.</td></tr>
             <tr><td>Signal says <strong>Not receiving</strong> while the partner says they are streaming</td><td>Ask them to check the server address and that they pasted the whole stream key, including the part after the question mark, and that the key is still within its <strong>Works until</strong> date.</td></tr>
-            <tr><td>&ldquo;&hellip;but the running stream could not be cut yet&rdquo;</td><td>The key change has already taken effect. The stream is cut again automatically within a minute.</td></tr>
+            <tr><td>&ldquo;&hellip;but the running stream could not be cut yet&rdquo;</td><td>The key change has already taken effect, and cutting the stream is tried again within a minute. If the signal still says <strong>Receiving</strong> after two minutes, press <strong>Cut the feed</strong>.</td></tr>
             <tr><td>Notification &ldquo;Partner stream cut: the key reached its end date&rdquo;</td><td>Set a later <strong>Works until</strong> date in the card; the partner can then reconnect.</td></tr>
           </tbody>
         </table>

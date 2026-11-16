@@ -73,7 +73,24 @@ async function copy(value: string, label: string) {
   }
 }
 
-export function PartnerStreamCard({ eventId, timezone, eventName }: { eventId: string; timezone: string; eventName: string }) {
+/** What the card needs to know about the webinar for the partner's handover message. */
+export interface PartnerWebinarFacts {
+  eventName: string;
+  eventSlug: string | null;
+  eventStatus: string | undefined;
+  sessionId: string | null;
+  scheduledStart: string | null;
+}
+
+export function PartnerStreamCard({
+  eventId,
+  timezone,
+  webinar,
+}: {
+  eventId: string;
+  timezone: string;
+  webinar: PartnerWebinarFacts;
+}) {
   const access = useCan("webinar.manage", eventId);
   const canManage = access === "allowed";
   const state = useWebinarPartnerStream(eventId, canManage);
@@ -106,7 +123,7 @@ export function PartnerStreamCard({ eventId, timezone, eventName }: { eventId: s
   const { partnerStream, signal, serverReady, canSeeKey } = state.data;
   if (!partnerStream) return <IssueKey eventId={eventId} timezone={timezone} serverReady={serverReady} />;
   return (
-    <IssuedKey eventId={eventId} timezone={timezone} eventName={eventName} stream={partnerStream} signal={signal} canSeeKey={canSeeKey} />
+    <IssuedKey eventId={eventId} timezone={timezone} webinar={webinar} stream={partnerStream} signal={signal} canSeeKey={canSeeKey} />
   );
 }
 
@@ -198,14 +215,14 @@ function IssueKey({ eventId, timezone, serverReady }: { eventId: string; timezon
 function IssuedKey({
   eventId,
   timezone,
-  eventName,
+  webinar,
   stream,
   signal,
   canSeeKey,
 }: {
   eventId: string;
   timezone: string;
-  eventName: string;
+  webinar: PartnerWebinarFacts;
   stream: WebinarPartnerStreamView;
   signal: Signal;
   canSeeKey: boolean;
@@ -235,7 +252,7 @@ function IssuedKey({
         key={stream.secretVersion}
         eventId={eventId}
         canSeeKey={canSeeKey}
-        handover={{ eventName, timezone, validFrom: stream.validFrom, validUntil: stream.validUntil }}
+        handover={{ webinar, timezone, stream }}
       />
       <KeyDetails key={`${stream.issuedTo ?? ""}:${stream.validUntil}`} eventId={eventId} timezone={timezone} stream={stream} />
       <KeyActions eventId={eventId} enabled={stream.enabled} />
@@ -261,12 +278,13 @@ function KeyReveal({
   eventId: string;
   canSeeKey: boolean;
   /** What the handover message says besides the key: the webinar and the key's period. */
-  handover: { eventName: string; timezone: string; validFrom: string; validUntil: string };
+  handover: { webinar: PartnerWebinarFacts; timezone: string; stream: WebinarPartnerStreamView };
 }) {
   const reveal = useRevealWebinarPartnerStreamKey(eventId);
   const [shown, setShown] = useState<{ serverUrl: string; streamKey: string } | null>(null);
   // Who the partner calls on the day. Only in the message: never saved.
   const [contact, setContact] = useState("");
+  const handoverBlocked = handoverRefusal(handover.stream);
   // The mutation keeps its answer in React Query's cache after the card lets go of it: clear it too.
   const { reset } = reveal;
   useEffect(() => reset, [reset]);
@@ -338,28 +356,51 @@ function KeyReveal({
           <Button
             type="button"
             variant="outline"
-            onClick={() =>
-              void copy(
-                partnerHandoverText({
-                  eventName: handover.eventName,
-                  serverUrl: shown.serverUrl,
-                  streamKey: shown.streamKey,
-                  validFrom: new Date(handover.validFrom),
-                  validUntil: new Date(handover.validUntil),
-                  timezone: handover.timezone,
-                  contact,
-                }),
-                "Handover message",
-              )
-            }
+            disabled={handoverBlocked !== null}
+            onClick={() => void copy(buildHandover(shown, handover, contact), "Handover message")}
           >
             <Copy className="mr-2 h-4 w-4" />
             Copy handover message
           </Button>
         </div>
+        {handoverBlocked && <p className="text-xs text-amber-700">{handoverBlocked}</p>}
       </div>
     </div>
   );
+}
+
+/**
+ * Why the handover message cannot be copied now, or null: it would hand the partner a key that does
+ * not work, with a period that is wrong or over (review of 1f98a508).
+ */
+function handoverRefusal(stream: WebinarPartnerStreamView): string | null {
+  if (!stream.enabled) return "The key is switched off: switch it on before you send it.";
+  if (new Date(stream.validUntil).getTime() <= Date.now()) return "The key's end date has passed: set a later \"Works until\" first.";
+  return null;
+}
+
+/** The message, from the key this card was just shown: never a second read of it. */
+function buildHandover(
+  shown: { serverUrl: string; streamKey: string },
+  handover: { webinar: PartnerWebinarFacts; timezone: string; stream: WebinarPartnerStreamView },
+  contact: string,
+): string {
+  const { webinar, stream } = handover;
+  const pageUrl =
+    webinar.eventSlug && webinar.sessionId ? `${window.location.origin}/e/${webinar.eventSlug}/session/${webinar.sessionId}` : null;
+  return partnerHandoverText({
+    eventName: webinar.eventName,
+    serverUrl: shown.serverUrl,
+    streamKey: shown.streamKey,
+    validFrom: new Date(stream.validFrom),
+    validUntil: new Date(stream.validUntil),
+    validUntilIsOwn: stream.validUntilIsOwn,
+    scheduledStart: webinar.scheduledStart ? new Date(webinar.scheduledStart) : null,
+    pageUrl,
+    draft: webinar.eventStatus === "DRAFT",
+    timezone: handover.timezone,
+    contact,
+  });
 }
 
 function CopyRow({ label, value }: { label: string; value: string }) {
@@ -453,7 +494,7 @@ const CONFIRM_WORDS: Record<Confirmable, { title: string; body: string; button: 
   },
   cut: {
     title: "Cut the feed?",
-    body: "The partner's stream stops now and cannot reconnect until the key is switched on again. Attendees see the stream end.",
+    body: "The partner's stream stops now and cannot reconnect until the key is switched on again. Attendees see \"The stream was interrupted\" and wait for it to come back: to end the webinar for them, close the room.",
     button: "Cut the feed",
     done: "Feed cut: the key is switched off",
   },

@@ -204,7 +204,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       ]);
       // A partner's stream is theirs to start and stop: there is nothing to
       // ask Zoom, and asking would answer "This session has no Zoom webinar".
-      // Opening without the partner's video arriving yet is allowed (attendees see "starting shortly"),
+      // Opening without the partner's video arriving yet is allowed (attendees see "Waiting for stream to start"),
       // and the producer is told so (plan §4.5).
       if (meeting?.source === "external") {
         const partnerSignal = validated.data.open

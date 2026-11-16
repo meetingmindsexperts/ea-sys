@@ -445,7 +445,13 @@ export default function WebinarConsolePage() {
                 <PartnerStreamCard
                   eventId={eventId}
                   timezone={data?.event?.timezone || DEFAULT_EVENT_TIMEZONE}
-                  eventName={data?.event?.name ?? ""}
+                  webinar={{
+                    eventName: data?.event?.name ?? "",
+                    eventSlug: data?.event?.slug ?? null,
+                    eventStatus: data?.event?.status,
+                    sessionId: anchor?.id ?? null,
+                    scheduledStart: anchor?.startTime ?? null,
+                  }}
                 />
               )}
               <OverviewCard
@@ -3655,7 +3661,7 @@ function GoLiveCard({
 /** What the producer is told on opening a partner's room, by what the stream server said. Nothing when it is arriving. */
 const PARTNER_SIGNAL_ON_OPEN: Record<"receiving" | "not-receiving" | "switched-off" | "unknown", string | null> = {
   receiving: null,
-  "not-receiving": "The partner's video is not arriving yet. Attendees see \"starting shortly\" until it does.",
+  "not-receiving": "The partner's video is not arriving yet. Attendees see \"Waiting for stream to start\" until it does.",
   "switched-off": "The partner's key is switched off, so their video cannot arrive. Switch it on in the Partner stream card.",
   unknown: "The stream server did not answer, so whether the partner's video is arriving is not known. Check the preview.",
 };
@@ -3664,7 +3670,7 @@ function overrunNote(customStream: boolean, partner = false): string {
   // A partner's webinar has no Zoom end to go by: the room closes by the button, or by the safety net
   // once the partner's stream has stopped (room-autoclose.ts).
   if (partner) {
-    return "Running past the scheduled end. Attendees stay in the live view, and the thank-you email and the end-of-webinar survey wait until the room closes: when you close it, or two hours after the scheduled end once the partner's stream has stopped (never later than six hours after it).";
+    return "Running past the scheduled end. Attendees stay in the live view, and the thank-you email and the end-of-webinar survey wait until the room closes: when you close it, or two hours after the scheduled end (or after the room was last re-opened) once the partner's stream has stopped.";
   }
   const base =
     "Running past the scheduled end. Attendees stay in the live view, and the thank-you email and the end-of-webinar survey wait until the room closes: when you close it, or a few minutes after the host ends the webinar in Zoom.";

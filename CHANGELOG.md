@@ -21,6 +21,7 @@ External streams step 7 (docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md).
 
 - **Added**: "Copy handover message" in the Partner stream card, once the key is shown: the server address, the stream key, when the key works (in the event's timezone), the encoder settings and an optional contact for the day, ready to paste into an email to the partner. The contact is never saved.
 - **Docs**: the user guide's new "A partner streams into our webinar" (create, issue, hand over, rehearse, go live, drops, the three buttons, ending, attendance, what to do when) and a note on the page attendance report for custom-stream webinars; `docs/LIVE_STREAMING.md` §11b says what the console does.
+- **Review of 1f98a508** (0 HIGH, 2 MED, 7 LOW): on a draft event the handover message no longer tells the partner that attendees see nothing (a draft's room counts as open); "Cut the feed" says what attendees really see ("The stream was interrupted", waiting for it) and that closing the room ends the webinar; the message adds the webinar's start time, the event page address Zoom's streaming form asks for, and a note when the end date follows the webinar; it cannot be copied while the key is switched off or past its end date; the guide quotes the player's real words, the thank-you's 30-minute delay, the re-open rule for auto-close, the export permission, and an honest retry line for a failed cut.
 
 ### Webinars: attendance from our own page, with minutes watched (November 16)
 
