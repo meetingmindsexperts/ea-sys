@@ -10,9 +10,9 @@ import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
-import { titleEnum, optionalAttendeeRole, optionalSpecialty } from "@/lib/schemas";
-import { loadEventPersonFieldRules } from "@/lib/person-field-rules";
-import { askedOnly, personFieldProblems } from "@/lib/person-field-check";
+import { titleEnum, optionalRoleAnswer, optionalSpecialty } from "@/lib/schemas";
+import { loadEventPersonFieldRules, loadOrganizationPersonFields } from "@/lib/person-field-rules";
+import { askedOnly, personFieldProblems, roleAnswerProblem } from "@/lib/person-field-check";
 import { isTrustedInternalEmail, needsEmailVerification } from "@/lib/internal-domains";
 import { sendEmailVerification } from "@/lib/email-verification";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -58,7 +58,7 @@ const memberAttendeeSchema = z.object({
   country: z.string().min(1).max(100),
   // Role and Specialty are demanded as the event's organisation says, once
   // the event is known (person-field-rules.ts), not by this schema.
-  role: optionalAttendeeRole,
+  role: optionalRoleAnswer,
   specialty: optionalSpecialty,
   customSpecialty: z.string().max(255).optional(),
 });
@@ -202,10 +202,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Each member's Role, Specialty and "Others needs the typed specialty",
     // as this event asks them (its own choice over its organisation's): the
     // same demand the public form makes.
-    const fieldRules = await loadEventPersonFieldRules(event);
+    // And each member's Role must be one of the organisation's answers (step 1c).
+    const [fieldRules, fields] = await Promise.all([loadEventPersonFieldRules(event), loadOrganizationPersonFields(event.organizationId)]);
     const memberFieldErrors: Record<string, string[]> = {};
     data.members.forEach((member, i) => {
-      for (const problem of personFieldProblems(member.attendee, fieldRules)) {
+      const answer = roleAnswerProblem(fields.role, member.attendee.role);
+      for (const problem of [...personFieldProblems(member.attendee, fieldRules), ...(answer ? [answer] : [])]) {
         memberFieldErrors[`members.${i}.attendee.${problem.path}`] = [problem.message];
       }
     });

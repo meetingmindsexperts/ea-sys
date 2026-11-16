@@ -7,7 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { getClientIp } from "@/lib/security";
 import { addGroupMembers, type AddGroupMembersErrorCode } from "@/services/group-registration-service";
-import { optionalAttendeeRole, titleEnum } from "@/lib/schemas";
+import { optionalRoleAnswer, titleEnum } from "@/lib/schemas";
 
 /**
  * POST /api/registrant/my-group/[groupId]/members
@@ -41,7 +41,7 @@ const attendeeSchema = z.object({
   // One of the Role answers, as every other door takes it. Until Nov 16, 2026
   // this took any text and the database's fixed list refused the rest; Role is
   // text now, so the check has to be here (review of 6739135d).
-  role: optionalAttendeeRole.nullable(),
+  role: optionalRoleAnswer.nullable(),
   specialty: z.string().trim().max(100).optional().nullable(),
   customSpecialty: z.string().trim().max(100).optional().nullable(),
 });
@@ -57,6 +57,7 @@ const bodySchema = z.object({
 
 /** Service rejection → HTTP status. */
 const STATUS_FOR_CODE: Record<AddGroupMembersErrorCode, number> = {
+  ROLE_NOT_OFFERED: 400,
   GROUP_NOT_FOUND: 404,
   NO_MEMBERS: 400,
   GROUP_SIZE_OUT_OF_BOUNDS: 400,

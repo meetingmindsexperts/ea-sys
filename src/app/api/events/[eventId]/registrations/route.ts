@@ -37,7 +37,7 @@ import {
   REGISTRATION_SALES_COLUMNS,
   toSalesExportRow,
 } from "@/lib/registration-export";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, roleAnswer } from "@/lib/schemas";
 import { getSponsorNameMap } from "@/lib/sponsors";
 import { certificatesByRegistration, loadRecipientReport } from "@/lib/certificates/recipients-report";
 import { parseSerialQuery } from "@/lib/registration-search";
@@ -94,7 +94,7 @@ const createRegistrationSchema = z.object({
     title: titleEnum.optional(),
     // Demographic / professional classification — the public form collects
     // this; admin create must accept it too. Same enum the public path uses.
-    role: attendeeRoleEnum.optional(),
+    role: roleAnswer.optional(),
     email: z.string().email().max(255),
     // Secondary email for registrants who want notifications cc'd (e.g.
     // personal + work). Public register accepts it; admin create must too.

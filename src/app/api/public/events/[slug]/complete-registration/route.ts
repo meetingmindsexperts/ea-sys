@@ -10,7 +10,7 @@ import { rateLimited } from "@/lib/api-errors";
 import { checkLinkRateLimit, getClientIp, hashVerificationToken, VENUE_CROWD_IP_LIMITS } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
-import { optionalTitle, optionalAttendeeRole, optionalSpecialty } from "@/lib/schemas";
+import { optionalTitle, optionalRoleAnswer, optionalSpecialty } from "@/lib/schemas";
 import { personFieldRefusal } from "@/lib/person-field-rules";
 import { syncToContact } from "@/lib/contact-sync";
 import { changedContactFields, contactSyncFromAttendee } from "@/lib/contact-sync-payload";
@@ -494,7 +494,7 @@ const completionSchema = z.object({
   title: optionalTitle,
   // Role and Specialty are demanded as the event's organisation says, after
   // the registration is loaded (personFieldRefusal below), not by this schema.
-  role: optionalAttendeeRole,
+  role: optionalRoleAnswer,
   jobTitle: z.string().min(1, "Position is required").max(255),
   organization: z.string().min(1, "Organization is required").max(255),
   phone: z.string().min(1, "Mobile number is required").max(50),
@@ -698,7 +698,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           select: {
             email: true, additionalEmail: true, firstName: true, lastName: true, title: true,
             organization: true, jobTitle: true, phone: true, city: true, country: true,
-            specialty: true, registrationType: true,
+            specialty: true, registrationType: true, role: true,
             associationName: true, memberId: true, studentId: true, studentIdExpiry: true,
           },
         },
@@ -748,7 +748,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Role, Specialty and "Others needs the typed specialty": demanded as this event asks them (its own choice over its organisation's).
-    const fieldRefusal = await personFieldRefusal(registration.event, validated.data);
+    // The Role the attendee already holds is kept even if retired since (step 1c).
+    const fieldRefusal = await personFieldRefusal(registration.event, validated.data, { storedRole: registration.attendee.role });
     if (fieldRefusal) {
       apiLogger.warn({ msg: "complete-registration:person-fields-refused", registrationId, fields: Object.keys(fieldRefusal.fieldErrors) });
       return NextResponse.json({ error: "Invalid input", details: fieldRefusal }, { status: 400 });

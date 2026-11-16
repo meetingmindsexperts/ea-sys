@@ -15,7 +15,7 @@ import { normalizeTag } from "@/lib/utils";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, roleAnswer } from "@/lib/schemas";
 import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
@@ -85,7 +85,7 @@ const updateRegistrationSchema = z.object({
   billingCountry: z.string().max(255).optional().nullable(),
   attendee: z.object({
     title: titleEnum.optional().nullable(),
-    role: attendeeRoleEnum.optional().nullable(),
+    role: roleAnswer.optional().nullable(),
     firstName: z.string().min(1).max(100).optional(),
     lastName: z.string().min(1).max(100).optional(),
     // Secondary inbox auto-CC'd on outgoing registration emails. Empty
@@ -118,6 +118,7 @@ interface RouteParams {
 /** Map updateRegistration service error codes to HTTP statuses (repricing
  *  errors carry their own resolver status and are mapped in-line). */
 const HTTP_STATUS_FOR_UPDATE_CODE: Partial<Record<UpdateRegistrationErrorCode, number>> = {
+  ROLE_NOT_OFFERED: 400,
   REGISTRATION_NOT_FOUND: 404,
   TICKET_TYPE_NOT_FOUND: 404,
   TICKET_TYPE_IS_FACULTY: 400,

@@ -4,25 +4,23 @@ import { z } from "zod";
  *  Accepts empty string and transforms to undefined (for clearing). */
 export const titleEnum = z.enum(["DR", "MR", "MRS", "MS", "PROF"]).or(z.literal("").transform(() => undefined));
 
-/** Shared Zod enum for AttendeeRole field — matches Prisma AttendeeRole enum */
-export const attendeeRoleEnum = z.enum([
-  "ACADEMIA",
-  "ALLIED_HEALTH",
-  "MEDICAL_DEVICES",
-  "PHARMA",
-  "PHYSICIAN",
-  "RESIDENT",
-  "SPEAKER",
-  "STUDENT",
-  "OTHERS",
-]);
+/**
+ * A Role answer's KEY, as a door takes it (step 1c of docs/ORG_FIELDS_PLAN.md):
+ * text, not the fixed list of nine. WHICH answers are accepted is the
+ * organisation's list, checked by the door with `roleAnswerProblem`
+ * (person-field-check.ts) once it knows the organisation: a newly chosen answer
+ * the organisation does not offer is refused, one the record already holds is
+ * kept. 100 is MAX_PERSON_FIELD_ANSWER in person-fields.ts (that module imports
+ * this one, so the number is written here).
+ */
+export const roleAnswer = z.string().trim().min(1).max(100);
 
 /**
- * Role where a form may leave it out: a valid value, or nothing. Whether it
- * is DEMANDED is the organisation's rule, added per request by
- * `withPersonFieldRules` (src/lib/person-field-check.ts), not this schema's.
+ * Role where a form may leave it out: an answer key, or nothing ("" is
+ * nothing). Whether it is DEMANDED is the organisation's rule, added per
+ * request by `withPersonFieldRules` (src/lib/person-field-check.ts).
  */
-export const optionalAttendeeRole = attendeeRoleEnum.optional().or(z.literal("").transform(() => undefined));
+export const optionalRoleAnswer = roleAnswer.optional().or(z.literal("").transform(() => undefined));
 
 /**
  * Specialty where a form may leave it out. Demanded, or not, by the
@@ -131,7 +129,7 @@ export function parseTitle(raw: string | null | undefined): TitleValue | null {
  */
 export const presenterDetailsSchema = z.object({
   title: optionalTitle,
-  role: optionalAttendeeRole,
+  role: optionalRoleAnswer,
   firstName: z.string().min(1, "First name is required").max(100),
   lastName: z.string().min(1, "Last name is required").max(100),
   additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
@@ -156,7 +154,7 @@ export const presenterDetailsSchema = z.object({
  */
 export const personalDetailsFields = {
   title: optionalTitle,
-  role: optionalAttendeeRole,
+  role: optionalRoleAnswer,
   firstName: z.string().min(1, "First name is required").max(100),
   lastName: z.string().min(1, "Last name is required").max(100),
   organization: z.string().min(1, "Organization is required").max(255),

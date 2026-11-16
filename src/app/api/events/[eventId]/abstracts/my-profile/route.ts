@@ -9,9 +9,9 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
 import { contactSyncFromSpeaker } from "@/lib/contact-sync-payload";
 import { computeDetailsDelta, syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, roleAnswer } from "@/lib/schemas";
 import { suggestSpeakerDetails } from "@/lib/submitter-profile-suggestions";
-import { loadEventPersonFieldRules } from "@/lib/person-field-rules";
+import { loadEventPersonFieldRules, roleAnswerRefusal } from "@/lib/person-field-rules";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -74,7 +74,7 @@ const updateMyProfileSchema = z.object({
   title: titleEnum.nullable().optional(),
   firstName: z.string().trim().min(1).max(100).optional(),
   lastName: z.string().trim().min(1).max(100).optional(),
-  role: attendeeRoleEnum.nullable().optional(),
+  role: roleAnswer.nullable().optional(),
   specialty: z.string().max(255).nullable().optional(),
   customSpecialty: z.string().max(255).nullable().optional(),
   organization: z.string().max(255).nullable().optional(),
@@ -233,6 +233,14 @@ export async function PATCH(req: Request, { params }: RouteParams) {
           },
           { status: 400 },
         );
+      }
+
+      // A NEWLY chosen Role must be one of the organisation's answers; the one
+      // the speaker already holds is kept even if retired since (step 1c).
+      const roleRefusal = await roleAnswerRefusal(event.organizationId, data.role, existing.role);
+      if (roleRefusal) {
+        apiLogger.warn({ msg: "my-profile:role-not-offered", userId: session.user.id, eventId });
+        return NextResponse.json({ error: "Invalid input", details: roleRefusal }, { status: 400 });
       }
 
       const speaker = await db.speaker.update({

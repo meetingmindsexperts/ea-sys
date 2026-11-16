@@ -35,7 +35,7 @@ const read = (file: string) => readFileSync(join(ROOT, file), "utf8");
  */
 const DOORS: Record<string, RegExp> = {
   "src/app/api/public/events/[slug]/register/route.ts": /checkEventPersonFields\(event, validated\.data\)/,
-  "src/app/api/public/events/[slug]/complete-registration/route.ts": /personFieldRefusal\(registration\.event, validated\.data\)/,
+  "src/app/api/public/events/[slug]/complete-registration/route.ts": /personFieldRefusal\(registration\.event, validated\.data[,)]/,
   "src/app/api/public/events/[slug]/group-register/route.ts": /loadEventPersonFieldRules\(event\)[\s\S]*personFieldProblems\(member\.attendee, fieldRules\)/,
   "src/app/api/public/events/[slug]/submitter/route.ts": /checkEventPersonFields\(event, validated\.data\)/,
   "src/app/api/public/events/[slug]/abstract-start/route.ts": /checkEventPersonFields\(event, parsed\.data\.details\)/,
@@ -86,7 +86,7 @@ const NOT_A_DOOR: Record<string, string> = {
 
 /** A route's schema naming one of the three fields. */
 const TAKES_THE_FIELDS =
-  /\b(?:specialty|customSpecialty)\s*:\s*(?:z\.|optional\(|required\(|optionalSpecialty)|personalDetailsFields|presenterDetailsSchema|\brole\s*:\s*(?:optionalAttendeeRole|attendeeRoleEnum)|\btitle\s*:\s*(?:optionalTitle|titleEnum)/;
+  /\b(?:specialty|customSpecialty)\s*:\s*(?:z\.|optional\(|required\(|optionalSpecialty)|personalDetailsFields|presenterDetailsSchema|\brole\s*:\s*(?:optionalRoleAnswer|roleAnswer)|\btitle\s*:\s*(?:optionalTitle|titleEnum)/;
 
 /**
  * The forms people fill in: each reads the organisation's rules, shows a field
@@ -210,7 +210,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 const OWN_DEMANDS: Array<[string, RegExp]> = [
   // z.string().min(1), .trim().max(255).min(1), .nonempty(), and a route's own `required(255)` helper.
   ["a schema that demands Specialty", /specialty:\s*(?:z\.string\(\)[^,\n]*\.(?:min\(1|nonempty\()|required\()/],
-  ["a schema that demands Role", /\brole:\s*(?:attendeeRoleEnum\s*[,}]|z\.string\(\)[^,\n]*\.(?:min\(1|nonempty\()|required\()/],
+  ["a schema that demands Role", /\brole:\s*(?:roleAnswer\s*[,}]|z\.string\(\)[^,\n]*\.(?:min\(1|nonempty\()|required\()/],
   // Both ways round: `!== "Others" ||` in a schema's refine, `=== "Others" && !` in a form's own check.
   ["its own Others rule", /specialty\s*!==\s*(?:"Others"|OTHER_ANSWER)\s*\|\||specialty\s*===\s*(?:"Others"|OTHER_ANSWER)\s*&&\s*!/],
   ["its own list of required fields", /\[\s*["']specialty["']\s*,\s*["']Specialty["']|,\s*["']Specialty["']\s*\]|if\s*\(\s*!\s*(?:\w+\.)?specialty\s*\)/],
@@ -264,6 +264,19 @@ describe("every route that takes these fields is a door, or named as not one", (
     expect(loose).toEqual([]);
   });
 
+  it("every classified route that takes Role reaches the check of the organisation's answers (step 1c)", () => {
+    // Role is text since Nov 16, 2026: the schema accepts any key, so WHICH keys
+    // are stored is the organisation's list, asked by the event check, the
+    // no-event check, or a service that asks it for every caller.
+    const ASKS = /checkEventPersonFields\(|personFieldRefusal\(|roleAnswerRefusal\(|roleAnswerProblem\(|createRegistration\(|updateRegistration\(|createSpeaker\(|updateSpeaker\(|addGroupMembers\(/;
+    const takesRole = /\brole\s*:\s*(?:optionalRoleAnswer|roleAnswer)\b|personalDetailsFields|presenterDetailsSchema/;
+    const unchecked = [...Object.keys(DOORS), ...Object.keys(NOT_A_DOOR)].filter((file) => {
+      const src = read(file);
+      return takesRole.test(src) && !ASKS.test(src);
+    });
+    expect(unchecked).toEqual([]);
+  });
+
   it("no route is listed both ways", () => {
     expect(Object.keys(DOORS).filter((file) => file in NOT_A_DOOR)).toEqual([]);
   });
@@ -287,7 +300,7 @@ describe("no file demands Title, Role or Specialty by itself", () => {
   it.each(OWN_DEMANDS)("%s is found nowhere but the rule itself", (_what, pattern) => {
     const found = files.filter((file) => !THE_RULE.has(file) && pattern.test(read(file)));
     // If this fails, a schema or a form is demanding the field by itself. Take
-    // the field leniently (optionalAttendeeRole, optionalSpecialty) and ask
+    // the field leniently (optionalRoleAnswer, optionalSpecialty) and ask
     // checkEventPersonFields (a route) or withPersonFieldRules (a form) with
     // the event's rules: otherwise an organisation or an event that switched
     // the field off is refused here.

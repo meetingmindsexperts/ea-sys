@@ -21,6 +21,8 @@
  * See src/services/README.md for the conventions.
  */
 
+import { roleAnswerRefusal } from "@/lib/person-field-rules";
+import { ROLE_NOT_OFFERED } from "@/lib/person-field-check";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -42,21 +44,12 @@ export type SpeakerStatus = "INVITED" | "CONFIRMED" | "DECLINED" | "CANCELLED";
 export type SpeakerTitle = "DR" | "MR" | "MRS" | "MS" | "PROF";
 
 /**
- * Speaker's demographic / professional role. Mirrors the Prisma
- * `AttendeeRole` enum (same enum used by Attendee + Contact); listed
- * inline to keep this module Prisma-namespace-free at the input
- * boundary.
+ * Speaker's Role: an answer KEY of the organisation's own Role list (step 1c
+ * of docs/ORG_FIELDS_PLAN.md), text, not the fixed list of nine. Which keys are
+ * accepted is checked here (`roleAnswerRefusal`), so REST and the agent share
+ * the rule.
  */
-export type SpeakerAttendeeRole =
-  | "ACADEMIA"
-  | "ALLIED_HEALTH"
-  | "MEDICAL_DEVICES"
-  | "PHARMA"
-  | "PHYSICIAN"
-  | "RESIDENT"
-  | "SPEAKER"
-  | "STUDENT"
-  | "OTHERS";
+export type SpeakerAttendeeRole = string;
 
 export interface CreateSpeakerInput {
   eventId: string;
@@ -99,6 +92,7 @@ export interface CreateSpeakerInput {
 }
 
 export type CreateSpeakerErrorCode =
+  | "ROLE_NOT_OFFERED"
   | "EVENT_NOT_FOUND"
   | "SPEAKER_ALREADY_EXISTS"
   | "UNKNOWN";
@@ -197,6 +191,11 @@ export async function createSpeaker(
   if (!event) {
     return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" };
   }
+  // A Role must be one of the organisation's answers (step 1c).
+  if (await roleAnswerRefusal(organizationId, normRole)) {
+    apiLogger.warn({ msg: "speaker-create:role-not-offered", eventId, source: input.source });
+    return { ok: false, code: "ROLE_NOT_OFFERED", message: ROLE_NOT_OFFERED };
+  }
   if (existingSpeaker) {
     return {
       ok: false,
@@ -217,7 +216,7 @@ export async function createSpeaker(
         firstName,
         lastName,
         title: normTitle as SpeakerTitle | null,
-        role: normRole as SpeakerAttendeeRole | null,
+        role: normRole,
         bio: normBio,
         organization: normOrg,
         jobTitle: normJobTitle,
@@ -286,7 +285,7 @@ export async function createSpeaker(
       country: normCountry,
       specialty: normSpecialty,
       registrationType: normRegType,
-      role: normRole as SpeakerAttendeeRole | null,
+      role: normRole,
       sourceRegistrationId: null,
     });
   } catch (err) {
@@ -556,6 +555,7 @@ export interface UpdateSpeakerInput {
 }
 
 export type UpdateSpeakerErrorCode =
+  | "ROLE_NOT_OFFERED"
   | "SPEAKER_NOT_FOUND"
   | "NO_FIELDS"
   | "STALE_WRITE"
@@ -605,6 +605,13 @@ export async function updateSpeaker(
         code: "SPEAKER_NOT_FOUND",
         message: `Speaker ${speakerId} not found or access denied`,
       };
+    }
+
+    // A NEWLY chosen Role must be one of the organisation's answers; the one
+    // the speaker already holds is kept even if retired since (step 1c).
+    if (await roleAnswerRefusal(organizationId, fields.role, existing.role)) {
+      apiLogger.warn({ msg: "speaker-update:role-not-offered", speakerId, eventId, source: input.source });
+      return { ok: false, code: "ROLE_NOT_OFFERED", message: ROLE_NOT_OFFERED };
     }
 
     // The speaker's own registration type text is not theirs to set while a

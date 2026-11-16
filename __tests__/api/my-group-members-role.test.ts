@@ -52,8 +52,17 @@ beforeEach(() => {
 });
 
 describe("POST /api/registrant/my-group/[groupId]/members, Role", () => {
-  it("refuses a role that is not one of the answers, before the service", async () => {
+  // Since step 1c the route takes any key and the SERVICE refuses one the
+  // organisation does not offer (it knows the event); the route says 400.
+  it("hands a role to the service, and answers 400 when the service says it is not offered", async () => {
+    mockAddMembers.mockResolvedValueOnce({ ok: false, code: "ROLE_NOT_OFFERED", message: "Choose one of the roles listed" });
     const res = await POST(request("Doctor"), params);
+    expect(mockAddMembers.mock.calls[0][0].members[0].attendee.role).toBe("Doctor");
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses a malformed role before the service", async () => {
+    const res = await POST(request("x".repeat(101)), params);
     expect(res.status).toBe(400);
     expect(mockAddMembers).not.toHaveBeenCalled();
   });

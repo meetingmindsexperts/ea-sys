@@ -1,3 +1,4 @@
+import { roleAnswerRefusal } from "@/lib/person-field-rules";
 import { NextResponse } from "next/server";
 import { eventUsesEntryBarcode } from "@/lib/entry-barcode-policy";
 import { z } from "zod";
@@ -8,7 +9,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { linkConfirmedRegistrations, loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, roleAnswer } from "@/lib/schemas";
 import { writeOwnAttendee } from "@/lib/registrant-details";
 import { checkRateLimit } from "@/lib/security";
 
@@ -143,7 +144,7 @@ const selfEditSchema = z.object({
   registrationId: z.string().min(1),
   attendee: z.object({
     title: titleEnum.optional().nullable(),
-    role: attendeeRoleEnum.optional(),
+    role: roleAnswer.optional(),
     firstName: z.string().min(1).max(100).optional(),
     lastName: z.string().min(1).max(100).optional(),
     // Secondary inbox the registrant can self-manage; auto-CC'd on emails
@@ -211,7 +212,11 @@ export async function PUT(req: Request) {
     // Verify ownership
     const registration = await db.registration.findFirst({
       where: { id: registrationId, userId: session.user.id },
-      select: { id: true, attendeeId: true, eventId: true, createdSource: true, attendee: { select: { firstName: true, lastName: true } } },
+      select: {
+        id: true, attendeeId: true, eventId: true, createdSource: true,
+        attendee: { select: { firstName: true, lastName: true, role: true } },
+        event: { select: { organizationId: true } },
+      },
     });
 
     if (!registration) {
@@ -230,6 +235,14 @@ export async function PUT(req: Request) {
       (!!attendee.lastName && attendee.lastName !== registration.attendee?.lastName);
     if (nameLocked && renamed) {
       apiLogger.warn({ msg: "registrant-self-edit:faculty-name-not-changed", userId: session.user.id, registrationId });
+    }
+
+    // A NEWLY chosen Role must be one of the event's organisation's answers; the
+    // one the attendee already holds is kept even if retired since (step 1c).
+    const roleRefusal = await roleAnswerRefusal(registration.event.organizationId, attendee.role, registration.attendee?.role);
+    if (roleRefusal) {
+      apiLogger.warn({ msg: "registrant-self-edit:role-not-offered", userId: session.user.id, registrationId });
+      return NextResponse.json({ error: "Invalid input", details: roleRefusal }, { status: 400 });
     }
 
     // Attendee fields only; the shared write also touches the registration(s)

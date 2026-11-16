@@ -1,3 +1,4 @@
+import { roleAnswerRefusal } from "@/lib/person-field-rules";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -8,7 +9,7 @@ import { auth } from "@/lib/auth";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, roleAnswer } from "@/lib/schemas";
 import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
 
 type RouteParams = { params: Promise<{ contactId: string }> };
@@ -20,7 +21,7 @@ type RouteParams = { params: Promise<{ contactId: string }> };
 // this aligns the REST side.
 const updateContactSchema = z.object({
   title: titleEnum.optional().nullable(),
-  role: attendeeRoleEnum.optional().nullable(),
+  role: roleAnswer.optional().nullable(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   // Secondary/secretary inbox — unlike `email` this is NOT identity-keyed, so
@@ -198,11 +199,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const contact = await db.contact.findFirst({
       where: { id: contactId, organizationId: ctx.organizationId },
-      select: { id: true },
+      select: { id: true, role: true },
     });
 
     if (!contact) {
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+    }
+
+    // A NEWLY chosen Role must be one of the organisation's answers; the one
+    // the contact already holds is kept even if retired since (step 1c).
+    const roleRefusal = await roleAnswerRefusal(ctx.organizationId, validated.data.role, contact.role);
+    if (roleRefusal) {
+      apiLogger.warn({ msg: "contacts:update-role-not-offered", organizationId: ctx.organizationId, contactId });
+      return NextResponse.json({ error: "Invalid input", details: roleRefusal }, { status: 400 });
     }
 
     const updateData = {

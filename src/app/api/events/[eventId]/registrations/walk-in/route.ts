@@ -11,7 +11,7 @@ import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkInGate, executeCheckIn } from "@/lib/check-in";
 import { HTTP_STATUS_FOR_REGISTRATION_ERROR } from "@/lib/registration-error-status";
-import { optionalTitle, optionalAttendeeRole } from "@/lib/schemas";
+import { optionalTitle, optionalRoleAnswer } from "@/lib/schemas";
 import { checkEventPersonFields } from "@/lib/person-field-rules";
 import { askedOnly } from "@/lib/person-field-check";
 import {
@@ -58,7 +58,7 @@ const walkInSchema = z
     // Title, Role and Specialty are demanded as the organisation says, in the
     // handler (checkEventPersonFields, which demands the title here as before).
     title: optionalTitle,
-    role: optionalAttendeeRole,
+    role: optionalRoleAnswer,
     firstName: required(100),
     lastName: required(100),
     email: z.string().trim().email().max(255),

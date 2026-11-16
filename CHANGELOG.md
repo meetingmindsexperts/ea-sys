@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Person fields: every door takes Role from the organisation's own answers (November 16)
+
+Step 1c, part C1, of `docs/ORG_FIELDS_PLAN.md`. Nothing changes for MM Group: its answers are today's nine. The forms still offer the nine until part C2.
+
+- **Changed**: every door that takes a Role (public registration, completing a registration, group registration and a coordinator adding people, abstract and proposal sign-up, the desk walk-in, a submitter's My Details, a registrant's own edit, account sign-up and My account, staff create and edit of registrations, speakers and contacts) takes it as text and stores it only when it is one of the organisation's answers on offer. An answer the record already holds is kept even if it has been retired since. A refusal says "Choose one of the roles listed" (`ROLE_NOT_OFFERED` from the registration, speaker and group services, which REST and the agent share).
+- **Changed**: the agent's speaker and registration tools (single and bulk) take a role by key or label from the organisation's answers and list them when refusing; the MCP `create_speakers_bulk` schema and the API reference's contacts `role` filter take text. MCP version 0.4.63: connected clients reconnect to see the schema change.
+- **Added**: `person-field-doors.test.ts` fails on a route that takes Role and reaches no answer check.
+
 ### Person fields: the CSV imports read Role in the organisation's words (November 16)
 
 Step 1c, part B, of `docs/ORG_FIELDS_PLAN.md`.

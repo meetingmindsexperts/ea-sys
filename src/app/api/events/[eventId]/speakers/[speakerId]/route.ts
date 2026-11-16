@@ -12,7 +12,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { stripHonorariumFields } from "@/lib/reimbursement/constants";
 import { submissionVisibilityFor, withVisibleSubmissions } from "@/lib/speaker-submission-visibility";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, roleAnswer } from "@/lib/schemas";
 import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
 import { refreshEventStats } from "@/lib/event-stats";
 import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
@@ -22,6 +22,7 @@ import { updateSpeaker, type UpdateSpeakerErrorCode } from "@/services/speaker-s
 /** Service error code → HTTP status. The service is transport-agnostic; this
  *  is the route's half of the contract. */
 const HTTP_STATUS_FOR_UPDATE_SPEAKER: Record<UpdateSpeakerErrorCode, number> = {
+  ROLE_NOT_OFFERED: 400,
   SPEAKER_NOT_FOUND: 404,
   NO_FIELDS: 400,
   STALE_WRITE: 409,
@@ -38,7 +39,7 @@ const HTTP_STATUS_FOR_UPDATE_SPEAKER: Record<UpdateSpeakerErrorCode, number> = {
 const updateSpeakerSchema = z.object({
   ...optimisticLockField,
   title: titleEnum.optional().nullable(),
-  role: attendeeRoleEnum.optional().nullable(),
+  role: roleAnswer.optional().nullable(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   // Secondary inbox auto-CC'd on every outgoing speaker email. Empty

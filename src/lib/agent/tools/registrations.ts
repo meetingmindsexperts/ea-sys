@@ -1,3 +1,4 @@
+import { resolveWrittenRole } from "@/lib/person-field-rules";
 import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { lockRegistrationEmails } from "@/lib/registration-email-lock";
@@ -32,7 +33,6 @@ import {
   sendRegistrationConfirmationEmail,
   updateRegistration as updateRegistrationService,
   type ManualRegistrationStatus,
-  type RegistrationAttendeeRole,
   type RegistrationTitle,
 } from "@/services/registration-service";
 import {
@@ -51,12 +51,6 @@ import {
 const UNPAID_STATUSES = ["UNPAID", "PENDING", "FAILED"];
 const BULK_MAX = 100;
 
-// Mirrors Prisma's AttendeeRole enum. Listed here so MCP input validation
-// doesn't need to reach into @prisma/client at runtime.
-const ATTENDEE_ROLE_VALUES = new Set([
-  "ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA",
-  "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS",
-]);
 
 // RFC-light email regex, shared with other MCP inputs via EMAIL_RE.
 // Duplicated tolerance here because additionalEmail is optional and the
@@ -257,10 +251,12 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
     if (rawTitle && !TITLE_VALUES.has(rawTitle)) {
       return { error: `Invalid title "${rawTitle}". Must be one of: ${[...TITLE_VALUES].join(", ")}` };
     }
-    const rawRole = input.role ? String(input.role) : undefined;
-    if (rawRole && !ATTENDEE_ROLE_VALUES.has(rawRole)) {
-      return { error: `Invalid role "${rawRole}". Must be one of: ${[...ATTENDEE_ROLE_VALUES].join(", ")}` };
+    // Role: one of the organisation's answers, by key or label (step 1c).
+    const roleRead = await resolveWrittenRole(ctx.organizationId, input.role);
+    if (!roleRead.ok) {
+      return { error: `Invalid role "${String(input.role)}". Must be one of: ${roleRead.offered.join(", ")}` };
     }
+    const rawRole = roleRead.key ?? undefined;
     const rawAdditionalEmail = input.additionalEmail
       ? String(input.additionalEmail).trim().toLowerCase()
       : undefined;
@@ -282,7 +278,7 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
       attendanceMode: rawMode as "IN_PERSON" | "VIRTUAL" | undefined,
       attendee: {
         title: (rawTitle as RegistrationTitle | undefined) ?? null,
-        role: (rawRole as RegistrationAttendeeRole | undefined) ?? null,
+        role: rawRole ?? null,
         email,
         additionalEmail: rawAdditionalEmail ?? null,
         firstName,

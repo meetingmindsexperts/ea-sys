@@ -7,6 +7,7 @@ import type { CreateRegistrationErrorCode } from "@/services/registration-servic
  */
 export const HTTP_STATUS_FOR_REGISTRATION_ERROR: Record<CreateRegistrationErrorCode, number> = {
   EVENT_NOT_FOUND: 404,
+  ROLE_NOT_OFFERED: 400,
   TICKET_TYPE_NOT_FOUND: 404,
   TICKET_TYPE_IS_FACULTY: 400,
   FACULTY_TERMS_INVALID: 400,

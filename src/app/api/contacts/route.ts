@@ -1,3 +1,4 @@
+import { roleAnswerRefusal } from "@/lib/person-field-rules";
 import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
 import { NextResponse } from "next/server";
 import { contactFiltersWhere, parseContactFilters } from "@/lib/contact-filters";
@@ -11,11 +12,11 @@ import { auth } from "@/lib/auth";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, roleAnswer } from "@/lib/schemas";
 
 const createContactSchema = z.object({
   title: titleEnum.optional(),
-  role: attendeeRoleEnum.optional().nullable(),
+  role: roleAnswer.optional().nullable(),
   // Trimmed + lowercased BEFORE validation, to match EVERY other writer
   // (syncToContact, MCP create_contact, both imports, the email PATCH).
   // `@@unique([organizationId, email])` is case-sensitive, so a raw value here
@@ -164,6 +165,13 @@ export async function POST(req: Request) {
     if (studentIdExpiry && isNaN(new Date(studentIdExpiry).getTime())) {
       apiLogger.warn({ msg: "Invalid studentIdExpiry date in contact creation", email, studentIdExpiry });
       return NextResponse.json({ error: "Invalid student ID expiry date" }, { status: 400 });
+    }
+
+    // A Role must be one of the organisation's answers (step 1c).
+    const roleRefusal = await roleAnswerRefusal(ctx.organizationId, role);
+    if (roleRefusal) {
+      apiLogger.warn({ msg: "contacts:create-role-not-offered", organizationId: ctx.organizationId });
+      return NextResponse.json({ error: "Invalid input", details: roleRefusal }, { status: 400 });
     }
 
     const existing = await db.contact.findUnique({

@@ -47,6 +47,8 @@ import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-ta
 import { computeDetailsDelta, syncRegistrationDetailsToSpeakers } from "@/lib/person-details-sync";
 import { getSponsors } from "@/lib/sponsors";
 import { completedAtOnCreate } from "@/lib/registration-completion";
+import { roleAnswerRefusal } from "@/lib/person-field-rules";
+import { ROLE_NOT_OFFERED } from "@/lib/person-field-check";
 import { claimPromoCodeInTx, recordPromoRedemptionInTx, type PromoClaim } from "@/services/promo-code-service";
 import { PROMO_REFUSAL_MESSAGE, paymentStatusForFee, type PromoRefusal } from "@/lib/promo-redeem";
 import {
@@ -187,20 +189,12 @@ export type ManualRegistrationStatus = (typeof MANUAL_REGISTRATION_STATUSES)[num
 export type RegistrationTitle = "DR" | "MR" | "MRS" | "MS" | "PROF";
 
 /**
- * Attendee's demographic / professional role. Mirrors the Prisma
- * `AttendeeRole` enum; listed inline to keep this module free of
- * Prisma-namespace coupling at the public-input boundary.
+ * Attendee's Role: an answer KEY of the organisation's own Role list (step 1c
+ * of docs/ORG_FIELDS_PLAN.md), text, not the fixed list of nine. Which keys are
+ * accepted is checked here (`roleAnswerRefusal`), so REST and the agent share
+ * the rule.
  */
-export type RegistrationAttendeeRole =
-  | "ACADEMIA"
-  | "ALLIED_HEALTH"
-  | "MEDICAL_DEVICES"
-  | "PHARMA"
-  | "PHYSICIAN"
-  | "RESIDENT"
-  | "SPEAKER"
-  | "STUDENT"
-  | "OTHERS";
+export type RegistrationAttendeeRole = string;
 
 export interface CreateRegistrationInput {
   eventId: string;
@@ -470,6 +464,7 @@ export interface CreateRegistrationInput {
 }
 
 export type CreateRegistrationErrorCode =
+  | "ROLE_NOT_OFFERED"
   | "EVENT_NOT_FOUND"
   | "TICKET_TYPE_NOT_FOUND"
   | "TICKET_TYPE_IS_FACULTY"
@@ -676,6 +671,12 @@ export async function createRegistration(
 
   if (!event) {
     return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" };
+  }
+  // A Role must be one of the organisation's answers (step 1c): the schema
+  // takes any text since Role stopped being a fixed list.
+  if (await roleAnswerRefusal(event.organizationId, attendeeRole)) {
+    apiLogger.warn({ msg: "registration-create:role-not-offered", eventId, source: input.source });
+    return { ok: false, code: "ROLE_NOT_OFFERED", message: ROLE_NOT_OFFERED };
   }
   if (ticketTypeId && !ticketType) {
     return {
@@ -1374,6 +1375,7 @@ export interface UpdateRegistrationInput {
 }
 
 export type UpdateRegistrationErrorCode =
+  | "ROLE_NOT_OFFERED"
   | "REGISTRATION_NOT_FOUND"
   | "TICKET_TYPE_IS_FACULTY"
   | "PAYMENT_STATUS_NOT_SETTABLE"
@@ -1453,6 +1455,13 @@ export async function updateRegistration(
     if (!existing || !event) {
       apiLogger.warn({ msg: "registration-update:not-found", registrationId, eventId, source });
       return { ok: false, code: "REGISTRATION_NOT_FOUND", message: "Registration not found" };
+    }
+
+    // A NEWLY chosen Role must be one of the organisation's answers; the one the
+    // attendee already holds is kept even if retired since (step 1c).
+    if (await roleAnswerRefusal(organizationId, input.attendee?.role, existing.attendee.role)) {
+      apiLogger.warn({ msg: "registration-update:role-not-offered", registrationId, eventId, source });
+      return { ok: false, code: "ROLE_NOT_OFFERED", message: ROLE_NOT_OFFERED };
     }
 
     // ── Validate enum-ish inputs (typed callers pass enums; re-check anyway) ─
@@ -1552,7 +1561,7 @@ export async function updateRegistration(
     const attendeeData = attendee
       ? {
           ...(attendee.title !== undefined && { title: (attendee.title || null) as never }),
-          ...(attendee.role !== undefined && { role: (attendee.role || null) as never }),
+          ...(attendee.role !== undefined && { role: attendee.role || null }),
           ...(attendee.firstName && { firstName: attendee.firstName }),
           ...(attendee.lastName && { lastName: attendee.lastName }),
           ...(attendee.additionalEmail !== undefined && {

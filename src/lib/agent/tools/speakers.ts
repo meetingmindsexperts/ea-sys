@@ -1,3 +1,5 @@
+import { loadOrganizationPersonFields, resolveWrittenRole } from "@/lib/person-field-rules";
+import { answerKeyFor, isOfferedAnswer, offeredAnswers } from "@/lib/person-fields";
 import { registrationSettleNotice } from "@/lib/speaker-registration-messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -15,17 +17,11 @@ import {
   createSpeaker,
   // Aliased: the local ToolExecutor is also called `updateSpeaker`.
   updateSpeaker as updateSpeakerSvc,
-  type SpeakerAttendeeRole,
   type SpeakerStatus,
   type SpeakerTitle,
   type UpdateSpeakerFields,
 } from "@/services/speaker-service";
 
-// Mirrors Prisma's AttendeeRole enum — validated at the MCP boundary.
-const ATTENDEE_ROLE_VALUES = new Set([
-  "ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA",
-  "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS",
-]);
 import {
   SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE,
   SpeakerAgreementTemplateError,
@@ -113,10 +109,12 @@ const createSpeakerTool: ToolExecutor = async (input, ctx) => {
     if (rawStatus && !SPEAKER_STATUSES.has(rawStatus)) {
       return { error: `Invalid status. Must be one of: ${[...SPEAKER_STATUSES].join(", ")}` };
     }
-    const rawRole = input.role ? String(input.role) : undefined;
-    if (rawRole && !ATTENDEE_ROLE_VALUES.has(rawRole)) {
-      return { error: `Invalid role "${rawRole}". Must be one of: ${[...ATTENDEE_ROLE_VALUES].join(", ")}` };
+    // Role: one of the organisation's answers, by key or label (step 1c).
+    const roleRead = await resolveWrittenRole(ctx.organizationId, input.role);
+    if (!roleRead.ok) {
+      return { error: `Invalid role "${String(input.role)}". Must be one of: ${roleRead.offered.join(", ")}` };
     }
+    const rawRole = roleRead.key ?? undefined;
     const rawAdditionalEmail = input.additionalEmail
       ? String(input.additionalEmail).trim().toLowerCase()
       : undefined;
@@ -132,7 +130,7 @@ const createSpeakerTool: ToolExecutor = async (input, ctx) => {
       firstName,
       lastName,
       title: (rawTitle as SpeakerTitle | undefined) ?? null,
-      role: (rawRole as SpeakerAttendeeRole | undefined) ?? null,
+      role: rawRole ?? null,
       additionalEmail: rawAdditionalEmail ?? null,
       bio: input.bio ? String(input.bio).slice(0, 5000) : null,
       organization: input.organization ? String(input.organization).slice(0, 255) : null,
@@ -500,6 +498,8 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
     const created: Array<{ index: number; id: string; email: string; firstName: string; lastName: string }> = [];
     const errors: Array<{ index: number; email?: string; error: string; code?: string }> = [];
 
+    // The organisation's Role answers, read once for the whole batch (step 1c).
+    const roleField = (await loadOrganizationPersonFields(ctx.organizationId)).role;
     for (let i = 0; i < items.length; i++) {
       const row = items[i] as Record<string, unknown>;
       try {
@@ -544,9 +544,11 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
         // dropped along with country/city/state/zip/photo/additionalEmail/tags/
         // registrationType (review M9): bulk-imported faculty got blank badge
         // countries and "—" professions on their companion registrations.
-        const role = row.role ? String(row.role) : undefined;
-        if (role && !ATTENDEE_ROLE_VALUES.has(role)) {
-          errors.push({ index: i, email, error: `Invalid role; must be one of ${[...ATTENDEE_ROLE_VALUES].join(", ")}`, code: "INVALID_ROLE" });
+        // Role: one of the organisation's answers, by key or label (step 1c).
+        const writtenRole = row.role ? String(row.role) : undefined;
+        const role = writtenRole ? answerKeyFor(roleField, writtenRole) ?? undefined : undefined;
+        if (writtenRole && (!role || !isOfferedAnswer(roleField, role))) {
+          errors.push({ index: i, email, error: `Invalid role; must be one of ${offeredAnswers(roleField).map((o) => o.label).join(", ")}`, code: "INVALID_ROLE" });
           continue;
         }
 
@@ -558,7 +560,7 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
             firstName,
             lastName,
             title: (title as never) ?? null,
-            role: (role as never) ?? null,
+            role: role ?? null,
             bio: row.bio ? String(row.bio).slice(0, 5000) : null,
             organization: row.organization ? String(row.organization).slice(0, 255) : null,
             jobTitle: row.jobTitle ? String(row.jobTitle).slice(0, 255) : null,

@@ -40,7 +40,6 @@ vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4", checkRateLimit:
 vi.mock("@/lib/schemas", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/schemas")>()),
   titleEnum: { optional: () => ({}) },
-  attendeeRoleEnum: { optional: () => ({}) },
 }));
 // Real event-access + visibility helpers — the point of the test.
 vi.mock("@/lib/event-access", async () => await vi.importActual("@/lib/event-access"));

@@ -15,7 +15,7 @@ import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { getClientIp } from "@/lib/security";
 import { stripHonorariumFields } from "@/lib/reimbursement/constants";
 import { submissionVisibilityFor, withVisibleSubmissions } from "@/lib/speaker-submission-visibility";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { titleEnum, roleAnswer } from "@/lib/schemas";
 import {
   createSpeaker,
   type CreateSpeakerErrorCode,
@@ -23,6 +23,7 @@ import {
 
 // HTTP status mapping for the service's domain error codes.
 const HTTP_STATUS_FOR_SPEAKER_ERROR: Record<CreateSpeakerErrorCode, number> = {
+  ROLE_NOT_OFFERED: 400,
   EVENT_NOT_FOUND: 404,
   SPEAKER_ALREADY_EXISTS: 400,
   UNKNOWN: 500,
@@ -34,7 +35,7 @@ const createSpeakerSchema = z.object({
   // same AttendeeRole column that Attendee has; the admin-create form
   // was silently dropping it. Now accepted in parity with the public
   // register path.
-  role: attendeeRoleEnum.optional(),
+  role: roleAnswer.optional(),
   email: z.string().email().max(255),
   // Secondary email — parity with the Speaker DB column and with the
   // registration-service field.

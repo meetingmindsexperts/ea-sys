@@ -766,7 +766,7 @@ export function registerAllMcpTools(
         firstName: z.string(),
         lastName: z.string(),
         title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
-        role: z.enum(["ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA", "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS"]).optional().describe("Profession category — also becomes the companion registration's type display."),
+        role: z.string().max(100).optional().describe("Profession category: one of the organisation's Role answers, by key or label (for MM Group: PHYSICIAN, PHARMA, ...). Also becomes the companion registration's type display."),
         bio: z.string().optional(),
         organization: z.string().optional(),
         jobTitle: z.string().optional(),

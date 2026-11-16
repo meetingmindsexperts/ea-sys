@@ -43,7 +43,7 @@ const put = (body: unknown) =>
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", email: "a@b.com", role: "REGISTRANT" } });
-  mockDb.registration.findFirst.mockResolvedValue({ id: "reg1", attendeeId: "att1", eventId: "ev1" });
+  mockDb.registration.findFirst.mockResolvedValue({ id: "reg1", attendeeId: "att1", eventId: "ev1", event: { organizationId: "org1" } });
   mockDb.event.findFirst.mockResolvedValue({ organizationId: "org1" });
   tx.registration.updateMany.mockResolvedValue({ count: 1 });
   tx.attendee.update.mockResolvedValue({ id: "att1", email: "a@b.com", firstName: "New", lastName: "Name" });
@@ -66,7 +66,7 @@ describe("registrant self-edit", () => {
   });
 
   it("a speaker's Faculty registration keeps its name (it follows the speaker record); the other fields save", async () => {
-    const faculty = { id: "reg1", attendeeId: "att1", eventId: "ev1", createdSource: "SPEAKER_COMPANION", attendee: { firstName: "Sam", lastName: "Speaker" } };
+    const faculty = { id: "reg1", attendeeId: "att1", eventId: "ev1", createdSource: "SPEAKER_COMPANION", attendee: { firstName: "Sam", lastName: "Speaker", role: null }, event: { organizationId: "org1" } };
     mockDb.registration.findFirst.mockResolvedValue(faculty);
     const res = await put({ registrationId: "reg1", attendee: { firstName: "Renamed", lastName: "Person", phone: "+971500000000" } });
     expect(res.status).toBe(200);

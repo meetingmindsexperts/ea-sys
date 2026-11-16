@@ -7,10 +7,13 @@ import {
   readEventPersonFieldChoices,
   readPersonFields,
   withEventChoices,
+  answerKeyFor,
+  isOfferedAnswer,
+  offeredAnswers,
   type PersonFieldRules,
   type PersonFieldsConfig,
 } from "@/lib/person-fields";
-import { personFieldProblems } from "@/lib/person-field-check";
+import { personFieldProblems, roleAnswerProblem, type PersonFieldProblem } from "@/lib/person-field-check";
 
 /**
  * The rules a form follows for Title, Role and Specialty, read on the server
@@ -82,19 +85,28 @@ export async function loadOrganizationPersonFieldRules(organizationId: string | 
   }
 }
 
-/** For a door that belongs to an event: the organisation's rules with the event's own choice laid over them. */
-export async function loadEventPersonFieldRules(event: PersonFieldEvent): Promise<PersonFieldRules> {
-  if (!event.organizationId) return DEFAULT_PERSON_FIELD_RULES;
+/** An event door's fields (for the answers) and rules (shown, demanded), from ONE read. */
+async function loadEventFields(event: PersonFieldEvent): Promise<{ fields: PersonFieldsConfig; rules: PersonFieldRules }> {
+  if (!event.organizationId) return { fields: defaultPersonFields(), rules: DEFAULT_PERSON_FIELD_RULES };
   const choices = readEventPersonFieldChoices(event.settings);
   try {
-    return personFieldRules(withEventChoices(await readOrganizationFields(event.organizationId), choices));
+    const fields = await readOrganizationFields(event.organizationId);
+    return { fields, rules: personFieldRules(withEventChoices(fields, choices)) };
   } catch (err) {
     // As above: a registration must not fail because this one read did. The
     // event's own choice is already in hand, so it still applies, over today's
     // rules: otherwise the route would demand a field this event's form hides.
+    // The answers fall back to today's nine: a newly chosen answer outside them
+    // is refused, never stored unchecked (step 1c).
     apiLogger.error({ err, organizationId: event.organizationId, msg: "person-field-rules:read-failed" });
-    return personFieldRules(withEventChoices(defaultPersonFields(), choices));
+    const fields = defaultPersonFields();
+    return { fields, rules: personFieldRules(withEventChoices(fields, choices)) };
   }
+}
+
+/** For a door that belongs to an event: the organisation's rules with the event's own choice laid over them. */
+export async function loadEventPersonFieldRules(event: PersonFieldEvent): Promise<PersonFieldRules> {
+  return (await loadEventFields(event)).rules;
 }
 
 /** A refusal in the shape Zod's `flatten()` gives, so a form shows it like any other field error. */
@@ -119,16 +131,57 @@ export type PersonFieldCheck = { refusal: PersonFieldRefusal; rules: PersonField
  * AFTER the door's own schema has passed: most public doors only learn the
  * event once they have read it.
  */
-export async function checkEventPersonFields(event: PersonFieldEvent, values: PersonFieldInput, opts: { demandTitle?: boolean } = {}): Promise<PersonFieldCheck> {
-  const rules = await loadEventPersonFieldRules(event);
-  const problems = personFieldProblems(values, rules, opts);
-  if (problems.length === 0) return { refusal: null, rules };
+export interface PersonFieldCheckOptions {
+  demandTitle?: boolean;
+  /** The Role the record already holds, for a door that EDITS one: kept even if retired since. */
+  storedRole?: string | null;
+}
+
+function refusalOf(problems: PersonFieldProblem[]): PersonFieldRefusal | null {
+  if (problems.length === 0) return null;
   const fieldErrors: Record<string, string[]> = {};
   for (const problem of problems) fieldErrors[problem.path] = [...(fieldErrors[problem.path] ?? []), problem.message];
-  return { refusal: { formErrors: [], fieldErrors }, rules };
+  return { formErrors: [], fieldErrors };
+}
+
+export async function checkEventPersonFields(event: PersonFieldEvent, values: PersonFieldInput, opts: PersonFieldCheckOptions = {}): Promise<PersonFieldCheck> {
+  const { fields, rules } = await loadEventFields(event);
+  const answer = roleAnswerProblem(fields.role, values.role, opts.storedRole);
+  const refusal = refusalOf([...personFieldProblems(values, rules, opts), ...(answer ? [answer] : [])]);
+  return refusal ? { refusal, rules } : { refusal: null, rules };
 }
 
 /** The refusal alone, for a door that only needs to know whether to answer 400. */
-export async function personFieldRefusal(event: PersonFieldEvent, values: PersonFieldInput, opts: { demandTitle?: boolean } = {}): Promise<PersonFieldRefusal | null> {
+export async function personFieldRefusal(event: PersonFieldEvent, values: PersonFieldInput, opts: PersonFieldCheckOptions = {}): Promise<PersonFieldRefusal | null> {
   return (await checkEventPersonFields(event, values, opts)).refusal;
+}
+
+/**
+ * For a door with no event to ask (a staff edit of a contact, account sign-up,
+ * My account, the agent's tools): whether this Role may be stored for the
+ * organisation. Null when it may. A failed read falls back to today's nine, so
+ * a new answer outside them is refused rather than stored unchecked.
+ */
+export async function roleAnswerRefusal(organizationId: string | null | undefined, chosen: unknown, stored?: string | null): Promise<PersonFieldRefusal | null> {
+  if (typeof chosen !== "string" || chosen.trim() === "") return null;
+  const fields = await loadOrganizationPersonFields(organizationId);
+  const problem = roleAnswerProblem(fields.role, chosen, stored);
+  return problem ? refusalOf([problem]) : null;
+}
+
+/**
+ * A Role WRITTEN by a caller that creates records (the agent's and MCP's
+ * tools, which write labels as often as keys): the key of an answer the
+ * organisation offers now, by key or label (`answerKeyFor`), or the list to
+ * say back when nothing matches (step 1c). Nothing written is no role.
+ */
+export async function resolveWrittenRole(
+  organizationId: string | null | undefined,
+  written: unknown,
+): Promise<{ ok: true; key: string | null } | { ok: false; offered: string[] }> {
+  if (typeof written !== "string" || written.trim() === "") return { ok: true, key: null };
+  const roleField = (await loadOrganizationPersonFields(organizationId)).role;
+  const key = answerKeyFor(roleField, written);
+  if (key && isOfferedAnswer(roleField, key)) return { ok: true, key };
+  return { ok: false, offered: offeredAnswers(roleField).map((o) => o.label) };
 }

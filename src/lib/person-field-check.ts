@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { OTHER_ANSWER, type PersonFieldRules } from "@/lib/person-fields";
+import { OTHER_ANSWER, isOfferedAnswer, type PersonFieldConfig, type PersonFieldRules } from "@/lib/person-fields";
 
 /**
  * The check of Title, Role and Specialty against an organisation's rules
@@ -7,7 +7,7 @@ import { OTHER_ANSWER, type PersonFieldRules } from "@/lib/person-fields";
  * forms build their schema with it and the server doors do the same, so a
  * form can never demand what its route does not, or the other way round.
  *
- * Until now every door wrote its own: `role: attendeeRoleEnum` and
+ * Until now every door wrote its own: `role: roleAnswer` and
  * `specialty: z.string().min(1)` in eight route schemas and nine forms, and
  * the rule that the answer "Others" needs the typed specialty beside it in
  * about fifteen places.
@@ -49,6 +49,22 @@ const UNMET: Record<PersonFieldPath, (values: PersonFieldValues, rules: PersonFi
 };
 
 const PATHS = Object.keys(UNMET) as PersonFieldPath[];
+
+/** What a door says when a newly chosen Role is not one the organisation offers. */
+export const ROLE_NOT_OFFERED = "Choose one of the roles listed";
+
+/**
+ * Whether a door may store this Role (step 1c): a NEWLY chosen answer must be
+ * one the organisation offers now; the answer the record already holds is kept
+ * even if it was retired since (an edit re-posts it). Nothing chosen is not
+ * this check's business (`personFieldProblems` says whether one is demanded).
+ * Replaces the fixed list of nine that every door's schema held.
+ */
+export function roleAnswerProblem(roleField: PersonFieldConfig, chosen: unknown, stored?: string | null): PersonFieldProblem | null {
+  if (typeof chosen !== "string" || chosen.trim() === "") return null;
+  if (stored != null && chosen === stored) return null;
+  return isOfferedAnswer(roleField, chosen) ? null : { path: "role", message: ROLE_NOT_OFFERED };
+}
 
 /** What is missing, by the rules. Pure, so the forms that check by hand ask it too. */
 export function personFieldProblems(values: PersonFieldValues, rules: PersonFieldRules, opts: { demandTitle?: boolean } = {}): PersonFieldProblem[] {
