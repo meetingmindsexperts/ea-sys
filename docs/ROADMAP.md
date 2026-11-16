@@ -1445,7 +1445,15 @@ the server-side waiting room, export headers, presence archive); see CHANGELOG, 
 5. **Per-tenant egress and logs (platform).** Meter streaming egress per organisation and tag
    MediaMTX log lines with it before billing tenants for streaming.
 
-## Event RLS: turn on the shadow detector in production for a week (recorded Nov 5, 2026): ON since Nov 5, collect on Nov 12
+## Event RLS: the shadow detector in production (recorded Nov 5, 2026): COLLECTED Nov 16, the flag can come off
+
+**Nov 16, 2026:** eleven days collected from CloudWatch and written into
+[SECURITY_AUDIT_ACTION_PLAN.md](SECURITY_AUDIT_ACTION_PLAN.md) §3.1: 115 web routes read Event
+outside a lane (three of them writes). **The worker could not be inventoried**: its lines carry no
+route and no call site, so they name no job; §3.1 gives the two ways to finish it. Owner step left:
+remove `RLS_SHADOW=1` from `/home/ubuntu/ea-sys/.env` and redeploy, unless the worker is to be
+measured for another week after the detector learns the job's name. The steps below are kept as
+the record of how it was turned on.
 
 Owner asked to be reminded. The detector shipped in `3bff623a` / `7d701e5b` and does nothing until
 the flag is set. A week of production traffic is the real inventory of Event reads that run
