@@ -45,6 +45,7 @@ import "./lib/tier";
 import "../sentry.server.config";
 import cron from "node-cron";
 import { apiLogger } from "@/lib/logger";
+import { asWorkerJob } from "@/lib/tenant/lane-shadow";
 
 import * as certIssue from "./jobs/cert-issue";
 import * as scheduledEmails from "./jobs/scheduled-emails";
@@ -167,7 +168,9 @@ function wrapTick(job: {
     apiLogger.debug({ msg: "worker:tick-start", job: job.JOB_NAME });
     const promise = (async () => {
       try {
-        await job.tick();
+        // Named for the Event RLS shadow detector: a job has no route, so
+        // without this its unlaned Event reads cannot be told apart.
+        await asWorkerJob(job.JOB_NAME, () => job.tick());
       } catch (err) {
         // job.tick() already has its own try/catch — this is the
         // belt-and-suspenders catch for anything that slips through.

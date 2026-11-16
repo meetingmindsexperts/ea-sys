@@ -28,8 +28,16 @@
  *
  * Reading the output: `tenant:event-query-no-lane` lines carry `operation`,
  * `route` (the route or page file that made the query; it keeps its path in a
- * production build) and `callsite` (the first application frames). One line
- * per operation per route, so a helper used by many routes shows under each.
+ * production build), `job` (the worker job, where there is no route) and
+ * `callsite` (the first application frames). One line per operation per route
+ * or job, so a helper used by many routes shows under each.
+ *
+ * THE WORKER (Nov 16, 2026). The first production week named no worker job:
+ * a job has no route, and the caller's stack is lost across Prisma's promise
+ * hop, so every worker line read `callsite: "unknown"` and all of a process's
+ * jobs collapsed into one line per operation. The worker now runs each tick
+ * inside `asWorkerJob(name, ...)`, a context that survives that hop, exactly
+ * as the tenant lane does.
  */
 // Relative, like db.ts and the modules it pulls in: this file is imported by db.ts.
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -56,6 +64,8 @@ const STACK_DEPTH = 60;
 const globalForShadow = globalThis as unknown as {
   laneShadow?: {
     discovery: AsyncLocalStorage<true>;
+    /** The worker job a query runs in. Optional: a dev process may hold a state made before this existed. */
+    job?: AsyncLocalStorage<string>;
     seen: Set<string>;
     capped: boolean;
     failed: boolean;
@@ -73,6 +83,17 @@ const state = (globalForShadow.laneShadow ??= {
   failed: false,
 });
 const discovery = state.discovery;
+const jobContext = (state.job ??= new AsyncLocalStorage<string>());
+
+/**
+ * Run a worker job's tick so its unlaned Event reads are reported under the
+ * job's name. Changes nothing about the tick: it is only a label the detector
+ * can read, set whether or not the flag is on.
+ */
+export function asWorkerJob<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  // Awaited inside the scope for the same lazy-thenable reason as runWithTenant.
+  return jobContext.run(name, async () => await fn());
+}
 
 /** Run `fn` as the sanctioned pre-lane Event discovery read. */
 export function asEventDiscovery<T>(fn: () => Promise<T>): Promise<T> {
@@ -150,8 +171,9 @@ export function noteUnlanedEventQuery(model: string | undefined, operation: stri
     if (state.capped || state.failed) return;
     const app = frames(captureStack());
     const route = currentRoute() ?? app.find((f) => ROUTE_FRAME.test(f)) ?? null;
+    const job = jobContext.getStore() ?? null;
     const callsite = app.length ? app.slice(0, 3).join(" < ") : "unknown";
-    const key = `${operation}|${route ?? callsite}`;
+    const key = `${operation}|${route ?? (job ? `job:${job}` : callsite)}`;
     if (state.seen.has(key)) return;
     if (state.seen.size >= SHADOW_MAX_SITES) {
       state.capped = true;
@@ -159,7 +181,7 @@ export function noteUnlanedEventQuery(model: string | undefined, operation: stri
       return;
     }
     state.seen.add(key);
-    dbLogger.info({ msg: "tenant:event-query-no-lane", operation, route, callsite });
+    dbLogger.info({ msg: "tenant:event-query-no-lane", operation, route, job, callsite });
   } catch (err) {
     // An observer must never break the query it observes. Warn once and go quiet.
     state.failed = true;

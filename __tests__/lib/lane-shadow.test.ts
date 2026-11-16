@@ -17,6 +17,7 @@ vi.mock("@/lib/logger", () => ({
 
 import {
   asEventDiscovery,
+  asWorkerJob,
   noteUnlanedEventQuery,
   resetLaneShadowForTests,
   SHADOW_MAX_SITES,
@@ -105,6 +106,33 @@ describe("noteUnlanedEventQuery", () => {
     site();
     site();
     expect(reported()).toHaveLength(1);
+  });
+
+  it("names the worker job a query runs in, across an await, and keeps two jobs apart", async () => {
+    // The first production week named no job: no route in the worker, and the
+    // stack is lost across Prisma's promise hop, so every job read "unknown".
+    const read = async () => {
+      await Promise.resolve();
+      noteUnlanedEventQuery("Event", "findMany");
+    };
+    await asWorkerJob("scheduled-emails", read);
+    await asWorkerJob("scheduled-emails", read);
+    await asWorkerJob("webinar-recordings", read);
+    expect(reported().map(([o]) => o.job)).toEqual(["scheduled-emails", "webinar-recordings"]);
+  });
+
+  it("every worker tick runs under its job's name (the wrapper in worker/index.ts)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("worker/index.ts", "utf8");
+    expect(source).toContain("await asWorkerJob(job.JOB_NAME, () => job.tick());");
+    // And nowhere is a tick awaited bare.
+    expect(source).not.toMatch(/await job\.tick\(\)/);
+  });
+
+  it("carries no job outside a worker tick, and returns the tick's result", async () => {
+    noteUnlanedEventQuery("Event", "count");
+    expect(reported()[0][0].job).toBeNull();
+    await expect(asWorkerJob("any", async () => 42)).resolves.toBe(42);
   });
 
   it("keeps operations at one call site apart", () => {
