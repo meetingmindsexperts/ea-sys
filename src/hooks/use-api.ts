@@ -3340,8 +3340,8 @@ export function useToggleWebinarRoom(eventId: string) {
         sessionId: string;
         status: string;
         stream?: { ok: true; alreadyLive?: true } | { ok: false; error: string };
-        /** A partner's webinar, on opening: whether their video is arriving yet. */
-        partnerSignal?: "receiving" | "not-receiving";
+        /** A partner's webinar, on opening: whether their video is arriving, and if not, why. */
+        partnerSignal?: "receiving" | "not-receiving" | "switched-off" | "unknown";
       }>(
         `/api/events/${eventId}/webinar/room`,
         { method: "POST", body: JSON.stringify({ open }), headers: { "Content-Type": "application/json" } },

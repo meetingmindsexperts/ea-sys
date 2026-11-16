@@ -7,6 +7,9 @@ import { apiLogger } from "@/lib/logger";
 import { reservedTypeNameRefusal } from "@/lib/faculty-filter";
 import { refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
 import { cloneEventSettings } from "@/lib/event-clone-settings";
+import { webinarVideoSource } from "@/lib/webinar/video-source";
+import { partnerStreamReadiness } from "@/lib/webinar/partner-stream-readiness";
+import { PARTNER_STREAM_NOT_OFFERED_MESSAGE } from "@/lib/webinar/partner-stream-availability";
 import { Prisma } from "@prisma/client";
 
 /**
@@ -128,6 +131,16 @@ export async function POST(
     // of event the copy will be (plan §3.2). The same roles hold both today.
     const outOfScope = refuseOutOfScope(gate.principal, "events.create", { eventType: source.eventType ?? "" }, { route: "events/[eventId]/clone:POST", eventId });
     if (outOfScope) return outOfScope;
+
+    // A copy of a partner-streamed webinar is one too (the clone keeps its video source), so it is refused
+    // on a server that cannot issue a partner's key, as the events POST refuses one (review of d86921d4).
+    if (source.eventType === "WEBINAR" && webinarVideoSource(source.settings) === "external") {
+      const readiness = partnerStreamReadiness();
+      if (!readiness.ready) {
+        apiLogger.warn({ eventId, userId: session.user.id, missing: readiness.missing }, "events-clone:partner-stream-not-offered");
+        return NextResponse.json({ error: PARTNER_STREAM_NOT_OFFERED_MESSAGE, code: "PARTNER_STREAMS_NOT_AVAILABLE" }, { status: 400 });
+      }
+    }
 
     // Guarded twice: the include above skips the read, and these skip the
     // copy, so a future change to one cannot quietly bring the rows back.

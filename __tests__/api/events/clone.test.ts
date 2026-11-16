@@ -53,6 +53,11 @@ vi.mock("@/lib/event-access", () => ({
   ),
 }));
 
+const { readiness } = vi.hoisted(() => ({ readiness: { ready: true } }));
+vi.mock("@/lib/webinar/partner-stream-readiness", () => ({
+  partnerStreamReadiness: () => (readiness.ready ? { ready: true, missing: [] } : { ready: false, missing: ["MEDIAMTX_CONTROL"] }),
+}));
+
 // Import route AFTER mocks
 import { POST } from "@/app/api/events/[eventId]/clone/route";
 
@@ -341,6 +346,30 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(res.status).toBe(404);
       const body = await res.json();
       expect(body).toEqual({ error: "Event not found" });
+    });
+  });
+
+  describe("a partner-streamed webinar (review of d86921d4)", () => {
+    it("is refused on a server that cannot issue a partner's key, and nothing is created", async () => {
+      mockAuth.mockResolvedValue(adminSession);
+      readiness.ready = false;
+      mockDb.event.findFirst.mockResolvedValue(
+        makeSourceEvent({ eventType: "WEBINAR", settings: { webinar: { source: "external", viewingMode: "hls" } } }),
+      );
+      const res = await POST(makeRequest(), makeParams("evt-1"));
+      readiness.ready = true;
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe("PARTNER_STREAMS_NOT_AVAILABLE");
+      expect(mockDb.$transaction).not.toHaveBeenCalled();
+    });
+
+    it("an ordinary webinar clones whatever the server's readiness", async () => {
+      mockAuth.mockResolvedValue(adminSession);
+      readiness.ready = false;
+      mockDb.event.findFirst.mockResolvedValue(makeSourceEvent({ eventType: "WEBINAR", settings: { webinar: { source: "zoom" } } }));
+      const res = await POST(makeRequest(), makeParams("evt-1"));
+      readiness.ready = true;
+      expect(res.status).not.toBe(400);
     });
   });
 

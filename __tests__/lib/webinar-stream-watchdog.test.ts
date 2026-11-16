@@ -127,11 +127,23 @@ describe("runStreamWatchdogTick", () => {
     expect(kinds()).toEqual(["STREAM_LIVE", "STREAM_DROPPED", "STREAM_LIVE"]);
   });
 
-  it("a partner's drop and return each tell the event's admins once (Nov 16, 2026: only a phone call fixes it)", async () => {
-    const external = { ...room(), zoomMeeting: null, externalStream: { streamKey: "px-1", streamStatus: "ACTIVE" } };
-    mockDbOperator.eventSession.findMany.mockResolvedValue([external]);
+  // The partner's key row as the alert reads it: switched on, not replaced lately, the session still on.
+  const partnerKey = (extra: Record<string, unknown> = {}) => ({
+    streamKey: "px-1",
+    streamStatus: "ACTIVE",
+    enabled: true,
+    keyReplacedAt: null,
+    session: { endTime: new Date("2026-11-05T10:00:00Z") },
+    ...extra,
+  });
+  const partnerRoom = (key: Record<string, unknown>) => {
+    mockDbOperator.eventSession.findMany.mockResolvedValue([{ ...room(), zoomMeeting: null, externalStream: { streamKey: "px-1", streamStatus: "ACTIVE" } }]);
     mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
-    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "ACTIVE" });
+    mockDb.externalStream.findFirst.mockResolvedValue(key);
+  };
+
+  it("a partner's drop and return each tell the event's admins once (Nov 16, 2026: only a phone call fixes it)", async () => {
+    partnerRoom(partnerKey());
     await liveThen("absent");
     // First seen live is not news.
     expect(notifySpy).not.toHaveBeenCalled();
@@ -151,11 +163,39 @@ describe("runStreamWatchdogTick", () => {
     expect(notifySpy).toHaveBeenLastCalledWith("ev1", expect.objectContaining({ title: PARTNER_STREAM_ALERT.restored.title }));
   });
 
+  it("a drop we caused alerts nobody: the key switched off (Cut the feed, the end of its period) or just replaced (review of d86921d4)", async () => {
+    partnerRoom(partnerKey({ enabled: false }));
+    await liveThen("absent");
+    const r = await tick();
+    expect(r).toMatchObject({ dropped: 1 });
+    expect(kinds()).toContain("STREAM_DROPPED");
+    expect(notifySpy).not.toHaveBeenCalled();
+
+    resetStreamWatchdog();
+    mockDb.auditLog.create.mockClear();
+    partnerRoom(partnerKey({ keyReplacedAt: new Date(clock - 60_000) }));
+    await liveThen("absent");
+    await tick();
+    expect(notifySpy).not.toHaveBeenCalled();
+    expect(apiLogger.info).toHaveBeenCalledWith(expect.anything(), "webinar-stream:partner-alert-skipped-own-cut");
+  });
+
+  it("a replace long before the drop does not excuse it", async () => {
+    partnerRoom(partnerKey({ keyReplacedAt: new Date(clock - 60 * 60_000) }));
+    await liveThen("absent");
+    await tick();
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("after the scheduled end the alert says a normal finish is likely: close the room if it is over", async () => {
+    partnerRoom(partnerKey({ session: { endTime: new Date("2026-11-05T08:00:00Z") } }));
+    await liveThen("absent");
+    await tick();
+    expect(notifySpy).toHaveBeenCalledWith("ev1", expect.objectContaining({ message: PARTNER_STREAM_ALERT.droppedAfterEnd.message("Webinar") }));
+  });
+
   it("a failed alert never stops the watchdog", async () => {
-    const external = { ...room(), zoomMeeting: null, externalStream: { streamKey: "px-1", streamStatus: "ACTIVE" } };
-    mockDbOperator.eventSession.findMany.mockResolvedValue([external]);
-    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
-    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "ACTIVE" });
+    partnerRoom(partnerKey());
     notifySpy.mockRejectedValueOnce(new Error("db down"));
     await liveThen("absent");
     const r = await tick();

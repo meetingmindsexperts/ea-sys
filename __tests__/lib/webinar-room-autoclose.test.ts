@@ -225,6 +225,8 @@ describe("runWebinarRoomAutoCloseTick", () => {
           where: expect.objectContaining({
             OR: [{ zoomMeeting: { isNot: null } }, { externalStream: { isNot: null } }],
           }),
+          // Newest first: an old room left open never pushes today's webinar past the cap (review of d86921d4).
+          orderBy: { startTime: "desc" },
         }),
       );
     });

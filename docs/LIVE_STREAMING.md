@@ -365,7 +365,8 @@ publish there is refused until the lookup moves to the operator lane.
 ## 11b. A partner's stream, and cutting the feed (Nov 12, 2026)
 
 Plan and status: [EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md](EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md).
-Nothing here is in the console yet.
+Since Nov 16, 2026 the Webinar Console's Partner stream card issues, shows, replaces and cuts a
+partner's key, on a server where the steps below are done.
 
 **A partner's key.** A webinar produced on a partner's own platform has no Zoom
 webinar of ours, so its key lives in the `ExternalStream` table and

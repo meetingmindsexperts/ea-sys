@@ -106,6 +106,9 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
       // stayed open until someone closed it.
       OR: [{ zoomMeeting: { isNot: null } }, { externalStream: { isNot: null } }],
     },
+    // Newest first, as the watchdog does: the cap now covers partner rooms too, and a long-forgotten
+    // open room must never push today's webinar out of the tick (review of d86921d4).
+    orderBy: { startTime: "desc" },
     take: MAX_ROOMS_PER_TICK,
     select: {
       id: true,

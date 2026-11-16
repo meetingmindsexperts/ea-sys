@@ -1005,7 +1005,8 @@ function PartnerStatusBar({
             {signal ? (
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${signal.tone}`}>{signal.text}</span>
             ) : (
-              <span className="text-muted-foreground">{canManage ? "No key issued yet" : ""}</span>
+              // Said only once the answer is in: while loading it would claim there is no key.
+              <span className="text-muted-foreground">{canManage && partnerStream.isSuccess ? "No key issued yet" : ""}</span>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -3473,9 +3474,8 @@ function GoLiveCard({
         res.open ? "Room opened: attendees are being let in" : "Room closed",
       );
       announceStreamResult(res.stream, res.open);
-      if (res.partnerSignal === "not-receiving") {
-        toast.warning("The partner's video is not arriving yet. Attendees see \"starting shortly\" until it does.");
-      }
+      const partnerWarning = res.partnerSignal ? PARTNER_SIGNAL_ON_OPEN[res.partnerSignal] : null;
+      if (partnerWarning) toast.warning(partnerWarning);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update the room");
     }
@@ -3581,6 +3581,14 @@ function GoLiveCard({
     </Card>
   );
 }
+
+/** What the producer is told on opening a partner's room, by what the stream server said. Nothing when it is arriving. */
+const PARTNER_SIGNAL_ON_OPEN: Record<"receiving" | "not-receiving" | "switched-off" | "unknown", string | null> = {
+  receiving: null,
+  "not-receiving": "The partner's video is not arriving yet. Attendees see \"starting shortly\" until it does.",
+  "switched-off": "The partner's key is switched off, so their video cannot arrive. Switch it on in the Partner stream card.",
+  unknown: "The stream server did not answer, so whether the partner's video is arriving is not known. Check the preview.",
+};
 
 function overrunNote(customStream: boolean, partner = false): string {
   // A partner's webinar has no Zoom end to go by: the room closes by the button, or by the safety net

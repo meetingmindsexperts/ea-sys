@@ -206,7 +206,7 @@ async function onArriving(room: WatchedRoom, state: StreamState): Promise<void> 
     });
     if (restored) {
       apiLogger.info({ eventId: room.eventId, sessionId: room.sessionId, restarts: state.restarts }, "webinar-stream:restored");
-      if (room.source === "external") await alertPartnerStream(room, "restored");
+      if (room.source === "external") await sendPartnerAlert(room, "restored");
     }
   }
   state.up = true;
@@ -277,7 +277,7 @@ async function onConfirmedMissing(
       kind: "STREAM_DROPPED",
       source: "worker",
     });
-    if (room.source === "external") await alertPartnerStream(room, "dropped");
+    if (room.source === "external") await alertPartnerDrop(room, now);
   }
   // A partner's push is not ours to restart; the drop above is on the timeline, in the log and with the admins.
   if (room.source !== "zoom") return;
@@ -291,11 +291,45 @@ export const PARTNER_STREAM_ALERT = {
     message: (session: string) =>
       `${session}: the partner's video stopped reaching us. We cannot restart it from here: call the partner. Attendees' players pick it up again by themselves when it returns.`,
   },
+  droppedAfterEnd: {
+    title: "Partner stream stopped",
+    message: (session: string) =>
+      `${session}: the partner's video stopped reaching us after the scheduled end. If the webinar is over, close the room; if not, call the partner.`,
+  },
   restored: {
     title: "Partner stream is back",
     message: (session: string) => `${session}: the partner's video is reaching us again.`,
   },
 } as const;
+
+/** A replace this recent explains a drop: we disconnected the old password ourselves. Covers the confirm wait and a tick. */
+export const OWN_REPLACE_WINDOW_MS = 3 * 60 * 1000;
+
+/**
+ * A partner's stream was confirmed gone. Tell the admins, unless we ended it
+ * ourselves (review of d86921d4: Cut the feed alerted the person who pressed
+ * it, and every partner webinar ended with "call the partner"):
+ *   - the key is switched off: Cut the feed, Switch off, or the sweep at the end of its period;
+ *   - the key was replaced moments ago: we disconnected the old password.
+ * After the scheduled end the words say a normal finish is the likely reason.
+ */
+async function alertPartnerDrop(room: WatchedRoom, now: number): Promise<void> {
+  try {
+    const key = await db.externalStream.findFirst({
+      where: { sessionId: room.sessionId, eventId: room.eventId },
+      select: { enabled: true, keyReplacedAt: true, session: { select: { endTime: true } } },
+    });
+    const ownDoing =
+      !key || !key.enabled || (key.keyReplacedAt !== null && now - key.keyReplacedAt.getTime() < OWN_REPLACE_WINDOW_MS);
+    if (ownDoing) {
+      apiLogger.info({ eventId: room.eventId, sessionId: room.sessionId }, "webinar-stream:partner-alert-skipped-own-cut");
+      return;
+    }
+    await sendPartnerAlert(room, now > key.session.endTime.getTime() ? "droppedAfterEnd" : "dropped");
+  } catch (err) {
+    apiLogger.error({ err, eventId: room.eventId, sessionId: room.sessionId }, "webinar-stream:partner-alert-failed");
+  }
+}
 
 /**
  * Tell the event's admins (bell and phone) that a partner's stream dropped or
@@ -303,7 +337,7 @@ export const PARTNER_STREAM_ALERT = {
  * the timeline entry is already written, and a failed notice must not stop the
  * watchdog (notifyEventAdmins logs its own failures).
  */
-async function alertPartnerStream(room: WatchedRoom, change: keyof typeof PARTNER_STREAM_ALERT): Promise<void> {
+async function sendPartnerAlert(room: WatchedRoom, change: keyof typeof PARTNER_STREAM_ALERT): Promise<void> {
   const words = PARTNER_STREAM_ALERT[change];
   try {
     await notifyEventAdmins(room.eventId, {

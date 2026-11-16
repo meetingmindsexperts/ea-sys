@@ -48,8 +48,11 @@ vi.mock("@/lib/webinar-provisioner", () => ({ provisionWebinar: vi.fn() }));
 vi.mock("@/lib/zoom", () => ({ enableWebinarQA: vi.fn() }));
 const { mockControlLiveStream } = vi.hoisted(() => ({ mockControlLiveStream: vi.fn() }));
 vi.mock("@/lib/webinar/livestream", () => ({ controlWebinarLiveStream: mockControlLiveStream }));
-const { mockIsStreamArriving } = vi.hoisted(() => ({ mockIsStreamArriving: vi.fn(async () => false) }));
-vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: mockIsStreamArriving }));
+const { mockIsStreamArriving, mockProbeStream } = vi.hoisted(() => ({
+  mockIsStreamArriving: vi.fn(async () => false),
+  mockProbeStream: vi.fn(async () => "absent"),
+}));
+vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: mockIsStreamArriving, probeStream: mockProbeStream }));
 
 import { PUT as webinarPut } from "@/app/api/events/[eventId]/webinar/route";
 import { POST as roomPost } from "@/app/api/events/[eventId]/webinar/room/route";
@@ -319,12 +322,13 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
 
   it("a partner's stream: the room opens and closes without asking Zoom anything", async () => {
     mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
-    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "IDLE" });
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "IDLE", enabled: true });
+    mockProbeStream.mockResolvedValue("absent");
     const opened = await callRoom({ open: true });
     expect(opened.status).toBe(200);
     // Nothing arriving yet: it still opens, and the producer is told (plan §4.5).
     expect(await opened.json()).toEqual({ open: true, sessionId: "anchor1", status: "LIVE", partnerSignal: "not-receiving" });
-    expect(mockIsStreamArriving).toHaveBeenCalledWith("px-1", { fresh: true });
+    expect(mockProbeStream).toHaveBeenCalledWith("px-1");
     const closed = await callRoom({ open: false });
     expect(closed.status).toBe(200);
     expect(await closed.json()).toEqual({ open: false, sessionId: "anchor1", status: "COMPLETED" });
@@ -333,9 +337,18 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
 
   it("a partner's stream already arriving: the open says so", async () => {
     mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
-    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "ACTIVE" });
-    mockIsStreamArriving.mockResolvedValue(true);
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "ACTIVE", enabled: true });
+    mockProbeStream.mockResolvedValue("live");
     expect(await (await callRoom({ open: true })).json()).toMatchObject({ partnerSignal: "receiving" });
+  });
+
+  it("the open names the real cause: a switched-off key, or a stream server that did not answer (review of d86921d4)", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "IDLE", enabled: false });
+    expect(await (await callRoom({ open: true })).json()).toMatchObject({ partnerSignal: "switched-off" });
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "IDLE", enabled: true });
+    mockProbeStream.mockResolvedValue("unknown");
+    expect(await (await callRoom({ open: true })).json()).toMatchObject({ partnerSignal: "unknown" });
   });
 
   it("a partner's webinar with no key issued is refused with the partner's fix, not Zoom advice (review of 8bcf9cf8)", async () => {

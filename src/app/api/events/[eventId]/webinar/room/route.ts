@@ -12,14 +12,24 @@ import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 import { sessionStream } from "@/lib/webinar/session-stream";
 import { webinarVideoSource } from "@/lib/webinar/video-source";
-import { isStreamArriving } from "@/lib/webinar/stream-probe";
+import { isStreamArriving, probeStream } from "@/lib/webinar/stream-probe";
 import { updateEventSettings } from "@/lib/event-settings";
 import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
 import { recordStreamEvent } from "@/lib/webinar/stream-timeline";
 
-/** Whether a partner's video is arriving at the moment the room opens. */
-async function partnerSignalNow(streamKey: string): Promise<"receiving" | "not-receiving"> {
-  return (await isStreamArriving(streamKey, { fresh: true })) ? "receiving" : "not-receiving";
+type PartnerSignalOnOpen = "receiving" | "not-receiving" | "switched-off" | "unknown";
+
+/**
+ * Whether a partner's video is arriving at the moment the room opens, and if
+ * not, the real reason: a switched-off key and a stream server that did not
+ * answer each need a different fix from "not started yet" (review of d86921d4).
+ */
+async function partnerSignalNow(at: { sessionId: string; eventId: string; streamKey: string }): Promise<PartnerSignalOnOpen> {
+  const key = await db.externalStream.findFirst({ where: { sessionId: at.sessionId, eventId: at.eventId }, select: { enabled: true } });
+  if (key && !key.enabled) return "switched-off";
+  const probe = await probeStream(at.streamKey);
+  if (probe === "live") return "receiving";
+  return probe === "absent" ? "not-receiving" : "unknown";
 }
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -197,7 +207,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Opening without the partner's video arriving yet is allowed (attendees see "starting shortly"),
       // and the producer is told so (plan §4.5).
       if (meeting?.source === "external") {
-        const partnerSignal = validated.data.open ? await partnerSignalNow(meeting.streamKey) : undefined;
+        const partnerSignal = validated.data.open
+          ? await partnerSignalNow({ sessionId: webinar.sessionId, eventId, streamKey: meeting.streamKey })
+          : undefined;
         apiLogger.info({ eventId, sessionId: webinar.sessionId, partnerSignal }, "webinar:room-external-stream-no-zoom-control");
         return NextResponse.json({
           open: validated.data.open,

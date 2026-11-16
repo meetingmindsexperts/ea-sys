@@ -44,7 +44,8 @@ export async function findPartnerWebinar(
       ok: false,
       response: NextResponse.json(
         { error: "This webinar's video comes from our own Zoom, so it has no partner stream key.", code: "NOT_PARTNER_SOURCE" },
-        { status: 400 },
+        // The request is fine; the webinar is the wrong kind for it.
+        { status: 409 },
       ),
     };
   }
@@ -54,8 +55,8 @@ export async function findPartnerWebinar(
     return {
       ok: false,
       response: NextResponse.json(
-        { error: "This webinar has no session yet. Press Re-run provisioner first.", code: "SESSION_NOT_FOUND" },
-        { status: 400 },
+        { error: "This webinar has no session yet. Press Re-run provisioner first.", code: "NO_ANCHOR_SESSION" },
+        { status: 409 },
       ),
     };
   }

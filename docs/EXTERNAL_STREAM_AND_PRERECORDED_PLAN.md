@@ -1,6 +1,6 @@
 # A partner streams into our webinar, and pre-recorded webinars
 
-**Status: IN BUILD (Nov 12, 2026): part A steps 1 to 4 of 8 built, nothing visible yet: the "Video source" choice on the new-event form is built and switched off (`PARTNER_STREAM_CHOICE_OFFERED`) until step 5 lets a key be issued from the console. Issuing a key also waits for the owner steps in `LIVE_STREAMING.md` §11b; part B not started.** Owner, Nov 12: "giving our RTMP key to
+**Status: IN BUILD (Nov 16, 2026): part A steps 1 to 5 of 8 built. The console's Partner stream card issues, shows, replaces and cuts a partner's key, and the "Video source" choice on the new-event form is offered on a server set up for it (`partnerStreamReadiness()`). Production is not set up yet: that is the owner steps in `LIVE_STREAMING.md` §11b, and until then nothing is visible there. Steps 6 to 8 remain; part B not started.** Owner, Nov 12: "giving our RTMP key to
 someone else so that they can stream into our platform, be it Zoom or something else", as
 BigMarker allowed for the Mounjaro and Lilly Omvoh webinars; and afterwards "people will
 register and sign in only to see a pre-recorded webinar". Section 5 says which steps are
@@ -202,7 +202,8 @@ state and never the key. It is never returned to the AI agent.
 A **Partner stream** card replaces the Zoom controls:
 
 - Server and stream key with copy buttons, the period it is valid for, who it was given to.
-- **Signal:** receiving since 14:02, or not receiving. From the same check the attendee page
+- **Signal:** receiving, or not receiving (as built in step 5; "since 14:02" is not shown: the
+  card shows the last connection time beside it). From the same check the attendee page
   uses.
 - **Preview the stream** (exists today) so staff can watch a rehearsal with the room closed.
 - **Replace the key**, **Switch off**, and **Cut the feed**.

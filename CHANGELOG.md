@@ -16,6 +16,7 @@ External streams step 5 (docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md).
 - **Fixed**: a partner's room never closed by itself: the auto-close job looked only for rooms with a Zoom webinar. It now closes two hours after the scheduled end once the partner's stream has stopped, and never later than six hours.
 - **Added**: the event's admins are notified when a partner's stream stops arriving and when it is back (we cannot restart a partner's stream; a phone call can).
 - **Fixed**: sending a partner webinar's emails no longer logs "no Zoom attached" as a warning.
+- **Review of d86921d4** (1 HIGH, 1 MED, 10 LOW): after Replace the key the card no longer keeps the old, dead key on screen; the "partner stream stopped" alert is not sent when we cut or replaced the key ourselves, and after the scheduled end it suggests closing the room; cloning a partner webinar is refused on a server not set up for it; opening the room names the real cause (key switched off, stream server not answering); an expired key's "Given to" can be changed; the auto-close scan takes the newest rooms first.
 
 ### The log tool keeps the developers' own code at the start of a name (November 14)
 

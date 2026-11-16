@@ -97,7 +97,7 @@ describe("GET partner-stream", () => {
   it("a webinar on our own Zoom has no partner stream: refused and logged", async () => {
     h.mockDb.event.findFirst.mockResolvedValue({ ...PARTNER_EVENT, settings: { webinar: { sessionId: "s1" } } });
     const res = await GET(req(), ctx);
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
     expect((await res.json()).code).toBe("NOT_PARTNER_SOURCE");
     expect(h.mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "webinar-partner-stream:not-a-partner-webinar");
     expect(h.svc.getExternalStream).not.toHaveBeenCalled();
@@ -105,7 +105,7 @@ describe("GET partner-stream", () => {
 
   it("a conference is refused the same way", async () => {
     h.mockDb.event.findFirst.mockResolvedValue({ ...PARTNER_EVENT, eventType: "CONFERENCE" });
-    expect((await GET(req(), ctx)).status).toBe(400);
+    expect((await GET(req(), ctx)).status).toBe(409);
   });
 
   it("an event outside the caller's grant is a 404", async () => {
@@ -116,8 +116,10 @@ describe("GET partner-stream", () => {
   it("no anchor session yet: the producer is told to run the provisioner", async () => {
     h.mockDb.event.findFirst.mockResolvedValue({ ...PARTNER_EVENT, settings: { webinar: { source: "external" } } });
     const res = await GET(req(), ctx);
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain("Re-run provisioner");
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("NO_ANCHOR_SESSION");
+    expect(body.error).toContain("Re-run provisioner");
   });
 });
 
@@ -221,7 +223,7 @@ describe("POST partner-stream/credentials", () => {
 
   it("on our own Zoom webinar there is no partner key to show", async () => {
     h.mockDb.event.findFirst.mockResolvedValue({ ...PARTNER_EVENT, settings: { webinar: { sessionId: "s1", source: "zoom" } } });
-    expect((await keyPOST(req(), ctx)).status).toBe(400);
+    expect((await keyPOST(req(), ctx)).status).toBe(409);
     expect(h.svc.revealExternalStreamCredentials).not.toHaveBeenCalled();
   });
 });

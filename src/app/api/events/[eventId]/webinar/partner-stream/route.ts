@@ -60,12 +60,18 @@ function rateLimited(eventId: string, userId: string): NextResponse | null {
   );
 }
 
+type DisconnectAnswer = { ok: true; disconnected: number } | { ok: false; error: string };
+
+function disconnectAnswer(d: NonNullable<Extract<ExternalStreamResult, { ok: true }>["disconnect"]>): DisconnectAnswer {
+  if (d.ok) return { ok: true, disconnected: d.disconnected };
+  return { ok: false, error: d.message };
+}
+
 /** The answer to every change: the stream's state, and whether ending the running stream worked when one was asked. */
 function changed(result: Extract<ExternalStreamResult, { ok: true }>): NextResponse {
-  const disconnect = result.disconnect;
   return NextResponse.json({
     partnerStream: result.externalStream,
-    ...(disconnect ? { disconnect: disconnect.ok ? { ok: true, disconnected: disconnect.disconnected } : { ok: false, error: disconnect.message } } : {}),
+    ...(result.disconnect ? { disconnect: disconnectAnswer(result.disconnect) } : {}),
   });
 }
 

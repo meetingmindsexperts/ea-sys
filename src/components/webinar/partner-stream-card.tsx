@@ -8,9 +8,11 @@
  * arriving, replace the key, cut the feed.
  *
  * The key is never kept in the page's data: it is fetched by a press, held in
- * this card's state while shown, and dropped on Hide.
+ * this card's state while shown, and dropped on Hide, on leaving the page, and
+ * when the key is replaced (the old value is dead then, and must not stay on
+ * screen to be copied: review of d86921d4, HIGH).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Copy, Eye, EyeOff, KeyRound, Loader2, Radio, RotateCw, Scissors, Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -79,23 +81,24 @@ async function copy(value: string, label: string) {
 }
 
 export function PartnerStreamCard({ eventId, timezone }: { eventId: string; timezone: string }) {
-  const canManage = useCan("webinar.manage", eventId) === "allowed";
+  const access = useCan("webinar.manage", eventId);
+  const canManage = access === "allowed";
   const state = useWebinarPartnerStream(eventId, canManage);
 
+  if (access === "loading" || (canManage && state.isLoading)) {
+    return (
+      <PartnerCardShell>
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading the partner stream…
+        </p>
+      </PartnerCardShell>
+    );
+  }
   if (!canManage) {
     return (
       <PartnerCardShell>
         <p className="text-sm text-muted-foreground">
           This webinar is streamed by a partner from their own platform. Managing its stream key needs &quot;Run the webinar&quot;.
-        </p>
-      </PartnerCardShell>
-    );
-  }
-  if (state.isLoading) {
-    return (
-      <PartnerCardShell>
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading the partner stream…
         </p>
       </PartnerCardShell>
     );
@@ -232,7 +235,8 @@ function IssuedKey({
           The key is switched off: every connection is refused until it is switched on again.
         </p>
       )}
-      <KeyReveal eventId={eventId} canSeeKey={canSeeKey} />
+      {/* Keyed by the version: a replaced key remounts this, so the dead value is gone from the screen. */}
+      <KeyReveal key={stream.secretVersion} eventId={eventId} canSeeKey={canSeeKey} />
       <KeyDetails key={`${stream.issuedTo ?? ""}:${stream.validUntil}`} eventId={eventId} timezone={timezone} stream={stream} />
       <KeyActions eventId={eventId} enabled={stream.enabled} />
       <EncoderSettings />
@@ -252,6 +256,13 @@ function Fact({ term, value }: { term: string; value: string }) {
 function KeyReveal({ eventId, canSeeKey }: { eventId: string; canSeeKey: boolean }) {
   const reveal = useRevealWebinarPartnerStreamKey(eventId);
   const [shown, setShown] = useState<{ serverUrl: string; streamKey: string } | null>(null);
+  // The mutation keeps its answer in React Query's cache after the card lets go of it: clear it too.
+  const { reset } = reveal;
+  useEffect(() => reset, [reset]);
+  const hide = () => {
+    setShown(null);
+    reset();
+  };
 
   if (!canSeeKey) {
     return (
@@ -287,7 +298,7 @@ function KeyReveal({ eventId, canSeeKey }: { eventId: string; canSeeKey: boolean
     <div className="space-y-3 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-2">
         <p className="font-medium">Server and stream key</p>
-        <Button variant="ghost" size="sm" onClick={() => setShown(null)}>
+        <Button variant="ghost" size="sm" onClick={hide}>
           <EyeOff className="mr-2 h-4 w-4" />
           Hide
         </Button>
@@ -322,14 +333,25 @@ function KeyDetails({ eventId, timezone, stream }: { eventId: string; timezone: 
     stream.validUntilIsOwn ? localDateTimeInTz(new Date(stream.validUntil), timezone) : "",
   );
 
+  const savedUntil = stream.validUntilIsOwn ? localDateTimeInTz(new Date(stream.validUntil), timezone) : "";
   const save = async (followSession: boolean) => {
     const until = followSession || !validUntil ? null : wallTimeInTzToIso(validUntil, timezone);
     if (!followSession && validUntil && !until) {
       toast.error("The end date is not a valid date");
       return;
     }
+    // Only what changed: resending an end date that has already passed would refuse a change of "Given to"
+    // on an expired key (review of d86921d4).
+    const body: { issuedTo?: string | null; validUntil?: string | null } = {};
+    const nextIssuedTo = issuedTo.trim() || null;
+    if (nextIssuedTo !== stream.issuedTo) body.issuedTo = nextIssuedTo;
+    if (followSession || validUntil !== savedUntil) body.validUntil = until;
+    if (Object.keys(body).length === 0) {
+      toast.info("Nothing to save");
+      return;
+    }
     try {
-      await update.mutateAsync({ issuedTo: issuedTo.trim() || null, validUntil: until });
+      await update.mutateAsync(body);
       toast.success("Saved");
     } catch (err) {
       toast.error(errorText(err, "Could not save"));
