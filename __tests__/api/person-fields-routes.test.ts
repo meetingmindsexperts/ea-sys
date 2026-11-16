@@ -10,11 +10,12 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockAuth, mockDb, saveSpecialtyAnswers, savePersonFieldSwitches, countSpecialtyUse, resolveRequestOrgId, resolvePublicEventOrg, rateLimit, lane } = vi.hoisted(() => ({
+const { mockAuth, mockDb, saveSpecialtyAnswers, savePersonFieldSwitches, saveFieldLabels, countSpecialtyUse, resolveRequestOrgId, resolvePublicEventOrg, rateLimit, lane } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: { organization: { findUnique: vi.fn() }, event: { findFirst: vi.fn() } },
   saveSpecialtyAnswers: vi.fn(),
   savePersonFieldSwitches: vi.fn(),
+  saveFieldLabels: vi.fn(),
   countSpecialtyUse: vi.fn(),
   resolveRequestOrgId: vi.fn(),
   resolvePublicEventOrg: vi.fn(),
@@ -50,7 +51,7 @@ vi.mock("@/services/person-field-service", async (original) => ({
   switchesOf: (await original<typeof import("@/services/person-field-service")>()).switchesOf,
   labelsOf: (await original<typeof import("@/services/person-field-service")>()).labelsOf,
   roleRenameAllowed: () => true,
-  saveFieldLabels: vi.fn(),
+  saveFieldLabels,
   saveSpecialtyAnswers,
   savePersonFieldSwitches,
   countSpecialtyUse,
@@ -191,6 +192,33 @@ describe("Settings, Form fields: who may read and change the list", () => {
     expect((await put(body)).status).toBe(400);
     expect(savePersonFieldSwitches).not.toHaveBeenCalled();
     expect(saveSpecialtyAnswers).not.toHaveBeenCalled();
+  });
+
+  it("a field's name is saved by itself: only the field named, with the name the edit began from", async () => {
+    mockAuth.mockResolvedValue(user("ORGANIZER"));
+    saveFieldLabels.mockResolvedValue({ ok: true, labels: { role: "Profession", specialty: "Specialty" } });
+    const res = await put({ labels: { labels: { role: "Profession" }, expected: { role: "Role" } } });
+    expect(res.status).toBe(200);
+    expect(saveFieldLabels).toHaveBeenCalledWith({ organizationId: ORG, actorUserId: "u1", labels: { role: "Profession" }, expected: { role: "Role" } });
+    expect(savePersonFieldSwitches).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["LABELS_CHANGED", 409],
+    ["INVALID_LABEL", 400],
+  ])("a refused name (%s) reaches the screen with its code", async (code, status) => {
+    mockAuth.mockResolvedValue(user("ADMIN"));
+    saveFieldLabels.mockResolvedValue({ ok: false, code, message: "no" });
+    const res = await put({ labels: { labels: { specialty: "Area" }, expected: { specialty: "Specialty" } } });
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ error: "no", code });
+  });
+
+  it("400 on a name for a field that has none to change (Title), and on a name beside another save", async () => {
+    mockAuth.mockResolvedValue(user("ADMIN"));
+    expect((await put({ labels: { labels: { title: "Honorific" }, expected: { title: "Title" } } })).status).toBe(400);
+    expect((await put({ ...VALID, labels: { labels: { role: "Profession" }, expected: { role: "Role" } } })).status).toBe(400);
+    expect(saveFieldLabels).not.toHaveBeenCalled();
   });
 
   it("429 when saved too often", async () => {

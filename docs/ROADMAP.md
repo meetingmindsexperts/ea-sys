@@ -201,6 +201,33 @@ done before 1d ships:**
   key "(no longer offered)". Fix: expose `isPlaceholderData` / `isError` from
   `usePersonFields` and disable the picker (or drop the suffix) until the real
   list is in.
+- **From the reviews of `71760529`, `135979ac` and `24f390fb` (step 1d parts 3
+  and 4 and the two-column layout; two independent reviews reconciled, Nov 16:
+  0 BLOCKER, 0 HIGH, 4 MED, 9 LOW).** Fixed: all four MEDs (the two name
+  editors refused each other; no reload after a refusal; refusals and missing
+  lists named the field Role or Specialty; no tests) and LOW 1, 2, 6, 7, 8, 9,
+  plus the layout at laptop width and the names' alignment. Left, each only
+  visible to an organisation that renames a field, which MM Group does not
+  (D16): **M3, rest**, "Choose one of the roles listed" (`ROLE_NOT_OFFERED`,
+  returned by services that hold no rules), the pickers' placeholders ("Select
+  role", "Select a role (optional)"), the typed-specialty captions on three
+  forms ("Specialty (Specific)", "Custom specialty", "Your specialty") and the
+  plural wording on the Contacts filters ("All roles", "All specialties") keep
+  the usual words: a plural cannot be made from a name, and rewording them
+  changes MM Group's live forms for nothing today. Do it with the second
+  organisation, with a plural name beside the name if it wants one. **L3**,
+  the usual name shows for a moment while a form loads (the caption renders
+  today's name first, also in the server's HTML); blanking it until the read
+  lands would make every MM Group caption appear late, so the fix is to hand
+  the names to the page from the server. **L4**, the agenda page makes one
+  extra person-fields read (the import dialog is always mounted; kept five
+  minutes). **L5**, a CSV template downloaded in the first moment, before the
+  fields load, can still say PHYSICIAN for an organisation that retired it.
+  **Deliberate**: each card's title stays the fixed word (Role, Specialty), so
+  an admin can find the field whatever it is called now. **Older**:
+  `readOwnList` drops a whole saved list when its label is over 60 characters
+  (no writer can store one); names and answers refuse control characters but
+  not zero-width or direction marks.
 - **From the review of `a7e87df6` (step 1d part 2, Role answers in Settings;
   0 BLOCKER, 1 HIGH, 2 MED, 7 LOW; the HIGH, M1, L1 and L4 fixed).** HIGH:
   renames are refused while the contacts feed is connected. **To allow them

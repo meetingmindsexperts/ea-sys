@@ -15,7 +15,7 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { DEFAULT_PERSON_FIELD_RULES, type PersonFieldRules } from "@/lib/person-fields";
-import { personFieldProblems, type PersonFieldPath } from "@/lib/person-field-check";
+import { personFieldName, personFieldProblems } from "@/lib/person-field-check";
 import { CountrySelect } from "@/components/ui/country-select";
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import {
@@ -99,14 +99,6 @@ interface MyProfile {
   /** What the event's organisation asks and demands of Title, Role and Specialty. Only on the GET. */
   fieldRules?: PersonFieldRules;
 }
-
-/** How this form names a field the organisation's rule finds missing. */
-const RULE_FIELD_LABELS: Record<PersonFieldPath, string> = {
-  title: "Title",
-  role: "Role",
-  specialty: "Specialty",
-  customSpecialty: "Custom specialty",
-};
 
 type SuggestedField =
   | "title" | "role" | "specialty" | "customSpecialty" | "organization" | "jobTitle"
@@ -227,7 +219,7 @@ export default function SubmitterProfilePage() {
       .map(([, label]) => label);
     // Role, Specialty and the typed specialty beside "Others": demanded as the
     // organisation says, by the one rule the routes apply (person-field-check.ts).
-    missing.push(...personFieldProblems(form, fieldRules).map((problem) => RULE_FIELD_LABELS[problem.path]));
+    missing.push(...personFieldProblems(form, fieldRules).map((problem) => personFieldName(problem.path, fieldRules)));
     if (missing.length > 0) {
       toast.error(`Please fill in: ${missing.join(", ")}`);
       return;

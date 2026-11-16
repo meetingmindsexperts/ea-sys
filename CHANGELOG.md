@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Person fields: review of the field names, the CSV samples and the two-column layout (November 16)
+
+Two independent reviews of `71760529`, `135979ac` and `24f390fb`, reconciled: 0 BLOCKER, 0 HIGH, 4 MED, 9 LOW, plus two layout findings. Nothing here changes what MM Group sees while its fields keep their names (D16).
+
+- **Fixed**: each field's card saves ONLY its own name. A save used to carry both names, so after one card saved, the other card's save was refused as "someone else renamed these fields" and the typing was lost; a refused save now reloads the names (it used to be refused again until the page was reloaded).
+- **Fixed**: a renamed field is called by its name where it was still called Role or Specialty: the "is required" refusals on every form and door (the rules now carry the organisation's name for a field), the missing-fields lists on My Details and the desk walk-in, the Contacts table heading and filter summary, the contact page, and the switches cards in Settings and in an event's settings.
+- **Fixed**: a field cannot be named like another: not Title, not the other field's current name, and not the other field's usual name even after that one was renamed (file exports keep the three usual headings). Judged inside the lock, against what is stored. Title's name is never read from the settings (D8).
+- **Changed**: Settings, Form fields: the two name inputs sit on one line (the name first, then "Answers" and its explanation); the two columns start at a wide screen, and an answer row wraps instead of squeezing its name. The two name inputs and their buttons say whose they are to a screen reader, and show locked while loading instead of appearing late.
+- **Tests**: `field-labels-save.test.ts` (per-field save, stale refusal, name clashes, a rename keeps the field's own answers and switches), the route's name branch, names in refusals, Title's fixed name, `sampleRoleKey`. The browser test no longer hides a failure behind its clean-up and cleans up after a run that died.
+- **Left**, in ROADMAP: "Choose one of the roles listed", the pickers' placeholders and the plural wording on the Contacts filters still say role and specialty; the usual name shows for a moment while a form loads.
+
 ### Person fields: rename the Role and Specialty fields (November 16)
 
 Step 1d, part 3, of `docs/ORG_FIELDS_PLAN.md`. MM Group's fields keep their names (D16).

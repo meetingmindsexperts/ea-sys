@@ -1,3 +1,4 @@
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
 import { auth } from "@/lib/auth";
 import { can, eventWhereFor } from "@/lib/permissions/can";
 import { principalFromSession } from "@/lib/permissions/require-permission";
@@ -77,9 +78,13 @@ export default async function ContactDetailPage({
   const principal = principalFromSession(session);
   if (!session.user.organizationId || !can(principal, "contacts.read")) notFound();
 
-  const contact = await db.contact.findFirst({
-    where: { id: contactId, organizationId: session.user.organizationId! },
-  });
+  // The organisation's own name for Specialty (step 1d) is read beside the contact.
+  const [contact, personFields] = await Promise.all([
+    db.contact.findFirst({
+      where: { id: contactId, organizationId: session.user.organizationId! },
+    }),
+    loadOrganizationPersonFields(session.user.organizationId),
+  ]);
 
   if (!contact) notFound();
 
@@ -175,7 +180,7 @@ export default async function ContactDetailPage({
     },
     contact.specialty && {
       icon: Stethoscope,
-      label: "Specialty",
+      label: personFields.specialty.label,
       value: <span className="text-sm text-gray-900">{contact.specialty}</span>,
       iconBg: "bg-rose-50",
       iconColor: "text-rose-500",

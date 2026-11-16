@@ -20,24 +20,37 @@ test("an added Role answer is offered and a retired one is not", async ({ page, 
       data: { role: { answers, expected: { answers: expected } } },
     });
 
-  const before = (await read()).role.answers.map(({ key, label, retired }) => ({ key, label, retired }));
-  const edited = [...before.map((a) => (a.key === "RESIDENT" ? { ...a, retired: true } : a)), { label: "Engineer", retired: false }];
-  expect((await put(edited, before)).status()).toBe(200);
+  // What the list should be when this is over. A run that died before its
+  // restore leaves Engineer behind and Resident retired; the retry starts from
+  // that, so it is cleaned here and not added twice (review of 135979ac).
+  const found = (await read()).role.answers.map(({ key, label, retired }) => ({ key, label, retired }));
+  const clean = found.filter((a) => a.label !== "Engineer").map((a) => (a.key === "RESIDENT" ? { ...a, retired: false } : a));
+  const edited = [
+    ...found.map((a) => (a.key === "RESIDENT" ? { ...a, retired: true } : a)),
+    ...(found.some((a) => a.label === "Engineer") ? [] : [{ label: "Engineer", retired: false }]),
+  ];
+  expect((await put(edited, found)).status()).toBe(200);
 
+  let restored = 0;
   try {
     const guest = await browser.newPage();
-    await guest.goto(`/e/${EVENT_SLUG}/register/${FREE_CATEGORY_SLUG}`);
-    await guest.getByPlaceholder("john@example.com").fill(`e2e-role+${Date.now()}@test.local`);
-    await guest.getByPlaceholder("Min. 6 characters").fill("password123");
-    await guest.getByPlaceholder("Re-enter password").fill("password123");
-    await guest.getByRole("button", { name: /continue/i }).click();
-    await guest.getByRole("combobox").filter({ hasText: "Select role" }).first().click();
-    await expect(guest.getByRole("option", { name: "Engineer", exact: true })).toBeVisible();
-    await expect(guest.getByRole("option", { name: "Resident", exact: true })).toHaveCount(0);
-    await guest.close();
+    try {
+      await guest.goto(`/e/${EVENT_SLUG}/register/${FREE_CATEGORY_SLUG}`);
+      await guest.getByPlaceholder("john@example.com").fill(`e2e-role+${Date.now()}@test.local`);
+      await guest.getByPlaceholder("Min. 6 characters").fill("password123");
+      await guest.getByPlaceholder("Re-enter password").fill("password123");
+      await guest.getByRole("button", { name: /continue/i }).click();
+      await guest.getByRole("combobox").filter({ hasText: "Select role" }).first().click();
+      await expect(guest.getByRole("option", { name: "Engineer", exact: true })).toBeVisible();
+      await expect(guest.getByRole("option", { name: "Resident", exact: true })).toHaveCount(0);
+    } finally {
+      await guest.close();
+    }
   } finally {
-    // Back to today's nine: Engineer is held by no record, so it can be removed.
+    // Back to the list without Engineer (held by no record, so it can be
+    // removed). No assertion in here: it would replace the failure above.
     const now = (await read()).role.answers.map(({ key, label, retired }) => ({ key, label, retired }));
-    expect((await put(before, now)).status()).toBe(200);
+    restored = (await put(clean, now)).status();
   }
+  expect(restored, "the Role list is put back").toBe(200);
 });

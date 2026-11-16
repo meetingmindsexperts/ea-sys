@@ -29,13 +29,38 @@ export interface PersonFieldProblem {
   message: string;
 }
 
-/** What a refusal says, per field. One wording for every form and every door. */
+/**
+ * What a refusal says, per field, where the organisation's own name for the
+ * field is not known. One wording for every form and every door.
+ */
 export const PERSON_FIELD_MESSAGES: Record<PersonFieldPath, string> = {
   title: "Title is required",
   role: "Role is required",
   specialty: "Specialty is required",
   customSpecialty: "Please specify your specialty",
 };
+
+const FIELD_NAMES = { title: "Title", role: "Role", specialty: "Specialty" } as const;
+
+/**
+ * What a form calls one of these fields in a list of what is missing: the
+ * organisation's own name for it (step 1d), so a field shown as "Profession"
+ * is never reported missing as "Role".
+ */
+export function personFieldName(path: PersonFieldPath, rules: PersonFieldRules): string {
+  if (path === "customSpecialty") return `${rules.specialty.label ?? FIELD_NAMES.specialty} (please specify)`;
+  return rules[path].label ?? FIELD_NAMES[path];
+}
+
+/** What a refusal says for one field, in the organisation's own name for it. */
+export function personFieldMessage(path: PersonFieldPath, rules: PersonFieldRules): string {
+  if (path === "customSpecialty") {
+    const name = rules.specialty.label;
+    return name && name !== FIELD_NAMES.specialty ? `Please specify your ${name.toLowerCase()}` : PERSON_FIELD_MESSAGES.customSpecialty;
+  }
+  const name = rules[path].label;
+  return name ? `${name} is required` : PERSON_FIELD_MESSAGES[path];
+}
 
 /** Each field's own test: true when the rules are not met. */
 const UNMET: Record<PersonFieldPath, (values: PersonFieldValues, rules: PersonFieldRules, opts: { demandTitle?: boolean }) => boolean> = {
@@ -83,7 +108,7 @@ export function roleAnswerProblem(roleField: PersonFieldConfig | null, chosen: u
 
 /** What is missing, by the rules. Pure, so the forms that check by hand ask it too. */
 export function personFieldProblems(values: PersonFieldValues, rules: PersonFieldRules, opts: { demandTitle?: boolean } = {}): PersonFieldProblem[] {
-  return PATHS.filter((path) => UNMET[path](values, rules, opts)).map((path) => ({ path, message: PERSON_FIELD_MESSAGES[path] }));
+  return PATHS.filter((path) => UNMET[path](values, rules, opts)).map((path) => ({ path, message: personFieldMessage(path, rules) }));
 }
 
 /**
@@ -137,7 +162,7 @@ export function withPersonFieldRules<T extends z.ZodTypeAny>(schema: T, rules: P
   for (const path of PATHS) {
     refined = refined.refine((data) => !UNMET[path]((data ?? {}) as PersonFieldValues, rules, opts), {
       path: [path],
-      message: PERSON_FIELD_MESSAGES[path],
+      message: personFieldMessage(path, rules),
       when: (payload) => isRecord(payload.value) && !payload.issues.some((issue) => issue.path?.[0] === path),
     }) as T;
   }

@@ -5,7 +5,7 @@ const { mockDb } = vi.hoisted(() => ({ mockDb: { organization: { findUnique: vi.
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { askedOnly, blankUnaskedFields, personFieldProblems, withPersonFieldRules } from "@/lib/person-field-check";
+import { askedOnly, blankUnaskedFields, personFieldName, personFieldProblems, withPersonFieldRules } from "@/lib/person-field-check";
 import { personalDetailsFields, presenterDetailsSchema } from "@/lib/schemas";
 import { checkEventPersonFields, loadEventPersonFieldRules, loadOrganizationPersonFieldRules, personFieldRefusal } from "@/lib/person-field-rules";
 import { DEFAULT_PERSON_FIELD_RULES, PERSON_FIELDS_SETTING, personFieldRules, type PersonFieldRules } from "@/lib/person-fields";
@@ -174,7 +174,7 @@ describe("the server's read: an event's rules, and an organisation's where there
 
   it("reads the organisation's switches", async () => {
     orgSaved({ specialty: { enabled: false, label: "Specialty", options: [], allowOther: true } });
-    expect((await loadOrganizationPersonFieldRules("org1")).specialty).toEqual({ shown: false, required: false });
+    expect((await loadOrganizationPersonFieldRules("org1")).specialty).toMatchObject({ shown: false, required: false });
     expect(await personFieldRefusal(event(), { role: "PHYSICIAN" })).toBeNull();
   });
 
@@ -182,7 +182,7 @@ describe("the server's read: an event's rules, and an organisation's where there
   it("an event's own choice is laid over its organisation's: not asked, optional, required", async () => {
     mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
     const rules = await loadEventPersonFieldRules(event({ personFieldChoices: { title: "off", role: "optional", specialty: "off" } }));
-    expect(rules).toEqual({ title: { shown: false, required: false }, role: { shown: true, required: false }, specialty: { shown: false, required: false } });
+    expect(rules).toMatchObject({ title: { shown: false, required: false }, role: { shown: true, required: false }, specialty: { shown: false, required: false } });
     // The same request the organisation's own rules refuse is taken on this event.
     expect(await personFieldRefusal(event({ personFieldChoices: { role: "optional", specialty: "off" } }), {})).toBeNull();
     expect(await personFieldRefusal(event(), {})).not.toBeNull();
@@ -200,8 +200,8 @@ describe("the server's read: an event's rules, and an organisation's where there
   it("THE CEILING: a field the organisation switched off is off on every event, whatever the event saved", async () => {
     orgSaved({ specialty: { enabled: false }, title: { enabled: false } });
     const rules = await loadEventPersonFieldRules(event({ personFieldChoices: { specialty: "required", title: "required" } }));
-    expect(rules.specialty).toEqual({ shown: false, required: false });
-    expect(rules.title).toEqual({ shown: false, required: false });
+    expect(rules.specialty).toMatchObject({ shown: false, required: false });
+    expect(rules.title).toMatchObject({ shown: false, required: false });
   });
 
   it("Title is on or off only: an event cannot make it optional or required", async () => {
@@ -238,7 +238,7 @@ describe("the server's read: an event's rules, and an organisation's where there
     // The event's own choice is already in hand, so it still applies, over
     // today's rules: the route must not demand a field this event's form hides
     // (review of 5dd9cd5f).
-    expect(await loadEventPersonFieldRules(event({ personFieldChoices: { specialty: "off", role: "optional" } }))).toEqual({
+    expect(await loadEventPersonFieldRules(event({ personFieldChoices: { specialty: "off", role: "optional" } }))).toMatchObject({
       ...DEFAULT_PERSON_FIELD_RULES,
       role: { shown: true, required: false },
       specialty: { shown: false, required: false },
@@ -260,5 +260,31 @@ describe("askedOnly: what a door that creates a record keeps", () => {
   it("a field that is not asked is not kept, and the typed specialty goes with Specialty", () => {
     expect(askedOnly(sent, rules({ specialty: off }))).toEqual({ title: "DR", role: "PHYSICIAN", specialty: undefined, customSpecialty: undefined });
     expect(askedOnly(sent, rules({ title: off, role: off }))).toEqual({ title: undefined, role: undefined, specialty: "Others", customSpecialty: "Sleep medicine" });
+  });
+});
+
+describe("a renamed field is called by its own name in every refusal (step 1d)", () => {
+  const named = personFieldRules({ title: { ...on, label: "Title" }, role: { ...on, label: "Profession" }, specialty: { ...on, label: "Area of practice" } });
+
+  it("says the organisation's name for the field, on the form and at the door alike", () => {
+    expect(personFieldProblems({ specialty: "Others" }, named)).toEqual([
+      { path: "role", message: "Profession is required" },
+      { path: "customSpecialty", message: "Please specify your area of practice" },
+    ]);
+    const parsed = withPersonFieldRules(z.object({ role: z.string().optional(), specialty: z.string().optional() }), named).safeParse({});
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) expect(parsed.error.flatten().fieldErrors).toEqual({ role: ["Profession is required"], specialty: ["Area of practice is required"] });
+  });
+
+  it("names a missing field the same way in a form's own list of what is missing", () => {
+    expect(["title", "role", "specialty", "customSpecialty"].map((path) => personFieldName(path as "role", named))).toEqual([
+      "Title", "Profession", "Area of practice", "Area of practice (please specify)",
+    ]);
+  });
+
+  it("keeps today's wording where the names are today's, or not known", () => {
+    expect(personFieldProblems({ specialty: "Others" }, DEFAULT_PERSON_FIELD_RULES).map((p) => p.message)).toEqual(["Role is required", "Please specify your specialty"]);
+    expect(personFieldProblems({}, rules({})).map((p) => p.message)).toEqual(["Role is required", "Specialty is required"]);
+    expect(personFieldName("customSpecialty", rules({}))).toBe("Specialty (please specify)");
   });
 });

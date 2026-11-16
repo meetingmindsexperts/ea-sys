@@ -69,7 +69,8 @@ export function EventPersonFieldChoicesEditor({
         return (
           <div key={field} className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <Label htmlFor={id} className="w-24 font-normal">
-              {NAMES[field]}
+              {/* The organisation's own name for the field (step 1d). */}
+              {org.label || NAMES[field]}
             </Label>
             {org.enabled ? (
               <Select value={value[field] ?? AS_ORGANISATION} onValueChange={(picked) => set(field, picked)} disabled={disabled}>

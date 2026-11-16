@@ -1486,8 +1486,9 @@ export default function SettingsPage() {
         {canManageFormFields && (
           <TabsContent value="form-fields">
             <FieldSwitchesCard />
-            {/* Role and Specialty side by side, each with its name and its answers. */}
-            <div className="grid gap-6 lg:grid-cols-2 items-start">
+            {/* Role and Specialty side by side, each with its name and its answers: from a wide
+                screen up, because an answer row needs room for its name beside its four buttons. */}
+            <div className="grid gap-6 xl:grid-cols-2 items-start">
               <RoleAnswersCard />
               <FormFieldsCard />
             </div>

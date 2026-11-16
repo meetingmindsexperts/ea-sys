@@ -27,7 +27,7 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { PUBLIC_FIELDS_KEY, usePersonFieldRules, usePersonFieldLabel } from "@/hooks/use-person-fields";
-import { personFieldProblems, type PersonFieldPath } from "@/lib/person-field-check";
+import { personFieldName, personFieldProblems } from "@/lib/person-field-check";
 import type { PersonFieldRules } from "@/lib/person-fields";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SupportingDocumentField, type UploadedDocument } from "@/components/public/registration-form-extras";
@@ -911,14 +911,6 @@ function refusedFieldMessages(details: unknown): string[] {
   return Object.values(fieldErrors).flatMap((messages) => (Array.isArray(messages) ? messages.filter((m): m is string => typeof m === "string") : []));
 }
 
-/** How the walk-in form names a field the organisation's rule finds missing. */
-const WALK_IN_RULE_LABELS: Record<PersonFieldPath, string> = {
-  title: "Title",
-  role: "Role",
-  specialty: "Specialty",
-  customSpecialty: "Specialty (please specify)",
-};
-
 /**
  * The required fields that a plain input's `required` cannot catch (the
  * pickers). Title, Role and Specialty are demanded as the organisation says,
@@ -926,7 +918,7 @@ const WALK_IN_RULE_LABELS: Record<PersonFieldPath, string> = {
  */
 function missingFields(fields: WalkInFields, type: DeskTicketType | undefined, rules: PersonFieldRules): string[] {
   const missing = fields.country.trim() ? [] : ["Country"];
-  missing.push(...personFieldProblems(fields, rules, { demandTitle: true }).map((problem) => WALK_IN_RULE_LABELS[problem.path]));
+  missing.push(...personFieldProblems(fields, rules, { demandTitle: true }).map((problem) => personFieldName(problem.path, rules)));
   if (type) {
     missing.push(...missingIdentityEvidence(readIdentityEvidencePolicy(type), fields));
   }

@@ -37,6 +37,7 @@ import {
   MAX_PERSON_FIELD_OPTIONS,
   OTHER_ANSWER,
   PERSON_FIELDS_SETTING,
+  defaultPersonFields,
   looseForm,
   readPersonFields,
   type ConfigurablePersonField,
@@ -522,8 +523,8 @@ export async function saveRoleAnswers(input: {
   expected: RoleListSnapshot;
 }): Promise<SaveRoleAnswersResult> {
   try {
-    // Read, plan, in-use check, write and the contacts' re-send mark in ONE
-    // transaction holding the organisation row lock (as the Specialty save).
+    // Read, plan, in-use check and write in ONE transaction holding the
+    // organisation row lock (as the Specialty save).
     const outcome = await tenantTransaction(async (tx): Promise<RoleSaveOutcome> => {
       const rows = await tx.$queryRaw<{ settings: Prisma.JsonValue | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${input.organizationId} FOR UPDATE`;
       if (rows.length === 0) return { saved: false, result: roleFail("ORGANIZATION_NOT_FOUND", "Organisation not found") };
@@ -608,6 +609,12 @@ export async function saveRoleAnswers(input: {
  * keep their fixed column headings (a renamed field must still read back
  * into the imports). Same lock, stale-save refusal and audit as the other
  * saves here.
+ *
+ * A save names ONLY the fields it renames (review of 24f390fb): each field's
+ * card saves its own name, so a save that carried both would be refused as
+ * stale, or would put the other name back, whenever the other card had just
+ * saved. The stale check and the write are per field; "no two fields read the
+ * same" is judged inside the lock, against what is stored.
  */
 export const RENAMEABLE_PERSON_FIELDS = ["role", "specialty"] as const;
 export type RenameablePersonField = (typeof RENAMEABLE_PERSON_FIELDS)[number];
@@ -621,45 +628,61 @@ export function labelsOf(config: PersonFieldsConfig): PersonFieldLabels {
   return { role: config.role.label, specialty: config.specialty.label };
 }
 
+const invalidLabel = (message: string): SaveFieldLabelsResult => ({ ok: false, code: "INVALID_LABEL", message });
+
 export async function saveFieldLabels(input: {
   organizationId: string;
   actorUserId: string;
-  labels: PersonFieldLabels;
-  /** The names as the screen loaded them. */
-  expected: PersonFieldLabels;
+  /** Only the fields being renamed. */
+  labels: Partial<PersonFieldLabels>;
+  /** Those fields' names as the screen loaded them. */
+  expected: Partial<PersonFieldLabels>;
 }): Promise<SaveFieldLabelsResult> {
-  const next = {} as PersonFieldLabels;
-  for (const field of RENAMEABLE_PERSON_FIELDS) {
-    const label = typeof input.labels[field] === "string" ? input.labels[field].trim() : "";
+  const renamed = RENAMEABLE_PERSON_FIELDS.filter((field) => input.labels[field] !== undefined);
+  if (renamed.length === 0) return invalidLabel("Nothing to rename.");
+  const next: Partial<PersonFieldLabels> = {};
+  for (const field of renamed) {
+    const given = input.labels[field];
+    const label = typeof given === "string" ? given.trim() : "";
     if (!label || label.length > MAX_PERSON_FIELD_LABEL || CONTROL_CHARACTER.test(label) || !looseForm(label)) {
-      return { ok: false, code: "INVALID_LABEL", message: `A field's name needs 1 to ${MAX_PERSON_FIELD_LABEL} characters, with a letter or a digit.` };
+      return invalidLabel(`A field's name needs 1 to ${MAX_PERSON_FIELD_LABEL} characters, with a letter or a digit.`);
     }
     next[field] = label;
-  }
-  if (looseForm(next.role) === looseForm(next.specialty)) {
-    return { ok: false, code: "INVALID_LABEL", message: "The two fields cannot have the same name." };
   }
   try {
     const outcome = await tenantTransaction(async (tx) => {
       const rows = await tx.$queryRaw<{ settings: Prisma.JsonValue | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${input.organizationId} FOR UPDATE`;
       if (rows.length === 0) return { saved: false as const, code: "ORGANIZATION_NOT_FOUND" as const };
       const settings = (rows[0].settings ?? {}) as Record<string, unknown>;
-      const before = labelsOf(readPersonFields(settings));
-      if (before.role !== input.expected.role || before.specialty !== input.expected.specialty) return { saved: false as const, code: "LABELS_CHANGED" as const };
-      const saved = (isPlainObject(settings[PERSON_FIELDS_SETTING]) ? settings[PERSON_FIELDS_SETTING] : {}) as Record<string, unknown>;
-      const written = Object.fromEntries(
-        RENAMEABLE_PERSON_FIELDS.map((f) => [f, { ...(isPlainObject(saved[f]) ? saved[f] : {}), label: next[f] }]),
+      const config = readPersonFields(settings);
+      const before = labelsOf(config);
+      if (renamed.some((field) => before[field] !== input.expected[field])) return { saved: false as const, code: "LABELS_CHANGED" as const };
+      const after: PersonFieldLabels = { ...before, ...next };
+      // No two of the three fields may read the same on a form: Title is the
+      // third. And a field may not take another's USUAL name even when that
+      // one has been renamed away (review of 71760529: Role named "Specialty"
+      // beside a Specialty named "Area", or the two swapped, and the exports'
+      // fixed "Specialty" column would hold the field the screen calls Area).
+      const usual = defaultPersonFields();
+      const clash = renamed.some((field) =>
+        CONFIGURABLE_PERSON_FIELDS.filter((other) => other !== field).some((other) => {
+          const now = other === "title" ? config.title.label : after[other];
+          return [now, usual[other].label].some((name) => looseForm(name) === looseForm(after[field]));
+        }),
       );
+      if (clash) return { saved: false as const, code: "SAME_NAME" as const };
+      const saved = (isPlainObject(settings[PERSON_FIELDS_SETTING]) ? settings[PERSON_FIELDS_SETTING] : {}) as Record<string, unknown>;
+      const written = Object.fromEntries(renamed.map((f) => [f, { ...(isPlainObject(saved[f]) ? saved[f] : {}), label: next[f] }]));
       await tx.organization.update({
         where: { id: input.organizationId },
         data: { settings: { ...settings, [PERSON_FIELDS_SETTING]: { ...saved, ...written } } as unknown as Prisma.InputJsonValue },
       });
-      return { saved: true as const, before };
+      return { saved: true as const, before, after };
     });
     if (!outcome.saved) {
-      return outcome.code === "ORGANIZATION_NOT_FOUND"
-        ? { ok: false, code: "ORGANIZATION_NOT_FOUND", message: "Organisation not found" }
-        : { ok: false, code: "LABELS_CHANGED", message: "Someone else renamed these fields after you opened them. They have been reloaded: make your change again." };
+      if (outcome.code === "ORGANIZATION_NOT_FOUND") return { ok: false, code: "ORGANIZATION_NOT_FOUND", message: "Organisation not found" };
+      if (outcome.code === "SAME_NAME") return invalidLabel("A field cannot take the name of another: Title, Role and Specialty are asked on the same forms, and file exports keep those three headings.");
+      return { ok: false, code: "LABELS_CHANGED", message: "Someone else renamed this field after you opened it. It has been reloaded: make your change again." };
     }
     db.auditLog
       .create({
@@ -668,12 +691,12 @@ export async function saveFieldLabels(input: {
           action: "UPDATE",
           entityType: "Organization",
           entityId: input.organizationId,
-          changes: { personFieldLabels: { before: outcome.before, after: next } } as unknown as Prisma.InputJsonValue,
+          changes: { personFieldLabels: { before: outcome.before, after: outcome.after } } as unknown as Prisma.InputJsonValue,
         },
       })
       .catch((err) => apiLogger.warn({ err, organizationId: input.organizationId }, "person-fields:audit-failed"));
-    apiLogger.info({ organizationId: input.organizationId, by: input.actorUserId, labels: next }, "person-fields:labels-saved");
-    return { ok: true, labels: next };
+    apiLogger.info({ organizationId: input.organizationId, by: input.actorUserId, labels: outcome.after }, "person-fields:labels-saved");
+    return { ok: true, labels: outcome.after };
   } catch (err) {
     apiLogger.error({ err, organizationId: input.organizationId }, "person-fields:labels-save-failed");
     return { ok: false, code: "UNKNOWN", message: "Failed to save the field names" };

@@ -23,9 +23,11 @@ import {
 
 /**
  * Settings, Form fields (Nov 13, 2026; steps 1 and 2 of
- * docs/ORG_FIELDS_PLAN.md). GET the three fields' switches (asked or not,
- * demanded or not) and the Specialty answers with how many records store each;
- * PUT either the Specialty list as a whole, or the switches. Both need `formFields.manage`
+ * docs/ORG_FIELDS_PLAN.md; step 1d on Nov 16). GET the three fields' switches
+ * (asked or not, demanded or not), the names of Role and Specialty, and the
+ * Specialty and Role answers with how many records hold each; PUT ONE of: the
+ * Specialty list as a whole, the Role list as a whole, the switches, or the
+ * name of a field. Both need `formFields.manage`
  * (admins and organisers, or a custom role given it): the forms themselves
  * read the answers from the public route, which needs no key.
  */
@@ -45,8 +47,9 @@ const roleSnapshot = z.array(roleAnswer.extend({ key: z.string().max(MAX_PERSON_
 const fieldSwitch = z.object({ enabled: z.boolean(), required: z.boolean() });
 const switches = z.object({ title: fieldSwitch, role: fieldSwitch, specialty: fieldSwitch });
 
-// One save at a time: the Specialty answers, the Role answers (step 1d), or the three fields' switches.
-const fieldLabels = z.object({ role: z.string().max(MAX_PERSON_FIELD_ANSWER), specialty: z.string().max(MAX_PERSON_FIELD_ANSWER) });
+// Only the fields being renamed are named: each field's card saves its own (review of 24f390fb).
+const fieldLabels = z.object({ role: z.string().max(MAX_PERSON_FIELD_ANSWER).optional(), specialty: z.string().max(MAX_PERSON_FIELD_ANSWER).optional() }).strict();
+// One save at a time: a field's name, the Role answers (step 1d), the Specialty answers, or the three fields' switches.
 const putSchema = z.union([
   z.object({ labels: z.object({ labels: fieldLabels, expected: fieldLabels }) }).strict(),
   z.object({ role: z.object({ answers: roleList, expected: z.object({ answers: roleSnapshot }) }) }).strict(),

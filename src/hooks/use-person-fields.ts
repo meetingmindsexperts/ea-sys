@@ -200,7 +200,8 @@ export function useFieldLabels() {
 export function useSaveFieldLabels() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { labels: FieldLabels; expected: FieldLabels }) =>
+    // Only the field being renamed is sent, with the name the edit started from.
+    mutationFn: (input: { labels: Partial<FieldLabels>; expected: Partial<FieldLabels> }) =>
       fetchApi<FormFieldSettings>("/api/organization/person-fields", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

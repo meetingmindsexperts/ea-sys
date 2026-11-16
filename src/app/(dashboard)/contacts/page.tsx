@@ -125,6 +125,7 @@ export default function ContactsPage() {
 
   const queryClient = useQueryClient();
   const roleField = usePersonFieldLabel("role");
+  const specialtyField = usePersonFieldLabel("specialty");
   // The template's sample Role is one this organisation offers (step 1d).
   const roleFieldsForTemplate = usePersonFields({ organisationOnly: true }).role;
   const [page, setPage] = useState(1);
@@ -520,7 +521,7 @@ export default function ContactsPage() {
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Contact</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell w-40">Organization</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell w-32">{roleField.caption}</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell w-40">Specialty</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell w-40">{specialtyField.caption}</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Tags</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden xl:table-cell">Added</th>
                 <th className="text-right px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
@@ -862,7 +863,7 @@ export default function ContactsPage() {
           open={exportOpen}
           onOpenChange={setExportOpen}
           filterQuery={filterQuery}
-          filterSummary={describeContactFilters(filterQuery, (v) => roleField.of(v), roleField.caption)}
+          filterSummary={describeContactFilters(filterQuery, (v) => roleField.of(v), roleField.caption, specialtyField.caption)}
           matching={isLoading || isFetching ? null : total}
           onClearFilters={clearAllFilters}
         />

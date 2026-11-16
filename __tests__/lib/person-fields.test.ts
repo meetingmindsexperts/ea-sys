@@ -219,7 +219,7 @@ describe("what a public form is handed", () => {
 describe("the rule every form and every door asks", () => {
   it("today's form: all three shown and demanded", async () => {
     const { DEFAULT_PERSON_FIELD_RULES } = await import("@/lib/person-fields");
-    expect(DEFAULT_PERSON_FIELD_RULES).toEqual({
+    expect(DEFAULT_PERSON_FIELD_RULES).toMatchObject({
       title: { shown: true, required: true }, role: { shown: true, required: true }, specialty: { shown: true, required: true },
     });
   });
@@ -232,7 +232,7 @@ describe("the rule every form and every door asks", () => {
         role: { enabled: true, required: false, label: "Role", options: [{ key: "DEV", label: "Developer" }] },
       },
     });
-    expect(personFieldRules(config)).toEqual({
+    expect(personFieldRules(config)).toMatchObject({
       title: { shown: true, required: true }, role: { shown: true, required: false }, specialty: { shown: false, required: false },
     });
     // The public page is told the same.
@@ -295,7 +295,7 @@ describe("one event's own choice", () => {
     const onEvent = withEventChoices(handed, { specialty: "optional" });
     expect(onEvent.specialty.answers).toEqual(handed.specialty.answers);
     expect(onEvent.specialty.label).toBe("Specialty");
-    expect(personFieldRules(onEvent).specialty).toEqual({ shown: true, required: false });
+    expect(personFieldRules(onEvent).specialty).toMatchObject({ shown: true, required: false });
   });
 });
 
@@ -310,5 +310,30 @@ describe("a field's own name, saved by itself (step 1d)", () => {
   it("ignores a blank or over-long name", () => {
     expect(readPersonFields({ [PERSON_FIELDS_SETTING]: { role: { label: "  " } } }).role.label).toBe("Role");
     expect(readPersonFields({ [PERSON_FIELDS_SETTING]: { specialty: { label: "x".repeat(61) } } }).specialty.label).toBe("Specialty");
+  });
+
+  it("is never read for Title, which keeps its name (D8)", () => {
+    expect(readPersonFields({ [PERSON_FIELDS_SETTING]: { title: { label: "Honorific", enabled: true } } }).title.label).toBe("Title");
+  });
+
+  it("reaches the rules, so a refusal can call the field by it", async () => {
+    const { personFieldRules } = await import("@/lib/person-fields");
+    const fields = readPersonFields({ [PERSON_FIELDS_SETTING]: { role: { label: "Profession" } } });
+    expect(personFieldRules(fields).role).toEqual({ shown: true, required: true, label: "Profession" });
+  });
+});
+
+describe("sampleRoleKey: the Role a CSV template's sample row shows (step 1d)", () => {
+  const answers = (...keys: string[]) => ({ answers: keys.map((key) => ({ key, label: key })) });
+
+  it("is the usual one while the organisation offers it", async () => {
+    const { sampleRoleKey } = await import("@/lib/person-fields");
+    expect(sampleRoleKey(answers("NURSE", "PHYSICIAN"))).toBe("PHYSICIAN");
+  });
+
+  it("is the first answer on offer where the usual one is not offered, and the usual one where nothing is", async () => {
+    const { sampleRoleKey } = await import("@/lib/person-fields");
+    expect(sampleRoleKey(answers("ENGINEER", "NURSE"))).toBe("ENGINEER");
+    expect(sampleRoleKey(answers())).toBe("PHYSICIAN");
   });
 });

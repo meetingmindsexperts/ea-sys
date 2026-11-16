@@ -187,12 +187,14 @@ function readOwnList(raw: Record<string, unknown>): PersonFieldList | null {
  * for that organisation and made "chose this list" look the same as "flipped
  * a switch").
  */
-function readField(raw: unknown, fallback: PersonFieldConfig): PersonFieldConfig {
+function readField(raw: unknown, fallback: PersonFieldConfig, opts: { ownName?: boolean } = {}): PersonFieldConfig {
   if (!isRecord(raw)) return fallback;
   // The field's own name is read by itself too (step 1d): renaming a field
   // must not freeze its answers into the setting, which would stop it
   // following today's list (the same reason the switches are stored apart).
-  const ownLabel = typeof raw.label === "string" && raw.label.trim() && raw.label.trim().length <= MAX_PERSON_FIELD_LABEL ? raw.label.trim() : null;
+  // Not for Title, which keeps its name (D8; review of 71760529).
+  const ownLabel =
+    opts.ownName !== false && typeof raw.label === "string" && raw.label.trim() && raw.label.trim().length <= MAX_PERSON_FIELD_LABEL ? raw.label.trim() : null;
   const list = readOwnList(raw) ?? { label: ownLabel ?? fallback.label, options: fallback.options, allowOther: fallback.allowOther };
   return { enabled: raw.enabled !== false, required: raw.required !== false, ...list };
 }
@@ -202,7 +204,7 @@ export function readPersonFields(orgSettings: unknown): PersonFieldsConfig {
   const defaults = defaultPersonFields();
   const saved = isRecord(orgSettings) && isRecord(orgSettings[PERSON_FIELDS_SETTING]) ? orgSettings[PERSON_FIELDS_SETTING] : {};
   return {
-    title: readField(saved.title, defaults.title),
+    title: readField(saved.title, defaults.title, { ownName: false }),
     role: readField(saved.role, defaults.role),
     specialty: readField(saved.specialty, defaults.specialty),
   };
@@ -280,12 +282,22 @@ export const DEFAULT_PUBLIC_PERSON_FIELDS: PublicPersonFields = publicPersonFiel
 export interface PersonFieldRule {
   shown: boolean;
   required: boolean;
+  /**
+   * The organisation's name for the field, where the reader holds it: what a
+   * refusal calls it (step 1d: a field shown as Profession is refused as
+   * "Profession", never by the name it had before).
+   */
+  label?: string;
 }
 export type PersonFieldRules = Record<ConfigurablePersonField, PersonFieldRule>;
 
 /** A field that is off is never demanded, whatever its required flag says. */
-export function personFieldRules(fields: Record<ConfigurablePersonField, { enabled: boolean; required: boolean }>): PersonFieldRules {
-  const one = (field: { enabled: boolean; required: boolean }): PersonFieldRule => ({ shown: field.enabled, required: field.enabled && field.required });
+export function personFieldRules(fields: Record<ConfigurablePersonField, { enabled: boolean; required: boolean; label?: string }>): PersonFieldRules {
+  const one = (field: { enabled: boolean; required: boolean; label?: string }): PersonFieldRule => ({
+    shown: field.enabled,
+    required: field.enabled && field.required,
+    ...(field.label ? { label: field.label } : {}),
+  });
   return { title: one(fields.title), role: one(fields.role), specialty: one(fields.specialty) };
 }
 

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
+  useFieldLabels,
   useFieldSwitches,
   useSaveFieldSwitches,
   useSaveSpecialtySettings,
@@ -37,6 +38,8 @@ const FIELD_ROWS: { key: ConfigurablePersonField; name: string; note: string }[]
  */
 export function FieldSwitchesCard() {
   const { data: saved, isLoading, isError, refetch } = useFieldSwitches();
+  // A renamed field is listed by the name the forms show (step 1d).
+  const { data: names } = useFieldLabels();
   const save = useSaveFieldSwitches();
   // null = no unsaved edits. `base` is what the edits started from (see FormFieldsCard).
   const [edited, setEdited] = useState<{ switches: FieldSwitches; base: FieldSwitches } | null>(null);
@@ -98,7 +101,7 @@ export function FieldSwitchesCard() {
               {FIELD_ROWS.map(({ key, name, note }) => (
                 <li key={key} className="flex flex-wrap items-center gap-x-6 gap-y-2 px-3 py-3">
                   <div className="min-w-40 flex-1">
-                    <p className="text-sm font-medium">{name}</p>
+                    <p className="text-sm font-medium">{(key !== "title" && names?.[key]) || name}</p>
                     <p className="text-xs text-muted-foreground">{note}</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -225,15 +228,19 @@ export function FormFieldsCard() {
           </div>
           Specialty
         </CardTitle>
-        <CardDescription>
-          The answers every Specialty picker offers: on the registration forms, in the dashboard and for an
-          event&apos;s topic. A change shows the next time a form is opened; a form that is already open keeps the
-          list it loaded. An answer&apos;s wording cannot be edited, because it is stored on everyone who chose it:
-          retire it and add a new one. An answer stored on records can be retired, not removed.
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* The name first, on the same line as Role's beside it; then what the answers are. */}
         <FieldNameEditor field="specialty" />
+        <div className="space-y-1 border-t pt-4">
+          <p className="text-sm font-medium">Answers</p>
+          <p className="text-sm text-muted-foreground">
+            The answers every Specialty picker offers: on the registration forms, in the dashboard and for an
+            event&apos;s topic. A change shows the next time a form is opened; a form that is already open keeps the
+            list it loaded. An answer&apos;s wording cannot be edited, because it is stored on everyone who chose it:
+            retire it and add a new one. An answer stored on records can be retired, not removed.
+          </p>
+        </div>
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {isError && saved === undefined && (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
@@ -253,9 +260,9 @@ export function FormFieldsCard() {
         {current.answers.length > 0 && (
           <ol className="divide-y rounded-lg border max-h-[28rem] overflow-y-auto">
             {current.answers.map((row, i) => (
-              <li key={row.answer} className="flex items-center gap-2 px-3 py-2">
+              <li key={row.answer} className="flex flex-wrap items-center gap-2 px-3 py-2">
                 <span className="w-7 text-xs text-muted-foreground tabular-nums">{i + 1}</span>
-                <span className={`flex-1 truncate text-sm ${row.retired ? "text-muted-foreground line-through" : ""}`}>{row.answer}</span>
+                <span title={row.answer} className={`min-w-[9rem] flex-1 truncate text-sm ${row.retired ? "text-muted-foreground line-through" : ""}`}>{row.answer}</span>
                 {row.retired && <Badge variant="secondary">Retired</Badge>}
                 {row.records > 0 && <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">{recordsLabel(row.records)}</span>}
                 <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Move ${row.answer} up`} disabled={busy || i === 0} onClick={() => move(i, i - 1)}>

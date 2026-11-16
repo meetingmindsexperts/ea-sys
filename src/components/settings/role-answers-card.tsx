@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Archive, ArrowDown, ArrowUp, Briefcase, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -100,13 +100,17 @@ export function RoleAnswersCard() {
           </div>
           Role
         </CardTitle>
-        <CardDescription>
-          The answers every Role picker offers, on the registration forms and in the dashboard. An answer held by records can
-          be retired, not removed. A change shows the next time a form is opened.
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* The name first, on the same line as Specialty's beside it; then what the answers are. */}
         <FieldNameEditor field="role" />
+        <div className="space-y-1 border-t pt-4">
+          <p className="text-sm font-medium">Answers</p>
+          <p className="text-sm text-muted-foreground">
+            The answers every Role picker offers, on the registration forms and in the dashboard. An answer held by records can
+            be retired, not removed. A change shows the next time a form is opened.
+          </p>
+        </div>
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {isError && saved === undefined && (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
@@ -130,11 +134,11 @@ export function RoleAnswersCard() {
         {rows.length > 0 && (
           <ol className="divide-y rounded-lg border max-h-[28rem] overflow-y-auto">
             {rows.map((row, i) => (
-              <li key={row.key ?? `new-${i}`} className="flex items-center gap-2 px-3 py-2">
+              <li key={row.key ?? `new-${i}`} className="flex flex-wrap items-center gap-2 px-3 py-2">
                 <span className="w-7 text-xs text-muted-foreground tabular-nums">{i + 1}</span>
                 <Input
                   aria-label={`Answer ${i + 1}`}
-                  className={`h-8 flex-1 ${row.retired ? "text-muted-foreground line-through" : ""}`}
+                  className={`h-8 min-w-[9rem] flex-1 ${row.retired ? "text-muted-foreground line-through" : ""}`}
                   value={row.label}
                   maxLength={MAX_PERSON_FIELD_ANSWER}
                   // A saved answer's name is fixed while the feed is connected; a new one is still being written.

@@ -142,14 +142,14 @@ function describeField(name: string, value: string | string[] | undefined, forma
  * The page's filters in words, for the export dialog ("Country: India or UAE").
  * Role is in the organisation's words: the caller passes its label reader.
  */
-export function describeContactFilters(query: ContactFilterParams, role: RoleLabelOf, roleCaption = "Role"): string[] {
+export function describeContactFilters(query: ContactFilterParams, role: RoleLabelOf, roleCaption = "Role", specialtyCaption = "Specialty"): string[] {
   const out: string[] = [];
   const search = query.search;
   if (typeof search === "string" && search) out.push(`Search: “${search}”`);
   const tags = query.tags;
   if (typeof tags === "string" && tags) out.push(`Tags: ${tags.split(",").join(", ")}`);
   for (const line of [
-    describeField("Specialty", query.specialty, plain),
+    describeField(specialtyCaption, query.specialty, plain),
     describeField("Country", query.country, plain),
     describeField(roleCaption, query.role, role),
   ]) {
