@@ -27,6 +27,8 @@ const {
 } = vi.hoisted(() => {
   return {
     mockDb: {
+      // The organisation's settings: none saved means today's nine (step 1c).
+      organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
       event: { findFirst: vi.fn() },
       ticketType: { findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
       pricingTier: { findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
@@ -1244,5 +1246,28 @@ describe("createRegistration — added as Faculty (Nov 10, 2026: Faculty is the 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("FACULTY_TERMS_INVALID");
     expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("createRegistration: Role is one of the organisation's answers (step 1c)", () => {
+  const OWN = { personFields: { role: { label: "Profession", options: [{ key: "ENGINEER", label: "Engineer" }] } } };
+
+  it("refuses a newly chosen role the organisation does not offer, before writing anything", async () => {
+    mockDb.organization.findUnique.mockResolvedValueOnce({ settings: OWN });
+    const result = await createRegistration({ ...BASE_INPUT, attendee: { ...BASE_INPUT.attendee, role: "PHYSICIAN" } });
+    expect(result).toMatchObject({ ok: false, code: "ROLE_NOT_OFFERED" });
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("keeps a role copied from another record (roleFromRecord), offered or not", async () => {
+    mockDb.organization.findUnique.mockResolvedValueOnce({ settings: OWN });
+    const result = await createRegistration({ ...BASE_INPUT, roleFromRecord: true, attendee: { ...BASE_INPUT.attendee, role: "PHYSICIAN" } });
+    expect(result.ok).toBe(true);
+  });
+
+  it("refuses a chosen role while the organisation's list cannot be read", async () => {
+    mockDb.organization.findUnique.mockRejectedValueOnce(new Error("pool timeout"));
+    const result = await createRegistration({ ...BASE_INPUT, attendee: { ...BASE_INPUT.attendee, role: "PHYSICIAN" } });
+    expect(result).toMatchObject({ ok: false, code: "ROLE_NOT_OFFERED" });
   });
 });

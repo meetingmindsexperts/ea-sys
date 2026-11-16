@@ -10,6 +10,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockAuth, mockDb, mockCreate, mockRecordPayment, mockExecuteCheckIn } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: {
+    // The organisation's settings: none saved means today's nine (step 1c).
+    organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
     event: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn() },
     ticketType: { findFirst: vi.fn() },

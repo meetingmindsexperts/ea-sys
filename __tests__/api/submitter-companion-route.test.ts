@@ -18,6 +18,8 @@ const { mockDb, ensureCompanionSpy } = vi.hoisted(() => {
   };
   return {
     mockDb: {
+      // The organisation's settings: none saved means today's nine (step 1c).
+      organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
       event: { findFirst: vi.fn() },
       user: { findUnique: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
       speaker: { findUnique: vi.fn().mockResolvedValue({ id: "sp1", sourceRegistrationId: null }), findFirst: vi.fn().mockResolvedValue(null) },

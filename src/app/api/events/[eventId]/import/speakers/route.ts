@@ -284,6 +284,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         continue;
       }
       const result = await updateSpeaker({
+        // The role is copied from a record or read from the file against the
+        // organisation's list, not newly chosen: a retired answer is kept.
+        roleFromRecord: true,
         speakerId: u.existing.id,
         eventId,
         organizationId: orgGuard.orgId,

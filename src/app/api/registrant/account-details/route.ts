@@ -119,9 +119,10 @@ export async function PUT(req: Request) {
       const before = await readAccountDetails(scope);
       // A NEWLY chosen Role must be one of the organisation's answers; the one
       // the account already holds is kept even if retired since (step 1c).
-      if (await roleAnswerRefusal(orgId, after.role, before.details.role)) {
+      const roleRefusal = await roleAnswerRefusal(orgId, after.role, before.details.role);
+      if (roleRefusal) {
         apiLogger.warn({ msg: "account-details:role-not-offered", userId: owner });
-        return NextResponse.json({ error: "Please check the highlighted fields.", fieldErrors: { role: ["Choose one of the roles listed"] } }, { status: 400 });
+        return NextResponse.json({ error: "Please check the highlighted fields.", fieldErrors: roleRefusal.fieldErrors }, { status: 400 });
       }
       const changed = changedFields(before.details, after);
 

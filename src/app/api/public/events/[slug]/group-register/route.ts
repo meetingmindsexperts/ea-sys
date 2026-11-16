@@ -11,7 +11,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
 import { titleEnum, optionalRoleAnswer, optionalSpecialty } from "@/lib/schemas";
-import { loadEventPersonFieldRules, loadOrganizationPersonFields } from "@/lib/person-field-rules";
+import { loadEventPersonFieldRules, loadRoleFieldForWrite } from "@/lib/person-field-rules";
 import { askedOnly, personFieldProblems, roleAnswerProblem } from "@/lib/person-field-check";
 import { isTrustedInternalEmail, needsEmailVerification } from "@/lib/internal-domains";
 import { sendEmailVerification } from "@/lib/email-verification";
@@ -203,10 +203,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // as this event asks them (its own choice over its organisation's): the
     // same demand the public form makes.
     // And each member's Role must be one of the organisation's answers (step 1c).
-    const [fieldRules, fields] = await Promise.all([loadEventPersonFieldRules(event), loadOrganizationPersonFields(event.organizationId)]);
+    const [fieldRules, roleField] = await Promise.all([loadEventPersonFieldRules(event), loadRoleFieldForWrite(event.organizationId)]);
     const memberFieldErrors: Record<string, string[]> = {};
     data.members.forEach((member, i) => {
-      const answer = roleAnswerProblem(fields.role, member.attendee.role);
+      const answer = roleAnswerProblem(roleField, member.attendee.role);
       for (const problem of [...personFieldProblems(member.attendee, fieldRules), ...(answer ? [answer] : [])]) {
         memberFieldErrors[`members.${i}.attendee.${problem.path}`] = [problem.message];
       }

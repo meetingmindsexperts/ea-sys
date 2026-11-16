@@ -34,6 +34,8 @@ const { mockDb, tx, transitionMock, claimSeatMock, confirmationMock } = vi.hoist
     claimSeatMock: vi.fn(),
     confirmationMock: vi.fn(),
     mockDb: {
+      // The organisation's settings: none saved means today's nine (step 1c).
+      organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
       verificationToken: { findUnique: vi.fn(), delete: vi.fn() },
       registration: { findFirst: vi.fn() },
       ticketType: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },

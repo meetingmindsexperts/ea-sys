@@ -30,8 +30,8 @@
  * all-or-nothing inside the same transaction — a sold-out tier or type
  * mid-group rolls the whole group back.
  */
-import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
-import { ROLE_NOT_OFFERED, roleAnswerProblem } from "@/lib/person-field-check";
+import { loadRoleFieldForWrite } from "@/lib/person-field-rules";
+import { roleAnswerProblem } from "@/lib/person-field-check";
 import {
   PaymentStatus,
   RegistrationStatus,
@@ -1200,10 +1200,12 @@ export async function addGroupMembers(
 
   // A Role must be one of the organisation's answers (step 1c): the route takes
   // any key since Role stopped being a fixed list.
-  const roleField = (await loadOrganizationPersonFields(organizationId)).role;
-  if (input.members.some((m) => roleAnswerProblem(roleField, m.attendee.role))) {
+  // Read strictly: an unreadable list refuses a chosen role (review of f2c00da9).
+  const roleField = await loadRoleFieldForWrite(organizationId);
+  const roleProblem = input.members.map((m) => roleAnswerProblem(roleField, m.attendee.role)).find(Boolean);
+  if (roleProblem) {
     apiLogger.warn({ groupId, coordinatorUserId }, "group-add-members:role-not-offered");
-    return { ok: false, code: "ROLE_NOT_OFFERED", message: ROLE_NOT_OFFERED };
+    return { ok: false, code: "ROLE_NOT_OFFERED", message: roleProblem.message };
   }
 
   // 2. Size: the cap counts LIVE members — a cancelled member frees their slot

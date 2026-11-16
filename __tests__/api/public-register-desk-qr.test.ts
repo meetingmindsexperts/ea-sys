@@ -23,6 +23,8 @@ const { mockDb, tx, mockApiLogger, rateKeys, rateLimits, claimPromo, ensureAccou
   return {
     tx,
     mockDb: {
+      // The organisation's settings: none saved means today's nine (step 1c).
+      organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
       event: { findFirst: vi.fn() },
       ticketType: { findFirst: vi.fn() },
       pricingTier: { findFirst: vi.fn(), findMany: vi.fn() },

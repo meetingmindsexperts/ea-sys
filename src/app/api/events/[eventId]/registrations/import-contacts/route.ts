@@ -90,6 +90,9 @@ function createFacultyRow(
   contact: FacultyContact,
 ) {
   return createRegistration({
+    // The role is copied from a record or read from the file against the
+    // organisation's list, not newly chosen: a retired answer is kept.
+    roleFromRecord: true,
       eventId: input.eventId,
       organizationId: input.organizationId,
       userId: input.userId,

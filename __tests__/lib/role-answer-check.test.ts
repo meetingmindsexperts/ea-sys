@@ -10,8 +10,8 @@ const { mockDb } = vi.hoisted(() => ({ mockDb: { organization: { findUnique: vi.
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { roleAnswerProblem, ROLE_NOT_OFFERED } from "@/lib/person-field-check";
-import { roleAnswerRefusal, resolveWrittenRole, checkEventPersonFields } from "@/lib/person-field-rules";
+import { roleAnswerProblem, ROLE_NOT_CHECKED, ROLE_NOT_OFFERED } from "@/lib/person-field-check";
+import { roleAnswerRefusal, resolveWrittenRole, checkEventPersonFields, writtenRoleOnOffer } from "@/lib/person-field-rules";
 import { defaultPersonFields, readPersonFields, PERSON_FIELDS_SETTING } from "@/lib/person-fields";
 
 const OWN_SETTINGS = {
@@ -62,10 +62,13 @@ describe("roleAnswerRefusal (a door with no event)", () => {
     expect(mockDb.organization.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "org1" } }));
   });
 
-  it("refuses an organisation's own answer when the list cannot be read, never stores it unchecked", async () => {
+  // Review of f2c00da9: a write never falls back to today's nine, which an
+  // organisation without them would then store as keys it does not have.
+  it("refuses any newly chosen role when the list cannot be read, and keeps a held one", async () => {
     mockDb.organization.findUnique.mockRejectedValue(new Error("pool timeout"));
-    expect(await roleAnswerRefusal("org1", "ENGINEER")).not.toBeNull();
-    expect(await roleAnswerRefusal("org1", "PHYSICIAN")).toBeNull();
+    expect(await roleAnswerRefusal("org1", "ENGINEER")).toEqual({ formErrors: [], fieldErrors: { role: [ROLE_NOT_CHECKED] } });
+    expect(await roleAnswerRefusal("org1", "PHYSICIAN")).toEqual({ formErrors: [], fieldErrors: { role: [ROLE_NOT_CHECKED] } });
+    expect(await roleAnswerRefusal("org1", "OLD", "OLD")).toBeNull();
   });
 
   it("does not read anything when no role is chosen", async () => {
@@ -95,5 +98,31 @@ describe("resolveWrittenRole (the agent's tools)", () => {
   it("refuses a retired or unknown answer and says what is on offer", async () => {
     expect(await resolveWrittenRole("org1", "Old job")).toEqual({ ok: false, offered: ["Engineer"] });
     expect(await resolveWrittenRole("org1", "Physician")).toEqual({ ok: false, offered: ["Engineer"] });
+  });
+});
+
+describe("review of f2c00da9", () => {
+  it("an event door refuses a chosen role when the list cannot be read, but keeps the rules", async () => {
+    mockDb.organization.findUnique.mockRejectedValue(new Error("pool timeout"));
+    const event = { organizationId: "org1", settings: {} };
+    const chosen = await checkEventPersonFields(event, { role: "PHYSICIAN", specialty: "Cardiology" });
+    expect(chosen.refusal?.fieldErrors.role).toEqual([ROLE_NOT_CHECKED]);
+    const held = await checkEventPersonFields(event, { role: "PHYSICIAN", specialty: "Cardiology" }, { storedRole: "PHYSICIAN" });
+    expect(held.refusal).toBeNull();
+  });
+
+  it("a written role matches the answers ON OFFER, never a retired one whose label reads the same", () => {
+    const renamed = readPersonFields({
+      [PERSON_FIELDS_SETTING]: {
+        role: { label: "Role", options: [{ key: "OLD_DOC", label: "Physician", retired: true }, { key: "PHYSICIAN", label: "Doctor" }] },
+      },
+    }).role;
+    expect(writtenRoleOnOffer(renamed, "Physician")).toEqual({ ok: true, key: "PHYSICIAN" });
+    expect(writtenRoleOnOffer(renamed, "doctor")).toEqual({ ok: true, key: "PHYSICIAN" });
+  });
+
+  it("the agent's tools refuse while the list cannot be read", async () => {
+    mockDb.organization.findUnique.mockRejectedValue(new Error("pool timeout"));
+    expect(await resolveWrittenRole("org1", "Engineer")).toEqual({ ok: false, offered: [] });
   });
 });

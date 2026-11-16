@@ -1,5 +1,4 @@
-import { loadOrganizationPersonFields, resolveWrittenRole } from "@/lib/person-field-rules";
-import { answerKeyFor, isOfferedAnswer, offeredAnswers } from "@/lib/person-fields";
+import { loadRoleFieldForWrite, resolveWrittenRole, writtenRoleOnOffer } from "@/lib/person-field-rules";
 import { registrationSettleNotice } from "@/lib/speaker-registration-messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -112,6 +111,7 @@ const createSpeakerTool: ToolExecutor = async (input, ctx) => {
     // Role: one of the organisation's answers, by key or label (step 1c).
     const roleRead = await resolveWrittenRole(ctx.organizationId, input.role);
     if (!roleRead.ok) {
+      if (roleRead.offered.length === 0) return { error: "The organisation's roles could not be read just now; try again." };
       return { error: `Invalid role "${String(input.role)}". Must be one of: ${roleRead.offered.join(", ")}` };
     }
     const rawRole = roleRead.key ?? undefined;
@@ -498,8 +498,9 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
     const created: Array<{ index: number; id: string; email: string; firstName: string; lastName: string }> = [];
     const errors: Array<{ index: number; email?: string; error: string; code?: string }> = [];
 
-    // The organisation's Role answers, read once for the whole batch (step 1c).
-    const roleField = (await loadOrganizationPersonFields(ctx.organizationId)).role;
+    // The organisation's Role answers, read once for the whole batch (step 1c),
+    // strictly: an unreadable list refuses every written role (review of f2c00da9).
+    const roleField = await loadRoleFieldForWrite(ctx.organizationId);
     for (let i = 0; i < items.length; i++) {
       const row = items[i] as Record<string, unknown>;
       try {
@@ -546,11 +547,14 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
         // countries and "—" professions on their companion registrations.
         // Role: one of the organisation's answers, by key or label (step 1c).
         const writtenRole = row.role ? String(row.role) : undefined;
-        const role = writtenRole ? answerKeyFor(roleField, writtenRole) ?? undefined : undefined;
-        if (writtenRole && (!role || !isOfferedAnswer(roleField, role))) {
-          errors.push({ index: i, email, error: `Invalid role; must be one of ${offeredAnswers(roleField).map((o) => o.label).join(", ")}`, code: "INVALID_ROLE" });
+        const roleRead = writtenRole && roleField ? writtenRoleOnOffer(roleField, writtenRole) : null;
+        if (writtenRole && !roleRead?.ok) {
+          const offered = roleRead && !roleRead.ok ? roleRead.offered.join(", ") : "";
+          const error = roleField ? `Invalid role; must be one of ${offered}` : "The organisation's roles could not be read; try again";
+          errors.push({ index: i, email, error, code: "INVALID_ROLE" });
           continue;
         }
+        const role = roleRead?.ok ? roleRead.key : undefined;
 
         const speaker = await db.speaker.create({
           data: {

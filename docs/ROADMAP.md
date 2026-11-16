@@ -176,6 +176,34 @@ reference document. Left, with why:
 Plan: `docs/ORG_FIELDS_PLAN.md`. The review of step 0a (`78a0b8a6`) and of the
 plan found these outside the plan's own steps.
 
+From the review of `f2c00da9` (step 1c part C1, the doors), Nov 16: 0 BLOCKER,
+0 HIGH, 3 MED, 6 LOW. Fixed: all three MEDs (copied roles, CSV updates, writers
+that fell back to today's nine) and LOW 2 (in part), 3, 5, 6. Left:
+
+- **LOW 1: the doors guard can be slipped past.** `TAKES_THE_FIELDS` notices
+  only `role: roleAnswer|optionalRoleAnswer`, so a new route with
+  `role: z.string()` and no other person field is never classified (the venue
+  assistant and certificate templates have a `role` of their own, so the
+  pattern needs their exemptions first); and the check that a route reaches an
+  answer check matches anywhere in the file, not at the write.
+- **LOW 2, rest: route-level tests** of `ROLE_NOT_OFFERED` from the speaker
+  and group services and of the stored-value exemption at each edit door
+  (the shared check and `createRegistration` are pinned).
+- **LOW 4: extra organisation reads.** Walk-in, abstract sign-up and the
+  single agent create read the organisation twice; the CSV update rows and
+  faculty imported from contacts read it once per row through the services.
+- **LOW 5, rest: the refusal says "roles"** whatever the organisation calls
+  the field. Follows the label once 1d can change it.
+- **Older defect: the MCP schemas for `create_registration`,
+  `create_registrations_bulk`, `create_speaker`, `update_registration`,
+  `update_speaker`, `create_contact` and `update_contact` have no `role` key**,
+  so the agent can set a role only through `create_speakers_bulk`. Add it to
+  the schemas when the agent should set roles.
+- **Older defect: other copies of a role never check it**: speaker companion,
+  `person-details-sync`, speakers imported from registrations or contacts.
+  Harmless (they copy stored keys), recorded so a future reader does not take
+  them for doors.
+
 From the review of `5c89e2b8` (step 1c part B, the CSV imports), Nov 16: 0
 BLOCKER, 0 HIGH, 3 MED, 5 LOW, all latent until a list can be saved. Fixed: M1
 (the imports read the organisation strictly: a failed read fails the import

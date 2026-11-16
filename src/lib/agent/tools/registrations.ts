@@ -254,6 +254,7 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
     // Role: one of the organisation's answers, by key or label (step 1c).
     const roleRead = await resolveWrittenRole(ctx.organizationId, input.role);
     if (!roleRead.ok) {
+      if (roleRead.offered.length === 0) return { error: "The organisation's roles could not be read just now; try again." };
       return { error: `Invalid role "${String(input.role)}". Must be one of: ${roleRead.offered.join(", ")}` };
     }
     const rawRole = roleRead.key ?? undefined;

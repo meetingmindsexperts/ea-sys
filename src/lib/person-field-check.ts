@@ -54,15 +54,30 @@ const PATHS = Object.keys(UNMET) as PersonFieldPath[];
 export const ROLE_NOT_OFFERED = "Choose one of the roles listed";
 
 /**
+ * What a door says when the organisation's list could not be read: a write
+ * may not fall back to today's nine (review of f2c00da9: an organisation
+ * without them would store a key it does not have), so a newly chosen Role is
+ * refused until the list can be read.
+ */
+export const ROLE_NOT_CHECKED = "We could not check this answer just now. Please try again.";
+
+/** Whether this Role is NEWLY chosen (not blank, not the value the record holds). */
+export function isNewlyChosenRole(chosen: unknown, stored?: string | null): chosen is string {
+  if (typeof chosen !== "string" || chosen.trim() === "") return false;
+  return !(stored != null && chosen === stored);
+}
+
+/**
  * Whether a door may store this Role (step 1c): a NEWLY chosen answer must be
  * one the organisation offers now; the answer the record already holds is kept
  * even if it was retired since (an edit re-posts it). Nothing chosen is not
  * this check's business (`personFieldProblems` says whether one is demanded).
  * Replaces the fixed list of nine that every door's schema held.
  */
-export function roleAnswerProblem(roleField: PersonFieldConfig, chosen: unknown, stored?: string | null): PersonFieldProblem | null {
-  if (typeof chosen !== "string" || chosen.trim() === "") return null;
-  if (stored != null && chosen === stored) return null;
+export function roleAnswerProblem(roleField: PersonFieldConfig | null, chosen: unknown, stored?: string | null): PersonFieldProblem | null {
+  if (!isNewlyChosenRole(chosen, stored)) return null;
+  // No list in hand (it could not be read): refuse, never store unchecked.
+  if (!roleField) return { path: "role", message: ROLE_NOT_CHECKED };
   return isOfferedAnswer(roleField, chosen) ? null : { path: "role", message: ROLE_NOT_OFFERED };
 }
 

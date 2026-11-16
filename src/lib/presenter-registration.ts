@@ -131,6 +131,9 @@ export async function createAndLinkPayableRegistration(
   const { eventId, organizationId, speaker, logPrefix } = input;
 
   const created = await createRegistration({
+    // The role is copied from a record or read from the file against the
+    // organisation's list, not newly chosen: a retired answer is kept.
+    roleFromRecord: true,
     eventId,
     organizationId,
     // Null on the public door: no staff member acted. "" failed the audit FK.

@@ -47,6 +47,8 @@ const {
 
 vi.mock("@/lib/db", () => ({
   db: {
+    // The organisation's settings: none saved means today's nine (step 1c).
+    organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
     verificationToken: { findUnique: mockTokenFindUnique, delete: mockTokenDelete },
     registration: { findFirst: mockRegFindFirst },
     ticketType: { findFirst: mockTtFindFirst, findMany: mockTtFindMany },

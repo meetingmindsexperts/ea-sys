@@ -13,7 +13,7 @@ import {
   type PersonFieldRules,
   type PersonFieldsConfig,
 } from "@/lib/person-fields";
-import { personFieldProblems, roleAnswerProblem, type PersonFieldProblem } from "@/lib/person-field-check";
+import { isNewlyChosenRole, personFieldProblems, roleAnswerProblem, type PersonFieldProblem } from "@/lib/person-field-check";
 
 /**
  * The rules a form follows for Title, Role and Specialty, read on the server
@@ -86,21 +86,41 @@ export async function loadOrganizationPersonFieldRules(organizationId: string | 
 }
 
 /** An event door's fields (for the answers) and rules (shown, demanded), from ONE read. */
-async function loadEventFields(event: PersonFieldEvent): Promise<{ fields: PersonFieldsConfig; rules: PersonFieldRules }> {
+/**
+ * An event door's fields and rules, from ONE read. `fields` is null when the
+ * read failed: the rules still fall back to today's (a registration must not
+ * fail because the "shown, demanded" read did), but the ANSWERS do not, so a
+ * newly chosen Role is then refused rather than checked against a list the
+ * organisation may not have (review of f2c00da9).
+ */
+async function loadEventFields(event: PersonFieldEvent): Promise<{ fields: PersonFieldsConfig | null; rules: PersonFieldRules }> {
   if (!event.organizationId) return { fields: defaultPersonFields(), rules: DEFAULT_PERSON_FIELD_RULES };
   const choices = readEventPersonFieldChoices(event.settings);
   try {
     const fields = await readOrganizationFields(event.organizationId);
     return { fields, rules: personFieldRules(withEventChoices(fields, choices)) };
   } catch (err) {
-    // As above: a registration must not fail because this one read did. The
-    // event's own choice is already in hand, so it still applies, over today's
-    // rules: otherwise the route would demand a field this event's form hides.
-    // The answers fall back to today's nine: a newly chosen answer outside them
-    // is refused, never stored unchecked (step 1c).
+    // As above: the event's own choice is already in hand, so it still
+    // applies, over today's rules: otherwise the route would demand a field
+    // this event's form hides.
     apiLogger.error({ err, organizationId: event.organizationId, msg: "person-field-rules:read-failed" });
-    const fields = defaultPersonFields();
-    return { fields, rules: personFieldRules(withEventChoices(fields, choices)) };
+    return { fields: null, rules: personFieldRules(withEventChoices(defaultPersonFields(), choices)) };
+  }
+}
+
+/**
+ * The organisation's Role field for a WRITER that judges answers (a door, a
+ * service, the agent's tools): null when it cannot be read, and the caller
+ * refuses a newly chosen Role then (`roleAnswerProblem(null, ...)`). No
+ * organisation means today's list. Logged once here.
+ */
+export async function loadRoleFieldForWrite(organizationId: string | null | undefined): Promise<PersonFieldsConfig["role"] | null> {
+  if (!organizationId) return defaultPersonFields().role;
+  try {
+    return (await readOrganizationFields(organizationId)).role;
+  } catch (err) {
+    apiLogger.error({ err, organizationId, msg: "person-fields:read-failed-for-write" });
+    return null;
   }
 }
 
@@ -146,7 +166,7 @@ function refusalOf(problems: PersonFieldProblem[]): PersonFieldRefusal | null {
 
 export async function checkEventPersonFields(event: PersonFieldEvent, values: PersonFieldInput, opts: PersonFieldCheckOptions = {}): Promise<PersonFieldCheck> {
   const { fields, rules } = await loadEventFields(event);
-  const answer = roleAnswerProblem(fields.role, values.role, opts.storedRole);
+  const answer = roleAnswerProblem(fields?.role ?? null, values.role, opts.storedRole);
   const refusal = refusalOf([...personFieldProblems(values, rules, opts), ...(answer ? [answer] : [])]);
   return refusal ? { refusal, rules } : { refusal: null, rules };
 }
@@ -163,9 +183,9 @@ export async function personFieldRefusal(event: PersonFieldEvent, values: Person
  * a new answer outside them is refused rather than stored unchecked.
  */
 export async function roleAnswerRefusal(organizationId: string | null | undefined, chosen: unknown, stored?: string | null): Promise<PersonFieldRefusal | null> {
-  if (typeof chosen !== "string" || chosen.trim() === "") return null;
-  const fields = await loadOrganizationPersonFields(organizationId);
-  const problem = roleAnswerProblem(fields.role, chosen, stored);
+  // Nothing newly chosen: no read at all.
+  if (!isNewlyChosenRole(chosen, stored)) return null;
+  const problem = roleAnswerProblem(await loadRoleFieldForWrite(organizationId), chosen, stored);
   return problem ? refusalOf([problem]) : null;
 }
 
@@ -180,8 +200,23 @@ export async function resolveWrittenRole(
   written: unknown,
 ): Promise<{ ok: true; key: string | null } | { ok: false; offered: string[] }> {
   if (typeof written !== "string" || written.trim() === "") return { ok: true, key: null };
-  const roleField = (await loadOrganizationPersonFields(organizationId)).role;
-  const key = answerKeyFor(roleField, written);
-  if (key && isOfferedAnswer(roleField, key)) return { ok: true, key };
-  return { ok: false, offered: offeredAnswers(roleField).map((o) => o.label) };
+  const roleField = await loadRoleFieldForWrite(organizationId);
+  // Unreadable list: refuse (offered is empty; the tool says to try again).
+  if (!roleField) return { ok: false, offered: [] };
+  return writtenRoleOnOffer(roleField, written);
+}
+
+/**
+ * A written Role matched against the answers ON OFFER only (review of
+ * f2c00da9: a retired answer whose label reads like an offered key must not
+ * win the match). For a caller that creates records from what it is told.
+ */
+export function writtenRoleOnOffer(
+  roleField: PersonFieldsConfig["role"],
+  written: string,
+): { ok: true; key: string } | { ok: false; offered: string[] } {
+  const offered = offeredAnswers(roleField).filter((o) => isOfferedAnswer(roleField, o.key));
+  const key = answerKeyFor({ options: offered }, written);
+  if (key) return { ok: true, key };
+  return { ok: false, offered: offered.map((o) => o.label) };
 }

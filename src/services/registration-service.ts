@@ -197,6 +197,13 @@ export type RegistrationTitle = "DR" | "MR" | "MRS" | "MS" | "PROF";
 export type RegistrationAttendeeRole = string;
 
 export interface CreateRegistrationInput {
+  /**
+   * The Role was COPIED from another record or read from a file against the
+   * organisation's list (an import), not newly chosen by a person: kept even
+   * if the answer has been retired (review of f2c00da9).
+   */
+  roleFromRecord?: boolean;
+
   eventId: string;
   organizationId: string;
   /**
@@ -551,7 +558,8 @@ export async function createRegistration(
   const firstName = input.attendee.firstName;
   const lastName = input.attendee.lastName;
   const attendeeTitle = input.attendee.title ?? null;
-  const attendeeRole = input.attendee.role ?? null;
+  // "" is no role (review of f2c00da9: a direct caller copying a blank stored "").
+  const attendeeRole = input.attendee.role || null;
   // `additionalEmail` — public form accepts empty string meaning "not
   // provided"; coerce to null so the DB column stays nullable-clean.
   const additionalEmail = input.attendee.additionalEmail
@@ -674,9 +682,10 @@ export async function createRegistration(
   }
   // A Role must be one of the organisation's answers (step 1c): the schema
   // takes any text since Role stopped being a fixed list.
-  if (await roleAnswerRefusal(event.organizationId, attendeeRole)) {
+  const roleRefusal = await roleAnswerRefusal(event.organizationId, attendeeRole, input.roleFromRecord ? attendeeRole : undefined);
+  if (roleRefusal) {
     apiLogger.warn({ msg: "registration-create:role-not-offered", eventId, source: input.source });
-    return { ok: false, code: "ROLE_NOT_OFFERED", message: ROLE_NOT_OFFERED };
+    return { ok: false, code: "ROLE_NOT_OFFERED", message: roleRefusal.fieldErrors.role?.[0] ?? ROLE_NOT_OFFERED };
   }
   if (ticketTypeId && !ticketType) {
     return {
@@ -1339,6 +1348,13 @@ export interface UpdateRegistrationAttendeeInput {
 }
 
 export interface UpdateRegistrationInput {
+  /**
+   * The Role was COPIED from another record or read from a file against the
+   * organisation's list (an import), not newly chosen by a person: kept even
+   * if the answer has been retired (review of f2c00da9).
+   */
+  roleFromRecord?: boolean;
+
   eventId: string;
   registrationId: string;
   organizationId: string;
@@ -1459,9 +1475,11 @@ export async function updateRegistration(
 
     // A NEWLY chosen Role must be one of the organisation's answers; the one the
     // attendee already holds is kept even if retired since (step 1c).
-    if (await roleAnswerRefusal(organizationId, input.attendee?.role, existing.attendee.role)) {
+    const chosenRole = input.attendee?.role;
+    const roleRefusal = await roleAnswerRefusal(organizationId, chosenRole, input.roleFromRecord ? chosenRole : existing.attendee.role);
+    if (roleRefusal) {
       apiLogger.warn({ msg: "registration-update:role-not-offered", registrationId, eventId, source });
-      return { ok: false, code: "ROLE_NOT_OFFERED", message: ROLE_NOT_OFFERED };
+      return { ok: false, code: "ROLE_NOT_OFFERED", message: roleRefusal.fieldErrors.role?.[0] ?? ROLE_NOT_OFFERED };
     }
 
     // ── Validate enum-ish inputs (typed callers pass enums; re-check anyway) ─

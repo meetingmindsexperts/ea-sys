@@ -52,6 +52,13 @@ export type SpeakerTitle = "DR" | "MR" | "MRS" | "MS" | "PROF";
 export type SpeakerAttendeeRole = string;
 
 export interface CreateSpeakerInput {
+  /**
+   * The Role was COPIED from another record or read from a file against the
+   * organisation's list (an import), not newly chosen by a person: kept even
+   * if the answer has been retired (review of f2c00da9).
+   */
+  roleFromRecord?: boolean;
+
   eventId: string;
   organizationId: string;
   userId: string;
@@ -192,9 +199,10 @@ export async function createSpeaker(
     return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" };
   }
   // A Role must be one of the organisation's answers (step 1c).
-  if (await roleAnswerRefusal(organizationId, normRole)) {
+  const roleRefusal = await roleAnswerRefusal(organizationId, normRole, input.roleFromRecord ? normRole : undefined);
+  if (roleRefusal) {
     apiLogger.warn({ msg: "speaker-create:role-not-offered", eventId, source: input.source });
-    return { ok: false, code: "ROLE_NOT_OFFERED", message: ROLE_NOT_OFFERED };
+    return { ok: false, code: "ROLE_NOT_OFFERED", message: roleRefusal.fieldErrors.role?.[0] ?? ROLE_NOT_OFFERED };
   }
   if (existingSpeaker) {
     return {
@@ -540,6 +548,13 @@ export interface UpdateSpeakerFields {
 }
 
 export interface UpdateSpeakerInput {
+  /**
+   * The Role was COPIED from another record or read from a file against the
+   * organisation's list (an import), not newly chosen by a person: kept even
+   * if the answer has been retired (review of f2c00da9).
+   */
+  roleFromRecord?: boolean;
+
   speakerId: string;
   eventId: string;
   organizationId: string;
@@ -609,9 +624,10 @@ export async function updateSpeaker(
 
     // A NEWLY chosen Role must be one of the organisation's answers; the one
     // the speaker already holds is kept even if retired since (step 1c).
-    if (await roleAnswerRefusal(organizationId, fields.role, existing.role)) {
+    const roleRefusal = await roleAnswerRefusal(organizationId, fields.role, input.roleFromRecord ? fields.role : existing.role);
+    if (roleRefusal) {
       apiLogger.warn({ msg: "speaker-update:role-not-offered", speakerId, eventId, source: input.source });
-      return { ok: false, code: "ROLE_NOT_OFFERED", message: ROLE_NOT_OFFERED };
+      return { ok: false, code: "ROLE_NOT_OFFERED", message: roleRefusal.fieldErrors.role?.[0] ?? ROLE_NOT_OFFERED };
     }
 
     // The speaker's own registration type text is not theirs to set while a

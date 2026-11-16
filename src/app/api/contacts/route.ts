@@ -171,7 +171,8 @@ export async function POST(req: Request) {
     const roleRefusal = await roleAnswerRefusal(ctx.organizationId, role);
     if (roleRefusal) {
       apiLogger.warn({ msg: "contacts:create-role-not-offered", organizationId: ctx.organizationId });
-      return NextResponse.json({ error: "Invalid input", details: roleRefusal }, { status: 400 });
+      // The reason itself, which the staff toast shows (review of f2c00da9).
+      return NextResponse.json({ error: roleRefusal.fieldErrors.role?.[0] ?? "Invalid input", details: roleRefusal }, { status: 400 });
     }
 
     const existing = await db.contact.findUnique({

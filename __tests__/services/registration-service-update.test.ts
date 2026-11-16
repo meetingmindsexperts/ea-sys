@@ -43,6 +43,8 @@ const { mockDb } = vi.hoisted(() => {
   };
   return {
     mockDb: {
+      // The organisation's settings: none saved means today's nine (step 1c).
+      organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
       registration: { findFirst: vi.fn() },
       event: { findFirst: vi.fn() },
       ticketType: { findFirst: vi.fn(), findUnique: vi.fn() },

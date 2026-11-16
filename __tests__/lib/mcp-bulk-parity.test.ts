@@ -31,6 +31,8 @@ const { mockDb, mockSyncToContact, mockExecuteBulkEmail, MockBulkEmailError } = 
   }
   return {
     mockDb: {
+      // The organisation's settings: none saved means today's nine (step 1c).
+      organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
       speaker: { findFirst: vi.fn(), create: vi.fn(), count: vi.fn() },
       registration: { count: vi.fn() },
       user: { findUnique: vi.fn() },

@@ -366,6 +366,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           continue;
         }
         const result = await updateRegistration({
+          // The role is copied from a record or read from the file against the
+          // organisation's list, not newly chosen: a retired answer is kept.
+          roleFromRecord: true,
           eventId,
           registrationId: existingReg.id,
           organizationId: orgGuard.orgId,
