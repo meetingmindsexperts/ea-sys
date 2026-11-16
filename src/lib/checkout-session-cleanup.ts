@@ -15,7 +15,9 @@ import { getStripe } from "@/lib/stripe";
  * completion/expiry; this helper is the ONE cancel-side consumer, called
  * post-commit (fire-and-forget) by every cancel path — cancelRegistration,
  * the REST PUT status flip, and the MCP single/bulk updates — so the logic
- * can't drift across callers.
+ * can't drift across callers. Since Nov 16, 2026 it is also called when a
+ * promo code settles a registration (promo-code-service.ts): the open tab
+ * holds the price from before the code.
  *
  * NEVER throws: a cancel must not fail because Stripe is unreachable, and
  * expiring an already-completed/expired session is a benign Stripe error.

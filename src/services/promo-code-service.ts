@@ -7,6 +7,8 @@ import { sponsorExistsOnEvent } from "@/lib/sponsors";
 import { sponsorCoverError } from "@/lib/promo-sponsor-cover";
 import { paymentStatusForFee, promoDiscount, promoRefusal, promoSponsorCovers, type PromoRefusal } from "@/lib/promo-redeem";
 import { refreshEventStats } from "@/lib/event-stats";
+import { settlementBlocker, type SettlementBlocker } from "@/lib/promo-settlement";
+import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { lockRegistrationRows } from "@/lib/registration-row-lock";
 
 /**
@@ -198,9 +200,22 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
       // rule the public form uses (`paymentStatusForFee`; owner, Nov 16, 2026).
       // A code that leaves a balance changes no status: UNPAID and PENDING
       // stay what they were.
+      //
+      // Not every registration may be settled this way (review of a9573a45):
+      // a cancelled one, a group member (the group's invoice pays), and one
+      // that already holds money, which Complimentary would hide from refunds
+      // and credit notes. Those keep their status; the code still applies.
       const sponsorCovered = promoSponsorCovers(promo, finalPrice);
       const feeStatus = paymentStatusForFee(sponsorCovered, finalPrice);
-      const settledAs = feeStatus === "UNPAID" ? null : feeStatus;
+      let settleBlockedBy: SettlementBlocker | null = null;
+      if (feeStatus !== "UNPAID") {
+        const paid = await tx.payment.aggregate({
+          where: { registrationId: reg.id, status: "PAID" },
+          _sum: { amount: true },
+        });
+        settleBlockedBy = settlementBlocker(reg, Number(paid._sum.amount ?? 0));
+      }
+      const settledAs = feeStatus === "UNPAID" || settleBlockedBy ? null : feeStatus;
       const settleData = {
         ...(settledAs ? { paymentStatus: settledAs } : {}),
         // The sponsor pays: the registration is attributed to them, as at the form.
@@ -264,6 +279,7 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
         code: promo.code,
         replaced,
         settledAs,
+        settleBlockedBy,
         previousPaymentStatus: reg.paymentStatus,
         financials: { code: promo.code, originalPrice: basePrice, discountAmount, finalPrice, currency },
       };
@@ -278,9 +294,15 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
       discountAmount: out.financials.discountAmount,
       replaced: out.replaced,
       settledAs: out.settledAs,
+      ...(out.settleBlockedBy ? { settleBlockedBy: out.settleBlockedBy } : {}),
     });
-    // The event's counts by payment status moved.
-    if (out.settledAs) refreshEventStats(input.eventId);
+    if (out.settledAs) {
+      // The event's counts by payment status moved.
+      refreshEventStats(input.eventId);
+      // A checkout tab opened at the old price must not take money now: paid
+      // there, the webhook would mark this PAID and invoice the full fee.
+      void expireOpenCheckoutSessionOnCancel(input.registrationId, "promo-settle");
+    }
 
     // Fire-and-forget audit — a log failure must not undo a committed application.
     db.auditLog

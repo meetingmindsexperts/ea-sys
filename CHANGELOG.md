@@ -16,6 +16,11 @@ Owner decision, reversing the Nov 12 ruling ("a code entered after registering s
 - **Trade**: a registrant can no longer remove a full-fee code themselves once it has settled the registration, as with a code entered on the form. Staff set the payment status back to Unpaid, then remove it.
 - **Added**: `scripts/settle-promo-covered-registrations.ts` brings the existing rows into line (dry run by default; `--write` to apply; one audit entry per registration; no email, invoice or counter is touched). Production had 14 on Nov 16. **Run it after this deploys.**
 - **Docs**: `docs/PAYMENT_FLOW.md` section 10, the user guide's payment reminder note, ROADMAP.
+- **Review of `a9573a45`** (0 BLOCKER, 0 HIGH, 2 MED, 8 LOW; both MEDs and six LOWs fixed):
+  - MED: a group member was settled, so a group whose members all used a code could no longer be paid for by card. MED: a registration that already held a part payment became Complimentary, which hid the money from refunds and credit notes. Neither is settled now, nor is a cancelled registration: one rule, `settlementBlocker`, asked by the service and by the script. The code still applies.
+  - Older defect, fixed: a checkout tab opened before the code kept working at the old price, and paying there marked the registration Paid with a full-fee invoice. A settle now closes the tab. The script leaves a payment in progress to a person.
+  - LOW: the script's write is guarded on the code, the discount, the type and the rate as well as the status; `--event` with no id refuses; the events' cached counts are refreshed; the desk and staff create path asks `paymentStatusForFee` too (it held a third copy); three comments that still stated the old ruling.
+  - Left, in ROADMAP: the sponsor stays on a registration after a sponsor's settle is undone, the sheet's promo box on cancelled and group registrations, and five older LOWs.
 
 ### Webinar Console: send the attendee page, not Zoom's link, and a console that follows the webinar's state (November 16)
 

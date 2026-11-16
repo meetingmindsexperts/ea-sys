@@ -171,9 +171,9 @@ function bulkTagVerb(mode: string): string {
  * (the same helper the CSV's "Total Paid" / "Amount Due" use, so the table and
  * the export cannot disagree). Absent for a role that cannot see money.
  *
- * A code that covers the whole fee is named here (owner, Nov 12, 2026): a code
- * entered after registering leaves the payment status UNPAID with nothing
- * due, and a bare "-" beside UNPAID read as a figure gone missing.
+ * A code that covers the whole fee is named here (owner, Nov 12, 2026). Until
+ * Nov 16, 2026 a code entered after registering left the payment status UNPAID
+ * with nothing due, and a bare "-" beside UNPAID read as a figure gone missing.
  */
 function RowMoney({ money, promoCode }: { money: Registration["rowMoney"]; promoCode?: string | null }) {
   const paid = !!money && money.totalPaid > 0;

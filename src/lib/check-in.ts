@@ -118,8 +118,9 @@ export function isComplimentaryRegistration(reg: {
   // already right, so the two cannot disagree about what someone owes.
   //
   // And when a code or discount takes the whole of that price (Nov 13, 2026).
-  // A 100% code entered after registering leaves the payment status UNPAID
-  // (owner ruling, Nov 12, 2026), so the status cannot say it: the amounts do.
+  // Until Nov 16, 2026 a 100% code entered after registering left the payment
+  // status UNPAID, and some registrations still read so (a part payment, a
+  // group member), so the status cannot say it: the amounts do.
   return registrationChargesNothing({
     originalPrice: reg.originalPrice,
     pricingTier: reg.pricingTierPrice == null ? null : { price: reg.pricingTierPrice },

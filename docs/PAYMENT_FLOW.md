@@ -500,7 +500,11 @@ apply promo:
 The status follows the balance, whenever it reaches zero (owner, Nov 16, 2026):
 `paymentStatusForFee` in [promo-redeem.ts](../src/lib/promo-redeem.ts) is the one
 rule, asked by the public form and by a code entered after registering. A code
-that leaves a balance changes no status. Once settled, the code is not removed
+that leaves a balance changes no status. Three registrations are never settled
+by a code, though the code still applies (`settlementBlocker` in
+[promo-settlement.ts](../src/lib/promo-settlement.ts)): a cancelled one, a group
+member, and one that already holds a payment. A settle closes any checkout tab
+opened at the old price. Once settled, the code is not removed
 through the promo routes (`ALREADY_SETTLED`); staff set the payment status back
 to Unpaid first.
 

@@ -10,17 +10,19 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => {
   const registration = { findFirst: vi.fn(), update: vi.fn() };
   const promoCode = { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), create: vi.fn() };
   const promoCodeRedemption = { deleteMany: vi.fn(), count: vi.fn(), create: vi.fn(), updateMany: vi.fn() };
+  const payment = { aggregate: vi.fn() };
   const $queryRaw = vi.fn().mockResolvedValue([{ id: "promo-1" }]);
   return {
     mockDb: {
       registration,
       promoCode,
       promoCodeRedemption,
+      payment,
       event: { findFirst: vi.fn() },
       ticketType: { count: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
       $transaction: vi.fn(async (cb: (tx: unknown) => unknown) =>
-        cb({ registration, promoCode, promoCodeRedemption, $queryRaw }),
+        cb({ registration, promoCode, promoCodeRedemption, payment, $queryRaw }),
       ),
       $queryRaw,
     },
@@ -37,6 +39,8 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 const refreshStatsSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: refreshStatsSpy }));
+const expireCheckoutSpy = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/checkout-session-cleanup", () => ({ expireOpenCheckoutSessionOnCancel: expireCheckoutSpy }));
 const sponsorExistsSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/sponsors", () => ({ sponsorExistsOnEvent: sponsorExistsSpy }));
 
@@ -45,6 +49,8 @@ import { applyPromoCodeToRegistration, claimPromoCodeInTx, createPromoCode, reco
 const REG = {
   id: "reg-1",
   eventId: "evt-1",
+  status: "CONFIRMED",
+  groupId: null as string | null,
   paymentStatus: "UNPAID",
   promoCodeId: null as string | null,
   ticketTypeId: "tt-1",
@@ -82,6 +88,7 @@ beforeEach(() => {
   mockDb.promoCodeRedemption.create.mockResolvedValue({});
   mockDb.promoCodeRedemption.updateMany.mockResolvedValue({ count: 1 });
   mockDb.auditLog.create.mockResolvedValue({});
+  mockDb.payment.aggregate.mockResolvedValue({ _sum: { amount: null } });
 });
 
 describe("applyPromoCodeToRegistration", () => {
@@ -261,7 +268,50 @@ describe("applyPromoCodeToRegistration: a code that takes the whole fee settles 
       expect(r).toMatchObject({ ok: true, settledAs: null });
       expect(regUpdate()).toEqual({ promoCodeId: "promo-1", discountAmount: 10 });
       expect(refreshStatsSpy).not.toHaveBeenCalled();
+      // Nothing was settled, so no payment is looked up and no checkout is closed.
+      expect(mockDb.payment.aggregate).not.toHaveBeenCalled();
+      expect(expireCheckoutSpy).not.toHaveBeenCalled();
     }
+  });
+
+  // Review of a9573a45: who a full-fee code must NOT settle. The code still
+  // applies (the discount is written); only the status is left alone.
+  it("a group member keeps its status: the group's invoice pays, and a settled member could not be paid for", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ ...REG, groupId: "grp-1" });
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...FULL });
+    const r = await applyPromoCodeToRegistration(BASE);
+    expect(r).toMatchObject({ ok: true, settledAs: null, financials: { finalPrice: 0 } });
+    expect(regUpdate()).toEqual({ promoCodeId: "promo-1", discountAmount: 100 });
+    expect(mockApiLogger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "promo:applied", settleBlockedBy: "GROUP_MEMBER" }));
+  });
+
+  it("a registration that already holds a payment keeps its status: Complimentary would hide the money", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...FULL });
+    mockDb.payment.aggregate.mockResolvedValue({ _sum: { amount: 200 } });
+    const r = await applyPromoCodeToRegistration(BASE);
+    expect(r).toMatchObject({ ok: true, settledAs: null });
+    expect(regUpdate()).toEqual({ promoCodeId: "promo-1", discountAmount: 100 });
+    expect(mockDb.payment.aggregate).toHaveBeenCalledWith({
+      where: { registrationId: "reg-1", status: "PAID" },
+      _sum: { amount: true },
+    });
+    expect(mockApiLogger.info).toHaveBeenCalledWith(expect.objectContaining({ settleBlockedBy: "HAS_PAYMENTS" }));
+    expect(refreshStatsSpy).not.toHaveBeenCalled();
+  });
+
+  it("a cancelled registration is not settled", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ ...REG, status: "CANCELLED" });
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...FULL });
+    const r = await applyPromoCodeToRegistration(BASE);
+    expect(r).toMatchObject({ ok: true, settledAs: null });
+    expect(regUpdate()).toEqual({ promoCodeId: "promo-1", discountAmount: 100 });
+  });
+
+  it("a settle closes any checkout tab opened at the old price", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ ...REG, paymentStatus: "PENDING" });
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...FULL });
+    await applyPromoCodeToRegistration(BASE);
+    expect(expireCheckoutSpy).toHaveBeenCalledWith("reg-1", "promo-settle");
   });
 
   it("the same code applied again on a price it now covers settles on the refresh branch", async () => {

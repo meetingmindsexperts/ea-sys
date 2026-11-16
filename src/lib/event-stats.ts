@@ -31,6 +31,14 @@ export function refreshEventStats(eventId: string): void {
 }
 
 /**
+ * The same refresh, awaited: for a script that must finish it before it
+ * disconnects. Throws on failure, so the script can say so.
+ */
+export async function refreshEventStatsNow(eventId: string): Promise<void> {
+  await _doRefresh(eventId);
+}
+
+/**
  * Read the cached stats row. Returns null if no row exists yet
  * (event created before this feature, or never written to).
  */

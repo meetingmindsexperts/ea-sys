@@ -436,7 +436,41 @@ the form does. One rule: `paymentStatusForFee` in `src/lib/promo-redeem.ts`.
 
 **Owner step, after the deploy:** run `scripts/settle-promo-covered-registrations.ts` on
 the box (dry run first, then `--write`). Production had 14 such rows on Nov 16: 13 on the
-4th GCC Hematology Hub and 1 on the Annual Benign Hematology League Summit.
+4th GCC Hematology Hub and 1 on the Annual Benign Hematology League Summit, all Unpaid,
+none with a payment or an open checkout.
+
+**Who a full-fee code does not settle** (`settlementBlocker` in `src/lib/promo-settlement.ts`,
+from the review of `a9573a45`: 0 BLOCKER, 0 HIGH, 2 MED, 8 LOW; both MEDs and six LOWs
+fixed): a cancelled registration, a group member (the group's invoice pays), and a
+registration that already holds a payment. The code still applies and the row reads
+"Nothing due"; the status is a person's to set. The script also leaves a payment in
+progress (PENDING, or a stored checkout session) to a person; the service closes the
+checkout tab when it settles.
+
+**LOW, left: undoing a sponsor's settle leaves the sponsor on the registration.** After an
+Inclusive settle, staff set it back to Unpaid and remove the code; `sponsorId` is kept on a
+move away from Inclusive (deliberate, so history survives a revert), so the registration
+stays in that sponsor's views. Fix: when a code is removed, clear a `sponsorId` that equals
+the code's sponsor.
+
+**LOW, left: the staff sheet offers the promo box on a cancelled registration and on a
+group member.** The code applies and nothing is settled. Hide the box there.
+
+**Older defects in the same code, for the owner** (not caused by this change):
+- LOW: the confirmation page treats Complimentary as paid. A staff-comped registration on
+  a priced type with no discount reads "Payment Complete USD 500.00. A receipt has been
+  sent to your email." with Download Invoice (`confirmation/page.tsx`). A code-settled
+  registration reaches the same text only after a staff type change lets its discount ride
+  onto a dearer type (`registration-repricing.ts`), which is the open "refuse or recompute"
+  decision under "Type change under a promo code".
+- LOW: applying a code to a CANCELLED registration moves the code's `usedCount`, though
+  the cancel already released the use; replacing one there releases the old code twice.
+- LOW: My registration shows "Registration Confirmed" for a sponsor-paid registration
+  still awaiting approval (`my-registration/page.tsx`).
+- LOW: an invoice staff issued before a code took the whole fee stays open; nothing
+  cancels or reconciles it.
+- LOW: a fixed-amount code is not checked against the registration's currency
+  (`promoDiscount`): a USD 500 code takes the whole of an AED 500 fee.
 
 **Trade taken: a registrant can no longer undo a mistaken full-fee code themselves.** While
 the row stayed Unpaid, the confirmation page and the portal offered Remove. A settled

@@ -48,7 +48,7 @@ import { computeDetailsDelta, syncRegistrationDetailsToSpeakers } from "@/lib/pe
 import { getSponsors } from "@/lib/sponsors";
 import { completedAtOnCreate } from "@/lib/registration-completion";
 import { claimPromoCodeInTx, recordPromoRedemptionInTx, type PromoClaim } from "@/services/promo-code-service";
-import { PROMO_REFUSAL_MESSAGE, type PromoRefusal } from "@/lib/promo-redeem";
+import { PROMO_REFUSAL_MESSAGE, paymentStatusForFee, type PromoRefusal } from "@/lib/promo-redeem";
 import {
   ADMIN_SETTABLE_PAYMENT_STATUSES,
   MANUAL_PAYMENT_STATUSES,
@@ -1258,8 +1258,9 @@ export async function createRegistration(
  */
 function paymentStatusWithPromo(status: ManualPaymentStatus, claim: PromoClaim | null): ManualPaymentStatus {
   if (!claim) return status;
-  if (claim.sponsorCovered) return PaymentStatus.INCLUSIVE;
-  return claim.finalPrice === 0 ? PaymentStatus.COMPLIMENTARY : status;
+  // The one rule every writer asks (promo-redeem.ts); a balance keeps the caller's status.
+  const byFee = paymentStatusForFee(claim.sponsorCovered, claim.finalPrice);
+  return byFee === "UNPAID" ? status : PaymentStatus[byFee];
 }
 
 function isPromoRefusal(code: string): code is PromoRefusal {

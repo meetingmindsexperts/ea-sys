@@ -115,8 +115,9 @@ export function readRegistrationBasePrice(reg: {
  * discount takes the whole of it. THE answer the door (`isPaymentAdmissible`
  * in check-in.ts, so badges too) and the onsite desk's row share.
  *
- * The second half exists for a code entered AFTER registering (owner, Nov 12,
- * 2026: such a row keeps payment status UNPAID). Both readers asked only for
+ * The second half exists for a code entered AFTER registering, which until
+ * Nov 16, 2026 left the row's payment status UNPAID (and still does where the
+ * code may not settle it: promo-settlement.ts). Both readers asked only for
  * the price before the discount, so eight delegates on one production event
  * held a 100% sponsor code, owed nothing, and were refused at the door and
  * offered "Record payment" for 0.00, which the payment route refuses too

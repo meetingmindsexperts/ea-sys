@@ -12,12 +12,14 @@
  * What it touches: `Registration.paymentStatus` (and `sponsorId` for a
  * sponsor-covered code), one AuditLog row per registration. Nothing else: no
  * email is sent, no invoice is made, no seat or code counter moves.
- * Left alone: cancelled registrations, group members, and anything that still
- * owes a balance.
+ * Left alone, and counted in the summary: cancelled registrations, group
+ * members, a registration that already holds a payment, one with a checkout
+ * open (PENDING, or a stored Stripe session), and anything that still owes.
  *
  * Idempotent: a settled row is no longer outstanding, so a second run finds
- * nothing. Each write is guarded on the status the row was read with, so a row
- * that changed in between is skipped, not overwritten.
+ * nothing. Each write is guarded on the status, the code, the discount, the
+ * type and the rate the row was read with, so a row that changed in between is
+ * skipped, not overwritten. The events' cached counts are refreshed at the end.
  *
  * Dry run by default. Run AFTER deploying the service change.
  *
@@ -28,11 +30,14 @@
  */
 import { db } from "../src/lib/db";
 import { promoSettlement } from "../src/lib/promo-settlement";
+import { refreshEventStatsNow } from "../src/lib/event-stats";
 
 const SOURCE = "settle-promo-covered-registrations";
 const write = process.argv.includes("--write");
 const eventArgIdx = process.argv.indexOf("--event");
 const eventFilter = eventArgIdx >= 0 ? process.argv[eventArgIdx + 1] : undefined;
+// "--event" with its id forgotten must not quietly mean "every event".
+const eventFilterMissing = eventArgIdx >= 0 && (!eventFilter || eventFilter.startsWith("--"));
 
 function databaseHost(): string {
   try {
@@ -43,6 +48,11 @@ function databaseHost(): string {
 }
 
 async function main() {
+  if (eventFilterMissing) {
+    console.error("--event needs an event id after it. Nothing was read or changed.");
+    process.exitCode = 1;
+    return;
+  }
   console.log(`Database host: ${databaseHost()}`);
   console.log(write ? "Mode: WRITE\n" : "Mode: DRY RUN (pass --write to apply)\n");
 
@@ -63,6 +73,11 @@ async function main() {
       originalPrice: true,
       discountAmount: true,
       sponsorId: true,
+      promoCodeId: true,
+      ticketTypeId: true,
+      pricingTierId: true,
+      stripeCheckoutSessionId: true,
+      payments: { where: { status: "PAID" }, select: { amount: true } },
       pricingTier: { select: { price: true } },
       ticketType: { select: { price: true, name: true } },
       promoCode: { select: { code: true, sponsorCoversFee: true, sponsorId: true } },
@@ -77,9 +92,11 @@ async function main() {
   let skipped = 0;
   let failed = 0;
   const leftAlone = new Map<string, number>();
+  const changedEvents = new Set<string>();
 
   for (const reg of regs) {
-    const decision = promoSettlement(reg);
+    const paidTotal = reg.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const decision = promoSettlement({ ...reg, paidTotal });
     if (!decision.settle) {
       leftAlone.set(decision.why, (leftAlone.get(decision.why) ?? 0) + 1);
       continue;
@@ -95,9 +112,21 @@ async function main() {
     }
     try {
       const changed = await db.$transaction(async (tx) => {
-        // Guarded on what was read: a row staff or a payment changed meanwhile is left as it is.
+        // Guarded on everything the decision read: a row whose status, code,
+        // discount, type or rate changed meanwhile is left as it is.
         const updated = await tx.registration.updateMany({
-          where: { id: reg.id, paymentStatus: reg.paymentStatus, promoCodeId: { not: null }, status: { not: "CANCELLED" } },
+          where: {
+            id: reg.id,
+            paymentStatus: reg.paymentStatus,
+            status: reg.status,
+            promoCodeId: reg.promoCodeId,
+            discountAmount: reg.discountAmount,
+            originalPrice: reg.originalPrice,
+            ticketTypeId: reg.ticketTypeId,
+            pricingTierId: reg.pricingTierId,
+            groupId: null,
+            stripeCheckoutSessionId: null,
+          },
           data: {
             paymentStatus: decision.to,
             ...(decision.sponsorId ? { sponsorId: decision.sponsorId } : {}),
@@ -122,8 +151,10 @@ async function main() {
         });
         return true;
       });
-      if (changed) settled++;
-      else {
+      if (changed) {
+        settled++;
+        changedEvents.add(reg.eventId);
+      } else {
         skipped++;
         console.log(`    skipped reg ${reg.id}: it changed since it was read`);
       }
@@ -137,6 +168,15 @@ async function main() {
   if (skipped > 0) console.log(`Skipped (changed meanwhile): ${skipped}`);
   if (failed > 0) console.log(`Failed: ${failed}`);
   for (const [why, count] of leftAlone) console.log(`Left alone (${why}): ${count}`);
+  // The events' cached counts by payment status moved. Awaited: a
+  // fire-and-forget refresh would race the disconnect below.
+  for (const eventId of changedEvents) {
+    try {
+      await refreshEventStatsNow(eventId);
+    } catch (err) {
+      console.error(`  Counts not refreshed for event ${eventId}:`, err instanceof Error ? err.message : err);
+    }
+  }
   if (!write && settled > 0) console.log("\nNothing was changed. Re-run with --write to apply.");
   if (failed > 0) process.exitCode = 1;
 }
