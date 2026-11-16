@@ -75,10 +75,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Verify event access (org-scoped for team members; org-null SUPER_ADMIN
     // passes with no org filter, so the tenant wrap below uses the RESOURCE
-    // org, not the session's). Event is unswept → this lookup runs un-wrapped.
+    // org, not the session's). The lookup is findGatedEvent's: inside the caller's lane.
     const [eventRow, previewUser] = await Promise.all([
       findGatedEvent(gate, {
-        // buildEventAccessWhere keeps the historical semantics (org-scoped for
+        // The gate's filter keeps the historical semantics (org-scoped for
         // team members, unscoped org-null SUPER_ADMIN) AND confines the
         // WEBINARS role to webinar events like every route it's allowed on.
         select: {

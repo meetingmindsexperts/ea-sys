@@ -34,7 +34,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "proposals.themes.manage", { route: "events/[eventId]/session-proposal-themes/[themeId]:PUT", eventId });
     if (!gate.ok) return gate.response;
 
-    // Event first, un-wrapped (bound to the session org); its org is the lane
+    // Event first (findGatedEvent, bound to the session org); its org is the lane
     // for the theme read + update (swept).
     const event = await findGatedEvent(gate, {
       select: { id: true },
@@ -92,7 +92,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "proposals.themes.manage", { route: "events/[eventId]/session-proposal-themes/[themeId]:DELETE", eventId });
     if (!gate.ok) return gate.response;
 
-    // Event first, un-wrapped (bound to the session org); its org is the lane
+    // Event first (findGatedEvent, bound to the session org); its org is the lane
     // for the theme read (+ its proposal _count, swept) and delete.
     const event = await findGatedEvent(gate, {
       select: { id: true },

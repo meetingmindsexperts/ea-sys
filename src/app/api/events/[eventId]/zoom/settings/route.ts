@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings } from "@/lib/event-settings";
@@ -129,14 +130,18 @@ export async function PUT(
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    await updateEventSettings(eventId, {
-      zoom: {
-        enabled: validated.data.enabled,
-        defaultMeetingType:
-          validated.data.defaultMeetingType || defaultMeetingTypeFor(event.eventType),
-        autoCreateForSessions: validated.data.autoCreateForSessions || false,
-      },
-    });
+    // Inside the organisation's lane: an Event write outside one matches no
+    // row once Event has a policy (review of 2db57e7f).
+    await runWithTenant(organizationId, () =>
+      updateEventSettings(eventId, {
+        zoom: {
+          enabled: validated.data.enabled,
+          defaultMeetingType:
+            validated.data.defaultMeetingType || defaultMeetingTypeFor(event.eventType),
+          autoCreateForSessions: validated.data.autoCreateForSessions || false,
+        },
+      }),
+    );
 
     apiLogger.info({ eventId, userId: session.user.id, zoom: validated.data }, "zoom:settings-updated");
     return NextResponse.json({ success: true });

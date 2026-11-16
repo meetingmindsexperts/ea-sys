@@ -71,8 +71,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const orgId = session.user.organizationId; // tenancy: session org
 
-    // tenancy: wrap the event read for consistency with the cert sweep (Event
-    // is not a swept cert table, so this is a harmless passthrough on master).
+    // tenancy: the event is read inside the organisation's lane. findGatedEvent
+    // enters it itself; the outer wrap is the cert sweep's, kept for its guard.
     const event = await runWithTenant(orgId, () =>
       findGatedEvent(gate, {
         select: { id: true, cmeHours: true, settings: true },
@@ -131,8 +131,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       );
     }
 
-    // tenancy: wrap the event read for consistency with the cert sweep (Event
-    // is not a swept cert table, so this is a harmless passthrough on master).
+    // tenancy: the event is read inside the organisation's lane. findGatedEvent
+    // enters it itself; the outer wrap is the cert sweep's, kept for its guard.
     const event = await runWithTenant(orgId, () =>
       findGatedEvent(gate, {
         select: { id: true, settings: true },

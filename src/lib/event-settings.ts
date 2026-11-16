@@ -21,7 +21,7 @@
  *    computed from the freshly-locked current. Use for array append/remove or
  *    key deletion (the caller spreads `current` itself).
  */
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 
 export type SettingsObject = Record<string, unknown>;
@@ -40,7 +40,15 @@ async function mergeSettingsLocked(
   notFoundError: string,
   organizationId?: string,
 ): Promise<SettingsObject> {
-  return db.$transaction(async (tx) => {
+  // `tenantTransaction`, not `db.$transaction` (review of 2db57e7f). On master
+  // the two are the same transaction. Where row security is on, the raw lock
+  // below is not a model operation, so nothing would tell its backend whose
+  // rows it may see: under an Event policy it finds no row, and with the
+  // policy absent the update after it is moved to a second backend that waits
+  // on the lock this one holds until the transaction times out.
+  // `tenantTransaction` sets the organisation on the transaction's own backend
+  // first. With no lane it is plain `db.$transaction`, as before.
+  return tenantTransaction(async (tx) => {
     // Row-lock the row so concurrent settings writers serialize. Table name is
     // a hardcoded union (no injection surface); id is parameterized.
     const rows =

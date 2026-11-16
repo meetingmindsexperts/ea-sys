@@ -15,11 +15,16 @@ const { mockDb } = vi.hoisted(() => {
   };
   return { mockDb: { $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)), _tx: tx } };
 });
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// The merge runs as a tenant transaction, which on master IS `db.$transaction`.
+const tenantTransaction = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction }));
 
 import { updateEventSettings, updateOrganizationSettings } from "@/lib/event-settings";
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  tenantTransaction.mockImplementation((fn: (tx: unknown) => Promise<unknown>) => mockDb.$transaction(fn));
+});
 
 describe("updateEventSettings — atomic merge", () => {
   it("object patch shallow-merges, preserving unspecified (sibling) keys", async () => {
@@ -86,5 +91,19 @@ describe("updateEventSettings bound to an organisation (venue tenancy review, Oc
     const [sql, ...values] = mockDb._tx.$queryRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
     expect(sql.join("?")).not.toContain("organizationId");
     expect(values).toEqual(["ev1"]);
+  });
+});
+
+describe("the merge is a TENANT transaction (review of 2db57e7f)", () => {
+  it("never opens a plain transaction of its own: the raw row lock is not a model operation, so only the tenant transaction tells its backend whose rows it may see", async () => {
+    mockDb._tx.$queryRaw.mockResolvedValue([{ settings: {} }]);
+    // A stand-in that does NOT go through db.$transaction: the merge must still run inside it.
+    tenantTransaction.mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(mockDb._tx));
+    await updateEventSettings("ev1", { a: 1 });
+    await updateOrganizationSettings("org1", { b: 2 });
+    expect(tenantTransaction).toHaveBeenCalledTimes(2);
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+    expect(mockDb._tx.event.update).toHaveBeenCalledTimes(1);
+    expect(mockDb._tx.organization.update).toHaveBeenCalledTimes(1);
   });
 });

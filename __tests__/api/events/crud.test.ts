@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -61,7 +61,12 @@ vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 
 vi.mock("@/lib/db", () => ({
   db: mockDb,
-  tenantTransaction: (fn: (tx: unknown) => Promise<unknown>) => fn(mockDb),
+  // As the real one on master: `db.$transaction`. A test that fakes the
+  // transaction (the seat cap) sets `mockDb.$transaction`; the others run on mockDb.
+  tenantTransaction: (fn: (tx: unknown) => Promise<unknown>) => {
+    const fake = (mockDb as unknown as { $transaction?: (cb: (t: unknown) => unknown) => Promise<unknown> }).$transaction;
+    return fake ? fake(fn) : fn(mockDb);
+  },
 }));
 
 vi.mock("@/lib/event-settings", () => ({
@@ -951,8 +956,13 @@ describe("PUT /api/events/[eventId] — shiftSchedule, review round (Sep 2, 2026
 describe("PUT /api/events/[eventId] — maxAttendees (event-wide cap, Option B)", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  // The faked transaction is this block's only: the tests after it run on mockDb again.
+  afterEach(() => {
+    delete (mockDb as unknown as { $transaction?: unknown }).$transaction;
+  });
+
   /** tx mock for the cap block: row lock ($queryRaw) → registration.count →
-   *  event.update, all inside db.$transaction. */
+   *  event.update, all inside the tenant transaction (`db.$transaction` on master). */
   function setupCapTx(currentCount: number) {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: "evt-1" }]),

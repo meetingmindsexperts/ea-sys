@@ -40,7 +40,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     // Resource org: org-null SUBMITTERs read the theme picker too (the dual-route
-    // rule). Event resolved first, un-wrapped, for its org.
+    // rule). Event resolved first (findGatedEvent), for its org.
     const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });

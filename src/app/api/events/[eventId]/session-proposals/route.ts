@@ -141,8 +141,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       }
     }
 
-    // Resolve the event (+ resource org) FIRST, un-wrapped — Event is not yet a
-    // swept table, and its org is the tenant lane for the SessionProposal read.
+    // Resolve the event (+ resource org) FIRST, through findGatedEvent; its org is the tenant lane for the SessionProposal read.
     const event = await findGatedEvent(gate, {
       select: { id: true, name: true, organizationId: true },
     });
@@ -266,7 +265,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         ? { id: speakerId, eventId, userId: session.user.id }
         : { id: speakerId, eventId };
 
-    // Event (+ resource org) FIRST, un-wrapped (Event is not swept); its org is
+    // Event (+ resource org) FIRST, through findGatedEvent; its org is
     // the tenant lane for the Speaker (swept #9), theme, and proposal writes.
     const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, settings: true },

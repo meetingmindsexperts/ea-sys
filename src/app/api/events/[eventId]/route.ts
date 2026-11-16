@@ -402,8 +402,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // If slug is being changed, check for uniqueness
     if (nextSlug && nextSlug !== existingEvent.slug) {
-      // Inside the organisation's lane, as every Event read and write below is
-      // (Event RLS step 2: outside one, a policy would answer "no such slug").
+      // Inside the organisation's lane (Event RLS step 2: outside one, a policy
+      // would answer "no such slug"). Every Event read and write in this
+      // handler is wrapped the same way, each where it stands.
       const slugExists = await runWithTenant(orgGuard.orgId, () =>
         db.event.findFirst({
           where: {
@@ -439,7 +440,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           { status: 409 },
         );
       }
-      if (nextCode && (await isEventCodeTaken(orgGuard.orgId, nextCode, eventId))) {
+      if (nextCode && (await runWithTenant(orgGuard.orgId, () => isEventCodeTaken(orgGuard.orgId, nextCode, eventId)))) {
         apiLogger.warn({ msg: "events:code-taken", eventId, userId: session.user.id, code: nextCode });
         return NextResponse.json(
           { error: `Event code ${nextCode} is already used by another event in this organisation`, code: "EVENT_CODE_TAKEN" },
@@ -635,7 +636,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // sales, use the Registration Open toggle instead.
     if (maxAttendees !== undefined) {
       const effectiveMax = maxAttendees === 0 ? null : maxAttendees;
-      const capResult = await db.$transaction(async (tx) => {
+      // A tenant transaction inside the organisation's lane (review of
+      // 2db57e7f): the raw lock is not a model operation, so only this tells
+      // its backend whose rows it may see. On master it is `db.$transaction`.
+      const capResult = await runWithTenant(orgGuard.orgId, () => tenantTransaction(async (tx) => {
         // Row lock: claimEventSeats/releaseEventSeats UPDATEs block until this
         // tx commits, so the recount can't be raced by a concurrent claim.
         await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${eventId} FOR UPDATE`;
@@ -652,7 +656,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           data: { maxAttendees: effectiveMax, seatCount: currentCount },
         });
         return { ok: true as const, currentCount };
-      });
+      }));
       if (!capResult.ok) {
         apiLogger.warn({
           msg: "event-update:max-attendees-below-count",
@@ -709,7 +713,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
       const cleanSettings = JSON.parse(JSON.stringify(editableEventSettings(settings)));
       // Handouts are owned by the handouts routes: keep the stored list.
-      await updateEventSettings(eventId, (current) => keepStoredHandouts(current, { ...current, ...cleanSettings }));
+      await runWithTenant(orgGuard.orgId, () =>
+        updateEventSettings(eventId, (current) => keepStoredHandouts(current, { ...current, ...cleanSettings })),
+      );
     }
 
     const eventUpdateData = {

@@ -39,7 +39,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "abstracts.read", { route: "events/[eventId]/abstract-themes:GET", eventId, onMissing: "hide", linkedRoles: "linked" });
     if (!gate.ok) return gate.response;
 
-    // Resource org: event resolved first, un-wrapped, for its org (the
+    // Resource org: event resolved first (findGatedEvent), for its org (the
     // session-proposal-themes pattern) — org-null submitters linked to the
     // event pass; a foreign event still 404s.
     const event = await findGatedEvent(gate, {

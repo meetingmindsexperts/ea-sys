@@ -59,21 +59,51 @@ describe("findGatedEvent", () => {
   });
 
   it("is the same query the routes made before: nothing added to it, nothing dropped", async () => {
-    await findGatedEvent(staff, { select: { id: true }, orderBy: { createdAt: "desc" } });
-    expect(findFirst).toHaveBeenCalledWith({ where: WHERE, select: { id: true }, orderBy: { createdAt: "desc" } });
+    await findGatedEvent(staff, { include: { tracks: true } });
+    expect(findFirst).toHaveBeenCalledWith({ where: WHERE, include: { tracks: true } });
     await findGatedEvent(staff, {});
     expect(findFirst).toHaveBeenLastCalledWith({ where: WHERE });
   });
 
-  it("for a caller with no organisation asking only id and organisation: one read, the sanctioned discovery", async () => {
-    for (const select of [{ id: true }, { id: true, organizationId: true }, { organizationId: true }] as const) {
+  it("takes the row's shape only: which row is the gate's to say", async () => {
+    // An ordering or an offset would be ignored by the discovery read and could pick another row.
+    // @ts-expect-error orderBy is not part of what a route may pass
+    await findGatedEvent(staff, { select: { id: true }, orderBy: { createdAt: "desc" } });
+    // @ts-expect-error nor is a filter of its own
+    await findGatedEvent(staff, { select: { id: true }, where: { id: "other" } });
+    // Whatever a caller forces through, the gate's filter is the one used.
+    expect(findFirst.mock.calls.every(([args]) => args.where === WHERE)).toBe(true);
+  });
+
+  it("for a caller with no organisation asking only id and organisation: ONE read, the sanctioned discovery, cut to what was asked", async () => {
+    for (const [select, expected] of [
+      [{ id: true }, { id: "ev1" }],
+      [{ id: true, organizationId: true }, { id: "ev1", organizationId: "org9" }],
+      [{ organizationId: true }, { organizationId: "org9" }],
+    ] as const) {
       reads = [];
-      await findGatedEvent(orgNull, { select });
+      const event = await findGatedEvent(orgNull, { select });
+      // Nothing the route did not ask for comes back (the stand-in returns a name too).
+      expect(event, JSON.stringify(select)).toEqual(expected);
       expect(reads, JSON.stringify(select)).toHaveLength(1);
-      expect(reads[0].args).toEqual({ where: orgNull.eventWhere, select });
+      // The ONE pre-lane read there is: resolveEventTenant's, id and organisation only.
+      expect(reads[0].args).toEqual({ where: orgNull.eventWhere, select: { id: true, organizationId: true } });
       // No lane yet, and the detector treats it as the sanctioned discovery.
       expect(reads[0]).toMatchObject({ lane: undefined, reported: false });
     }
+  });
+
+  it("makes every read before a lane through resolveEventTenant, so discovery has ONE place to move from", async () => {
+    // The day discovery moves to the privileged client it is one line there;
+    // a second pre-lane read written in findGatedEvent would stay behind and
+    // answer 404 to every reviewer, submitter and registrant (review of 2db57e7f).
+    const source = (await import("node:fs")).readFileSync("src/lib/tenant/event-tenant.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    expect(source.match(/asEventDiscovery\(/g)).toHaveLength(1);
+    const body = source.slice(source.indexOf("export async function findGatedEvent"));
+    // Inside the helper, db is touched only by `read`, and `read` runs only inside a lane.
+    expect(body.match(/db\.event\./g)).toHaveLength(1);
+    expect(body.match(/\bread\(/g)).toHaveLength(2);
+    expect(body.match(/runWithTenant\([^)]*\(\) => read\(/g)).toHaveLength(2);
   });
 
   it("for a caller with no organisation asking for more: found first, then read inside the EVENT's organisation's lane", async () => {

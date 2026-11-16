@@ -87,7 +87,12 @@ function ownLane(principal: EventGate["principal"]): string | null {
   return principal.fromApiKey || isTeamRole(principal.baseRole) ? principal.organizationId : null;
 }
 
-type GatedEventArgs = Omit<Prisma.EventFindFirstArgs, "where">;
+/**
+ * What a route may say about the row it wants: its shape, nothing about WHICH
+ * row. The gate's filter picks the row; an ordering or an offset here would be
+ * ignored by the discovery read and could then pick a different one.
+ */
+type GatedEventArgs = Pick<Prisma.EventFindFirstArgs, "select" | "include" | "omit">;
 
 /** The two columns the sanctioned discovery read may return. */
 const DISCOVERY_COLUMNS = new Set(["id", "organizationId"]);
@@ -97,6 +102,15 @@ function asksOnlyDiscoveryColumns(args: GatedEventArgs): boolean {
   if (!select || args.include) return false;
   const asked = Object.entries(select).filter(([, on]) => on);
   return asked.length > 0 && asked.every(([column, on]) => on === true && DISCOVERY_COLUMNS.has(column));
+}
+
+/** The discovered event, cut down to the columns the route asked for. */
+function onlyAsked(tenant: EventTenant, args: GatedEventArgs): Partial<EventTenant> {
+  const select = args.select ?? {};
+  return {
+    ...(select.id === true ? { id: tenant.id } : {}),
+    ...(select.organizationId === true ? { organizationId: tenant.organizationId } : {}),
+  };
 }
 
 /**
@@ -116,8 +130,10 @@ function asksOnlyDiscoveryColumns(args: GatedEventArgs): boolean {
  *     applies to the read as to everything after it, so a mistake in a gate's
  *     filter still cannot reach another tenant's event.
  *   - for anyone else (a reviewer, a submitter, a registrant, an operator with
- *     no organisation): through the sanctioned discovery. When the route asks for no more than the id
- *     and the organisation, that IS the discovery read. When it asks for more,
+ *     no organisation): through the sanctioned discovery (`resolveEventTenant`,
+ *     the only read made before a lane exists). When the route asks for no
+ *     more than the id and the organisation, the discovery's answer is the
+ *     result. When it asks for more,
  *     the event is found first and then read inside ITS organisation's lane,
  *     so event content never comes back from a read outside a lane.
  *
@@ -133,9 +149,12 @@ export async function findGatedEvent<A extends GatedEventArgs>(
 
   const organizationId = ownLane(gate.principal);
   if (organizationId) return runWithTenant(organizationId, () => read(gate.eventWhere));
-  if (asksOnlyDiscoveryColumns(args as GatedEventArgs)) return asEventDiscovery(() => read(gate.eventWhere));
-
+  // ONE read is made before a lane exists, and it is `resolveEventTenant`
+  // (review of 2db57e7f): the day discovery moves to the privileged client, it
+  // moves there for this function too. A second pre-lane read written here
+  // would stay behind and answer 404 to every reviewer, submitter and registrant.
   const tenant = await resolveEventTenant(gate.eventWhere);
   if (!tenant) return null;
+  if (asksOnlyDiscoveryColumns(args as GatedEventArgs)) return onlyAsked(tenant, args as GatedEventArgs) as Prisma.EventGetPayload<A>;
   return runWithTenant(tenant.organizationId, () => read({ AND: [gate.eventWhere, { id: tenant.id }] }));
 }

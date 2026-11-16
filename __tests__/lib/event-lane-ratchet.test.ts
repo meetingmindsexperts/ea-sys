@@ -20,12 +20,16 @@
  *     `db.event.findFirst({ where: gate.eventWhere, ... })` outside any lane.
  *     All 238 of them now call `findGatedEvent(gate, ...)` in
  *     src/lib/tenant/event-tenant.ts, which makes the same read inside the
- *     caller's lane (or through the sanctioned discovery for a caller with no
- *     organisation). This count is ZERO and stays zero. The wraps of shape 1
+ *     caller's lane (or through the sanctioned discovery for a caller whose
+ *     reach is not their organisation: a reviewer, submitter or registrant, or
+ *     an operator with none). This count is ZERO and stays zero. The wraps of shape 1
  *     that follow such a read are no longer a debt, but the count of shape 1
  *     cannot tell them apart, so it is unchanged by that sweep.
  *
- * BOTH ARE EXACT. Going up fails, with what to do instead. Going down fails
+ *  4. OTHER DIRECT USES of a gate's event filter (a helper that takes it, a
+ *     local variable, a combined filter). Counted exactly; see GATE_FILTER_USE.
+ *
+ * ALL FOUR ARE EXACT. Going up fails, with what to do instead. Going down fails
  * too, with the new number to write here: that is what makes it a ratchet
  * rather than a ceiling that quietly drifts back up.
  *
@@ -50,13 +54,32 @@ const SANCTIONED = "src/lib/tenant/event-tenant.ts";
 
 /** Shape 1: `runWithTenant(<...>event.organizationId`, also ev / evt / invite.event. */
 const DISCOVERY_WRAP = /runWithTenant(?:Lane)?\(\s*(?:\w+\??\.)*(?:event|ev|evt)\w*\??\.organizationId/g;
-/** A query against the Event model through the app client or a transaction. */
-const EVENT_READ = /\b(?:db|tx)\.event\.(?:find\w*|count|aggregate|groupBy|update\w*|create\w*|delete\w*|upsert)\b/;
+/**
+ * A query against the Event model through the app client or a transaction, or
+ * the settings merge, which locks and writes the Event row (review of
+ * 2db57e7f: a route whose only Event text was its gated read dropped off the
+ * list below while it still wrote the event's settings outside a lane).
+ */
+const EVENT_READ = /\b(?:db|tx)\.event\.(?:find\w*|count|aggregate|groupBy|update\w*|create\w*|delete\w*|upsert)\b|\bupdateEventSettings\(/;
 /** Any sign the file runs inside, or deliberately outside, a lane. */
 const LANE_MARKER = /runWithTenant|tenantTransaction|dbOperator|resolveEventTenant|resolvePublicEventOrg/;
 
 /** Shape 3: the gate's own filter handed straight to an Event query, whatever comments sit between. */
 const BARE_GATED_READ = /\b(?:db|tx)\.event\.find\w*\(\s*\{\s*where:\s*gate\.eventWhere\b/g;
+
+/**
+ * Shape 4: the gate's filter used any other way (handed to a helper that reads
+ * the event, kept in a local variable, combined with another filter, used as a
+ * relation filter). Shape 3 catches one spelling only; this counts every
+ * direct use left, so the remaining sweep can only shrink and a new route
+ * cannot quietly add one (review of 2db57e7f). Not every use is a debt (a
+ * relation filter inside a lane is fine): it is a number to bring down by
+ * reading each one, not a list of bugs.
+ */
+const GATE_FILTER_USE = /\.eventWhere\b/g;
+/** Where the filter is built and described, not used. */
+const GATE_FILTER_HOME = /^src\/lib\/permissions\//;
+const GATE_FILTER_USE_BASELINE = 117;
 
 const DISCOVERY_WRAP_BASELINE = 126;
 
@@ -101,7 +124,6 @@ const UNLANED_EVENT_FILES_BASELINE: string[] = [
   "src/lib/event-code.ts",
   "src/lib/event-export/bundle.ts",
   "src/lib/event-export/sheets.ts",
-  "src/lib/event-settings.ts",
   "src/lib/help-chat/event-facts.ts",
   "src/lib/media-references.ts",
   "src/lib/notifications.ts",
@@ -185,6 +207,26 @@ describe("Event lane ratchet", () => {
         "`findGatedEvent(gate, { select: ... })` from src/lib/tenant/event-tenant.ts: the same query, made " +
         "inside the caller's lane.",
     ).toEqual([]);
+  });
+
+  it("does not add direct uses of a gate's event filter (use findGatedEvent)", () => {
+    const perFile = files
+      .filter((f) => !GATE_FILTER_HOME.test(f))
+      .map((f) => [f, sources.get(f)!.match(GATE_FILTER_USE)?.length ?? 0] as const)
+      .filter(([, n]) => n > 0);
+    const total = perFile.reduce((sum, [, n]) => sum + n, 0);
+    if (total > GATE_FILTER_USE_BASELINE) {
+      expect.fail(
+        `Direct uses of a gate's event filter went UP: ${total} (baseline ${GATE_FILTER_USE_BASELINE}). Read the ` +
+          "event with findGatedEvent(gate, { select }) from src/lib/tenant/event-tenant.ts and pass the EVENT " +
+          "(its id, its organisation) on, not the filter. If the new use is a relation filter inside a lane, " +
+          "raise the baseline and say so in review. Files: " + perFile.map(([f, n]) => `${f} (${n})`).join(", "),
+      );
+    }
+    expect(
+      total,
+      `Direct uses of a gate's event filter went DOWN to ${total}. Good: set GATE_FILTER_USE_BASELINE to ${total}.`,
+    ).toBe(GATE_FILTER_USE_BASELINE);
   });
 
   it("does not add files that read Event and never enter a lane", () => {

@@ -84,7 +84,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "proposals.read", { route: "events/[eventId]/session-proposals/[proposalId]:GET", eventId, onMissing: "hide", linkedRoles: ["REVIEWER", "SUBMITTER"] });
     if (!gate.ok) return gate.response;
 
-    // Event (+ resource org) first, un-wrapped; its org is the lane for the
+    // Event (+ resource org) first, through findGatedEvent; its org is the lane for the
     // SessionProposal read (whose nested `speaker` include is swept too).
     const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
@@ -135,7 +135,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
     const data = validated.data;
 
-    // Event (+ resource org) first, un-wrapped; its org is the tenant lane for
+    // Event (+ resource org) first, through findGatedEvent; its org is the tenant lane for
     // the existing-proposal read, the theme read, and the update (all swept).
     const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, settings: true },
@@ -297,7 +297,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "proposals.decide", { route: "events/[eventId]/session-proposals/[proposalId]:DELETE", eventId });
     if (!gate.ok) return gate.response;
 
-    // Event (+ resource org) first, un-wrapped; its org is the lane for the
+    // Event (+ resource org) first, through findGatedEvent; its org is the lane for the
     // existing-proposal read + delete (swept).
     const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
