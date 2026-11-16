@@ -39,6 +39,7 @@ vi.mock("@/lib/security", () => ({
 }));
 
 import { POST } from "@/app/api/public/events/[slug]/sessions/[sessionId]/presence/route";
+import { resetRoomOpenCache } from "@/lib/webinar/viewer-entitlement";
 
 function call(body: unknown) {
   // headers present so publicEventWhere can read Host (absent → unscoped where)
@@ -48,6 +49,7 @@ function call(body: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetRoomOpenCache();
   mockCheckRateLimit.mockReturnValue({ allowed: true });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
   mockDb.eventSession.findFirst.mockResolvedValue({ id: "sess1" });
@@ -95,12 +97,14 @@ describe("presence heartbeat", () => {
     );
   });
 
-  it("escalates lobby→joined: update sets phase + bumps joinCount, skips the marker write", async () => {
+  it("escalates lobby→joined: update sets phase, and admission is the row's first join (no extra count), skips the marker write", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
-    mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "lobby" });
+    mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "lobby", lastSeenAt: new Date(Date.now() - 30_000) });
     await call({ phase: "joined" });
     const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
-    expect(arg.update).toEqual(expect.objectContaining({ phase: "joined", joinCount: { increment: 1 } }));
+    expect(arg.update).toEqual(expect.objectContaining({ phase: "joined" }));
+    // Review of 0b3f34ad: the first beat is nearly always a lobby one, so counting admission made one viewing read as 2.
+    expect(arg.update.joinCount).toBeUndefined();
     // Existing row → no redundant marker write.
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
   });
@@ -116,8 +120,18 @@ describe("presence heartbeat", () => {
   });
 
   describe("minutes watched and returns (Nov 16, 2026; presence-watch.ts)", () => {
+    const webinarEvent = (status: string) => ({
+      id: "ev1",
+      organizationId: "org1",
+      eventType: "WEBINAR",
+      status,
+      settings: { webinar: { sessionId: "sess1" } },
+    });
+
     beforeEach(() => {
       mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
+      mockDb.event.findFirst.mockResolvedValue(webinarEvent("PUBLISHED"));
+      // The URL's session check, then the room rule's anchor read.
       mockDb.eventSession.findFirst.mockResolvedValue({ id: "sess1", status: "LIVE" });
     });
 
@@ -127,23 +141,42 @@ describe("presence heartbeat", () => {
       const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
       expect(arg.update.watchedSeconds).toEqual({ increment: 30 });
       expect(arg.update.joinCount).toBeUndefined();
-      expect(mockDb.eventSession.findFirst).toHaveBeenCalledWith(expect.objectContaining({ select: { id: true, status: true } }));
     });
 
-    it("room closed (the exit screen still beats 'joined'): nothing is added", async () => {
+    it("room closed: nothing is added", async () => {
       mockDb.eventSession.findFirst.mockResolvedValue({ id: "sess1", status: "COMPLETED" });
       mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000) });
       await call({ phase: "joined" });
       expect(mockDb.webinarPresence.upsert.mock.calls[0][0].update.watchedSeconds).toBeUndefined();
     });
 
-    it("back after five minutes away: one more join, and the absence is not counted as watched", async () => {
-      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 5 * 60_000) });
+    it("a DRAFT event's room counts as open, as it does for the attendee page (review of 0b3f34ad)", async () => {
+      mockDb.event.findFirst.mockResolvedValue(webinarEvent("DRAFT"));
+      mockDb.eventSession.findFirst.mockResolvedValue({ id: "sess1", status: "SCHEDULED" });
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000) });
+      await call({ phase: "joined" });
+      expect(mockDb.webinarPresence.upsert.mock.calls[0][0].update.watchedSeconds).toEqual({ increment: 30 });
+    });
+
+    it("a lobby beat never asks whether the room is open (the heartbeat gains no query)", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000) });
+      await call({ phase: "lobby" });
+      // Only the URL's own session check ran.
+      expect(mockDb.eventSession.findFirst).toHaveBeenCalledTimes(1);
+    });
+
+    it("back after fifteen minutes away: one more join, and the absence is not counted as watched", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 15 * 60_000) });
       await call({ phase: "joined" });
       const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
       expect(arg.update.joinCount).toEqual({ increment: 1 });
       expect(arg.update.watchedSeconds).toBeUndefined();
     });
+
+    it("five minutes in a hidden tab is not a return", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 5 * 60_000) });
+      await call({ phase: "joined" });
+      expect(mockDb.webinarPresence.upsert.mock.calls[0][0].update.joinCount).toBeUndefined();
+    });
   });
 });
-

@@ -6,14 +6,19 @@
  * (src/app/e/[slug]/session/[sessionId]/page.tsx), and once more when the tab
  * becomes visible again. From two beats in a row:
  *
- *   watched time   the gap between them, when both say "in the live view"
- *                  and the room is open. A gap longer than COUNTED_GAP_MAX_MS
+ *   watched time   the gap between them, when this beat is from the live view,
+ *                  the person had already reached it (the row's phase, which
+ *                  never goes back to the lobby), and the room is open. A gap longer than COUNTED_GAP_MAX_MS
  *                  means the page was closed, hidden or asleep in between, so
  *                  nothing is added for it: under-counting a background tab is
  *                  the price of never counting a laptop left closed overnight.
+ *                  (The beat sent when a tab becomes visible again can count up
+ *                  to a minute of hidden time, so the total is close, not exact.)
  *   a return       a "live view" beat after more than REJOIN_GAP_MS without
  *                  one: the person left and came back. It counts as one more
- *                  join, beside the first admission from the lobby.
+ *                  join. Ten minutes, not two: a hidden tab sends no beats, and
+ *                  a person answering email beside the webinar is not leaving
+ *                  and returning every few minutes (review of 0b3f34ad).
  *
  * Two tabs beat into the same row; each beat measures from the last write, so
  * the total stays close to wall time rather than doubling. A beat read and
@@ -26,7 +31,7 @@
 export const COUNTED_GAP_MAX_MS = 60_000;
 
 /** A live-view beat this long after the previous beat is a return, counted as another join. */
-export const REJOIN_GAP_MS = 120_000;
+export const REJOIN_GAP_MS = 10 * 60_000;
 
 export interface PresenceBeatEffect {
   /** Seconds to add to watchedSeconds. */

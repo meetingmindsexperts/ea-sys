@@ -19,7 +19,7 @@ export interface PresenceReportRow {
   serialId: number | null;
   firstJoinedAt: Date;
   lastSeenAt: Date;
-  /** Admitted from the lobby, plus each return after an absence. 0 while only ever in the lobby. */
+  /** The first time in the live view, plus each return after an absence. 0 while only ever in the lobby. */
   timesJoined: number;
   watchedSeconds: number;
   /** "joined": reached the live view at least once; "lobby": never left the waiting room. */
@@ -36,7 +36,11 @@ export interface PresenceReportSummary {
   avgWatchedSeconds: number;
 }
 
-/** A lobby row's joinCount starts at 1 for the first beat; it has not joined until it was admitted. */
+/**
+ * A row's joinCount is 1 from its first beat, but that join is counted only once the person reached the
+ * live view. Rows written before Nov 16, 2026 also added one on admission from the lobby, so an earlier
+ * webinar can read one too high.
+ */
 export function timesJoined(row: { phase: string; joinCount: number }): number {
   return row.phase === "joined" ? row.joinCount : 0;
 }
@@ -52,6 +56,17 @@ export function presenceReportSummary(rows: readonly Pick<PresenceReportRow, "ph
   };
 }
 
+/** The same summary from the database's per-phase counts and sums (the console's polled view). */
+export function presenceSummaryFromGroups(
+  groups: readonly { phase: string; _count: { _all: number }; _sum: { watchedSeconds: number | null } }[],
+): PresenceReportSummary {
+  const opened = groups.reduce((n, g) => n + g._count._all, 0);
+  const joinedGroup = groups.find((g) => g.phase === "joined");
+  const joined = joinedGroup?._count._all ?? 0;
+  const totalWatchedSeconds = joinedGroup?._sum.watchedSeconds ?? 0;
+  return { opened, joined, totalWatchedSeconds, avgWatchedSeconds: joined > 0 ? Math.round(totalWatchedSeconds / joined) : 0 };
+}
+
 function inZone(date: Date, timezone: string): string {
   return localDateTimeInTz(date, timezone).replace("T", " ");
 }
@@ -63,7 +78,7 @@ export function presenceReportCsv(rows: readonly PresenceReportRow[], timezone: 
     "Email",
     "Registration #",
     `First on the page (${timezone})`,
-    `Last seen (${timezone})`,
+    `Last on the page (${timezone})`,
     "Times joined",
     "Minutes watched",
   ];

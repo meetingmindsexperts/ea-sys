@@ -12,7 +12,8 @@ External streams step 6 (docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md §4.8). Fo
 
 - **Added**: the Webinar Console's Analytics tab has an "Attendance on our page" card on every custom-stream webinar: people who opened the page, people who reached the live view, average and total time watched, and Export CSV (name, email, registration number, first on the page, last seen, times joined, minutes watched; times in the event's timezone). The CSV needs the same permission as Zoom's attendance export.
 - **Added**: the heartbeat now adds up the time each person spent in the live view while the room was open (a new column, `WebinarPresence.watchedSeconds`, additive migration). Time in a hidden tab or a closed laptop is not counted, so the figures are a floor. Earlier webinars show 0 minutes: there was nothing to add up.
-- **Changed**: "times joined" now also counts a return after more than two minutes away; it used to stop at the first admission from the lobby.
+- **Changed**: "times joined" counts the first time in the live view plus each return after more than ten minutes away. It used to add one on admission from the lobby, so one viewing read as 2; webinars before this one can still read one too high.
+- **Review of 0b3f34ad** (1 HIGH, 3 MED, 6 LOW): the join count above; a DRAFT event's room counts as open for the minutes, as it does for the attendee page; a tab hidden for a few minutes is no longer a new join; the summary is counted by the database instead of loading every row; "Last seen" is "Last on the page"; the card says the record is kept 90 days, then archived.
 
 ### Webinars: the Partner stream card, so a partner can stream into our webinar (November 16)
 

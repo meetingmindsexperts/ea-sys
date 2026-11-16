@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
+import { isViewerRoomOpen, viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit } from "@/lib/security";
@@ -15,7 +15,7 @@ type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 const presenceSchema = z.object({ phase: z.enum(["lobby", "joined"]) });
 
 /**
- * Webinar presence heartbeat. The lobby/live page POSTs this every ~20-25s
+ * Webinar presence heartbeat. The lobby/live page POSTs this every 30-40s
  * while open so organizers can see who's in the lobby / joined in real time.
  *
  * Tracks OUR page presence (registrant has the page open), NOT actual Zoom
@@ -62,7 +62,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
-      select: { id: true, organizationId: true, eventType: true },
+      select: { id: true, organizationId: true, eventType: true, status: true, settings: true },
     });
     if (!event) {
       apiLogger.warn({ slug, sessionId, userId: authSession.user.id }, "presence:event-not-found");
@@ -93,7 +93,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Session must belong to this event (defense against cross-event writes).
     const sessionRow = await db.eventSession.findFirst({
       where: { id: sessionId, eventId: event.id },
-      select: { id: true, status: true },
+      select: { id: true },
     });
     if (!sessionRow) {
       apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "presence:session-not-found");
@@ -111,7 +111,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       where: { sessionId_registrationId: { sessionId, registrationId: registration.id } },
       select: { phase: true, lastSeenAt: true },
     });
-    const effect = presenceBeatEffect({ beatPhase: phase, previous: existing, roomOpen: sessionRow.status === "LIVE", now });
+    // Whether the room is open, by the rule the attendee page and the stream gate use (a DRAFT event's
+    // room counts as open for testing: review of 0b3f34ad). Asked only when this beat could add time,
+    // so the heartbeat, the busiest write in the app, gains no query on most beats.
+    const couldWatch = phase === "joined" && existing?.phase === "joined";
+    const roomOpen = couldWatch ? await isViewerRoomOpen(event, sessionId) : false;
+    const effect = presenceBeatEffect({ beatPhase: phase, previous: existing, roomOpen, now });
     const escalated = Boolean(existing) && phase === "joined" && existing?.phase !== "joined";
 
     await db.webinarPresence.upsert({
@@ -124,6 +129,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         phase,
         firstJoinedAt: now,
         lastSeenAt: now,
+        // 1 = this row's first join, counted only once it reaches the live view (timesJoined reads 0 while
+        // it is in the lobby). Admission from the lobby is that same first join, so it adds nothing; only a
+        // return after an absence does (review of 0b3f34ad: the first beat is nearly always a lobby beat,
+        // sent before the room check answers, and admission then made one viewing read as 2).
         joinCount: 1,
       },
       update: {
@@ -133,8 +142,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         // Only escalate on an existing lobby row beating "joined"; the create
         // branch already sets the phase for a brand-new row.
         ...(escalated ? { phase: "joined" } : {}),
-        // One more join: admitted from the lobby, or back after an absence.
-        ...(escalated || effect.rejoined ? { joinCount: { increment: 1 } } : {}),
+        // One more join only for a return after an absence.
+        ...(effect.rejoined ? { joinCount: { increment: 1 } } : {}),
         ...(effect.watchedSeconds > 0 ? { watchedSeconds: { increment: effect.watchedSeconds } } : {}),
       },
     });

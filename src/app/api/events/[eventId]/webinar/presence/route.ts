@@ -13,6 +13,7 @@ import { contentDisposition } from "@/lib/download-filename";
 import {
   presenceReportCsv,
   presenceReportSummary,
+  presenceSummaryFromGroups,
   timesJoined,
   type PresenceReportRow,
 } from "@/lib/webinar/presence-report";
@@ -162,13 +163,15 @@ async function presenceReport(
   // eventId binds the record to THIS org-verified event, as the live roster does.
   const where = { sessionId: at.sessionId, eventId: at.eventId };
   if (!at.exportCsv) {
-    const counted = await db.webinarPresence.findMany({
+    // Counted by the database: no names, no row cap, and cheap for a console polling every minute
+    // (review of 0b3f34ad: it loaded every row to add them up).
+    const groups = await db.webinarPresence.groupBy({
+      by: ["phase"],
       where,
-      select: { phase: true, watchedSeconds: true },
-      take: REPORT_MAX_ROWS,
+      _count: { _all: true },
+      _sum: { watchedSeconds: true },
     });
-    warnIfCapped(at.eventId, counted.length);
-    return NextResponse.json(presenceReportSummary(counted), { headers: NO_STORE });
+    return NextResponse.json(presenceSummaryFromGroups(groups), { headers: NO_STORE });
   }
 
   const found = await db.webinarPresence.findMany({

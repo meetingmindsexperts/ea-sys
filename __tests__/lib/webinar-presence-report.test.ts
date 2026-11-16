@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { COUNTED_GAP_MAX_MS, presenceBeatEffect, REJOIN_GAP_MS } from "@/lib/webinar/presence-watch";
-import { presenceReportCsv, presenceReportSummary, timesJoined } from "@/lib/webinar/presence-report";
+import { presenceReportCsv, presenceReportSummary, presenceSummaryFromGroups, timesJoined } from "@/lib/webinar/presence-report";
 
 const now = new Date("2026-12-20T10:30:00Z");
 const ago = (ms: number) => new Date(now.getTime() - ms);
@@ -49,6 +49,21 @@ describe("the report", () => {
     expect(timesJoined({ phase: "joined", joinCount: 3 })).toBe(3);
   });
 
+  it("the database's per-phase counts give the same summary", () => {
+    expect(
+      presenceSummaryFromGroups([
+        { phase: "joined", _count: { _all: 2 }, _sum: { watchedSeconds: 4_000 } },
+        { phase: "lobby", _count: { _all: 1 }, _sum: { watchedSeconds: 0 } },
+      ]),
+    ).toEqual({ opened: 3, joined: 2, totalWatchedSeconds: 4_000, avgWatchedSeconds: 2_000 });
+    expect(presenceSummaryFromGroups([{ phase: "lobby", _count: { _all: 4 }, _sum: { watchedSeconds: null } }])).toEqual({
+      opened: 4,
+      joined: 0,
+      totalWatchedSeconds: 0,
+      avgWatchedSeconds: 0,
+    });
+  });
+
   it("the summary averages over the people who reached the live view", () => {
     expect(
       presenceReportSummary([row(), row({ watchedSeconds: 1_000 }), row({ phase: "lobby", watchedSeconds: 0 })]),
@@ -58,7 +73,7 @@ describe("the report", () => {
 
   it("the CSV: times in the event's timezone (named in the header), minutes rounded, number padded", () => {
     const csv = presenceReportCsv([row()], "Asia/Dubai").split("\n");
-    expect(csv[0]).toBe("Name,Email,Registration #,First on the page (Asia/Dubai),Last seen (Asia/Dubai),Times joined,Minutes watched");
+    expect(csv[0]).toBe("Name,Email,Registration #,First on the page (Asia/Dubai),Last on the page (Asia/Dubai),Times joined,Minutes watched");
     expect(csv[1]).toBe("Aisha Khan,aisha@x.com,007,2026-12-20 13:55,2026-12-20 15:02,2,50");
   });
 

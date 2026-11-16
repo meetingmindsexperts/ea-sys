@@ -1103,8 +1103,8 @@ function PageAttendanceCard({ eventId, partner }: { eventId: string; partner: bo
           </div>
         ) : null}
         <p className="mt-3 text-xs text-muted-foreground">
-          Minutes are counted while the page is open and in view, so time spent listening from a hidden tab or a
-          minimised window is not counted. Treat the figures as a floor.
+          Minutes are counted while the page is open and in view, so most time spent listening from a hidden tab
+          or a minimised window is not counted. The page record is kept for 90 days, then archived.
         </p>
       </CardContent>
     </Card>

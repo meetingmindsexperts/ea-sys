@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const h = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  mockDb: { event: { findFirst: vi.fn() }, webinarPresence: { findMany: vi.fn() } },
+  mockDb: { event: { findFirst: vi.fn() }, webinarPresence: { findMany: vi.fn(), groupBy: vi.fn() } },
   permSpy: vi.fn(),
   exportSpy: vi.fn(),
   rate: { allowed: true },
@@ -101,12 +101,16 @@ describe("the page attendance report", () => {
     expect(h.mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "webinar-presence:export-rate-limited");
   });
 
-  it("the summary asks only to read, and carries no names", async () => {
-    h.mockDb.webinarPresence.findMany.mockResolvedValue([{ phase: "joined", watchedSeconds: 3_000 }, { phase: "lobby", watchedSeconds: 0 }]);
+  it("the summary asks only to read, is counted by the database, and carries no names", async () => {
+    h.mockDb.webinarPresence.groupBy.mockResolvedValue([
+      { phase: "joined", _count: { _all: 1 }, _sum: { watchedSeconds: 3_000 } },
+      { phase: "lobby", _count: { _all: 1 }, _sum: { watchedSeconds: 0 } },
+    ]);
     const res = await GET(req("?view=summary"), ctx);
     expect(h.permSpy).toHaveBeenCalledWith("webinar.analytics.read");
     expect(await res.json()).toEqual({ opened: 2, joined: 1, totalWatchedSeconds: 3_000, avgWatchedSeconds: 3_000 });
-    expect(h.mockDb.webinarPresence.findMany.mock.calls[0][0].select).toEqual({ phase: true, watchedSeconds: true });
+    expect(h.mockDb.webinarPresence.groupBy).toHaveBeenCalledWith(expect.objectContaining({ by: ["phase"], where: { sessionId: "s1", eventId: "ev1" } }));
+    expect(h.mockDb.webinarPresence.findMany).not.toHaveBeenCalled();
     expect(h.exportSpy).not.toHaveBeenCalled();
   });
 
