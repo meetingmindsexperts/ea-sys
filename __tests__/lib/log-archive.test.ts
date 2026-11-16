@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { gunzipSync } from "node:zlib";
-import { readFileSync, mkdtempSync, existsSync } from "node:fs";
+import { readFileSync, mkdtempSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -31,10 +31,11 @@ vi.mock("@/lib/db", () => ({
         if (args.cursor) list = list.slice(list.findIndex((r) => r.id === args.cursor.id) + 1);
         return list.slice(0, args.take);
       }),
+      // Deletes come in batches of ids since Nov 16, 2026 (review of d1ce3eca).
       deleteMany: vi.fn(async (args: any) => {
-        const { gte, lt } = args.where.timestamp;
+        const ids = new Set<string>(args.where.id.in);
         const before = store.rows.length;
-        store.rows = store.rows.filter((r) => !(r.timestamp >= gte && r.timestamp < lt));
+        store.rows = store.rows.filter((r) => !ids.has(r.id));
         return { count: before - store.rows.length };
       }),
     },
@@ -56,8 +57,8 @@ afterAll(() => { delete process.env.LOG_ARCHIVE_DIR; });
 function row(id: string, iso: string): Row {
   return { id, timestamp: new Date(iso), level: 30, module: "api", message: `log ${id}` };
 }
-function readArchive(month: string): Row[] {
-  const buf = readFileSync(path.join(tmpDir, `systemlog-${month}.jsonl.gz`));
+function readArchive(month: string, file = `systemlog-${month}.jsonl.gz`): Row[] {
+  const buf = readFileSync(path.join(tmpDir, file));
   return gunzipSync(buf).toString("utf8").trim().split("\n").map((l) => JSON.parse(l));
 }
 
@@ -104,6 +105,26 @@ describe("runLogArchiveTick", () => {
     expect(readArchive("2026-04").map((r) => r.id)).toEqual(["a"]);
     expect(readArchive("2026-05").map((r) => r.id)).toEqual(["b", "c"]);
     expect(existsSync(path.join(tmpDir, "systemlog-2026-06.jsonl.gz"))).toBe(false);
+  });
+
+  it("never overwrites an archived month: a second file is numbered beside it (review of d1ce3eca)", async () => {
+    writeFileSync(path.join(tmpDir, "systemlog-2026-04.jsonl.gz"), "earlier archive");
+    store.rows = [row("a", "2026-04-05T09:00:00Z")];
+    await runLogArchiveTick(new Date("2026-07-15T00:00:00Z"));
+    expect(readFileSync(path.join(tmpDir, "systemlog-2026-04.jsonl.gz"), "utf8")).toBe("earlier archive");
+    expect(readArchive("2026-04", "systemlog-2026-04-2.jsonl.gz").map((r) => r.id)).toEqual(["a"]);
+    // No temp file is left behind.
+    expect(readdirSync(tmpDir).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+    // Numbered files are listed and downloadable.
+    expect(resolveArchivePath("systemlog-2026-04-2.jsonl.gz")).toBe(path.join(tmpDir, "systemlog-2026-04-2.jsonl.gz"));
+  });
+
+  it("deletes a large month in batches, not one statement (review of d1ce3eca)", async () => {
+    store.rows = Array.from({ length: 2500 }, (_, i) => row(`r${String(i).padStart(4, "0")}`, "2026-04-05T09:00:00Z"));
+    const result = await runLogArchiveTick(new Date("2026-07-15T00:00:00Z"));
+    expect(result.totalRows).toBe(2500);
+    expect(store.rows).toHaveLength(0);
+    expect(readArchive("2026-04")).toHaveLength(2500);
   });
 
   it("is a no-op when nothing is older than the cutoff", async () => {

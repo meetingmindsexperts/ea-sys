@@ -12,18 +12,26 @@
  * Server-only (Node fs/zlib + Prisma). Driven monthly by the worker; also
  * runnable on demand via `POST /api/logs/archive`.
  */
+import { randomUUID } from "node:crypto";
 import { createGzip } from "node:zlib";
 import { createWriteStream } from "node:fs";
-import { mkdir, readdir, stat, rename, access } from "node:fs/promises";
+import { mkdir, readdir, stat, link, unlink } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import path from "node:path";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
-/** `systemlog-2026-05.jsonl.gz` — the only file shape we accept (traversal-safe). */
-export const ARCHIVE_FILE_RE = /^systemlog-(\d{4})-(\d{2})\.jsonl\.gz$/;
+/**
+ * `systemlog-2026-05.jsonl.gz`, or `systemlog-2026-05-2.jsonl.gz` for a second file of the same month
+ * (an archive is never overwritten): the only file shapes we accept (traversal-safe).
+ */
+export const ARCHIVE_FILE_RE = /^systemlog-(\d{4})-(\d{2})(?:-(\d{1,2}))?\.jsonl\.gz$/;
 const BATCH = 5000;
+/** Rows deleted per statement: a month after a log flood can be hundreds of thousands (review of d1ce3eca). */
+const DELETE_BATCH = 1000;
+/** Files one month may have before the run gives up and says so. */
+const MAX_FILES_PER_MONTH = 99;
 
 /** Overridable for tests; defaults to the mounted logs volume. */
 export function getArchiveDir(): string {
@@ -59,8 +67,41 @@ export function resolveArchivePath(name: string): string | null {
   return full;
 }
 
-async function exists(p: string): Promise<boolean> {
-  try { await access(p); return true; } catch { return false; }
+/**
+ * Give the finished temp file its archive name without ever replacing one: `link` fails when the
+ * name is taken, so a month archived before (rows that came back, or a manual run beside the
+ * monthly one) gets `-2`, `-3`... and the earlier file, and its copy in the DR bucket, stay whole
+ * (review of d1ce3eca: a rename replaced it, and the nightly sync would have copied the smaller
+ * file over the bucket's). Returns the name used.
+ */
+async function claimArchiveName(dir: string, key: string, tmpPath: string): Promise<string> {
+  for (let n = 1; n <= MAX_FILES_PER_MONTH; n++) {
+    const name = n === 1 ? `systemlog-${key}.jsonl.gz` : `systemlog-${key}-${n}.jsonl.gz`;
+    try {
+      await link(tmpPath, path.join(dir, name));
+      await unlink(tmpPath);
+      return name;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+  }
+  throw new Error(`log-archive: ${MAX_FILES_PER_MONTH} files already exist for ${key}`);
+}
+
+/** Delete one month's rows a thousand at a time, so no single statement holds a month of WAL. */
+async function deleteMonth(start: Date, end: Date): Promise<number> {
+  let deleted = 0;
+  for (;;) {
+    const batch = await db.systemLog.findMany({
+      where: { timestamp: { gte: start, lt: end } },
+      select: { id: true },
+      take: DELETE_BATCH,
+    });
+    if (batch.length === 0) return deleted;
+    const del = await db.systemLog.deleteMany({ where: { id: { in: batch.map((r) => r.id) } } });
+    deleted += del.count;
+    if (batch.length < DELETE_BATCH) return deleted;
+  }
 }
 
 /** Stream one month's rows as JSONL lines, cursor-paginated so memory stays flat. */
@@ -88,7 +129,8 @@ export interface LogArchiveResult {
 /**
  * Archive every full month older than the cutoff. Idempotent: a re-run finds no
  * rows for an already-archived month and skips it; a partially-written month is
- * safely re-written (temp file + rename, delete only after the file lands).
+ * safely re-written (its own temp file, then a name that never replaces an earlier archive;
+ * rows are deleted only after the file lands).
  */
 export async function runLogArchiveTick(now: Date = new Date()): Promise<LogArchiveResult> {
   const cutoff = archiveCutoff(now);
@@ -110,24 +152,25 @@ export async function runLogArchiveTick(now: Date = new Date()): Promise<LogArch
     const start = monthStart(oldest.timestamp);
     const end = nextMonthStart(oldest.timestamp);
     const key = monthKey(oldest.timestamp);
-    const finalPath = path.join(dir, `systemlog-${key}.jsonl.gz`);
-    const tmpPath = `${finalPath}.tmp`;
+    // A temp file of this run's own: two runs at once (the monthly job and a manual one) never write
+    // into the same file (review of d1ce3eca). Not matched by ARCHIVE_FILE_RE, so never listed.
+    const tmpPath = path.join(dir, `.systemlog-${key}.${randomUUID()}.tmp`);
 
-    // Write the whole month to a temp gzip, then atomically rename — so a crash
-    // mid-write never leaves a truncated archive in place, and we only delete
-    // rows once the file is safely on disk.
+    // Write the whole month to a temp gzip, then give it its name: a crash mid-write never leaves
+    // a truncated archive in place, and rows are deleted only once the file is safely on disk.
     await pipeline(Readable.from(monthLines(start, end)), createGzip(), createWriteStream(tmpPath));
-    await rename(tmpPath, finalPath);
+    const file = await claimArchiveName(dir, key, tmpPath);
 
-    const del = await db.systemLog.deleteMany({ where: { timestamp: { gte: start, lt: end } } });
-    totalRows += del.count;
+    const rows = await deleteMonth(start, end);
+    totalRows += rows;
     archivedMonths.push(key);
     apiLogger.info({
       msg: "log-archive:month-archived",
       month: key,
-      file: path.basename(finalPath),
-      rows: del.count,
-      existed: await exists(finalPath),
+      file,
+      rows,
+      // A month archived before: its earlier file is kept and this one is numbered beside it.
+      existed: file !== `systemlog-${key}.jsonl.gz`,
     });
   }
 
@@ -163,6 +206,6 @@ export async function listArchives(): Promise<ArchiveListing[]> {
     const s = await stat(path.join(dir, name));
     out.push({ name, month: `${m[1]}-${m[2]}`, sizeBytes: s.size, modifiedAt: s.mtime.toISOString() });
   }
-  out.sort((a, b) => b.month.localeCompare(a.month));
+  out.sort((a, b) => b.month.localeCompare(a.month) || b.name.localeCompare(a.name, undefined, { numeric: true }));
   return out;
 }

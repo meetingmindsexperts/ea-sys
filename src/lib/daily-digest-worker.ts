@@ -52,6 +52,12 @@ export const DIGEST_THRESHOLDS = {
   cpuCreditsWarn: 200,
   /** Errors in 24h above which this stops being noise and becomes an incident. */
   errorStormCount: 50,
+  /**
+   * Log rows (errors + warnings) in 24h above which the SystemLog table is flooding. Normal is a
+   * few hundred a day. Nothing trims the table until the monthly archive on the 1st since the
+   * 30-day prune was retired (Nov 16, 2026), so a flood is worth knowing about the next morning.
+   */
+  logFloodRows24h: 20_000,
   /** AWS starts asking questions above ~5% bounce / ~0.1% complaint. */
   sesBounceRateWarn: 0.05,
   sesComplaintRateWarn: 0.001,
@@ -303,6 +309,18 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
       severity: "warn",
       label: `${errors24h} error(s) in 24h`,
       detail: "Each one also sent its own alert email when it happened.",
+    });
+  }
+
+  // A flood of log lines (review of d1ce3eca): errors or warnings, since a client hammering a
+  // refused route writes warnings. Warn, not critical: nothing is broken yet, the table just grows.
+  const logRows24h = snap.errorTrend.buckets.reduce((n, b) => n + b.errors + b.warns, 0);
+  if (logRows24h >= DIGEST_THRESHOLDS.logFloodRows24h) {
+    findings.push({
+      severity: "warn",
+      label: `${logRows24h} log lines in 24h`,
+      detail:
+        "The log table only shrinks when the monthly archive runs on the 1st. Open /logs and find the line that repeats; a client hitting a refused route is the usual cause.",
     });
   }
 

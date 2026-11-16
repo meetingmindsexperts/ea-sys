@@ -429,6 +429,21 @@ describe("assessInfra — verdict", () => {
     expect(assessInfra(storm).verdict).toBe("critical");
   });
 
+  it("a flood of warnings is WARN, since nothing trims the log table until the 1st (review of d1ce3eca)", () => {
+    const routine = healthySnapshot();
+    routine.errorTrend.buckets = [{ hour: "05", errors: 0, warns: 400 }];
+    expect(assessInfra(routine).verdict).toBe("ok");
+
+    const flood = healthySnapshot();
+    flood.errorTrend.buckets = [
+      { hour: "05", errors: 0, warns: 15_000 },
+      { hour: "06", errors: 0, warns: 6_000 },
+    ];
+    const a = assessInfra(flood);
+    expect(a.verdict).toBe("warn");
+    expect(a.findings.some((f) => f.label === "21000 log lines in 24h")).toBe(true);
+  });
+
   it("silenced error alerts are surfaced, because the operator may have forgotten", () => {
     const s = healthySnapshot();
     s.alerts.info = { silencedUntil: new Date(Date.now() + 3_600_000).toISOString() };
