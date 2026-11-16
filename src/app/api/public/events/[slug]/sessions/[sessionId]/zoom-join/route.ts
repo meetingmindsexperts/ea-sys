@@ -7,6 +7,8 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { generateZoomSignatureForOrg } from "@/lib/zoom";
 import { hlsPlaybackUrls, pickSessionStream, SESSION_STREAM_SELECT } from "@/lib/webinar/session-stream";
+import { webinarVideoSource } from "@/lib/webinar/video-source";
+import { readWebinarSettings } from "@/lib/webinar";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import {
   isViewerRoomOpen,
@@ -142,9 +144,17 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // A partner-produced webinar has no Zoom meeting of ours and is watched as
     // the stream alone (external streams step 4). Anything else without a Zoom
-    // meeting has nothing to join.
+    // meeting has nothing to join. A partner's webinar whose key is not issued
+    // yet is still that webinar: its registrants get the waiting room, then
+    // "Getting the stream ready", never "No Zoom meeting" (review of c1b4ae83,
+    // step-8 readiness: the confirmation email links this page from day one).
     const zoomMeeting = session.zoomMeeting;
-    if (!zoomMeeting && stream?.source !== "external") {
+    const partnerWebinar =
+      stream?.source === "external" ||
+      (event.eventType === "WEBINAR" &&
+        webinarVideoSource(event.settings) === "external" &&
+        readWebinarSettings(event.settings)?.sessionId === sessionId);
+    if (!zoomMeeting && !partnerWebinar) {
       apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "zoom:join-no-meeting");
       return NextResponse.json({ error: "No Zoom meeting for this session" }, { status: 404 });
     }

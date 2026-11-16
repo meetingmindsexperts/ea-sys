@@ -120,10 +120,41 @@ export function PartnerStreamCard({
       </PartnerCardShell>
     );
   }
-  const { partnerStream, signal, serverReady, canSeeKey } = state.data;
-  if (!partnerStream) return <IssueKey eventId={eventId} timezone={timezone} serverReady={serverReady} />;
+  const { partnerStream, signal, serverReady, canSeeKey, controlApi } = state.data;
+  const controlNotice = serverReady ? <ControlApiNotice check={controlApi} /> : null;
+  if (!partnerStream) {
+    return <IssueKey eventId={eventId} timezone={timezone} serverReady={serverReady} notice={controlNotice} />;
+  }
   return (
-    <IssuedKey eventId={eventId} timezone={timezone} webinar={webinar} stream={partnerStream} signal={signal} canSeeKey={canSeeKey} />
+    <IssuedKey
+      eventId={eventId}
+      timezone={timezone}
+      webinar={webinar}
+      stream={partnerStream}
+      signal={signal}
+      canSeeKey={canSeeKey}
+      notice={controlNotice}
+    />
+  );
+}
+
+const CONTROL_API_PROBLEM: Record<"UNREACHABLE" | "REFUSED" | "BAD_ANSWER", string> = {
+  UNREACHABLE: "The stream server's control connection is not answering.",
+  REFUSED: "The stream server refused our control connection.",
+  BAD_ANSWER: "The stream server's control connection gave an answer we could not read.",
+};
+
+/**
+ * Said when the control API does not work (review of c1b4ae83, HIGH): the environment said "ready",
+ * so keys were issued, and Cut the feed failed only when it was needed during a webinar.
+ */
+function ControlApiNotice({ check }: { check: WebinarPartnerStreamState["controlApi"] | undefined }) {
+  if (!check || check === "ok" || check === "NOT_CONFIGURED") return null;
+  return (
+    <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="status">
+      {CONTROL_API_PROBLEM[check]} Until the system administrator fixes it, Cut the feed and Replace still switch
+      the key off, but cannot end a stream that is already running.
+    </p>
   );
 }
 
@@ -151,7 +182,17 @@ function PartnerCardShell({ badge, children }: { badge?: React.ReactNode; childr
   );
 }
 
-function IssueKey({ eventId, timezone, serverReady }: { eventId: string; timezone: string; serverReady: boolean }) {
+function IssueKey({
+  eventId,
+  timezone,
+  serverReady,
+  notice,
+}: {
+  eventId: string;
+  timezone: string;
+  serverReady: boolean;
+  notice: React.ReactNode;
+}) {
   const action = useWebinarPartnerStreamAction(eventId);
   const [issuedTo, setIssuedTo] = useState("");
   const [validUntil, setValidUntil] = useState("");
@@ -183,6 +224,7 @@ function IssueKey({ eventId, timezone, serverReady }: { eventId: string; timezon
 
   return (
     <PartnerCardShell>
+      {notice}
       <p className="text-sm text-muted-foreground">
         No key has been issued yet. Issue one, then hand the partner the server and stream key it shows.
       </p>
@@ -219,6 +261,7 @@ function IssuedKey({
   stream,
   signal,
   canSeeKey,
+  notice,
 }: {
   eventId: string;
   timezone: string;
@@ -226,6 +269,7 @@ function IssuedKey({
   stream: WebinarPartnerStreamView;
   signal: Signal;
   canSeeKey: boolean;
+  notice: React.ReactNode;
 }) {
   const label = partnerSignalLabel(signal, stream.enabled);
   const badge = <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${label.tone}`}>{label.text}</span>;
@@ -233,6 +277,7 @@ function IssuedKey({
 
   return (
     <PartnerCardShell badge={badge}>
+      {notice}
       <dl className="grid gap-x-6 gap-y-3 text-sm md:grid-cols-2">
         <Fact term="Given to" value={stream.issuedTo ?? "Not recorded"} />
         <Fact term="Last connection" value={stream.lastPublishAt ? when(stream.lastPublishAt) : "None yet"} />

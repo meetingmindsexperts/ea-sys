@@ -325,8 +325,27 @@ describe("zoom-join: a partner-produced webinar has no Zoom meeting and is watch
     expect(body).not.toHaveProperty("hlsPlaybackUrl");
   });
 
-  it("a session with neither a Zoom meeting nor a partner's stream still has nothing to join (404)", async () => {
+  it("a partner's webinar whose key is not issued yet is still that webinar: no 404, no stream address (review of c1b4ae83)", async () => {
     attendee();
+    mockDb.eventSession.findFirst.mockResolvedValue(liveSession({ externalStream: null }));
+    const res = await call();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // The page shows "Getting the stream ready" for this answer.
+    expect(body).toMatchObject({ mode: "stream", liveStreamEnabled: false, joinUrl: "" });
+    expect(body).not.toHaveProperty("hlsPlaybackUrl");
+    expect(mockApiLogger.warn).not.toHaveBeenCalledWith(expect.anything(), "zoom:join-no-meeting");
+  });
+
+  it("a session with neither, on a webinar run on our Zoom, still has nothing to join (404)", async () => {
+    attendee();
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1",
+      organizationId: ORG,
+      status: "PUBLISHED",
+      eventType: "WEBINAR",
+      settings: { webinar: { sessionId: "sess1", viewingMode: "hls" } },
+    });
     mockDb.eventSession.findFirst.mockResolvedValue(liveSession({ externalStream: null }));
     const res = await call();
     expect(res.status).toBe(404);

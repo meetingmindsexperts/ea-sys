@@ -23,26 +23,34 @@ describe("the Webinar Console", () => {
     expect(bar).not.toMatch(/\{zoom\.passcode\}/);
   });
 
-  it("the Overview card keeps Zoom's link and passcode folded away, labelled for hosts and panelists", () => {
+  it("the partner bar copies the same attendee page link", () => {
+    const bar = body("PartnerStatusBar");
+    expect(bar).toContain("useAttendeePageUrl(eventSlug, anchor?.id ?? null)");
+    expect(bar).toContain('onCopy(attendeeUrl, "Attendee page link")');
+  });
+
+  it("the Overview card keeps Zoom's link and passcode folded away, labelled for hosts", () => {
     const card = body("OverviewCard");
     const details = card.indexOf("<details");
     expect(details).toBeGreaterThan(-1);
-    expect(card).toContain("Zoom details (host and panelists only)");
+    expect(card).toContain("Zoom details (hosts only)");
     expect(card.indexOf("zoom.joinUrl")).toBeGreaterThan(details);
     expect(card.indexOf("zoom.passcode")).toBeGreaterThan(details);
   });
 
-  it("the tabs are controlled, so an ended webinar opens on Analytics once its data arrives", () => {
+  it("the tabs are controlled, the opening tab is set once, and a vanished tab falls back (console-rules.ts)", () => {
     expect(page).toContain("<Tabs value={activeTab} onValueChange={setPickedTab}");
     expect(page).not.toContain("<Tabs defaultValue=");
-    expect(page).toContain('const defaultTab = status === "ended" ? "analytics" : "setup";');
+    expect(page).toContain("if (data && pickedTab === null) setPickedTab(consoleOpeningTab(status));");
+    expect(page).toContain("consoleActiveTab(pickedTab, consoleTabs({ partner, viewerTabs: showViewerQaTab }))");
   });
 
-  it("after the end the room button is a confirmed, quiet re-open", () => {
+  it("after a real close the room button is a confirmed, quiet re-open", () => {
     expect(body("roomButtonLabel")).toContain('"Re-open the room"');
     const action = body("roomButtonAction");
-    expect(action.indexOf("a.closeEndsWebinar")).toBeLessThan(action.indexOf("a.ended"));
+    expect(action.indexOf("a.closeEndsWebinar")).toBeLessThan(action.indexOf("a.reopen"));
     expect(action).toContain("return a.confirmReopen;");
+    expect(body("GoLiveCard")).toContain("roomReopens({ roomOpen, ended, anchorStatus: anchor?.status })");
     expect(page).toContain("<AlertDialogTitle>Re-open the room?</AlertDialogTitle>");
   });
 
@@ -52,6 +60,13 @@ describe("the Webinar Console", () => {
     const branch = card.slice(card.indexOf("{customStream ? ("), card.indexOf(") : (", card.indexOf("{customStream ? (")));
     expect(branch).not.toContain("Attendance rate");
     expect(page).toContain('customStream={data?.webinar?.viewingMode === "hls"}');
+  });
+
+  it("the attendee page of a partner's webinar never says it opens in Zoom, even before the key exists", () => {
+    const attendee = readFileSync("src/app/e/[slug]/session/[sessionId]/page.tsx", "utf8");
+    expect(attendee).toContain('const ctaStream = playsStream || joinInfo.mode === "stream";');
+    expect(attendee).toContain("joinCtaHint({ playsStream: ctaStream,");
+    expect(attendee).toContain("joinCtaTitle(isLive, ctaStream)");
   });
 
   it("an available recording says Available, not the email list's SENT", () => {

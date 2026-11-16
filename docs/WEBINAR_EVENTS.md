@@ -292,7 +292,7 @@ The console at `/events/[eventId]/webinar` is organized top-down:
 **2. Sticky status bar** — `WebinarStatusBar` component, color-coded by status (blue = Scheduled, red pulsing = Live, gray = Ended). Always visible above the fold. Contents:
 - Status icon + pill
 - Session window ("Mar 14 · 2:00 – 3:00 PM")
-- Inline join URL + copy button + passcode badge
+- The attendee page link (our session page, which checks registration and payment) + copy button. Since Nov 16, 2026 Zoom's join link and passcode are not here: they skip that check, so they sit folded in the Overview card under "Zoom details (hosts only)". A partner's webinar shows the partner's signal and a copy button for the same link
 - **`Room OPEN` / `Room closed` badge** (Aug 10, 2026; see below)
 - Context-aware primary action:
   - `Scheduled` / `Live` → **Start as Host**

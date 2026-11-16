@@ -16,6 +16,9 @@ const { mockLogger } = vi.hoisted(() => ({ mockLogger: { info: vi.fn(), warn: vi
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 
 import {
+  checkControlApi,
+  CONTROL_CHECK_TTL_MS,
+  resetControlCheckForTests,
   disconnectPublishers,
   isMediamtxControlConfigured,
   isValidControlCaller,
@@ -66,6 +69,45 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.MEDIAMTX_API_URL;
   delete process.env.MEDIAMTX_API_SECRET;
+});
+
+describe("checkControlApi (review of c1b4ae83: the environment alone said ready)", () => {
+  beforeEach(() => resetControlCheckForTests());
+
+  it("ok when the path list answers", async () => {
+    expect(await checkControlApi(1_000)).toBe("ok");
+    expect(asked()).toEqual(["/v3/paths/list?itemsPerPage=100&page=0"]);
+  });
+
+  it("REFUSED when our webhook turns the secret down, and says so in the log", async () => {
+    serve({ list: json(401, null) });
+    expect(await checkControlApi(1_000)).toBe("REFUSED");
+    expect(mockLogger.warn).toHaveBeenCalledWith({ code: "REFUSED" }, "mediamtx-control:check-failed");
+  });
+
+  it("UNREACHABLE when MediaMTX is not there (not recreated with the API on)", async () => {
+    fetchMock.mockRejectedValue(Object.assign(new Error("fetch failed"), { cause: { code: "ECONNREFUSED" } }));
+    expect(await checkControlApi(1_000)).toBe("UNREACHABLE");
+  });
+
+  it("BAD_ANSWER for some other server's answer, never ok", async () => {
+    serve({ list: json(404, null) });
+    expect(await checkControlApi(1_000)).toBe("BAD_ANSWER");
+  });
+
+  it("keeps an answer for 30 seconds, so a console refreshing every few seconds costs one call", async () => {
+    expect(await checkControlApi(1_000)).toBe("ok");
+    serve({ list: json(401, null) });
+    expect(await checkControlApi(1_000 + CONTROL_CHECK_TTL_MS - 1)).toBe("ok");
+    expect(await checkControlApi(1_000 + CONTROL_CHECK_TTL_MS)).toBe("REFUSED");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks nothing on a server not set up for it", async () => {
+    delete process.env.MEDIAMTX_API_URL;
+    expect(await checkControlApi(1_000)).toBe("NOT_CONFIGURED");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("configuration", () => {

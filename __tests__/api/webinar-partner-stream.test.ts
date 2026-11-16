@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
     revealExternalStreamCredentials: vi.fn(),
   },
   ready: { value: true },
+  checkControlApi: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -49,6 +50,7 @@ vi.mock("@/lib/webinar/partner-stream-readiness", () => ({
   partnerStreamReadiness: () => ({ ready: h.ready.value, missing: h.ready.value ? [] : ["MEDIAMTX_CONTROL"] }),
 }));
 vi.mock("@/services/external-stream-service", () => h.svc);
+vi.mock("@/lib/webinar/mediamtx-control", () => ({ checkControlApi: () => h.checkControlApi() }));
 
 import { GET, POST, PATCH } from "@/app/api/events/[eventId]/webinar/partner-stream/route";
 import { POST as keyPOST } from "@/app/api/events/[eventId]/webinar/partner-stream/credentials/route";
@@ -78,6 +80,7 @@ beforeEach(() => {
   h.canSpy.mockReturnValue(true);
   h.svc.getExternalStream.mockResolvedValue(VIEW);
   h.svc.externalStreamSignal.mockResolvedValue("not-receiving");
+  h.checkControlApi.mockResolvedValue("ok");
   for (const fn of ["issueExternalStream", "replaceExternalStreamKey", "cutExternalStream", "setExternalStreamEnabled", "updateExternalStreamDetails"] as const) {
     h.svc[fn].mockResolvedValue({ ok: true, externalStream: VIEW });
   }
@@ -89,9 +92,23 @@ describe("GET partner-stream", () => {
     const res = await GET(req(), ctx);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ partnerStream: VIEW, signal: "not-receiving", serverReady: true, canSeeKey: false });
+    expect(body).toEqual({ partnerStream: VIEW, signal: "not-receiving", serverReady: true, controlApi: "ok", canSeeKey: false });
     expect(JSON.stringify(body)).not.toMatch(/streamKey|pass=/);
     expect(h.svc.getExternalStream).toHaveBeenCalledWith({ eventId: "ev1", sessionId: "s1" });
+  });
+
+  it("says when the stream server's control API does not let us in, so Cut is not trusted blind (review of c1b4ae83)", async () => {
+    h.checkControlApi.mockResolvedValue("REFUSED");
+    const body = await (await GET(req(), ctx)).json();
+    expect(body.serverReady).toBe(true);
+    expect(body.controlApi).toBe("REFUSED");
+  });
+
+  it("does not ask the control API on a server not set up for it", async () => {
+    h.ready.value = false;
+    const body = await (await GET(req(), ctx)).json();
+    expect(body.controlApi).toBe("NOT_CONFIGURED");
+    expect(h.checkControlApi).not.toHaveBeenCalled();
   });
 
   it("a webinar on our own Zoom has no partner stream: refused and logged", async () => {

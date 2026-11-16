@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { partnerStreamReadiness } from "@/lib/webinar/partner-stream-readiness";
+import { checkControlApi } from "@/lib/webinar/mediamtx-control";
 import {
   cutExternalStream,
   externalStreamSignal,
@@ -91,12 +92,20 @@ export async function GET(_req: Request, { params }: RouteParams) {
       const found = await findPartnerWebinar(gate.eventWhere, { eventId, userId: session.user.id, route });
       if (!found.ok) return found.response;
       const at = { eventId, sessionId: found.sessionId };
-      const [partnerStream, signal] = await Promise.all([getExternalStream(at), externalStreamSignal(at)]);
+      const serverReady = partnerStreamReadiness().ready;
+      const [partnerStream, signal, controlApi] = await Promise.all([
+        getExternalStream(at),
+        externalStreamSignal(at),
+        // Whether the stream server's control API really lets us in, so Cut and Replace can end a
+        // running stream; the environment alone cannot say (review of c1b4ae83, HIGH). Cached 30 s.
+        serverReady ? checkControlApi() : Promise.resolve("NOT_CONFIGURED" as const),
+      ]);
       return NextResponse.json({
         partnerStream,
         signal,
         // Whether this server can issue and cut a key at all (an owner step when not).
-        serverReady: partnerStreamReadiness().ready,
+        serverReady,
+        controlApi,
         canSeeKey: can(gate.principal, "zoomHost.view"),
       });
     });

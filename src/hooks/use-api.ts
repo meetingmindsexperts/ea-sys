@@ -3409,6 +3409,8 @@ export interface WebinarPartnerStreamState {
   signal: "receiving" | "not-receiving" | "unknown" | null;
   /** Whether this server can issue and cut a partner's key at all. */
   serverReady: boolean;
+  /** Whether the stream server's control API answered and let us in (Cut and Replace need it). */
+  controlApi: "ok" | "NOT_CONFIGURED" | "UNREACHABLE" | "REFUSED" | "BAD_ANSWER";
   /** Whether this person holds "See Zoom host details", which showing the key needs. */
   canSeeKey: boolean;
 }

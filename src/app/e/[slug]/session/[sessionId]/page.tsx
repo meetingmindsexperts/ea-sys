@@ -1588,6 +1588,10 @@ function StickyCta({
       joinInfo.meetingType === "WEBINAR" ||
       joinInfo.meetingType === "WEBINAR_SERIES";
     const canEmbed = joinInfo.mode === "sdk" && joinInfo.sdkKey && joinInfo.signature;
+    // A "stream" answer is a partner's webinar: its video is always the stream, even before the
+    // partner's key exists and so before there is an address to play. The banner said "This webinar
+    // will open in Zoom" there (review of c1b4ae83, seen in the before/after screenshots).
+    const ctaStream = playsStream || joinInfo.mode === "stream";
 
     const renderJoinAction = () => {
       // The room is not open yet: the lobby poll admits them when it opens.
@@ -1655,10 +1659,10 @@ function StickyCta({
           </div>
           <div className="min-w-0 flex-1 text-left">
             <p className="text-sm font-semibold sm:text-base">
-              {joinCtaTitle(isLive, playsStream)}
+              {joinCtaTitle(isLive, ctaStream)}
             </p>
-            <p className={cn("text-xs text-muted-foreground", playsStream && "hidden sm:block")}>
-              {joinCtaHint({ playsStream, isLive, canEmbed: Boolean(canEmbed), isWebinar })}
+            <p className={cn("text-xs text-muted-foreground", ctaStream && "hidden sm:block")}>
+              {joinCtaHint({ playsStream: ctaStream, isLive, canEmbed: Boolean(canEmbed), isWebinar })}
             </p>
           </div>
           {renderJoinAction()}

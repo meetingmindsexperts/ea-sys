@@ -146,6 +146,7 @@ import { parseReplayVideo, REPLAY_LINK_MESSAGE } from "@/lib/webinar/replay-vide
 import { ReplayPlayer } from "@/components/webinar/replay-player";
 import { isHttpsLink } from "@/lib/webinar-exit-link";
 import { webinarRoomEnded } from "@/lib/webinar-page-layout";
+import { consoleActiveTab, consoleOpeningTab, consoleTabs, roomReopens } from "@/lib/webinar/console-rules";
 import { BrandingImageField } from "@/components/events/branding-image-field";
 
 type AutoRecording = "none" | "local" | "cloud";
@@ -224,6 +225,11 @@ export default function WebinarConsolePage() {
   // Streamed by a partner from their own platform (Nov 16, 2026): no Zoom webinar of ours, so the
   // Partner stream card takes the place of the Zoom controls.
   const partner = data?.videoSource === "external";
+
+  // The opening tab is decided once, when the data first arrives (consoleOpeningTab). Set during
+  // render, the pattern React documents for state taken from a first value; it runs once, because
+  // pickedTab is set from then on.
+  if (data && pickedTab === null) setPickedTab(consoleOpeningTab(status));
 
   const handleCopy = async (value: string | null | undefined, label: string) => {
     if (!value) return;
@@ -308,13 +314,6 @@ export default function WebinarConsolePage() {
 
   const anchor = data?.anchorSession;
   const zoom = data?.zoomMeeting;
-  // Tabs are status-driven: Scheduled/Live → Setup, Ended → Analytics. The
-  // producer can switch at will. Controlled, not `defaultValue`: that was read
-  // on the first render, usually before the data arrived, so an ended webinar
-  // opened on Setup (UX review, Nov 16, 2026). Until the producer picks a tab,
-  // the status decides.
-  const defaultTab = status === "ended" ? "analytics" : "setup";
-  const activeTab = pickedTab ?? defaultTab;
   // Viewer questions get their own tab (owner, Oct 1, 2026). Polled here so
   // the tab's badge counts new questions while the producer is on any tab.
   // Shown in Custom stream mode, and in any mode while questions exist, so a
@@ -322,6 +321,10 @@ export default function WebinarConsolePage() {
   const viewerQuestions = viewerQuestionsQuery.data?.questions ?? [];
   const newViewerQuestions = viewerQuestions.filter((q) => q.status === "NEW").length;
   const showViewerQaTab = data?.webinar?.viewingMode === "hls" || viewerQuestions.length > 0;
+  // Controlled, not `defaultValue`: that was read on the first render, usually before the data
+  // arrived, so an ended webinar opened on Setup (UX review, Nov 16, 2026). The opening tab is set
+  // once (above); a tab that disappears while selected falls back to Setup (console-rules.ts).
+  const activeTab = consoleActiveTab(pickedTab, consoleTabs({ partner, viewerTabs: showViewerQaTab }));
 
   return (
     <EventTzContext.Provider value={data?.event?.timezone || DEFAULT_EVENT_TIMEZONE}>
@@ -798,7 +801,7 @@ function WebinarStatusBar({
   };
   // A partner's webinar never has a Zoom webinar: its bar shows the room and the partner's signal.
   if (partner) {
-    return <PartnerStatusBar eventId={eventId} status={status} anchor={anchor} eventSlug={eventSlug} />;
+    return <PartnerStatusBar eventId={eventId} status={status} anchor={anchor} eventSlug={eventSlug} onCopy={onCopy} />;
   }
   // No Zoom attached → collapse to a "Configure Zoom" banner with provisioner retry.
   if (!hasZoom || !zoom) {
@@ -1013,13 +1016,17 @@ function PartnerStatusBar({
   status,
   anchor,
   eventSlug,
+  onCopy,
 }: {
   eventId: string;
   status: WebinarStatus;
   anchor: AnchorSession;
   eventSlug: string | null;
+  onCopy: (value: string | null | undefined, label: string) => void;
 }) {
   const eventTz = useEventTz();
+  // The link attendees are sent, copyable here as on a Zoom webinar's bar (review of c1b4ae83).
+  const attendeeUrl = useAttendeePageUrl(eventSlug, anchor?.id ?? null);
   const canManage = useCan("webinar.manage", eventId) === "allowed";
   const partnerStream = useWebinarPartnerStream(eventId, canManage);
   const roomOpen = anchor?.status === "LIVE";
@@ -1054,6 +1061,18 @@ function PartnerStatusBar({
               >
                 {roomOpen ? "Room OPEN" : "Room closed"}
               </Badge>
+            ) : null}
+            {attendeeUrl ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => onCopy(attendeeUrl, "Attendee page link")}
+                title="Copy the attendee page link"
+                aria-label="Copy the attendee page link"
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
             ) : null}
             {eventSlug && anchor ? (
               <Button asChild variant="outline" size="icon" title="Open public session page">
@@ -1214,13 +1233,14 @@ function OverviewCard({
           <EmptyAnchorState onProvision={onProvision} pending={provisionPending} />
         )}
 
-        {/* Zoom details, only when attached. Folded away and labelled for hosts and panelists: the
-            join link and passcode skip our registration check, so they are not for attendees
-            (UX review, Nov 16, 2026). */}
+        {/* Zoom details, only when attached. Folded away and labelled for hosts: the join link and
+            passcode skip our registration check, so they are not for attendees (UX review, Nov 16,
+            2026). Not "panelists" either: they join from their own link in Zoom's panelist
+            invitation (review of c1b4ae83). */}
         {hasZoom && zoom ? (
           <div className="pt-5 border-t space-y-4">
             <details className="rounded-lg border p-3 text-sm">
-              <summary className="cursor-pointer font-medium">Zoom details (host and panelists only)</summary>
+              <summary className="cursor-pointer font-medium">Zoom details (hosts only)</summary>
               <p className="mt-2 text-xs text-muted-foreground">
                 Attendees join through the attendee page, which checks their registration. Do not send this
                 link or passcode to attendees.
@@ -3572,6 +3592,8 @@ function GoLiveCard({
     !roomOpen &&
     anchor != null &&
     webinarRoomEnded({ status: anchor.status, startMs: anchorStartMs, endMs: anchorEndMs, now: nowTick });
+  // Re-open (confirmed, quiet) only after a real close; a room never opened by its end is a late start.
+  const reopen = roomReopens({ roomOpen, ended, anchorStatus: anchor?.status });
 
   const handleToggleRoom = async () => {
     setConfirmCloseOpen(false);
@@ -3645,22 +3667,22 @@ function GoLiveCard({
           <Button
             onClick={roomButtonAction({
               closeEndsWebinar,
-              ended,
+              reopen,
               toggle: handleToggleRoom,
               confirmClose: () => setConfirmCloseOpen(true),
               confirmReopen: () => setConfirmReopenOpen(true),
             })}
-            size={ended ? "sm" : "lg"}
+            size={reopen ? "sm" : "lg"}
             disabled={toggleRoom.isPending}
-            variant={roomOpen || ended ? "outline" : "default"}
-            className={roomOpen || ended ? "w-full" : "w-full bg-red-600 hover:bg-red-700"}
+            variant={roomOpen || reopen ? "outline" : "default"}
+            className={roomOpen || reopen ? "w-full" : "w-full bg-red-600 hover:bg-red-700"}
           >
             {toggleRoom.isPending ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : (
               <PlayCircle className="h-4 w-4 mr-2" />
             )}
-            {roomButtonLabel(roomOpen, ended)}
+            {roomButtonLabel(roomOpen, reopen)}
           </Button>
         </div>
         {/* Operator visibility (waiting-room review #10): DRAFT events auto-open
@@ -3728,19 +3750,20 @@ const PARTNER_SIGNAL_ON_OPEN: Record<"receiving" | "not-receiving" | "switched-o
  */
 function roomButtonAction(a: {
   closeEndsWebinar: boolean;
-  ended: boolean;
+  /** roomReopens: the room was opened and closed after the start. */
+  reopen: boolean;
   toggle: () => void;
   confirmClose: () => void;
   confirmReopen: () => void;
 }): () => void {
   if (a.closeEndsWebinar) return a.confirmClose;
-  if (a.ended) return a.confirmReopen;
+  if (a.reopen) return a.confirmReopen;
   return a.toggle;
 }
 
-function roomButtonLabel(roomOpen: boolean, ended: boolean): string {
+function roomButtonLabel(roomOpen: boolean, reopen: boolean): string {
   if (roomOpen) return "Close the room";
-  return ended ? "Re-open the room" : "Open the room / Go live";
+  return reopen ? "Re-open the room" : "Open the room / Go live";
 }
 
 function overrunNote(customStream: boolean, partner = false): string {

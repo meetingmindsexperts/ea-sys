@@ -235,6 +235,37 @@ async function listPaths(): Promise<PublishersResult> {
   return { ok: false, code: "BAD_ANSWER" };
 }
 
+export type ControlCheck = "ok" | ControlFailure;
+
+/** How long one answer is kept: the console asks on every refresh of the Partner stream card. */
+export const CONTROL_CHECK_TTL_MS = 30_000;
+let lastControlCheck: { at: number; result: ControlCheck } | null = null;
+
+/**
+ * Whether the control API answers and lets our calls in, asked with the first
+ * page of the path list (the call the minute sweep makes anyway).
+ *
+ * Why (review of c1b4ae83, step-8 readiness, HIGH): "ready" was read from the
+ * environment alone, so a server whose MediaMTX was never recreated with the
+ * API switched on, or whose webhook refuses our secret, still issued keys, and
+ * the producer learnt it only when Cut the feed or Replace failed during a
+ * webinar. This lets the console say so before then. Cached for 30 seconds.
+ */
+export async function checkControlApi(now = Date.now()): Promise<ControlCheck> {
+  if (!config()) return "NOT_CONFIGURED";
+  if (lastControlCheck && now - lastControlCheck.at < CONTROL_CHECK_TTL_MS) return lastControlCheck.result;
+  const page = await listPage(0);
+  const result: ControlCheck = page.ok ? "ok" : page.code;
+  if (!page.ok) apiLogger.warn({ code: page.code }, "mediamtx-control:check-failed");
+  lastControlCheck = { at: now, result };
+  return result;
+}
+
+/** Tests only: forget the cached answer. */
+export function resetControlCheckForTests(): void {
+  lastControlCheck = null;
+}
+
 /** Everyone publishing to MediaMTX now: one entry per live path, with the connection that feeds it. */
 export async function listPublishers(): Promise<PublishersResult> {
   const listed = await listPaths();

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinar Console: review of c1b4ae83, and step-8 readiness (November 16)
+
+- Closing the room no longer moves the producer from Setup to Analytics: the opening tab is chosen once, when the console loads (`src/lib/webinar/console-rules.ts`). A tab that disappears while selected falls back to Setup.
+- "Re-open the room" appears only after a real close. A room never opened by the end of its slot keeps the ordinary "Open the room / Go live".
+- The Partner stream card now says when the stream server's control API does not answer or refuses us (`checkControlApi`, cached 30 s). Before this, "ready" was read from the environment alone, and Cut the feed failed only when it was needed.
+- The registrants of a partner's webinar whose key is not issued yet get the waiting room, then "Getting the stream ready". They used to get a 404 and "Click Join Webinar above", with no button.
+- The partner bar has a copy button for the attendee page. Zoom's details are labelled "hosts only": panelists join from their own invitation.
+
 ### Promo codes: a code that takes the whole fee makes the registration Complimentary, whenever it is entered (November 16)
 
 Owner decision, reversing the Nov 12 ruling ("a code entered after registering stays Unpaid"). On the 4th GCC Hematology Hub that ruling left twenty people on one sponsor's code split seven Complimentary and thirteen Unpaid, by nothing but where each had typed the code. The status now follows the balance, as it does in the payment and ticketing systems looked at (a zero balance is never "unpaid").

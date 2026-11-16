@@ -20,8 +20,11 @@
  *                   join path mints its own credentials, so nothing legitimate
  *                   needs the raw passcode outside the host surfaces.
  *
- * `joinUrl` is deliberately NOT host-only: it's the attendee link, already
- * shared with registrants by email.
+ * `joinUrl` is deliberately NOT redacted from staff: it is not host control.
+ * It is NOT the link attendees are sent, though: the emails and the console
+ * hand out our session page, which checks registration and payment, and
+ * Zoom's link skips that check (Nov 16, 2026). The console keeps it folded
+ * under "Zoom details (hosts only)".
  *
  * Only the roles that actually run the event may see these. This is a
  * *narrower* set than `canViewFinance` (which includes MEMBER + ONSITE, the
