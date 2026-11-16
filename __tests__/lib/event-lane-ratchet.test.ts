@@ -66,6 +66,8 @@ const UNLANED_EVENT_FILES_BASELINE: string[] = [
   "src/app/api/events/[eventId]/onsite-staff/route.ts",
   "src/app/api/events/[eventId]/speaker-agreement-template/route.ts",
   "src/app/api/events/[eventId]/sponsors/route.ts",
+  // A helper of the partner-stream routes, called only inside their runWithTenant (Nov 16, 2026).
+  "src/app/api/events/[eventId]/webinar/partner-stream/shared.ts",
   "src/app/api/events/[eventId]/zoom/settings/route.ts",
   "src/app/api/events/route.ts",
   "src/app/api/import/eventsair/route.ts",

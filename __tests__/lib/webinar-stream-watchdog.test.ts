@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDbOperator, mockDb, probeSpy, controlSpy } = vi.hoisted(() => ({
+const { mockDbOperator, mockDb, probeSpy, controlSpy, notifySpy } = vi.hoisted(() => ({
   mockDbOperator: { eventSession: { findMany: vi.fn() } },
   mockDb: {
     auditLog: { create: vi.fn(), findMany: vi.fn() },
@@ -16,15 +16,23 @@ const { mockDbOperator, mockDb, probeSpy, controlSpy } = vi.hoisted(() => ({
   },
   probeSpy: vi.fn(),
   controlSpy: vi.fn(),
+  notifySpy: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDbOperator }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/lib/webinar/stream-probe", () => ({ probeStream: probeSpy }));
 vi.mock("@/lib/webinar/livestream", () => ({ controlWebinarLiveStream: controlSpy }));
+vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: notifySpy }));
 
 import { apiLogger } from "@/lib/logger";
-import { CONFIRM_DELAY_MS, MAX_AUTO_RESTARTS, resetStreamWatchdog, runStreamWatchdogTick } from "@/lib/webinar/stream-watchdog";
+import {
+  CONFIRM_DELAY_MS,
+  MAX_AUTO_RESTARTS,
+  PARTNER_STREAM_ALERT,
+  resetStreamWatchdog,
+  runStreamWatchdogTick,
+} from "@/lib/webinar/stream-watchdog";
 
 const OPENED = "2026-11-05T08:38:22.000Z";
 const webinarSettings = (extra: Record<string, unknown> = {}) => ({
@@ -117,6 +125,50 @@ describe("runStreamWatchdogTick", () => {
     probeSpy.mockResolvedValue("live");
     await tick();
     expect(kinds()).toEqual(["STREAM_LIVE", "STREAM_DROPPED", "STREAM_LIVE"]);
+  });
+
+  it("a partner's drop and return each tell the event's admins once (Nov 16, 2026: only a phone call fixes it)", async () => {
+    const external = { ...room(), zoomMeeting: null, externalStream: { streamKey: "px-1", streamStatus: "ACTIVE" } };
+    mockDbOperator.eventSession.findMany.mockResolvedValue([external]);
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "ACTIVE" });
+    await liveThen("absent");
+    // First seen live is not news.
+    expect(notifySpy).not.toHaveBeenCalled();
+    await tick();
+    await tick();
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+    expect(notifySpy).toHaveBeenCalledWith("ev1", {
+      type: "SESSION",
+      title: PARTNER_STREAM_ALERT.dropped.title,
+      message: PARTNER_STREAM_ALERT.dropped.message("Webinar"),
+      link: "/events/ev1/webinar",
+    });
+    probeSpy.mockResolvedValue("live");
+    await tick();
+    await tick();
+    expect(notifySpy).toHaveBeenCalledTimes(2);
+    expect(notifySpy).toHaveBeenLastCalledWith("ev1", expect.objectContaining({ title: PARTNER_STREAM_ALERT.restored.title }));
+  });
+
+  it("a failed alert never stops the watchdog", async () => {
+    const external = { ...room(), zoomMeeting: null, externalStream: { streamKey: "px-1", streamStatus: "ACTIVE" } };
+    mockDbOperator.eventSession.findMany.mockResolvedValue([external]);
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "ACTIVE" });
+    notifySpy.mockRejectedValueOnce(new Error("db down"));
+    await liveThen("absent");
+    const r = await tick();
+    expect(r).toMatchObject({ dropped: 1 });
+    expect(apiLogger.error).toHaveBeenCalledWith(expect.anything(), "webinar-stream:partner-alert-failed");
+  });
+
+  it("our own Zoom stream's drop alerts nobody: the watchdog restarts it", async () => {
+    await liveThen("absent");
+    await tick();
+    probeSpy.mockResolvedValue("live");
+    await tick();
+    expect(notifySpy).not.toHaveBeenCalled();
   });
 
   it("the confirm wait is under the worker's 25 s shutdown drain", () => {

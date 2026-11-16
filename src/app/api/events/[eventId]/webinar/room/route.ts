@@ -11,10 +11,16 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 import { sessionStream } from "@/lib/webinar/session-stream";
+import { webinarVideoSource } from "@/lib/webinar/video-source";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
 import { updateEventSettings } from "@/lib/event-settings";
 import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
 import { recordStreamEvent } from "@/lib/webinar/stream-timeline";
+
+/** Whether a partner's video is arriving at the moment the room opens. */
+async function partnerSignalNow(streamKey: string): Promise<"receiving" | "not-receiving"> {
+  return (await isStreamArriving(streamKey, { fresh: true })) ? "receiving" : "not-receiving";
+}
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -88,14 +94,18 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (validated.data.open && webinar.viewingMode === "hls") {
       const streamConfig = await sessionStream(webinar.sessionId, eventId);
       if (!streamConfig) {
+        // A partner's webinar has no Zoom to set up and no other mode: its one fix is issuing the key
+        // (review of 8bcf9cf8, LOW: the Zoom advice was circular there).
+        const partner = webinarVideoSource(event.settings) === "external";
         apiLogger.warn(
-          { eventId, userId: session.user.id },
+          { eventId, userId: session.user.id, partner },
           "webinar:room-open-hls-not-configured",
         );
         return NextResponse.json(
           {
-            error:
-              "Can't open the room: viewing mode is Custom stream but the stream isn't set up in Zoom yet. Press Re-send stream settings to Zoom in the Waiting Room card, or switch the viewing mode to Zoom embed.",
+            error: partner
+              ? "Can't open the room: the partner's stream key has not been issued. Issue it in the Partner stream card and hand it to the partner first."
+              : "Can't open the room: viewing mode is Custom stream but the stream isn't set up in Zoom yet. Press Re-send stream settings to Zoom in the Waiting Room card, or switch the viewing mode to Zoom embed.",
             code: "HLS_STREAM_NOT_CONFIGURED",
           },
           { status: 400 },
@@ -184,9 +194,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       ]);
       // A partner's stream is theirs to start and stop: there is nothing to
       // ask Zoom, and asking would answer "This session has no Zoom webinar".
+      // Opening without the partner's video arriving yet is allowed (attendees see "starting shortly"),
+      // and the producer is told so (plan §4.5).
       if (meeting?.source === "external") {
-        apiLogger.info({ eventId, sessionId: webinar.sessionId }, "webinar:room-external-stream-no-zoom-control");
-        return NextResponse.json({ open: validated.data.open, sessionId: webinar.sessionId, status: nextStatus });
+        const partnerSignal = validated.data.open ? await partnerSignalNow(meeting.streamKey) : undefined;
+        apiLogger.info({ eventId, sessionId: webinar.sessionId, partnerSignal }, "webinar:room-external-stream-no-zoom-control");
+        return NextResponse.json({
+          open: validated.data.open,
+          sessionId: webinar.sessionId,
+          status: nextStatus,
+          ...(partnerSignal ? { partnerSignal } : {}),
+        });
       }
       // The producer may have started the stream and checked it in the
       // console preview before opening the room (Oct 2, 2026). Asking Zoom to

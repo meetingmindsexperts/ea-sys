@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinars: the Partner stream card, so a partner can stream into our webinar (November 16)
+
+External streams step 5 (docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md).
+
+- **Added**: on a webinar streamed by a partner, the Webinar Console's Partner stream card issues the partner's key, shows the server and stream key to copy (each look recorded, and only for "See Zoom host details"), records who it was given to and until when it works, replaces it, cuts the feed and switches it back on, and says whether the partner's video is arriving. The sticky bar shows the room and the partner's signal instead of Zoom's link.
+- **Changed**: "A partner streams from their own platform" is offered on the new-event form only on a server set up for it (`STREAM_PUBLISH_SECRET` and the stream server's control address). Production is not set up yet, so nothing changes there until the owner steps in `docs/LIVE_STREAMING.md` §11b are done.
+- **Changed**: on a partner's webinar the console hides Panelists, Zoom's attendance, poll and Q&A reports and the viewing-mode choice; opening the room warns when the partner's video is not arriving yet; a room opened with no key issued is refused with the partner's fix, not Zoom advice.
+- **Fixed**: a partner's room never closed by itself: the auto-close job looked only for rooms with a Zoom webinar. It now closes two hours after the scheduled end once the partner's stream has stopped, and never later than six hours.
+- **Added**: the event's admins are notified when a partner's stream stops arriving and when it is back (we cannot restart a partner's stream; a phone call can).
+- **Fixed**: sending a partner webinar's emails no longer logs "no Zoom attached" as a warning.
+
 ### The log tool keeps the developers' own code at the start of a name (November 14)
 
 Found by the first cloud run of the log check. The real message

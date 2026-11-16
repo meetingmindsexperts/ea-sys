@@ -322,10 +322,35 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
     mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "IDLE" });
     const opened = await callRoom({ open: true });
     expect(opened.status).toBe(200);
-    expect(await opened.json()).toEqual({ open: true, sessionId: "anchor1", status: "LIVE" });
+    // Nothing arriving yet: it still opens, and the producer is told (plan §4.5).
+    expect(await opened.json()).toEqual({ open: true, sessionId: "anchor1", status: "LIVE", partnerSignal: "not-receiving" });
+    expect(mockIsStreamArriving).toHaveBeenCalledWith("px-1", { fresh: true });
     const closed = await callRoom({ open: false });
     expect(closed.status).toBe(200);
+    expect(await closed.json()).toEqual({ open: false, sessionId: "anchor1", status: "COMPLETED" });
     expect(mockControlLiveStream).not.toHaveBeenCalled();
+  });
+
+  it("a partner's stream already arriving: the open says so", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "ACTIVE" });
+    mockIsStreamArriving.mockResolvedValue(true);
+    expect(await (await callRoom({ open: true })).json()).toMatchObject({ partnerSignal: "receiving" });
+  });
+
+  it("a partner's webinar with no key issued is refused with the partner's fix, not Zoom advice (review of 8bcf9cf8)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1",
+      settings: { webinar: { sessionId: "anchor1", viewingMode: "hls", source: "external" } },
+    });
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    const res = await callRoom({ open: true });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("HLS_STREAM_NOT_CONFIGURED");
+    expect(body.error).toContain("Partner stream card");
+    expect(body.error).not.toContain("Zoom");
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ partner: true }), "webinar:room-open-hls-not-configured");
   });
 
   it("zoom viewing mode opens without a stream check", async () => {

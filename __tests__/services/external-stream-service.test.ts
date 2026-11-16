@@ -5,8 +5,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockDb, mockLogger, control } = vi.hoisted(() => ({
+const { mockDb, mockLogger, control, probeSpy } = vi.hoisted(() => ({
   control: { isMediamtxControlConfigured: vi.fn(), disconnectPublishers: vi.fn() },
+  probeSpy: vi.fn(),
   mockDb: {
     $queryRaw: vi.fn(),
     eventSession: { findFirst: vi.fn() },
@@ -20,6 +21,7 @@ const { mockDb, mockLogger, control } = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/webinar/mediamtx-control", () => control);
+vi.mock("@/lib/webinar/stream-probe", () => ({ probeStream: probeSpy }));
 
 process.env.STREAM_PUBLISH_SECRET = "test-stream-publish-secret";
 process.env.RTMP_INGEST_URL = "rtmp://box:1935/live/";
@@ -27,6 +29,7 @@ process.env.RTMP_INGEST_URL = "rtmp://box:1935/live/";
 import {
   capturePartnerStreamsBeforeDelete,
   cutExternalStream,
+  externalStreamSignal,
   getExternalStream,
   issueExternalStream,
   replaceExternalStreamKey,
@@ -465,5 +468,25 @@ describe("capturePartnerStreamsBeforeDelete (a session or event deleted with a p
     control.disconnectPublishers.mockResolvedValue({ ok: true, disconnected: 1 });
     await (await capturePartnerStreamsBeforeDelete({ eventId: "ev1" }))();
     expect(JSON.stringify([mockLogger.info.mock.calls, mockLogger.warn.mock.calls])).not.toContain(KEY);
+  });
+});
+
+describe("externalStreamSignal (the console's Signal line, Nov 16, 2026)", () => {
+  it.each([
+    ["live", "receiving"],
+    ["absent", "not-receiving"],
+    ["unknown", "unknown"],
+  ])("a probe answering %s reads as %s, asked with the key it looked up", async (probe, signal) => {
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: KEY });
+    probeSpy.mockResolvedValue(probe);
+    expect(await externalStreamSignal({ eventId: "ev1", sessionId: "s1" })).toBe(signal);
+    expect(mockDb.externalStream.findFirst).toHaveBeenCalledWith({ where: { sessionId: "s1", eventId: "ev1" }, select: { streamKey: true } });
+    expect(probeSpy).toHaveBeenCalledWith(KEY);
+  });
+
+  it("no key issued: null, and the stream server is not asked", async () => {
+    mockDb.externalStream.findFirst.mockResolvedValue(null);
+    expect(await externalStreamSignal({ eventId: "ev1", sessionId: "s1" })).toBeNull();
+    expect(probeSpy).not.toHaveBeenCalled();
   });
 });

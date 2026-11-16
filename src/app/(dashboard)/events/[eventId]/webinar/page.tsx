@@ -78,6 +78,7 @@ import {
 } from "lucide-react";
 import { StreamDelay } from "@/components/webinar/stream-delay";
 import { ChatModerationPanel } from "@/components/webinar/chat-moderation-panel";
+import { PartnerStreamCard, partnerSignalLabel } from "@/components/webinar/partner-stream-card";
 import type { PlayerTimingSample } from "@/components/zoom/live-player";
 import { useServerClock } from "@/hooks/use-server-clock";
 import {
@@ -100,6 +101,7 @@ import {
   useToggleWebinarRoom,
   useWebinarLiveStream,
   useWebinarStreamPreview,
+  useWebinarPartnerStream,
   useWebinarViewerQuestions,
   type WebinarViewerQuestionRow,
   useUpdateWebinarViewerQuestion,
@@ -218,6 +220,9 @@ export default function WebinarConsolePage() {
 
   const hasZoom = Boolean(data?.zoomMeeting);
   const eventIsWebinar = data?.event?.eventType === "WEBINAR";
+  // Streamed by a partner from their own platform (Nov 16, 2026): no Zoom webinar of ours, so the
+  // Partner stream card takes the place of the Zoom controls.
+  const partner = data?.videoSource === "external";
 
   const handleCopy = async (value: string | null | undefined, label: string) => {
     if (!value) return;
@@ -334,11 +339,13 @@ export default function WebinarConsolePage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <GlobalRefreshButton
-            eventId={eventId}
-            sessionEnded={status === "ended"}
-            hasZoom={hasZoom}
-          />
+          {!partner && (
+            <GlobalRefreshButton
+              eventId={eventId}
+              sessionEnded={status === "ended"}
+              hasZoom={hasZoom}
+            />
+          )}
           <Button
             variant="outline"
             onClick={handleProvision}
@@ -365,6 +372,7 @@ export default function WebinarConsolePage() {
           zoom={zoom ?? null}
           eventSlug={data?.event?.slug ?? null}
           hasZoom={hasZoom}
+          partner={partner}
           provisionPending={provision.isPending}
           onProvision={handleProvision}
           onCopy={handleCopy}
@@ -378,10 +386,13 @@ export default function WebinarConsolePage() {
             <Wrench className="h-4 w-4" />
             Setup
           </TabsTrigger>
-          <TabsTrigger value="panelists" className="flex items-center gap-2">
-            <UserPlus className="h-4 w-4" />
-            Panelists
-          </TabsTrigger>
+          {/* Panelists are Zoom's: a partner's webinar has none of ours. */}
+          {!partner && (
+            <TabsTrigger value="panelists" className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4" />
+              Panelists
+            </TabsTrigger>
+          )}
           <TabsTrigger value="analytics" className="flex items-center gap-2">
             <LineChart className="h-4 w-4" />
             Analytics
@@ -429,12 +440,16 @@ export default function WebinarConsolePage() {
               other's height. */}
           <div className="grid items-start gap-6 lg:grid-cols-3">
             <div className="space-y-6 lg:col-span-2">
+              {partner && (
+                <PartnerStreamCard eventId={eventId} timezone={data?.event?.timezone || DEFAULT_EVENT_TIMEZONE} />
+              )}
               <OverviewCard
                 status={status}
                 anchor={anchor ?? null}
                 zoom={zoom ?? null}
                 eventSlug={data?.event?.slug ?? null}
                 hasZoom={hasZoom}
+                partner={partner}
                 provisionPending={provision.isPending}
                 onProvision={handleProvision}
                 onCopy={handleCopy}
@@ -451,6 +466,7 @@ export default function WebinarConsolePage() {
                 eventSlug={data?.event?.slug ?? null}
                 webinar={data?.webinar ?? {}}
                 anchor={anchor ?? null}
+                partner={partner}
               />
               <EndSurveyCard
                 key={`end-survey:${data?.webinar?.endSurveyId ?? ""}:${data?.webinar?.thankYouSurveyLink !== false}`}
@@ -471,6 +487,7 @@ export default function WebinarConsolePage() {
                 webinar={data?.webinar ?? {}}
                 anchor={anchor ?? null}
                 eventStatus={data?.event?.status}
+                partner={partner}
               />
               <LiveNowCard
                 eventId={eventId}
@@ -479,16 +496,19 @@ export default function WebinarConsolePage() {
               <StreamTimelineCard eventId={eventId} live={anchor?.status === "LIVE"} />
               {/* Handouts in the right rail (owner, Oct 6, 2026). */}
               <HandoutsCard eventId={eventId} handouts={data?.webinar?.handouts ?? []} />
-              <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
+              {/* A partner's webinar sends the same emails: they link our session page, never Zoom. */}
+              <EmailSequenceCard eventId={eventId} hasZoom={hasZoom || partner} />
             </div>
           </div>
         </TabsContent>
 
         {/* Panelists on their own tab (owner, Oct 6, 2026): a wide table and
             add form that would be cramped in the Setup tab's right rail. */}
-        <TabsContent value="panelists" className="mt-4">
-          <PanelistsCard eventId={eventId} hasZoom={hasZoom} />
-        </TabsContent>
+        {!partner && (
+          <TabsContent value="panelists" className="mt-4">
+            <PanelistsCard eventId={eventId} hasZoom={hasZoom} />
+          </TabsContent>
+        )}
 
         <TabsContent value="analytics" className="space-y-6 mt-4">
           <RecordingCard
@@ -500,16 +520,22 @@ export default function WebinarConsolePage() {
             shown={data?.webinar?.showRecording === true}
             replayUrl={data?.webinar?.replayUrl ?? ""}
           />
-          <AttendanceCard
-            eventId={eventId}
-            sessionEnded={status === "ended"}
-            hasZoom={hasZoom}
-          />
-          {/* Polls + Q&A are peer reports — side by side on wide screens. */}
-          <div className="grid items-start gap-6 lg:grid-cols-2">
-            <PollsCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
-            <QaCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
-          </div>
+          {partner ? (
+            <PartnerAnalyticsNote />
+          ) : (
+            <>
+              <AttendanceCard
+                eventId={eventId}
+                sessionEnded={status === "ended"}
+                hasZoom={hasZoom}
+              />
+              {/* Polls + Q&A are peer reports — side by side on wide screens. */}
+              <div className="grid items-start gap-6 lg:grid-cols-2">
+                <PollsCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
+                <QaCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
+              </div>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="branding" className="mt-4 max-w-3xl">
@@ -648,6 +674,7 @@ function WebinarStatusBar({
   zoom,
   eventSlug,
   hasZoom,
+  partner,
   provisionPending,
   onProvision,
   onCopy,
@@ -658,6 +685,7 @@ function WebinarStatusBar({
   zoom: ZoomMeetingLite;
   eventSlug: string | null;
   hasZoom: boolean;
+  partner: boolean;
   provisionPending: boolean;
   onProvision: () => void;
   onCopy: (value: string | null | undefined, label: string) => void;
@@ -745,6 +773,10 @@ function WebinarStatusBar({
       );
     }
   };
+  // A partner's webinar never has a Zoom webinar: its bar shows the room and the partner's signal.
+  if (partner) {
+    return <PartnerStatusBar eventId={eventId} status={status} anchor={anchor} eventSlug={eventSlug} />;
+  }
   // No Zoom attached → collapse to a "Configure Zoom" banner with provisioner retry.
   if (!hasZoom || !zoom) {
     return (
@@ -934,6 +966,84 @@ function WebinarStatusBar({
   );
 }
 
+/**
+ * The sticky bar on a partner's webinar (Nov 16, 2026): status, time, the room
+ * and whether the partner's video is arriving. There is no "Start as Host":
+ * the partner starts their own stream, and the room opens from Go live.
+ */
+function PartnerStatusBar({
+  eventId,
+  status,
+  anchor,
+  eventSlug,
+}: {
+  eventId: string;
+  status: WebinarStatus;
+  anchor: AnchorSession;
+  eventSlug: string | null;
+}) {
+  const eventTz = useEventTz();
+  const canManage = useCan("webinar.manage", eventId) === "allowed";
+  const partnerStream = useWebinarPartnerStream(eventId, canManage);
+  const roomOpen = anchor?.status === "LIVE";
+  const sessionWindow = formatSessionWindow(anchor?.startTime, anchor?.endTime, eventTz);
+  const stream = partnerStream.data?.partnerStream ?? null;
+  const signal = stream ? partnerSignalLabel(partnerStream.data?.signal ?? null, stream.enabled) : null;
+
+  return (
+    <Card className={STATUS_BAR_CLASS[status]}>
+      <CardContent className="py-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <div className="flex items-center gap-2 shrink-0">
+            <StatusBarIcon status={status} />
+            <StatusBadge status={status} />
+          </div>
+          {sessionWindow ? <div className="text-sm text-muted-foreground shrink-0">{sessionWindow}</div> : null}
+          <div className="flex flex-1 items-center gap-2 min-w-[200px] text-sm">
+            <Radio className="h-4 w-4 text-violet-600 shrink-0" />
+            <span className="font-medium">Partner stream</span>
+            {signal ? (
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${signal.tone}`}>{signal.text}</span>
+            ) : (
+              <span className="text-muted-foreground">{canManage ? "No key issued yet" : ""}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {anchor && status !== "ended" ? (
+              <Badge
+                variant="outline"
+                className={roomOpen ? "bg-red-100 text-red-800 border-red-200 shrink-0" : "text-muted-foreground shrink-0"}
+              >
+                {roomOpen ? "Room OPEN" : "Room closed"}
+              </Badge>
+            ) : null}
+            {eventSlug && anchor ? (
+              <Button asChild variant="outline" size="icon" title="Open public session page">
+                <Link href={`/e/${eventSlug}/session/${anchor.id}`} target="_blank">
+                  <ExternalLink className="h-4 w-4" />
+                </Link>
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** The Analytics tab on a partner's webinar: Zoom's reports have nothing to read. */
+function PartnerAnalyticsNote() {
+  return (
+    <Card>
+      <CardContent className="py-5 text-sm text-muted-foreground">
+        Zoom&apos;s attendance, poll and Q&amp;A reports do not apply here: this webinar is streamed by a partner, not
+        run on Zoom. While it runs, the Live now card on the Setup tab shows who is watching; the questions and polls
+        attendees answered are on the Q&amp;A and Polls tabs.
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Overview card — combines Anchor Session + Zoom Meeting details ──
 // Previously two separate cards; merged so the Setup tab isn't visually split.
 function OverviewCard({
@@ -942,6 +1052,7 @@ function OverviewCard({
   zoom,
   eventSlug,
   hasZoom,
+  partner,
   provisionPending,
   onProvision,
   onCopy,
@@ -951,6 +1062,7 @@ function OverviewCard({
   zoom: ZoomMeetingLite;
   eventSlug: string | null;
   hasZoom: boolean;
+  partner: boolean;
   provisionPending: boolean;
   onProvision: () => void;
   onCopy: (value: string | null | undefined, label: string) => void;
@@ -966,7 +1078,9 @@ function OverviewCard({
           <StatusBadge status={status} />
         </div>
         <CardDescription>
-          Anchor session and Zoom webinar details for this event.
+          {partner
+            ? "The webinar's session. Its video comes from the partner's stream above."
+            : "Anchor session and Zoom webinar details for this event."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -2953,10 +3067,13 @@ function StreamPreview({
   eventId,
   eventSlug,
   sessionId,
+  partner = false,
 }: {
   eventId: string;
   eventSlug: string;
   sessionId: string;
+  /** A partner's stream: nothing to send to Zoom, the fix is issuing their key. */
+  partner?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<"checking" | "active" | "idle" | "ended">("checking");
@@ -3012,7 +3129,9 @@ function StreamPreview({
           )}
           {preview.data && !hlsUrl && (
             <p className="text-sm text-muted-foreground">
-              The stream is not set up for this session yet. Press Re-send stream settings to Zoom.
+              {partner
+                ? "No partner key has been issued yet. Issue it in the Partner stream card."
+                : "The stream is not set up for this session yet. Press Re-send stream settings to Zoom."}
             </p>
           )}
           {hlsUrl && (
@@ -3029,7 +3148,7 @@ function StreamPreview({
               </div>
               <p className="text-xs text-muted-foreground">
                 What attendees will see once the room is open. It checks again every 10 seconds, so
-                leave it open after pressing Start stream.
+                leave it open {partner ? "while the partner starts their stream" : "after pressing Start stream"}.
               </p>
               <StreamDelay
                 videoBoxRef={videoBoxRef}
@@ -3059,11 +3178,14 @@ function LobbyCard({
   eventSlug,
   webinar,
   anchor,
+  partner,
 }: {
   eventId: string;
   eventSlug: string | null;
   webinar: WebinarConsoleData["webinar"];
   anchor: WebinarConsoleData["anchorSession"];
+  /** Streamed by a partner: always the custom stream, and nothing to ask Zoom. */
+  partner: boolean;
 }) {
   const updateSettings = useUpdateWebinarSettings(eventId);
   const liveStream = useWebinarLiveStream(eventId);
@@ -3153,7 +3275,24 @@ function LobbyCard({
 
 
 
+        {/* A partner's webinar is always watched as the custom stream, and the partner starts it. */}
+        {partner && (
+          <div className="space-y-3 rounded-lg border p-4">
+            <div>
+              <p className="font-medium">How attendees watch</p>
+              <p className="text-sm text-muted-foreground">
+                The partner&apos;s stream, in our player, with questions in the box under the video. The partner
+                starts and stops their own stream; check the preview before you open the room.
+              </p>
+            </div>
+            {eventSlug && anchor && (
+              <StreamPreview eventId={eventId} eventSlug={eventSlug} sessionId={anchor.id} partner />
+            )}
+          </div>
+        )}
+
         {/* Viewing mode */}
+        {!partner && (
         <div className="space-y-2">
           <Label>How attendees watch</Label>
           <Select value={viewingMode} onValueChange={(v) => setViewingMode(v as "zoom" | "hls")}>
@@ -3176,11 +3315,12 @@ function LobbyCard({
               : "One full-width video for unlimited viewers; questions come in through the box under the video. Saving sets the stream up in Zoom for you."}
           </p>
         </div>
+        )}
 
         {/* Custom stream controls. Shown for the SAVED mode, so the buttons
             match what attendees actually get. Zoom only starts pushing once
             the host has started the webinar; opening the room tries it too. */}
-        {webinar.viewingMode === "hls" && (
+        {webinar.viewingMode === "hls" && !partner && (
           <div className="space-y-3 rounded-lg border p-4">
             <div>
               <p className="font-medium">Custom stream</p>
@@ -3280,11 +3420,13 @@ function GoLiveCard({
   webinar,
   anchor,
   eventStatus,
+  partner,
 }: {
   eventId: string;
   webinar: WebinarConsoleData["webinar"];
   anchor: WebinarConsoleData["anchorSession"];
   eventStatus?: string;
+  partner: boolean;
 }) {
   const toggleRoom = useToggleWebinarRoom(eventId);
   const roomOpen = anchor?.status === "LIVE";
@@ -3331,6 +3473,9 @@ function GoLiveCard({
         res.open ? "Room opened: attendees are being let in" : "Room closed",
       );
       announceStreamResult(res.stream, res.open);
+      if (res.partnerSignal === "not-receiving") {
+        toast.warning("The partner's video is not arriving yet. Attendees see \"starting shortly\" until it does.");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update the room");
     }
@@ -3374,7 +3519,7 @@ function GoLiveCard({
         {/* Running past the scheduled end (Nov 5, 2026): nothing ends on the clock. */}
         {roomOpen && anchorEndMs > 0 && nowTick > anchorEndMs && (
           <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
-            {overrunNote(webinar.viewingMode === "hls")}
+            {overrunNote(webinar.viewingMode === "hls", partner)}
           </p>
         )}
         {/* Open / close the room */}
@@ -3437,7 +3582,12 @@ function GoLiveCard({
   );
 }
 
-function overrunNote(customStream: boolean): string {
+function overrunNote(customStream: boolean, partner = false): string {
+  // A partner's webinar has no Zoom end to go by: the room closes by the button, or by the safety net
+  // once the partner's stream has stopped (room-autoclose.ts).
+  if (partner) {
+    return "Running past the scheduled end. Attendees stay in the live view, and the thank-you email and the end-of-webinar survey wait until the room closes: when you close it, or two hours after the scheduled end once the partner's stream has stopped (never later than six hours after it).";
+  }
   const base =
     "Running past the scheduled end. Attendees stay in the live view, and the thank-you email and the end-of-webinar survey wait until the room closes: when you close it, or a few minutes after the host ends the webinar in Zoom.";
   // Zoom embed mode has no stream to tell "still on air" from "left open", so the safety net still closes

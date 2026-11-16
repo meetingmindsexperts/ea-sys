@@ -4,7 +4,8 @@
  * POST /api/events carries `webinarSource` to the service at all (drop the
  * schema line and zod strips it silently, so every "partner" webinar would get
  * a Zoom webinar), and that the choice is refused while a partner's key cannot
- * be issued yet.
+ * be issued yet. Since Nov 16, 2026 "can be issued" is the SERVER's answer
+ * (partner-stream-readiness.ts), no longer a constant in the code.
  */
 import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -26,14 +27,13 @@ vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/api-key", () => ({ validateApiKey: vi.fn() }));
 vi.mock("@/services/event-service", () => ({ createEvent: mockCreateEvent }));
-vi.mock("@/lib/webinar/partner-stream-availability", () => ({
-  get PARTNER_STREAM_CHOICE_OFFERED() {
-    return flag.offered;
-  },
-  PARTNER_STREAM_NOT_OFFERED_MESSAGE: "not yet",
+vi.mock("@/lib/webinar/partner-stream-readiness", () => ({
+  partnerStreamReadiness: () =>
+    flag.offered ? { ready: true, missing: [] } : { ready: false, missing: ["STREAM_PUBLISH_SECRET", "MEDIAMTX_CONTROL"] },
 }));
 
 import { POST } from "@/app/api/events/route";
+import { GET as availabilityGET } from "@/app/api/events/partner-stream-availability/route";
 
 const req = (body: Record<string, unknown>) =>
   new Request("http://localhost/api/events", {
@@ -55,12 +55,14 @@ beforeEach(() => {
 });
 
 describe("POST /api/events: a webinar's video source", () => {
-  it("while a partner's key cannot be issued yet, the partner choice is REFUSED, not quietly made a Zoom webinar", async () => {
+  it("on a server that cannot issue a partner's key, the partner choice is REFUSED, not quietly made a Zoom webinar", async () => {
     const res = await POST(req({ eventType: "WEBINAR", webinarSource: "external" }));
     expect(res.status).toBe(400);
     expect((await res.json()).code).toBe("PARTNER_STREAMS_NOT_AVAILABLE");
     expect(mockCreateEvent).not.toHaveBeenCalled();
-    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "events:partner-stream-not-offered" }));
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "events:partner-stream-not-offered", missing: ["STREAM_PUBLISH_SECRET", "MEDIAMTX_CONTROL"] }),
+    );
   });
 
   it("an ordinary webinar, and one that says 'zoom', are created as before", async () => {
@@ -84,13 +86,19 @@ describe("POST /api/events: a webinar's video source", () => {
   });
 });
 
-describe("the choice is not offered before a partner's key can be issued", () => {
-  it("the switch is off, and the form shows the field only behind it", () => {
-    expect(readFileSync("src/lib/webinar/partner-stream-availability.ts", "utf8")).toContain(
-      "export const PARTNER_STREAM_CHOICE_OFFERED = false;",
-    );
+describe("the form offers the choice only where the server can issue a key", () => {
+  it("the availability route answers yes or no, and never which setting is missing", async () => {
+    expect(await (await availabilityGET()).json()).toEqual({ offered: false });
+    flag.offered = true;
+    expect(await (await availabilityGET()).json()).toEqual({ offered: true });
+  });
+
+  it("the form shows the field only on a yes, and sends a source only then", () => {
     const form = readFileSync("src/app/(dashboard)/events/new/page.tsx", "utf8");
-    expect(form).toMatch(/=== "WEBINAR" && PARTNER_STREAM_CHOICE_OFFERED/);
+    expect(form).toContain("usePartnerStreamAvailability()");
+    expect(form).toMatch(/=== "WEBINAR" && partnerStreams\.data\?\.offered === true/);
     expect(form).toContain("webinarSource: isWebinar ? data.webinarSource : undefined");
+    // The client form never reads the environment itself.
+    expect(form).not.toContain("process.env");
   });
 });

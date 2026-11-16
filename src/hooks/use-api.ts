@@ -295,6 +295,19 @@ export function useEvents() {
   });
 }
 
+/**
+ * Whether this server can run a partner's stream, so the new-event form may offer
+ * "streamed by a partner" (Nov 16, 2026; partner-stream-readiness.ts). A server
+ * setting, so it is read once and kept.
+ */
+export function usePartnerStreamAvailability() {
+  return useQuery({
+    queryKey: ["partner-stream-availability"],
+    queryFn: () => fetchApi<{ offered: boolean }>("/api/events/partner-stream-availability"),
+    staleTime: Infinity,
+  });
+}
+
 export function useOrgUsers() {
   return useQuery({
     queryKey: ["org-users"],
@@ -3204,6 +3217,8 @@ export interface WebinarConsoleData {
   };
   /** The organisation's website: the thank-you screen's exit button when the webinar sets none. */
   orgWebsite?: string | null;
+  /** Where the video comes from: our Zoom webinar, or a partner streaming in (video-source.ts). */
+  videoSource?: "zoom" | "external";
   anchorSession: {
     id: string;
     name: string;
@@ -3325,6 +3340,8 @@ export function useToggleWebinarRoom(eventId: string) {
         sessionId: string;
         status: string;
         stream?: { ok: true; alreadyLive?: true } | { ok: false; error: string };
+        /** A partner's webinar, on opening: whether their video is arriving yet. */
+        partnerSignal?: "receiving" | "not-receiving";
       }>(
         `/api/events/${eventId}/webinar/room`,
         { method: "POST", body: JSON.stringify({ open }), headers: { "Content-Type": "application/json" } },
@@ -3370,6 +3387,100 @@ export function useEventSurveys(eventId: string, enabled = true) {
     queryFn: () =>
       fetchApi<{ surveys: EventSurveyListItem[] }>(`/api/events/${eventId}/surveys`).then((d) => d.surveys),
     enabled: enabled && !!eventId,
+  });
+}
+
+/** A partner's stream as the console shows it: never the key (external-stream-service.ts). */
+export interface WebinarPartnerStreamView {
+  id: string;
+  sessionId: string;
+  enabled: boolean;
+  secretVersion: number;
+  validFrom: string;
+  validUntil: string;
+  /** Whether validUntil is the key's own date, or follows the session (24 hours after its end). */
+  validUntilIsOwn: boolean;
+  issuedTo: string | null;
+  lastPublishAt: string | null;
+}
+
+export interface WebinarPartnerStreamState {
+  partnerStream: WebinarPartnerStreamView | null;
+  signal: "receiving" | "not-receiving" | "unknown" | null;
+  /** Whether this server can issue and cut a partner's key at all. */
+  serverReady: boolean;
+  /** Whether this person holds "See Zoom host details", which showing the key needs. */
+  canSeeKey: boolean;
+}
+
+export type WebinarPartnerStreamChange = {
+  partnerStream: WebinarPartnerStreamView;
+  /** Present when the change also tried to end the running stream. */
+  disconnect?: { ok: true; disconnected: number } | { ok: false; error: string };
+};
+
+/**
+ * The Partner stream card (Nov 16, 2026). Polled every 10 seconds while the
+ * card is on screen, so the Signal line follows the partner's encoder.
+ */
+export function useWebinarPartnerStream(eventId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.webinar(eventId), "partner-stream"] as const,
+    queryFn: () => fetchApi<WebinarPartnerStreamState>(`/api/events/${eventId}/webinar/partner-stream`),
+    enabled: enabled && !!eventId,
+    refetchInterval: 10_000,
+  });
+}
+
+export type WebinarPartnerStreamAction =
+  | { action: "issue"; issuedTo?: string | null; validUntil?: string | null }
+  | { action: "replace" }
+  | { action: "cut" }
+  | { action: "switch-on" };
+
+/** Issue the partner's key, replace it, cut the feed, or switch it back on. */
+export function useWebinarPartnerStreamAction(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: WebinarPartnerStreamAction) =>
+      fetchApi<WebinarPartnerStreamChange>(`/api/events/${eventId}/webinar/partner-stream`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+/** Who the key was given to, and when it stops working (null: follow the session). */
+export function useUpdateWebinarPartnerStream(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { issuedTo?: string | null; validUntil?: string | null }) =>
+      fetchApi<WebinarPartnerStreamChange>(`/api/events/${eventId}/webinar/partner-stream`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+/**
+ * Show the partner's server and stream key. A mutation on purpose: every look
+ * is audited, so it is asked for by a press, never cached or refetched.
+ */
+export function useRevealWebinarPartnerStreamKey(eventId: string) {
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{ credentials: { serverUrl: string; streamKey: string } }>(
+        `/api/events/${eventId}/webinar/partner-stream/credentials`,
+        { method: "POST" },
+      ),
   });
 }
 

@@ -35,6 +35,7 @@ import { ensurePersonalSurveyLink, surveyLinkWasRepaired } from "./survey/invita
 import { buildThankYouSurveyBlock, registrationsThatAnswered, resolveThankYouSurvey, withThankYouSurveyBlock } from "./webinar-thank-you-survey";
 import { webinarRecordingBlock, webinarRecordingShown } from "./webinar";
 import { replayEmailUrl, replayPageUrl, sessionReplayKind } from "./webinar/replay";
+import { webinarVideoSource } from "./webinar/video-source";
 import { mintPersonalSurveyLink, resolveInvitationSurvey, responseWhereForSurvey } from "@/services/survey-service";
 import { surveyRespondedSchema } from "./survey/responded-filter";
 import { isDailyMode, type SurveyResponseModeValue } from "./survey/response-mode";
@@ -1895,7 +1896,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // confirmation/reminder with the session-page link, an empty passcode and
     // the "details to follow" recording block — rather than throwing, which
     // left the registrant with NO email at all (lifecycle review).
-    if (!zoomMeeting) {
+    // A partner-streamed webinar never has one (video-source.ts): that is how it is built, not a fault.
+    if (!zoomMeeting && webinarVideoSource(event.settings) !== "external") {
       apiLogger.warn(
         { eventId, emailType },
         "webinar-email:no-zoom-attached-sending-without-passcode",

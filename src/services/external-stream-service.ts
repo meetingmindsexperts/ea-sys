@@ -46,6 +46,7 @@ import { externalStreamCredentials } from "@/lib/webinar/external-stream";
 import { isPartnerPublishSecretSet, newStreamKey } from "@/lib/webinar/livestream";
 import { disconnectPublishers, isMediamtxControlConfigured, type DisconnectResult } from "@/lib/webinar/mediamtx-control";
 import { externalStreamValidUntil } from "@/lib/webinar/session-stream";
+import { probeStream } from "@/lib/webinar/stream-probe";
 import { lockSessionVideoSource, ZoomMeetingExistsError } from "@/lib/webinar/video-source";
 
 /** Staff in the dashboard only. A partner's key is never issued or shown to the agent or an API key. */
@@ -208,6 +209,25 @@ function disconnectAudit(result: DisconnectResult): Record<string, unknown> {
 export async function getExternalStream(at: { eventId: string; sessionId: string }): Promise<ExternalStreamView | null> {
   const row = await db.externalStream.findFirst({ where: { sessionId: at.sessionId, eventId: at.eventId }, select: ROW_SELECT });
   return row ? toView(row) : null;
+}
+
+/** Whether the partner's video is reaching our stream server right now. "unknown" when the server did not answer. */
+export type ExternalStreamSignal = "receiving" | "not-receiving" | "unknown";
+
+/**
+ * The console's Signal line: the same question the attendee page asks
+ * (stream-probe.ts), answered for the producer. Null when no key was issued.
+ * The key is read here and never leaves the service.
+ */
+export async function externalStreamSignal(at: { eventId: string; sessionId: string }): Promise<ExternalStreamSignal | null> {
+  const row = await db.externalStream.findFirst({
+    where: { sessionId: at.sessionId, eventId: at.eventId },
+    select: { streamKey: true },
+  });
+  if (!row) return null;
+  const probe = await probeStream(row.streamKey);
+  if (probe === "live") return "receiving";
+  return probe === "absent" ? "not-receiving" : "unknown";
 }
 
 /**

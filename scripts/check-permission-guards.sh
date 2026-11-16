@@ -129,6 +129,10 @@ SWEPT=(
   "src/app/api/events/[eventId]/webinar/attendance/route.ts"
   "src/app/api/events/[eventId]/webinar/engagement/route.ts"
   "src/app/api/events/[eventId]/webinar/livestream/route.ts"
+  # partner streams, external streams step 5 (Nov 16, 2026)
+  "src/app/api/events/[eventId]/webinar/partner-stream/route.ts"
+  "src/app/api/events/[eventId]/webinar/partner-stream/credentials/route.ts"
+  "src/app/api/events/partner-stream-availability/route.ts"
   "src/app/api/events/[eventId]/webinar/panelists/route.ts"
   "src/app/api/events/[eventId]/webinar/panelists/[panelistId]/resend/route.ts"
   "src/app/api/events/[eventId]/webinar/panelists/sync-speakers/route.ts"

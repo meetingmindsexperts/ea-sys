@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { PARTNER_STREAM_CHOICE_OFFERED, PARTNER_STREAM_NOT_OFFERED_MESSAGE } from "@/lib/webinar/partner-stream-availability";
+import { PARTNER_STREAM_NOT_OFFERED_MESSAGE } from "@/lib/webinar/partner-stream-availability";
+import { partnerStreamReadiness } from "@/lib/webinar/partner-stream-readiness";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { resolveActingOrgId } from "@/lib/platform-operator";
@@ -158,11 +159,14 @@ export async function POST(req: Request) {
     if (outOfScope) return outOfScope;
 
     // A partner-produced webinar is fixed at creation and cannot stream until
-    // its key can be issued, so it is refused until that exists
-    // (partner-stream-availability.ts). Refused, not quietly made a Zoom webinar.
-    if (webinarSource === "external" && !PARTNER_STREAM_CHOICE_OFFERED) {
-      apiLogger.warn({ msg: "events:partner-stream-not-offered", userId: session.user.id });
-      return NextResponse.json({ error: PARTNER_STREAM_NOT_OFFERED_MESSAGE, code: "PARTNER_STREAMS_NOT_AVAILABLE" }, { status: 400 });
+    // its key can be issued, so it is refused on a server that cannot issue
+    // one (partner-stream-readiness.ts). Refused, not quietly made a Zoom webinar.
+    if (webinarSource === "external") {
+      const readiness = partnerStreamReadiness();
+      if (!readiness.ready) {
+        apiLogger.warn({ msg: "events:partner-stream-not-offered", userId: session.user.id, missing: readiness.missing });
+        return NextResponse.json({ error: PARTNER_STREAM_NOT_OFFERED_MESSAGE, code: "PARTNER_STREAMS_NOT_AVAILABLE" }, { status: 400 });
+      }
     }
 
     const result = await createEvent({

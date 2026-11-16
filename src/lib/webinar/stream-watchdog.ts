@@ -28,7 +28,9 @@
  *
  * A partner's stream (session-stream.ts, source "external") is watched and its
  * drops are recorded the same way, but never restarted: it is pushed from the
- * partner's platform, and there is nobody for us to ask.
+ * partner's platform, and there is nobody for us to ask. Instead the event's
+ * admins are told when it drops and when it returns (Nov 16, 2026; plan §4.5),
+ * because the only fix is a phone call to the partner.
  *
  * Not recognised: a host stopping the live stream from inside Zoom's own
  * client. That reads as a drop and is restarted; producers stop the stream
@@ -37,6 +39,7 @@
 import { db, dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
+import { notifyEventAdmins } from "@/lib/notifications";
 import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 import {
@@ -203,6 +206,7 @@ async function onArriving(room: WatchedRoom, state: StreamState): Promise<void> 
     });
     if (restored) {
       apiLogger.info({ eventId: room.eventId, sessionId: room.sessionId, restarts: state.restarts }, "webinar-stream:restored");
+      if (room.source === "external") await alertPartnerStream(room, "restored");
     }
   }
   state.up = true;
@@ -273,11 +277,45 @@ async function onConfirmedMissing(
       kind: "STREAM_DROPPED",
       source: "worker",
     });
+    if (room.source === "external") await alertPartnerStream(room, "dropped");
   }
-  // A partner's push is not ours to restart; the drop above is on the timeline and in the log.
+  // A partner's push is not ours to restart; the drop above is on the timeline, in the log and with the admins.
   if (room.source !== "zoom") return;
   if (state.restarts >= MAX_AUTO_RESTARTS || now < state.nextRestartAt) return;
   await requestRestart(room, state, now, report);
+}
+
+export const PARTNER_STREAM_ALERT = {
+  dropped: {
+    title: "Partner stream stopped",
+    message: (session: string) =>
+      `${session}: the partner's video stopped reaching us. We cannot restart it from here: call the partner. Attendees' players pick it up again by themselves when it returns.`,
+  },
+  restored: {
+    title: "Partner stream is back",
+    message: (session: string) => `${session}: the partner's video is reaching us again.`,
+  },
+} as const;
+
+/**
+ * Tell the event's admins (bell and phone) that a partner's stream dropped or
+ * returned. Called once per change of state, never once per tick. Never throws:
+ * the timeline entry is already written, and a failed notice must not stop the
+ * watchdog (notifyEventAdmins logs its own failures).
+ */
+async function alertPartnerStream(room: WatchedRoom, change: keyof typeof PARTNER_STREAM_ALERT): Promise<void> {
+  const words = PARTNER_STREAM_ALERT[change];
+  try {
+    await notifyEventAdmins(room.eventId, {
+      type: "SESSION",
+      title: words.title,
+      message: words.message(room.sessionName),
+      link: `/events/${room.eventId}/webinar`,
+    });
+    apiLogger.info({ eventId: room.eventId, sessionId: room.sessionId, change }, "webinar-stream:partner-alert-sent");
+  } catch (err) {
+    apiLogger.error({ err, eventId: room.eventId, sessionId: room.sessionId, change }, "webinar-stream:partner-alert-failed");
+  }
 }
 
 /** Run `fn` for a room inside its own tenant; one room's failure never stops the others. */

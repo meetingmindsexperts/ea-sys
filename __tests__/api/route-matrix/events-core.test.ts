@@ -20,6 +20,7 @@ vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn() }));
 import { domainMatrix, type HandlerCase } from "./harness";
 import { GET as listGET, POST as createPOST } from "@/app/api/events/route";
 import { GET as eventGET, PUT as eventPUT, DELETE as eventDELETE } from "@/app/api/events/[eventId]/route";
+import { GET as partnerAvailabilityGET } from "@/app/api/events/partner-stream-availability/route";
 
 const create = (eventType: string) => ({
   name: "Matrix event",
@@ -32,6 +33,7 @@ const CASES: HandlerCase[] = [
   { name: "GET /api/events", handler: listGET, method: "GET", perEvent: false },
   { name: "POST /api/events (CONFERENCE)", handler: createPOST, method: "POST", body: create("CONFERENCE"), perEvent: false },
   { name: "POST /api/events (WEBINAR)", handler: createPOST, method: "POST", body: create("WEBINAR"), perEvent: false },
+  { name: "GET /api/events/partner-stream-availability", handler: partnerAvailabilityGET, method: "GET", perEvent: false },
   { name: "GET /api/events/[eventId]", handler: eventGET, method: "GET" },
   { name: "PUT /api/events/[eventId] (rename)", handler: eventPUT, method: "PUT", body: { name: "Renamed event" } },
   { name: "PUT /api/events/[eventId] (eventType CONFERENCE)", handler: eventPUT, method: "PUT", body: { eventType: "CONFERENCE" } },

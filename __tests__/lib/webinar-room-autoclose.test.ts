@@ -201,5 +201,61 @@ describe("runWebinarRoomAutoCloseTick", () => {
     const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T11:00:00Z"));
     expect(r).toEqual({ checked: 2, closed: 0, failed: 1 });
   });
-});
 
+  describe("a partner's room (Nov 16, 2026): no Zoom to ask", () => {
+    const partnerRoom = () =>
+      room({
+        zoomMeeting: null,
+        event: {
+          organizationId: "org1",
+          settings: { webinar: { sessionId: "s1", source: "external", viewingMode: "hls", roomOpenedAt: "2026-10-01T10:28:00Z" } },
+        },
+      });
+
+    beforeEach(() => {
+      mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+      mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "pk-1", streamStatus: "ACTIVE" });
+    });
+
+    it("the scan finds rooms with our Zoom webinar OR a partner's stream", async () => {
+      mockDbOperator.eventSession.findMany.mockResolvedValue([]);
+      await runWebinarRoomAutoCloseTick(new Date("2026-10-01T11:00:00Z"));
+      expect(mockDbOperator.eventSession.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [{ zoomMeeting: { isNot: null } }, { externalStream: { isNot: null } }],
+          }),
+        }),
+      );
+    });
+
+    it("before the safety net it stays open, and Zoom is never asked", async () => {
+      mockDbOperator.eventSession.findMany.mockResolvedValue([partnerRoom()]);
+      const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T12:00:00Z"));
+      expect(r).toEqual({ checked: 1, closed: 0, failed: 0 });
+      expect(getLastZoomEndTimeSpy).not.toHaveBeenCalled();
+    });
+
+    it("past the safety net, the partner's stream still arriving holds the room", async () => {
+      mockDbOperator.eventSession.findMany.mockResolvedValue([partnerRoom()]);
+      streamArrivingSpy.mockResolvedValue(true);
+      const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"));
+      expect(r.closed).toBe(0);
+      expect(streamArrivingSpy).toHaveBeenCalledWith("pk-1", { fresh: true });
+      expect(getLastZoomEndTimeSpy).not.toHaveBeenCalled();
+    });
+
+    it("past the safety net with the stream gone past its grace, it closes and the thank-you follows the close", async () => {
+      mockDbOperator.eventSession.findMany.mockResolvedValue([partnerRoom()]);
+      expect((await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"))).closed).toBe(0);
+      expect((await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:06:00Z"))).closed).toBe(1);
+      expect(retimeSpy).toHaveBeenCalledWith("ev1", new Date("2026-10-01T14:06:00Z"));
+    });
+
+    it("past the hard cap it closes even with the partner still pushing", async () => {
+      mockDbOperator.eventSession.findMany.mockResolvedValue([partnerRoom()]);
+      streamArrivingSpy.mockResolvedValue(true);
+      expect((await runWebinarRoomAutoCloseTick(new Date("2026-10-01T17:31:00Z"))).closed).toBe(1);
+    });
+  });
+});

@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { GCC_COUNTRIES } from "@/constants/countries";
-import { PARTNER_STREAM_CHOICE_OFFERED } from "@/lib/webinar/partner-stream-availability";
+import { usePartnerStreamAvailability } from "@/hooks/use-api";
 
 /** Convert a `datetime-local` value (assumed Dubai/GST) to UTC ISO string */
 function fromDatetimeLocal(value: string): string {
@@ -84,8 +84,11 @@ export default function NewEventPage() {
     },
   });
 
-  // The partner-stream choice stays hidden until a partner's key can be issued (partner-stream-availability.ts).
-  const isWebinar = useWatch({ control: form.control, name: "eventType" }) === "WEBINAR" && PARTNER_STREAM_CHOICE_OFFERED;
+  // The partner-stream choice is offered only on a server that can issue a partner's key
+  // (partner-stream-readiness.ts): while the answer is loading, or on a no, the field stays hidden.
+  const partnerStreams = usePartnerStreamAvailability();
+  const isWebinar =
+    useWatch({ control: form.control, name: "eventType" }) === "WEBINAR" && partnerStreams.data?.offered === true;
 
   async function onSubmit(data: EventForm) {
     setIsLoading(true);

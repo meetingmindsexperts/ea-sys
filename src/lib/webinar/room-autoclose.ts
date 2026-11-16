@@ -12,6 +12,12 @@
  *     OVERRUN_HARD_CAP_MS after the scheduled end (Nov 5, 2026; overrun.ts).
  * Closing is exactly what the console's button does: the anchor session
  * becomes COMPLETED, so attendees see "ended" and later the replay.
+ *
+ * A partner's webinar (Nov 16, 2026; external streams step 5) has no Zoom to
+ * ask, so only the safety net closes it, and the partner's stream still
+ * arriving holds the room up to the hard cap. Never "closed when the stream has
+ * been gone a while": a partner's drop we cannot restart would close the room
+ * on everyone and send a thank-you that cannot be recalled (plan §4.5).
  */
 import { db, dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -76,6 +82,19 @@ export interface AutoCloseReport {
   failed: number;
 }
 
+/** When Zoom says the webinar last ended. Null for a partner's room: there is no Zoom webinar to ask. */
+async function lastZoomEnd(room: {
+  event: { organizationId: string };
+  zoomMeeting: { zoomMeetingId: string; meetingType: string } | null;
+}): Promise<Date | null> {
+  if (!room.zoomMeeting) return null;
+  return getLastZoomEndTime(
+    room.event.organizationId,
+    room.zoomMeeting.zoomMeetingId,
+    room.zoomMeeting.meetingType as "MEETING" | "WEBINAR" | "WEBINAR_SERIES",
+  );
+}
+
 export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<AutoCloseReport> {
   // Privileged lane: finding open rooms is a cross-tenant scan. Each room's
   // work then runs inside its own tenant on the normal client.
@@ -83,7 +102,9 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
     where: {
       status: "LIVE",
       event: { eventType: "WEBINAR" },
-      zoomMeeting: { isNot: null },
+      // Our Zoom webinar's room, or a partner's: until Nov 16, 2026 only the first, so a partner's room
+      // stayed open until someone closed it.
+      OR: [{ zoomMeeting: { isNot: null } }, { externalStream: { isNot: null } }],
     },
     take: MAX_ROOMS_PER_TICK,
     select: {
@@ -100,20 +121,13 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
   for (const room of open) {
     const webinar = readWebinarSettings(room.event.settings);
     // Only the anchor session is "the room"; other sessions are not managed here.
-    if (webinar?.sessionId !== room.id || !room.zoomMeeting) continue;
+    if (webinar?.sessionId !== room.id) continue;
     report.checked += 1;
     try {
       const outcome = await runWithTenant(room.event.organizationId, async () => {
         const parsedOpen = webinar.roomOpenedAt ? new Date(webinar.roomOpenedAt) : null;
         const roomOpenedAt = parsedOpen && !Number.isNaN(parsedOpen.getTime()) ? parsedOpen : null;
-        const zoomEndedAt =
-          pastSafetyNet(now, room.endTime, roomOpenedAt)
-            ? null
-            : await getLastZoomEndTime(
-                room.event.organizationId,
-                room.zoomMeeting!.zoomMeetingId,
-                room.zoomMeeting!.meetingType as "MEETING" | "WEBINAR" | "WEBINAR_SERIES",
-              );
+        const zoomEndedAt = pastSafetyNet(now, room.endTime, roomOpenedAt) ? null : await lastZoomEnd(room);
         const decision = decideRoomClose({
           now,
           scheduledStart: room.startTime,
@@ -132,11 +146,7 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
           now.getTime() <= room.endTime.getTime() + OVERRUN_HARD_CAP_MS &&
           (await isWebinarStreamArriving({ eventId: room.eventId, sessionId: room.id, eventSettings: room.event.settings, now: now.getTime() }))
         ) {
-          const lastEnd = await getLastZoomEndTime(
-            room.event.organizationId,
-            room.zoomMeeting!.zoomMeetingId,
-            room.zoomMeeting!.meetingType as "MEETING" | "WEBINAR" | "WEBINAR_SERIES",
-          );
+          const lastEnd = await lastZoomEnd(room);
           const settledEnd =
             lastEnd &&
             (!roomOpenedAt || lastEnd.getTime() > roomOpenedAt.getTime()) &&
