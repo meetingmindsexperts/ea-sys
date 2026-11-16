@@ -119,7 +119,9 @@ export default function MyDetailsPage() {
     const n = data.registrations?.updated ?? 0;
     toast.success(n > 0 ? `Saved. ${n} upcoming registration${n === 1 ? "" : "s"} updated too.` : "Your details are saved.");
     reset(values);
-    if (loaded) setLoaded({ ...loaded, source: "account", marketing: { consented: values.marketingConsent, since: loaded.marketing.since } });
+    // The saved details become what the account holds: the Role picker's held
+    // answer is read from here (review of bef0c980).
+    if (loaded) setLoaded({ ...loaded, details: { ...loaded.details, role: values.role }, source: "account", marketing: { consented: values.marketingConsent, since: loaded.marketing.since } });
   };
 
   if (loadError) {

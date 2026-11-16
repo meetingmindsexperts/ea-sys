@@ -201,6 +201,17 @@ done before 1d ships:**
   key "(no longer offered)". Fix: expose `isPlaceholderData` / `isError` from
   `usePersonFields` and disable the picker (or drop the suffix) until the real
   list is in.
+- **From the review of `bef0c980` (step 1d part 1; 0 HIGH, 0 MED, 6 LOW;
+  LOW 2 and 4 fixed): LOW 1**, the person-fields read answers 200 with today's
+  lists when no organisation resolves, and `ready` counts it, so a picker could
+  drop answers against them; the route should say whether the list is the
+  organisation's. **LOW 3**, a dropped stale answer is cleared silently; say so
+  beside the picker. **LOW 5**, the registration and speaker sheets read
+  `held` from the live record, not the snapshot the edit started from, so a
+  role changed by someone else during the edit can turn a refusal into a
+  blank save. **LOW 6**, no render test of `RoleSelect` (the repo has no
+  jsdom); the browser test below covers it. Older: My Details and My account
+  do not mark a refused field from the server's `fieldErrors`.
 - **LOW 3: nothing tests the picker in a browser against an organisation's own
   list.** Add a Playwright spec with a seeded list and a retired answer.
 - **Older:** a list with `allowOther` and an option keyed "Others" yields

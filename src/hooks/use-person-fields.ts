@@ -53,6 +53,11 @@ export function usePersonFields(opts: { organisationOnly?: boolean } = {}): Publ
  * today's lists shown while it loads or after a failed read (step 1d). A
  * picker must not judge a stored answer "no longer offered", or drop it,
  * against a list that is not the organisation's.
+ *
+ * `ready` means "a list the server sent", not "the newest list": a list kept
+ * in the cache (five minutes) counts, so a page opened just after a Settings
+ * save may judge against the list from before it until the refetch lands
+ * (review of bef0c980). The server door is the final word either way.
  */
 export function usePersonFieldsState(opts: { organisationOnly?: boolean } = {}): { fields: PublicPersonFields; ready: boolean } {
   // On an event's pages the list is the event's organisation's, whoever is
