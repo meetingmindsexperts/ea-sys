@@ -46,7 +46,6 @@ import {
   AlertCircle,
   Loader2,
   Calendar,
-  Lock,
   Mail,
   CheckCircle2,
   Clock,
@@ -208,6 +207,7 @@ export default function WebinarConsolePage() {
   const viewerQuestionsQuery = useWebinarViewerQuestions(eventId, true);
   const showLoader = useDelayedLoading(isLoading, 500);
   const provision = useProvisionWebinar(eventId);
+  const [pickedTab, setPickedTab] = useState<string | null>(null);
 
   const status = useMemo(
     () =>
@@ -308,9 +308,13 @@ export default function WebinarConsolePage() {
 
   const anchor = data?.anchorSession;
   const zoom = data?.zoomMeeting;
-  // Tabs are status-driven: Scheduled/Live → Setup, Ended → Analytics.
-  // User can switch at will (local state, no URL pin).
+  // Tabs are status-driven: Scheduled/Live → Setup, Ended → Analytics. The
+  // producer can switch at will. Controlled, not `defaultValue`: that was read
+  // on the first render, usually before the data arrived, so an ended webinar
+  // opened on Setup (UX review, Nov 16, 2026). Until the producer picks a tab,
+  // the status decides.
   const defaultTab = status === "ended" ? "analytics" : "setup";
+  const activeTab = pickedTab ?? defaultTab;
   // Viewer questions get their own tab (owner, Oct 1, 2026). Polled here so
   // the tab's badge counts new questions while the producer is on any tab.
   // Shown in Custom stream mode, and in any mode while questions exist, so a
@@ -381,7 +385,7 @@ export default function WebinarConsolePage() {
       </div>
 
       {/* Tabs — collapse 7 cards of equal weight into 3 grouped views */}
-      <Tabs defaultValue={defaultTab} className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setPickedTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="setup" className="flex items-center gap-2">
             <Wrench className="h-4 w-4" />
@@ -544,6 +548,7 @@ export default function WebinarConsolePage() {
                 eventId={eventId}
                 sessionEnded={status === "ended"}
                 hasZoom={hasZoom}
+                customStream={data?.webinar?.viewingMode === "hls"}
               />
               {/* Polls + Q&A are peer reports — side by side on wide screens. */}
               <div className="grid items-start gap-6 lg:grid-cols-2">
@@ -671,9 +676,11 @@ function formatSessionWindow(
 }
 
 const STATUS_BAR_CLASS: Record<WebinarStatus, string> = {
-  live: "border-red-200 bg-red-50/90 shadow-md backdrop-blur-sm",
-  ended: "border-gray-200 bg-card/95 shadow-md backdrop-blur-sm",
-  scheduled: "border-blue-200 bg-blue-50/90 shadow-md backdrop-blur-sm",
+  // py-0: the card's own padding doubled the content's, and the sticky bar stood twice the
+  // height it needs on a 13-inch laptop (UX review, Nov 16, 2026).
+  live: "border-red-200 bg-red-50/90 shadow-md backdrop-blur-sm py-0",
+  ended: "border-gray-200 bg-card/95 shadow-md backdrop-blur-sm py-0",
+  scheduled: "border-blue-200 bg-blue-50/90 shadow-md backdrop-blur-sm py-0",
 };
 
 function StatusBarIcon({ status }: { status: WebinarStatus }) {
@@ -857,7 +864,7 @@ function WebinarStatusBar({
         STATUS_BAR_CLASS[status]
       }
     >
-      <CardContent className="py-4">
+      <CardContent className="py-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           {/* Status pill */}
           <div className="flex items-center gap-2 shrink-0">
@@ -872,33 +879,10 @@ function WebinarStatusBar({
             </div>
           ) : null}
 
-          {/* Join URL with copy + passcode (takes remaining width) */}
-          <div className="flex items-center gap-2 flex-1 min-w-[260px]">
-            <Input
-              value={zoom.joinUrl}
-              readOnly
-              className="font-mono text-xs h-9"
-            />
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              onClick={() => onCopy(zoom.joinUrl, "Join URL")}
-              title="Copy join URL"
-            >
-              <Copy className="h-4 w-4" />
-            </Button>
-            {zoom.passcode ? (
-              <Badge
-                variant="outline"
-                className="shrink-0 gap-1 font-mono text-xs"
-                title="Meeting passcode"
-              >
-                <Lock className="h-3 w-3" />
-                {zoom.passcode}
-              </Badge>
-            ) : null}
-          </div>
+          {/* The link attendees are sent: our page, which checks their registration and payment.
+              It was Zoom's join link and passcode, which skip both (UX review, Nov 16, 2026); those
+              are in the Overview card's Zoom details now, for hosts and panelists. */}
+          <AttendeePageLink eventSlug={eventSlug} sessionId={anchor?.id ?? null} onCopy={onCopy} />
 
           {/* Context-aware primary action */}
           <div className="flex items-center gap-2 shrink-0">
@@ -982,6 +966,43 @@ function WebinarStatusBar({
   );
 }
 
+const readSiteOrigin = () => window.location.origin;
+
+/** The attendee page's full address: our session page, the link attendees are sent. */
+function useAttendeePageUrl(eventSlug: string | null, sessionId: string | null): string | null {
+  const origin = useSyncExternalStore(subscribeToNothing, readSiteOrigin, () => "");
+  if (!eventSlug || !sessionId || !origin) return null;
+  return `${origin}/e/${eventSlug}/session/${sessionId}`;
+}
+
+function AttendeePageLink({
+  eventSlug,
+  sessionId,
+  onCopy,
+}: {
+  eventSlug: string | null;
+  sessionId: string | null;
+  onCopy: (value: string | null | undefined, label: string) => void;
+}) {
+  const url = useAttendeePageUrl(eventSlug, sessionId);
+  if (!url) return <div className="flex-1" />;
+  return (
+    <div className="flex items-center gap-2 flex-1 min-w-[260px]">
+      <span className="shrink-0 text-xs font-medium text-muted-foreground">Attendee page</span>
+      <Input value={url} readOnly className="font-mono text-xs h-9" aria-label="Attendee page link" />
+      <Button
+        type="button"
+        size="icon"
+        variant="outline"
+        onClick={() => onCopy(url, "Attendee page link")}
+        title="Copy the attendee page link"
+      >
+        <Copy className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
 /**
  * The sticky bar on a partner's webinar (Nov 16, 2026): status, time, the room
  * and whether the partner's video is arriving. There is no "Start as Host":
@@ -1008,7 +1029,7 @@ function PartnerStatusBar({
 
   return (
     <Card className={STATUS_BAR_CLASS[status]}>
-      <CardContent className="py-4">
+      <CardContent className="py-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <div className="flex items-center gap-2 shrink-0">
             <StatusBarIcon status={status} />
@@ -1193,57 +1214,48 @@ function OverviewCard({
           <EmptyAnchorState onProvision={onProvision} pending={provisionPending} />
         )}
 
-        {/* Zoom details — only when attached */}
+        {/* Zoom details, only when attached. Folded away and labelled for hosts and panelists: the
+            join link and passcode skip our registration check, so they are not for attendees
+            (UX review, Nov 16, 2026). */}
         {hasZoom && zoom ? (
           <div className="pt-5 border-t space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                  Meeting Type
-                </Label>
-                <p className="font-medium">{zoom.meetingType}</p>
-              </div>
-              <div>
-                <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                  Duration
-                </Label>
-                <p className="font-medium">{zoom.duration ?? "–"} min</p>
-              </div>
-              <div className="md:col-span-2">
-                <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                  Attendee Join URL
-                </Label>
-                <div className="flex items-center gap-2 mt-1">
-                  <Input value={zoom.joinUrl} readOnly className="font-mono text-xs" />
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    onClick={() => onCopy(zoom.joinUrl, "Join URL")}
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              {zoom.passcode ? (
+            <details className="rounded-lg border p-3 text-sm">
+              <summary className="cursor-pointer font-medium">Zoom details (host and panelists only)</summary>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Attendees join through the attendee page, which checks their registration. Do not send this
+                link or passcode to attendees.
+              </p>
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                    Passcode
-                  </Label>
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wide">Meeting Type</Label>
+                  <p className="font-medium">{zoom.meetingType}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wide">Duration</Label>
+                  <p className="font-medium">{zoom.duration ?? "–"} min</p>
+                </div>
+                <div className="md:col-span-2">
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wide">Zoom join link</Label>
                   <div className="flex items-center gap-2 mt-1">
-                    <Input value={zoom.passcode} readOnly className="font-mono" />
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      onClick={() => onCopy(zoom.passcode, "Passcode")}
-                    >
+                    <Input value={zoom.joinUrl} readOnly className="font-mono text-xs" aria-label="Zoom join link" />
+                    <Button type="button" size="icon" variant="outline" onClick={() => onCopy(zoom.joinUrl, "Zoom join link")}>
                       <Copy className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
-              ) : null}
-            </div>
+                {zoom.passcode ? (
+                  <div>
+                    <Label className="text-muted-foreground text-xs uppercase tracking-wide">Passcode</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input value={zoom.passcode} readOnly className="font-mono" aria-label="Zoom passcode" />
+                      <Button type="button" size="icon" variant="outline" onClick={() => onCopy(zoom.passcode, "Passcode")}>
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </details>
 
             <div className="flex flex-wrap gap-2 pt-2 border-t">
               {zoom.startUrl ? (
@@ -1763,7 +1775,8 @@ function RecordingCard({
                   Status
                 </Label>
                 <p>
-                  <StatusPill status="SENT" />
+                  {/* Its own word: the email list's "SENT" pill read as if the recording had been emailed. */}
+                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Available</span>
                   <span className="ml-2 text-xs text-muted-foreground">
                     {zoom.recordingFetchedAt
                       ? `Fetched ${fmtTz(zoom.recordingFetchedAt, eventTz)}`
@@ -1880,10 +1893,17 @@ function AttendanceCard({
   eventId,
   sessionEnded,
   hasZoom,
+  customStream = false,
 }: {
   eventId: string;
   sessionEnded: boolean;
   hasZoom: boolean;
+  /**
+   * Custom stream mode: attendees watch on our page, so Zoom sees only the speakers and hosts. The
+   * card is then "Zoom participants", without the registered and attendance-rate figures, which read
+   * as a low turnout beside the page attendance card (UX review, Nov 16, 2026).
+   */
+  customStream?: boolean;
 }) {
   const eventTz = useEventTz();
   const { data, isLoading, isFetching } = useWebinarAttendance(eventId);
@@ -1920,12 +1940,15 @@ function AttendanceCard({
         <div className="flex items-center justify-between">
           <div>
             <ConsoleTitle icon={Users} tone="sky">
-              Attendance
+              {customStream ? "Zoom participants (speakers and hosts)" : "Attendance"}
               {isFetching && !isLoading && (
                 <ReloadingSpinner className="ml-1 inline-block" />
               )}
             </ConsoleTitle>
             <CardDescription>
+              {customStream
+                ? "Attendees watched on our page, so Zoom's report lists only the people in Zoom: speakers and hosts. Audience attendance is in Attendance on our page. "
+                : null}
               Pulled from Zoom&apos;s participant report. Polled automatically once the session has been over for 30 min.
               {kpis?.lastSyncedAt ? (
                 <> Last synced {fmtTz(kpis.lastSyncedAt, eventTz)}.</>
@@ -1969,22 +1992,29 @@ function AttendanceCard({
         {!isLoading && hasZoom && !(!sessionEnded && rows.length === 0) ? (
           <div className="space-y-6">
             {/* KPI grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiTile label="Registered" value={kpis?.registered ?? 0} />
-              <KpiTile label="Attended" value={kpis?.attended ?? 0} />
-              <KpiTile
-                label="Attendance rate"
-                value={`${kpis?.attendanceRate ?? 0}%`}
-                accent={
-                  (kpis?.attendanceRate ?? 0) >= 50 ? "text-green-600" : "text-amber-600"
-                }
-              />
-              <KpiTile
-                label="Avg. watch time"
-                value={formatDuration(kpis?.avgWatchSeconds ?? 0)}
-                icon={TrendingUp}
-              />
-            </div>
+            {customStream ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <KpiTile label="In Zoom" value={kpis?.attended ?? 0} />
+                <KpiTile label="Avg. time in Zoom" value={formatDuration(kpis?.avgWatchSeconds ?? 0)} icon={TrendingUp} />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <KpiTile label="Registered" value={kpis?.registered ?? 0} />
+                <KpiTile label="Attended" value={kpis?.attended ?? 0} />
+                <KpiTile
+                  label="Attendance rate"
+                  value={`${kpis?.attendanceRate ?? 0}%`}
+                  accent={
+                    (kpis?.attendanceRate ?? 0) >= 50 ? "text-green-600" : "text-amber-600"
+                  }
+                />
+                <KpiTile
+                  label="Avg. watch time"
+                  value={formatDuration(kpis?.avgWatchSeconds ?? 0)}
+                  icon={TrendingUp}
+                />
+              </div>
+            )}
 
             {/* Attendees table */}
             {rows.length === 0 ? (
@@ -3534,6 +3564,7 @@ function GoLiveCard({
   // they see the thank-you screen and the survey. Before the start a close is a
   // rehearsal and changes nothing for them, so it needs no confirmation.
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
+  const [confirmReopenOpen, setConfirmReopenOpen] = useState(false);
   const closeEndsWebinar = roomOpen && anchorStartMs > 0 && nowTick >= anchorStartMs;
   // The same rule attendees get (lobby-status), so the console never says "ended" while they see the
   // waiting room, or the reverse (review of fb4459d0).
@@ -3544,6 +3575,7 @@ function GoLiveCard({
 
   const handleToggleRoom = async () => {
     setConfirmCloseOpen(false);
+    setConfirmReopenOpen(false);
     try {
       const res = await toggleRoom.mutateAsync(!roomOpen);
       toast.success(
@@ -3611,18 +3643,24 @@ function GoLiveCard({
             </p>
           </div>
           <Button
-            onClick={closeEndsWebinar ? () => setConfirmCloseOpen(true) : handleToggleRoom}
-            size="lg"
+            onClick={roomButtonAction({
+              closeEndsWebinar,
+              ended,
+              toggle: handleToggleRoom,
+              confirmClose: () => setConfirmCloseOpen(true),
+              confirmReopen: () => setConfirmReopenOpen(true),
+            })}
+            size={ended ? "sm" : "lg"}
             disabled={toggleRoom.isPending}
-            variant={roomOpen ? "outline" : "default"}
-            className={roomOpen ? "w-full" : "w-full bg-red-600 hover:bg-red-700"}
+            variant={roomOpen || ended ? "outline" : "default"}
+            className={roomOpen || ended ? "w-full" : "w-full bg-red-600 hover:bg-red-700"}
           >
             {toggleRoom.isPending ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : (
               <PlayCircle className="h-4 w-4 mr-2" />
             )}
-            {roomOpen ? "Close the room" : "Open the room / Go live"}
+            {roomButtonLabel(roomOpen, ended)}
           </Button>
         </div>
         {/* Operator visibility (waiting-room review #10): DRAFT events auto-open
@@ -3636,6 +3674,23 @@ function GoLiveCard({
             room / Go live”.
           </p>
         )}
+        <AlertDialog open={confirmReopenOpen} onOpenChange={setConfirmReopenOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Re-open the room?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The webinar has ended. Re-opening takes everyone who still has the page open back to the live view,
+                and the room stays open until you close it again. Use it only if the webinar is not over.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep it closed</AlertDialogCancel>
+              <Button onClick={handleToggleRoom} disabled={toggleRoom.isPending}>
+                Re-open the room
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -3665,6 +3720,28 @@ const PARTNER_SIGNAL_ON_OPEN: Record<"receiving" | "not-receiving" | "switched-o
   "switched-off": "The partner's key is switched off, so their video cannot arrive. Switch it on in the Partner stream card.",
   unknown: "The stream server did not answer, so whether the partner's video is arriving is not known. Check the preview.",
 };
+
+/**
+ * The room button's one press: close (confirmed once the webinar has started), re-open after the end
+ * (confirmed: the big red "Go live" was the most prominent thing on an ended webinar, one click from
+ * pulling people back; UX review, Nov 16, 2026), or open.
+ */
+function roomButtonAction(a: {
+  closeEndsWebinar: boolean;
+  ended: boolean;
+  toggle: () => void;
+  confirmClose: () => void;
+  confirmReopen: () => void;
+}): () => void {
+  if (a.closeEndsWebinar) return a.confirmClose;
+  if (a.ended) return a.confirmReopen;
+  return a.toggle;
+}
+
+function roomButtonLabel(roomOpen: boolean, ended: boolean): string {
+  if (roomOpen) return "Close the room";
+  return ended ? "Re-open the room" : "Open the room / Go live";
+}
 
 function overrunNote(customStream: boolean, partner = false): string {
   // A partner's webinar has no Zoom end to go by: the room closes by the button, or by the safety net

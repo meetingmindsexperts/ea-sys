@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinar Console: send the attendee page, not Zoom's link, and a console that follows the webinar's state (November 16)
+
+From a UX review of the console from an organiser's side.
+
+- **Changed**: the sticky bar shows the **Attendee page** link with a copy button. It showed Zoom's join link and passcode, which skip our registration and payment check. Those are now folded away in the Overview card under "Zoom details (host and panelists only)", with a line saying not to send them to attendees.
+- **Fixed**: the console opens on Analytics once a webinar has ended. It always opened on Setup, because the tab was chosen before the webinar's data arrived.
+- **Changed**: after the end the room button is a small "Re-open the room" that asks first. The big red "Open the room / Go live" was the most prominent thing on an ended webinar, one click from taking everyone back to the live view.
+- **Changed**: in custom stream mode Zoom's attendance card is "Zoom participants (speakers and hosts)" and shows only the people in Zoom; the registered count and the orange attendance rate read as a poor turnout beside "Attendance on our page".
+- **Fixed**: an available Zoom recording showed a green "SENT" pill borrowed from the email list; it says "Available". The sticky bar is about half as tall.
+
 ### Public registration: a promo code typed and not applied is no longer dropped (November 16)
 
 Found on the 4th GCC Hematology Hub: of twenty nurses on one sponsor's 100% code, seven were Complimentary and thirteen Unpaid. The seven applied the code on the form. The thirteen registered without it and entered it a minute later on the payment page, where a code that covers the whole fee leaves the registration Unpaid (owner ruling, Nov 12).
