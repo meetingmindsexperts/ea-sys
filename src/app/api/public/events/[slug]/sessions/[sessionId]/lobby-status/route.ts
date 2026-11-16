@@ -6,6 +6,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readWebinarSettings } from "@/lib/webinar";
 import { webinarRoomEnded } from "@/lib/webinar-page-layout";
+import { pickSessionStream, SESSION_STREAM_SELECT } from "@/lib/webinar/session-stream";
 import { runWithTenant } from "@/lib/tenant-context";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
@@ -19,6 +20,12 @@ interface LobbyBody {
   lobbyMessage: string | null;
   startsAt: string;
   endsAt: string;
+  /**
+   * Whether the session has a stream at all (session-stream.ts), never which. A partner's key can be
+   * issued after the room opened; the page then asks zoom-join once more, so attendees on "Getting the
+   * stream ready" get the player without reloading (review of fbaf43f2).
+   */
+  streamReady: boolean;
 }
 
 // Per-container micro-cache of the computed body, keyed by `${slug}:${sessionId}`.
@@ -38,6 +45,8 @@ async function computeLobbyBody(
       startTime: true,
       endTime: true,
       event: { select: { status: true, eventType: true, settings: true } },
+      // Read only to answer streamReady; nothing of it leaves this function.
+      ...SESSION_STREAM_SELECT,
     },
   });
   if (!session) return "not-found";
@@ -62,6 +71,7 @@ async function computeLobbyBody(
     lobbyMessage: webinar?.lobbyMessage ?? null,
     startsAt: session.startTime.toISOString(),
     endsAt: session.endTime.toISOString(),
+    streamReady: pickSessionStream(session) !== null,
   };
 }
 

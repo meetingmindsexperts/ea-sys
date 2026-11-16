@@ -123,6 +123,8 @@ interface LobbyStatus {
   lobbyMessage: string | null;
   startsAt: string;
   endsAt: string;
+  /** The session has a stream (lobby-status); absent from an older server. */
+  streamReady?: boolean;
 }
 
 interface SpeakerInfo {
@@ -442,6 +444,23 @@ export default function PublicSessionPage() {
       retryState.timer = setTimeout(() => setAdmitAttempt((n) => n + 1), ms);
     }
   }, [isWebinarEvent, roomOpen, lobby?.viewingMode, slug, sessionId, admitAttempt]);
+
+  // A partner's key issued after the room opened (review of fbaf43f2): the join answer said "no stream
+  // yet", and nothing above asks again while the room stays open. When lobby-status says a stream now
+  // exists, ask once more. Once per change to ready, so an answer that still has no stream cannot
+  // loop against zoom-join's per-IP limit.
+  const streamReady = lobby?.streamReady === true;
+  const streamRefetchedRef = useRef(false);
+  useEffect(() => {
+    if (!streamReady) {
+      streamRefetchedRef.current = false;
+      return;
+    }
+    if (streamRefetchedRef.current || joinInfo?.mode !== "stream" || joinInfo.liveStreamEnabled) return;
+    streamRefetchedRef.current = true;
+    admittedRef.current = false;
+    setAdmitAttempt((n) => n + 1);
+  }, [streamReady, joinInfo]);
   useEffect(() => {
     const retryState = admitRetryRef.current;
     return () => {

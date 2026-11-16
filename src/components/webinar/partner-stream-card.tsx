@@ -152,8 +152,9 @@ function ControlApiNotice({ check }: { check: WebinarPartnerStreamState["control
   if (!check || check === "ok" || check === "NOT_CONFIGURED") return null;
   return (
     <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="status">
-      {CONTROL_API_PROBLEM[check]} Until the system administrator fixes it, Cut the feed and Replace still switch
-      the key off, but cannot end a stream that is already running.
+      {CONTROL_API_PROBLEM[check]} Cut the feed still switches the key off and Replace still stops the old key
+      working, but neither can end a stream that is already running until the system administrator fixes it.
+      The stream server is asked again every minute.
     </p>
   );
 }

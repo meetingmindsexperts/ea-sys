@@ -42,7 +42,12 @@ describe("the Webinar Console", () => {
     expect(page).toContain("<Tabs value={activeTab} onValueChange={setPickedTab}");
     expect(page).not.toContain("<Tabs defaultValue=");
     expect(page).toContain("if (data && pickedTab === null) setPickedTab(consoleOpeningTab(status));");
-    expect(page).toContain("consoleActiveTab(pickedTab, consoleTabs({ partner, viewerTabs: showViewerQaTab }))");
+    expect(page).toContain("const visibleTabs = consoleTabs({ partner, viewerTabs: showViewerQaTab });");
+    expect(page).toContain("consoleActiveTab(pickedTab, visibleTabs)");
+    // Every conditional trigger and panel reads the same list.
+    const tabs = page.slice(page.indexOf("<Tabs value={activeTab}"), page.indexOf("</Tabs>"));
+    expect(tabs).not.toMatch(/\{showViewerQaTab && \(|\{!partner && \(\s*<Tabs(Trigger|Content)/);
+    expect(tabs.match(/visibleTabs\.includes\(/g)?.length).toBe(8);
   });
 
   it("after a real close the room button is a confirmed, quiet re-open", () => {
@@ -50,7 +55,7 @@ describe("the Webinar Console", () => {
     const action = body("roomButtonAction");
     expect(action.indexOf("a.closeEndsWebinar")).toBeLessThan(action.indexOf("a.reopen"));
     expect(action).toContain("return a.confirmReopen;");
-    expect(body("GoLiveCard")).toContain("roomReopens({ roomOpen, ended, anchorStatus: anchor?.status })");
+    expect(body("GoLiveCard")).toContain("pastLateStart: anchorEndMs > 0 && nowTick > anchorEndMs + ROOM_OVERDUE_GRACE_MS");
     expect(page).toContain("<AlertDialogTitle>Re-open the room?</AlertDialogTitle>");
   });
 
@@ -67,6 +72,13 @@ describe("the Webinar Console", () => {
     expect(attendee).toContain('const ctaStream = playsStream || joinInfo.mode === "stream";');
     expect(attendee).toContain("joinCtaHint({ playsStream: ctaStream,");
     expect(attendee).toContain("joinCtaTitle(isLive, ctaStream)");
+  });
+
+  it("asks zoom-join once more when a partner's key is issued after the room opened (review of fbaf43f2)", () => {
+    const attendee = readFileSync("src/app/e/[slug]/session/[sessionId]/page.tsx", "utf8");
+    expect(attendee).toContain("const streamReady = lobby?.streamReady === true;");
+    expect(attendee).toContain('if (streamRefetchedRef.current || joinInfo?.mode !== "stream" || joinInfo.liveStreamEnabled) return;');
+    expect(attendee).toContain("setAdmitAttempt((n) => n + 1);\n  }, [streamReady, joinInfo]);");
   });
 
   it("an available recording says Available, not the email list's SENT", () => {

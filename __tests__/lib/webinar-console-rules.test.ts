@@ -61,15 +61,19 @@ describe("consoleActiveTab", () => {
 
 describe("roomReopens", () => {
   it("a room opened and closed after the start re-opens (confirmed)", () => {
-    expect(roomReopens({ roomOpen: false, ended: true, anchorStatus: "COMPLETED" })).toBe(true);
+    expect(roomReopens({ roomOpen: false, ended: true, anchorStatus: "COMPLETED", pastLateStart: false })).toBe(true);
   });
 
-  it("a room never opened by the end of its slot is a late start: the ordinary Open", () => {
-    expect(roomReopens({ roomOpen: false, ended: true, anchorStatus: "SCHEDULED" })).toBe(false);
+  it("a room never opened by the end of its slot is a late start: the ordinary Open, while the overdue alert shows", () => {
+    expect(roomReopens({ roomOpen: false, ended: true, anchorStatus: "SCHEDULED", pastLateStart: false })).toBe(false);
+  });
+
+  it("past the late-start window a never-opened room is confirmed too, not one red click (review of fbaf43f2)", () => {
+    expect(roomReopens({ roomOpen: false, ended: true, anchorStatus: "SCHEDULED", pastLateStart: true })).toBe(true);
   });
 
   it("never while the room is open, and never before the end", () => {
-    expect(roomReopens({ roomOpen: true, ended: false, anchorStatus: "LIVE" })).toBe(false);
-    expect(roomReopens({ roomOpen: false, ended: false, anchorStatus: "COMPLETED" })).toBe(false);
+    expect(roomReopens({ roomOpen: true, ended: false, anchorStatus: "LIVE", pastLateStart: true })).toBe(false);
+    expect(roomReopens({ roomOpen: false, ended: false, anchorStatus: "COMPLETED", pastLateStart: false })).toBe(false);
   });
 });

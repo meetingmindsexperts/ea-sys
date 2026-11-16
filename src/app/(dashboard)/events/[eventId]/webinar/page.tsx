@@ -324,7 +324,10 @@ export default function WebinarConsolePage() {
   // Controlled, not `defaultValue`: that was read on the first render, usually before the data
   // arrived, so an ended webinar opened on Setup (UX review, Nov 16, 2026). The opening tab is set
   // once (above); a tab that disappears while selected falls back to Setup (console-rules.ts).
-  const activeTab = consoleActiveTab(pickedTab, consoleTabs({ partner, viewerTabs: showViewerQaTab }));
+  // ONE list decides which tabs exist: the triggers, the panels and the fallback all read it (review
+  // of fbaf43f2: a trigger added to the JSX alone would snap back to Setup on every click).
+  const visibleTabs = consoleTabs({ partner, viewerTabs: showViewerQaTab });
+  const activeTab = consoleActiveTab(pickedTab, visibleTabs);
 
   return (
     <EventTzContext.Provider value={data?.event?.timezone || DEFAULT_EVENT_TIMEZONE}>
@@ -395,7 +398,7 @@ export default function WebinarConsolePage() {
             Setup
           </TabsTrigger>
           {/* Panelists are Zoom's: a partner's webinar has none of ours. */}
-          {!partner && (
+          {visibleTabs.includes("panelists") && (
             <TabsTrigger value="panelists" className="flex items-center gap-2">
               <UserPlus className="h-4 w-4" />
               Panelists
@@ -405,7 +408,7 @@ export default function WebinarConsolePage() {
             <LineChart className="h-4 w-4" />
             Analytics
           </TabsTrigger>
-          {showViewerQaTab && (
+          {visibleTabs.includes("qa") && (
             <TabsTrigger value="qa" className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />
               Q&amp;A
@@ -419,13 +422,13 @@ export default function WebinarConsolePage() {
               )}
             </TabsTrigger>
           )}
-          {showViewerQaTab && (
+          {visibleTabs.includes("polls") && (
             <TabsTrigger value="polls" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
               Polls
             </TabsTrigger>
           )}
-          {showViewerQaTab && (
+          {visibleTabs.includes("chat") && (
             <TabsTrigger value="chat" className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />
               Chat
@@ -522,7 +525,7 @@ export default function WebinarConsolePage() {
 
         {/* Panelists on their own tab (owner, Oct 6, 2026): a wide table and
             add form that would be cramped in the Setup tab's right rail. */}
-        {!partner && (
+        {visibleTabs.includes("panelists") && (
           <TabsContent value="panelists" className="mt-4">
             <PanelistsCard eventId={eventId} hasZoom={hasZoom} />
           </TabsContent>
@@ -568,19 +571,19 @@ export default function WebinarConsolePage() {
           <BrandingCard key={data ? "loaded" : "loading"} eventId={eventId} webinar={data?.webinar ?? {}} />
         </TabsContent>
 
-        {showViewerQaTab && (
+        {visibleTabs.includes("qa") && (
           <TabsContent value="qa" className="mt-4">
             <ViewerQuestionsPanel eventId={eventId} upvote={data?.webinar?.qaUpvote !== false} />
           </TabsContent>
         )}
 
-        {showViewerQaTab && (
+        {visibleTabs.includes("polls") && (
           <TabsContent value="polls" className="mt-4">
             <LivePollsPanel eventId={eventId} enabled={data?.webinar?.livePolls === true} />
           </TabsContent>
         )}
 
-        {showViewerQaTab && (
+        {visibleTabs.includes("chat") && (
           <TabsContent value="chat" className="mt-4">
             <ChatModerationPanel eventId={eventId} />
           </TabsContent>
@@ -3593,7 +3596,12 @@ function GoLiveCard({
     anchor != null &&
     webinarRoomEnded({ status: anchor.status, startMs: anchorStartMs, endMs: anchorEndMs, now: nowTick });
   // Re-open (confirmed, quiet) only after a real close; a room never opened by its end is a late start.
-  const reopen = roomReopens({ roomOpen, ended, anchorStatus: anchor?.status });
+  const reopen = roomReopens({
+    roomOpen,
+    ended,
+    anchorStatus: anchor?.status,
+    pastLateStart: anchorEndMs > 0 && nowTick > anchorEndMs + ROOM_OVERDUE_GRACE_MS,
+  });
 
   const handleToggleRoom = async () => {
     setConfirmCloseOpen(false);

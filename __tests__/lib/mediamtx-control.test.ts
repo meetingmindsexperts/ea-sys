@@ -82,7 +82,19 @@ describe("checkControlApi (review of c1b4ae83: the environment alone said ready)
   it("REFUSED when our webhook turns the secret down, and says so in the log", async () => {
     serve({ list: json(401, null) });
     expect(await checkControlApi(1_000)).toBe("REFUSED");
-    expect(mockLogger.warn).toHaveBeenCalledWith({ code: "REFUSED" }, "mediamtx-control:check-failed");
+    expect(mockLogger.warn).toHaveBeenCalledWith({ code: "REFUSED", previous: null }, "mediamtx-control:check-failed");
+  });
+
+  it("logs once per change, not on every ask (review of fbaf43f2: ~240 warnings an hour per open console)", async () => {
+    fetchMock.mockRejectedValue(Object.assign(new Error("fetch failed"), { cause: { code: "ECONNREFUSED" } }));
+    await checkControlApi(1_000);
+    await checkControlApi(1_000 + CONTROL_CHECK_TTL_MS);
+    await checkControlApi(1_000 + 2 * CONTROL_CHECK_TTL_MS);
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+    expect(mockLogger.warn).toHaveBeenCalledWith({ code: "UNREACHABLE", previous: null }, "mediamtx-control:check-failed");
+    serve({});
+    expect(await checkControlApi(1_000 + 3 * CONTROL_CHECK_TTL_MS)).toBe("ok");
+    expect(mockLogger.info).toHaveBeenCalledWith({ previous: "UNREACHABLE" }, "mediamtx-control:check-recovered");
   });
 
   it("UNREACHABLE when MediaMTX is not there (not recreated with the API on)", async () => {

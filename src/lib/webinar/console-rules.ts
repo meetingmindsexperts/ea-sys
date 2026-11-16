@@ -45,11 +45,20 @@ export function consoleActiveTab(picked: string | null, visible: readonly string
 
 /**
  * Whether the closed room's button RE-opens it, which is confirmed and quiet:
- * only once the room was opened and then closed after the start, which marks
- * the session COMPLETED. A room never opened by the end of its slot is a late
+ * once the room was opened and then closed after the start, which marks the
+ * session COMPLETED. A room never opened by the end of its slot is a late
  * start, and keeps the ordinary "Open the room / Go live" that the overdue
- * alert tells the producer to press (review of c1b4ae83).
+ * alert tells the producer to press (review of c1b4ae83), but only while that
+ * alert shows: past it (`pastLateStart`, 30 minutes after the end) the slot
+ * is over, and the one-click red button is what the confirmation exists to
+ * prevent (review of fbaf43f2).
  */
-export function roomReopens(a: { roomOpen: boolean; ended: boolean; anchorStatus: string | undefined }): boolean {
-  return !a.roomOpen && a.ended && a.anchorStatus === "COMPLETED";
+export function roomReopens(a: {
+  roomOpen: boolean;
+  ended: boolean;
+  anchorStatus: string | undefined;
+  pastLateStart: boolean;
+}): boolean {
+  if (a.roomOpen || !a.ended) return false;
+  return a.anchorStatus === "COMPLETED" || a.pastLateStart;
 }

@@ -119,7 +119,7 @@ export function isValidControlCaller(user: string | undefined | null, password: 
 async function call(
   path: string,
   method: "GET" | "POST",
-  what: "list" | "path" | "connection" | "kick",
+  what: "list" | "path" | "connection" | "kick" | "check",
 ): Promise<{ status: number; json: unknown } | ControlFailure> {
   const cfg = config();
   if (!cfg) return "NOT_CONFIGURED";
@@ -132,6 +132,8 @@ async function call(
     const json: unknown = await res.json().catch(() => null);
     return { status: res.status, json };
   } catch (err) {
+    // The health check logs its own answer, once per change (checkControlApi).
+    if (what === "check") return "UNREACHABLE";
     apiLogger.warn(
       { code: (err as { cause?: { code?: string } })?.cause?.code ?? (err as Error)?.name, what },
       "mediamtx-control:unreachable",
@@ -207,8 +209,9 @@ function publishersOf(items: unknown[]): Publisher[] | null {
 /** One page of the path list: its publishers and how many pages there are, or why not. */
 async function listPage(
   page: number,
+  what: "list" | "check" = "list",
 ): Promise<{ ok: true; publishers: Publisher[]; pageCount: number } | { ok: false; code: ControlFailure }> {
-  const answer = await call(`/v3/paths/list?itemsPerPage=${PAGE_SIZE}&page=${page}`, "GET", "list");
+  const answer = await call(`/v3/paths/list?itemsPerPage=${PAGE_SIZE}&page=${page}`, "GET", what);
   if (typeof answer === "string") return { ok: false, code: answer };
   if (answer.status === 401 || answer.status === 403) return { ok: false, code: "REFUSED" };
   const read = answer.status === 200 ? readPage(answer.json) : null;
@@ -254,9 +257,18 @@ let lastControlCheck: { at: number; result: ControlCheck } | null = null;
 export async function checkControlApi(now = Date.now()): Promise<ControlCheck> {
   if (!config()) return "NOT_CONFIGURED";
   if (lastControlCheck && now - lastControlCheck.at < CONTROL_CHECK_TTL_MS) return lastControlCheck.result;
-  const page = await listPage(0);
+  const previous = lastControlCheck?.result ?? null;
+  const page = await listPage(0, "check");
   const result: ControlCheck = page.ok ? "ok" : page.code;
-  if (!page.ok) apiLogger.warn({ code: page.code }, "mediamtx-control:check-failed");
+  // Logged when the answer CHANGES, not on every ask: a console left open polls every 10 seconds,
+  // and a warning each time was about 240 rows an hour per container (review of fbaf43f2).
+  if (result !== previous) {
+    if (page.ok) {
+      if (previous !== null) apiLogger.info({ previous }, "mediamtx-control:check-recovered");
+    } else {
+      apiLogger.warn({ code: page.code, previous }, "mediamtx-control:check-failed");
+    }
+  }
   lastControlCheck = { at: now, result };
   return result;
 }
