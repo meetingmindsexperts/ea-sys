@@ -98,7 +98,7 @@ export function PartnerStreamCard({ eventId, timezone }: { eventId: string; time
     return (
       <PartnerCardShell>
         <p className="text-sm text-muted-foreground">
-          This webinar is streamed by a partner from their own platform. Managing its stream key needs &quot;Run the webinar&quot;.
+          This webinar is streamed by a partner from their own platform. Managing its stream key needs the &quot;Webinar console&quot; permission.
         </p>
       </PartnerCardShell>
     );

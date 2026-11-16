@@ -3481,6 +3481,9 @@ export function useRevealWebinarPartnerStreamKey(eventId: string) {
         `/api/events/${eventId}/webinar/partner-stream/credentials`,
         { method: "POST" },
       ),
+    // The key is not kept once the card lets go of it (Hide, a replaced key, leaving the page): without
+    // this React Query holds a finished mutation's answer for five more minutes (review of 20265a35).
+    gcTime: 0,
   });
 }
 

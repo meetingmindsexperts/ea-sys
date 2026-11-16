@@ -29,7 +29,9 @@ import { apiLogger } from "@/lib/logger";
 import {
   CONFIRM_DELAY_MS,
   MAX_AUTO_RESTARTS,
+  OWN_REPLACE_WINDOW_MS,
   PARTNER_STREAM_ALERT,
+  partnerDropAlert,
   resetStreamWatchdog,
   runStreamWatchdogTick,
 } from "@/lib/webinar/stream-watchdog";
@@ -132,6 +134,8 @@ describe("runStreamWatchdogTick", () => {
     streamKey: "px-1",
     streamStatus: "ACTIVE",
     enabled: true,
+    validFrom: new Date("2026-11-01T00:00:00Z"),
+    validUntil: null,
     keyReplacedAt: null,
     session: { endTime: new Date("2026-11-05T10:00:00Z") },
     ...extra,
@@ -178,6 +182,19 @@ describe("runStreamWatchdogTick", () => {
     await tick();
     expect(notifySpy).not.toHaveBeenCalled();
     expect(apiLogger.info).toHaveBeenCalledWith(expect.anything(), "webinar-stream:partner-alert-skipped-own-cut");
+    // The partner reconnects with the new key: no "is back" with no "stopped" before it (review of 20265a35).
+    probeSpy.mockResolvedValue("live");
+    await tick();
+    expect(kinds()).toContain("STREAM_LIVE");
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it("a key that reached its end date says so: the sweep cut it, and it is NOT switched off (review of 20265a35)", async () => {
+    partnerRoom(partnerKey({ validUntil: new Date(clock - 5 * 60_000) }));
+    await liveThen("absent");
+    await tick();
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+    expect(notifySpy).toHaveBeenCalledWith("ev1", expect.objectContaining({ title: PARTNER_STREAM_ALERT.keyExpired.title }));
   });
 
   it("a replace long before the drop does not excuse it", async () => {
@@ -341,3 +358,38 @@ describe("runStreamWatchdogTick", () => {
     expect(probeSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("partnerDropAlert (pure): what a partner's confirmed drop tells the admins", () => {
+  const now = Date.parse("2026-11-05T09:00:00Z");
+  const key = (extra: Record<string, unknown> = {}) => ({
+    enabled: true,
+    validFrom: new Date("2026-11-01T00:00:00Z"),
+    validUntil: null as Date | null,
+    keyReplacedAt: null as Date | null,
+    sessionEndTime: new Date("2026-11-05T10:00:00Z"),
+    ...extra,
+  });
+
+  it("mid-webinar: call the partner", () => {
+    expect(partnerDropAlert(key(), now)).toBe("dropped");
+  });
+  it("switched off, or not valid yet: nothing", () => {
+    expect(partnerDropAlert(key({ enabled: false }), now)).toBeNull();
+    expect(partnerDropAlert(key({ validFrom: new Date(now + 60_000) }), now)).toBeNull();
+  });
+  it("switched off wins over expired: a person cut it", () => {
+    expect(partnerDropAlert(key({ enabled: false, validUntil: new Date(now - 1) }), now)).toBeNull();
+  });
+  it("past its own end date, or 24 hours past the session's end when it has none: the key expired", () => {
+    expect(partnerDropAlert(key({ validUntil: new Date(now - 1) }), now)).toBe("keyExpired");
+    expect(partnerDropAlert(key({ sessionEndTime: new Date(now - 25 * 3600_000) }), now)).toBe("keyExpired");
+  });
+  it("replaced inside the window: nothing; just outside it: an alert", () => {
+    expect(partnerDropAlert(key({ keyReplacedAt: new Date(now - OWN_REPLACE_WINDOW_MS + 1000) }), now)).toBeNull();
+    expect(partnerDropAlert(key({ keyReplacedAt: new Date(now - OWN_REPLACE_WINDOW_MS - 1000) }), now)).toBe("dropped");
+  });
+  it("after the scheduled end: a normal finish is likely", () => {
+    expect(partnerDropAlert(key({ sessionEndTime: new Date(now - 60_000) }), now)).toBe("droppedAfterEnd");
+  });
+});
+

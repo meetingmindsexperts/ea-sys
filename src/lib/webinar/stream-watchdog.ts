@@ -42,6 +42,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
+import { externalKeyRefusal } from "@/lib/webinar/external-stream";
 import {
   pickSessionStream,
   SESSION_HAS_STREAM,
@@ -66,6 +67,8 @@ interface StreamState {
   up: boolean | null;
   restarts: number;
   nextRestartAt: number;
+  /** A partner's drop was told to the admins, so its return is told too. Never a "back" with no "stopped" before it. */
+  alerted?: boolean;
 }
 
 /** Per room run (stream key + the room's opening time), in the worker process. */
@@ -206,10 +209,11 @@ async function onArriving(room: WatchedRoom, state: StreamState): Promise<void> 
     });
     if (restored) {
       apiLogger.info({ eventId: room.eventId, sessionId: room.sessionId, restarts: state.restarts }, "webinar-stream:restored");
-      if (room.source === "external") await sendPartnerAlert(room, "restored");
+      if (room.source === "external" && state.alerted) await sendPartnerAlert(room, "restored");
     }
   }
   state.up = true;
+  state.alerted = false;
   state.restarts = 0;
   state.nextRestartAt = 0;
 }
@@ -277,7 +281,7 @@ async function onConfirmedMissing(
       kind: "STREAM_DROPPED",
       source: "worker",
     });
-    if (room.source === "external") await alertPartnerDrop(room, now);
+    if (room.source === "external") state.alerted = await alertPartnerDrop(room, now);
   }
   // A partner's push is not ours to restart; the drop above is on the timeline, in the log and with the admins.
   if (room.source !== "zoom") return;
@@ -296,6 +300,11 @@ export const PARTNER_STREAM_ALERT = {
     message: (session: string) =>
       `${session}: the partner's video stopped reaching us after the scheduled end. If the webinar is over, close the room; if not, call the partner.`,
   },
+  keyExpired: {
+    title: "Partner stream cut: the key reached its end date",
+    message: (session: string) =>
+      `${session}: the partner's key reached its "Works until" date, so their stream was cut. To let them back in, set a later date in the Partner stream card.`,
+  },
   restored: {
     title: "Partner stream is back",
     message: (session: string) => `${session}: the partner's video is reaching us again.`,
@@ -306,28 +315,46 @@ export const PARTNER_STREAM_ALERT = {
 export const OWN_REPLACE_WINDOW_MS = 3 * 60 * 1000;
 
 /**
- * A partner's stream was confirmed gone. Tell the admins, unless we ended it
- * ourselves (review of d86921d4: Cut the feed alerted the person who pressed
- * it, and every partner webinar ended with "call the partner"):
- *   - the key is switched off: Cut the feed, Switch off, or the sweep at the end of its period;
- *   - the key was replaced moments ago: we disconnected the old password.
- * After the scheduled end the words say a normal finish is the likely reason.
+ * Pure: what to tell the admins about a partner's confirmed drop, or null for
+ * nothing (review of d86921d4: Cut the feed alerted the person who pressed it,
+ * and every partner webinar ended with "call the partner").
+ *
+ *   key switched off      nothing: someone pressed Cut the feed or Switch off
+ *   key just replaced     nothing: we disconnected the old password ourselves
+ *   key past its period   "keyExpired": the sweep cut it, and nobody pressed anything.
+ *                         The sweep does NOT switch the key off, so this is asked of
+ *                         the key's own rule (externalKeyRefusal), never of `enabled`
+ *                         alone (review of 20265a35: it read "call the partner").
+ *   after the scheduled end   a normal finish is the likely reason
  */
-async function alertPartnerDrop(room: WatchedRoom, now: number): Promise<void> {
+export function partnerDropAlert(
+  key: { enabled: boolean; validFrom: Date; validUntil: Date | null; keyReplacedAt: Date | null; sessionEndTime: Date },
+  now: number,
+): "dropped" | "droppedAfterEnd" | "keyExpired" | null {
+  const refusal = externalKeyRefusal(key, new Date(now));
+  if (refusal === "EXPIRED") return "keyExpired";
+  if (refusal) return null;
+  if (key.keyReplacedAt && now - key.keyReplacedAt.getTime() < OWN_REPLACE_WINDOW_MS) return null;
+  return now > key.sessionEndTime.getTime() ? "droppedAfterEnd" : "dropped";
+}
+
+/** A partner's stream was confirmed gone: tell the admins what partnerDropAlert says. True when an alert went out. */
+async function alertPartnerDrop(room: WatchedRoom, now: number): Promise<boolean> {
   try {
     const key = await db.externalStream.findFirst({
       where: { sessionId: room.sessionId, eventId: room.eventId },
-      select: { enabled: true, keyReplacedAt: true, session: { select: { endTime: true } } },
+      select: { enabled: true, validFrom: true, validUntil: true, keyReplacedAt: true, session: { select: { endTime: true } } },
     });
-    const ownDoing =
-      !key || !key.enabled || (key.keyReplacedAt !== null && now - key.keyReplacedAt.getTime() < OWN_REPLACE_WINDOW_MS);
-    if (ownDoing) {
+    const change = key ? partnerDropAlert({ ...key, sessionEndTime: key.session.endTime }, now) : null;
+    if (!change) {
       apiLogger.info({ eventId: room.eventId, sessionId: room.sessionId }, "webinar-stream:partner-alert-skipped-own-cut");
-      return;
+      return false;
     }
-    await sendPartnerAlert(room, now > key.session.endTime.getTime() ? "droppedAfterEnd" : "dropped");
+    await sendPartnerAlert(room, change);
+    return true;
   } catch (err) {
     apiLogger.error({ err, eventId: room.eventId, sessionId: room.sessionId }, "webinar-stream:partner-alert-failed");
+    return false;
   }
 }
 
