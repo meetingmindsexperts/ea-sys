@@ -1460,7 +1460,9 @@ outside a lane (three of them writes). **The worker could not be inventoried**: 
 no route and no call site, so they named no job. Owner, Nov 16: keep the flag one more week. The
 detector now reports the worker job's name (`asWorkerJob`), so **collect the worker's lines on or
 after Nov 23** (a week after the deploy that carries it; the query is in §3.1), add them to §3.1,
-then remove `RLS_SHADOW=1` from `/home/ubuntu/ea-sys/.env` and redeploy. The steps below are kept
+then remove `RLS_SHADOW=1` from `/home/ubuntu/ea-sys/.env` and redeploy. The output names the jobs
+SEEN reading Event outside a lane; a job that is missing is not cleared unless it did real work
+that week (§3.1 lists the ones to read by hand). The steps below are kept
 as the record of how it was turned on.
 
 Owner asked to be reminded. The detector shipped in `3bff623a` / `7d701e5b` and does nothing until

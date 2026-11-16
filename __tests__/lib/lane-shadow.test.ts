@@ -121,12 +121,46 @@ describe("noteUnlanedEventQuery", () => {
     expect(reported().map(([o]) => o.job)).toEqual(["scheduled-emails", "webinar-recordings"]);
   });
 
+  it("keeps two jobs apart while their ticks overlap (up to four do, in one minute)", async () => {
+    // A module-level "current job" would pass the one-after-another case above
+    // and mislabel here (review of 744d388d).
+    const gate: Record<string, () => void> = {};
+    const tick = (name: string, op: string) =>
+      asWorkerJob(name, async () => {
+        await new Promise<void>((release) => (gate[name] = release));
+        noteUnlanedEventQuery("Event", op);
+      });
+    const both = Promise.all([tick("job-a", "findMany"), tick("job-b", "count")]);
+    await Promise.resolve();
+    // Released in the opposite order to the one they started in.
+    gate["job-b"]();
+    gate["job-a"]();
+    await both;
+    const seen = Object.fromEntries(reported().map(([o]) => [o.operation, o.job]));
+    expect(seen).toEqual({ findMany: "job-a", count: "job-b" });
+  });
+
+  it("hands a tick's failure to its caller unchanged: a rejection, and a throw before the first await", async () => {
+    // The worker's wrapper catches and logs what a tick throws; a failure
+    // swallowed or turned into an unhandled rejection here would exit the worker.
+    await expect(asWorkerJob("j", async () => { throw new Error("rejected"); })).rejects.toThrow("rejected");
+    const throwsFirst = (() => { throw new Error("thrown"); }) as unknown as () => Promise<void>;
+    await expect(asWorkerJob("j", throwsFirst)).rejects.toThrow("thrown");
+    // And the job's name does not outlive its tick.
+    noteUnlanedEventQuery("Event", "findFirst");
+    expect(reported()[0][0].job).toBeNull();
+  });
+
   it("every worker tick runs under its job's name (the wrapper in worker/index.ts)", async () => {
     const { readFileSync } = await import("node:fs");
-    const source = readFileSync("worker/index.ts", "utf8");
-    expect(source).toContain("await asWorkerJob(job.JOB_NAME, () => job.tick());");
-    // And nowhere is a tick awaited bare.
-    expect(source).not.toMatch(/await job\.tick\(\)/);
+    // Comments out, so a mention in prose neither satisfies nor trips this.
+    const source = readFileSync("worker/index.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    // The one place a tick is called is inside asWorkerJob ...
+    expect(source.match(/\.tick\(\)/g)).toHaveLength(1);
+    expect(source).toMatch(/asWorkerJob\(\s*job\.JOB_NAME\s*,\s*\(\)\s*=>\s*job\.tick\(\)\s*\)/);
+    // ... and the one place a job is scheduled sends it through that wrapper.
+    expect(source.match(/cron\.schedule\(/g)).toHaveLength(1);
+    expect(source).toMatch(/cron\.schedule\(\s*job\.SCHEDULE\s*,\s*wrapTick\(job\)\s*\)/);
   });
 
   it("carries no job outside a worker tick, and returns the tick's result", async () => {
@@ -176,5 +210,13 @@ describe("noteUnlanedEventQuery", () => {
       noteUnlanedEventQuery("Event", "findFirst");
     });
     expect(reported()).toHaveLength(0);
+  });
+  it("gives a process state made before jobs existed its job context (a dev server that reloaded this file)", async () => {
+    const shared = globalThis as unknown as { laneShadow: { job?: unknown } };
+    delete shared.laneShadow.job;
+    vi.resetModules();
+    const reloaded = await import("@/lib/tenant/lane-shadow");
+    await reloaded.asWorkerJob("late-job", async () => reloaded.noteUnlanedEventQuery("Event", "aggregate"));
+    expect(reported().at(-1)?.[0]).toMatchObject({ operation: "aggregate", job: "late-job" });
   });
 });

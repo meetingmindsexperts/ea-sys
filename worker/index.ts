@@ -21,7 +21,7 @@
  *     running outside Docker (Docker injects via env_file:)
  *   - Imports @/lib/db for the shared Prisma client
  *   - Starts the health HTTP server on PORT (default 3099)
- *   - Registers 5 cron schedules
+ *   - Registers every job's cron schedule (the JOBS list below)
  *   - Installs SIGTERM/SIGINT handlers + uncaught-exception traps
  *   - Logs `worker:started` so an operator can confirm boot via
  *     /admin/docs viewer's logs panel
