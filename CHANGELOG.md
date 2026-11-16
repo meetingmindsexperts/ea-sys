@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Public registration: a promo code typed and not applied is no longer dropped (November 16)
+
+Found on the 4th GCC Hematology Hub: of twenty nurses on one sponsor's 100% code, seven were Complimentary and thirteen Unpaid. The seven applied the code on the form. The thirteen registered without it and entered it a minute later on the payment page, where a code that covers the whole fee leaves the registration Unpaid (owner ruling, Nov 12).
+
+- **Fixed**: the public form sent a code only once the Apply button had accepted it, so a code typed and left there was dropped without a word and the person registered at the full fee. Complete Registration now checks a typed code first: accepted, it rides the registration; refused, the form stops, says the code was not applied and points at the field (correct it, or clear it to register without a code). The rule is `unappliedPromoCode` in `src/lib/promo-entry.ts`. The onsite desk already refused a typed, unapplied code, and the group form sends what was typed.
+- **Fixed**: Enter in the promo code field applies the code. It used to submit the whole form, without the code just typed.
+- **Changed**: the code field has an id, a name and a linked label.
+- Registrations already made are not changed: the thirteen stay Unpaid with nothing due.
+
 ### Webinars: the partner's handover message, and the user guide for partner streams (November 16)
 
 External streams step 7 (docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md).

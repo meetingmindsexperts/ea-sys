@@ -57,6 +57,7 @@ import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { isExhibitorBadge } from "@/lib/badge-layout";
 import { deskQrReopensClosedRate, deskQrTakesCode, readDeskQrClaims } from "@/lib/desk-qr-rules";
+import { unappliedPromoCode } from "@/lib/promo-entry";
 
 function toSlug(name: string): string {
   return name
@@ -748,13 +749,30 @@ function CategoryRegistrationContent() {
     // one blocks is the organizer's Required/Optional choice on that type. The
     // server enforces the same rule — this is the friendly half.
     const picked = regTypeOptions.find((o) => o.ticketTypeId === data.ticketTypeId);
+    // A code typed and never applied is checked now, never dropped (owner,
+    // Nov 16, 2026; the rule and its history are in promo-entry.ts). Accepted,
+    // it rides this registration; refused, the person is told before they
+    // register at a fee they did not expect.
+    let appliedPromo = promoResult;
+    const typedCode = unappliedPromoCode(promoCode, promoFieldShown, promoResult);
+    if (typedCode) {
+      setSubmitting(true);
+      appliedPromo = await applyPromo(typedCode);
+      setSubmitting(false);
+      if (!appliedPromo?.valid) {
+        toast.error(`The code ${typedCode} was not applied. Correct it, or clear the field to register without a code.`);
+        setSubmitNotice("Your promo code was not applied. Correct it, or clear the field to continue without it.");
+        setTimeout(() => document.getElementById("promo-code-field")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+        return;
+      }
+    }
     // A sponsor link (this rate needs a sponsor's code): the server refuses
     // without a sponsor-covered code, so say so here and open the field rather
     // than letting the request fail.
-    if (sponsorCodeRequired && !(promoResult?.valid && promoResult.coveredBySponsor)) {
+    if (sponsorCodeRequired && !(appliedPromo?.valid && appliedPromo.coveredBySponsor)) {
       setShowPromoInput(true);
       toast.error(
-        promoResult?.valid
+        appliedPromo?.valid
           ? "This registration link needs the code your sponsor sent you. A discount code does not apply here."
           : "This registration link needs the code your sponsor sent you. Enter it and press Apply.",
       );
@@ -796,7 +814,7 @@ function CategoryRegistrationContent() {
           ...(signedInEmail && { password: undefined, confirmPassword: undefined }),
           supportingDocumentUrl: supportingDoc?.url,
           supportingDocumentFilename: supportingDoc?.filename,
-          promoCode: promoResult?.valid ? promoResult.code : undefined,
+          promoCode: appliedPromo?.valid ? appliedPromo.code : undefined,
           referrer: trackingRef.current.referrer || undefined,
           utmSource: trackingRef.current.utmSource || undefined,
           utmMedium: trackingRef.current.utmMedium || undefined,
@@ -841,8 +859,9 @@ function CategoryRegistrationContent() {
   const promoRequestRef = useRef(0);
   // Validate a promo code against the chosen type and tier. Shared by the
   // Apply button and the `?promo=` link.
-  async function applyPromo(code: string) {
-    if (!code.trim()) return;
+  // Returns the answer, or null when a later check superseded this one.
+  async function applyPromo(code: string): Promise<typeof promoResult> {
+    if (!code.trim()) return null;
     // Only the LATEST check may set the result (review MED 3, Sep 29, 2026):
     // switching category quickly could let an earlier "not applicable" answer
     // land last, and a registration submitted then would drop the code and be
@@ -859,15 +878,18 @@ function CategoryRegistrationContent() {
         body: JSON.stringify({ code, ticketTypeId, pricingTierId: pricingTierId || undefined, email: email || "check@temp.com" }),
       });
       const data = await res.json();
-      if (requestId !== promoRequestRef.current) return;
+      if (requestId !== promoRequestRef.current) return null;
       setPromoResult(data);
       // A code that now works fixes what the notice asked for (not a form
       // field, so the watch below never sees it; review L2).
       if (data?.valid) setSubmitNotice(null);
+      return data;
     } catch (err) {
       console.warn("[register] promo validation failed", err);
-      if (requestId !== promoRequestRef.current) return;
-      setPromoResult({ valid: false, error: "Failed to validate promo code" });
+      if (requestId !== promoRequestRef.current) return null;
+      const failed = { valid: false, error: "We could not check that code. Please try again." };
+      setPromoResult(failed);
+      return failed;
     } finally {
       if (requestId === promoRequestRef.current) setPromoValidating(false);
     }
@@ -981,6 +1003,11 @@ function CategoryRegistrationContent() {
   // This rate's link is a sponsor link: only a sponsor-covered code opens it.
   // An exhibitor's desk QR needs a sponsor's code too: it is what credits their sponsor.
   const sponsorCodeRequired = (event?.codeRequiredTiers ?? []).includes(categorySlug) || deskQr?.kind === "exhibitor";
+  // The promo code block is offered at all, and its field is open in it. The
+  // submit asks the second: a typed code is only checked where it can be seen.
+  const promoBlockOffered =
+    !!selectedTicketId && (!deskQr || deskQrTakesCode(deskQr.kind)) && (!!event?.hasPromoCodes || sponsorCodeRequired);
+  const promoFieldShown = promoBlockOffered && (showPromoInput || sponsorCodeRequired);
   // Which evidence fields to render, from the type's switches rather than its
   // name — the same correction the supporting-document block below made.
   const evidencePolicy = readIdentityEvidencePolicy(selectedOption);
@@ -1638,15 +1665,15 @@ function CategoryRegistrationContent() {
                     )}
 
                     {/* Promo Code */}
-                    {selectedTicketId && (!deskQr || deskQrTakesCode(deskQr.kind)) && (event?.hasPromoCodes || sponsorCodeRequired) && (
+                    {promoBlockOffered && (
                       <div className="mt-2">
-                        {!showPromoInput && !sponsorCodeRequired ? (
+                        {!promoFieldShown ? (
                           <button type="button" onClick={() => setShowPromoInput(true)} className="text-sm text-primary hover:underline font-medium">
                             Have a promo code?
                           </button>
                         ) : (
                           <div id="promo-code-field" className="space-y-2">
-                            <label className="text-sm font-medium text-slate-600">
+                            <label htmlFor="promo-code-input" className="text-sm font-medium text-slate-600">
                               Promo Code{sponsorCodeRequired && <span className="text-red-500"> *</span>}
                             </label>
                             {sponsorCodeRequired && (
@@ -1658,11 +1685,21 @@ function CategoryRegistrationContent() {
                             )}
                             <div className="flex gap-2">
                               <Input
+                                id="promo-code-input"
+                                name="promoCode"
+                                autoComplete="off"
                                 placeholder="Enter promo code"
                                 value={promoCode}
                                 onChange={(e) => {
                                   setPromoCode(e.target.value.toUpperCase());
                                   if (promoResult) setPromoResult(null);
+                                }}
+                                // Enter here applies the code. It used to submit
+                                // the whole form, without the code just typed.
+                                onKeyDown={(e) => {
+                                  if (e.key !== "Enter") return;
+                                  e.preventDefault();
+                                  if (promoCode.trim() && !promoValidating) void applyPromo(promoCode);
                                 }}
                                 className="rounded-lg border-slate-200 text-base uppercase"
                               />
