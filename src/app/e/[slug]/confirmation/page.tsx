@@ -551,24 +551,29 @@ function ConfirmationContent() {
               </div>
             )}
 
-            {/* A promo discounting to net 0 hides the payment box above, but
-                the registration is still outstanding (paymentStatus stays
-                UNPAID/PENDING) — keep the Remove control reachable so a
-                mistaken code can be undone (parity with /my-registration). */}
-            {paymentInfo && !loadingPayment && !hasPaidTicket && promoCodeUsed && !isPaid &&
+            {/* A code that takes the whole fee hides the payment box above, so
+                say what happened. Since Nov 16, 2026 such a code settles the
+                registration (Complimentary), and a settled registration's code
+                is not the registrant's to remove; Remove stays only for a
+                registration that is still outstanding (one from before that
+                date). */}
+            {paymentInfo && !loadingPayment && !hasPaidTicket && promoCodeUsed &&
+              paymentInfo.paymentStatus !== "PAID" &&
               paymentInfo.paymentStatus !== "INCLUSIVE" && paymentInfo.paymentStatus !== "REFUNDED" && (
               <div className="mx-6 mb-5 bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between text-sm">
                 <span className="font-medium text-emerald-700">
                   Promo code {promoCodeUsed} applied: nothing to pay
                 </span>
-                <button
-                  type="button"
-                  className="text-emerald-700 underline underline-offset-2 hover:text-emerald-900 disabled:opacity-50"
-                  disabled={promoBusy}
-                  onClick={handleRemovePromo}
-                >
-                  Remove
-                </button>
+                {!isPaid && (
+                  <button
+                    type="button"
+                    className="text-emerald-700 underline underline-offset-2 hover:text-emerald-900 disabled:opacity-50"
+                    disabled={promoBusy}
+                    onClick={handleRemovePromo}
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
             )}
 

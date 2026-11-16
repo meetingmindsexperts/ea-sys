@@ -175,9 +175,9 @@ async function openBadgePrint(eventId: string, registrationId: string): Promise<
 /**
  * Whether the row owes money, so the desk offers Record payment first instead
  * of a check-in the door would refuse. Asks the door's own rule for "charged
- * nothing" (a zero price, or a code that takes the whole of it: a 100% code
- * entered after registering stays UNPAID and owes nothing); the server gate
- * still decides.
+ * nothing" (a zero price, or a code that takes the whole of it: before
+ * Nov 16, 2026 a 100% code entered after registering left the row UNPAID with
+ * nothing owed); the server gate still decides.
  */
 function paymentDue(r: DeskRegistration): boolean {
   if (!OUTSTANDING.has(r.paymentStatus)) return false;

@@ -35,6 +35,8 @@ vi.mock("@/lib/db", () => ({
   tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
+const refreshStatsSpy = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/event-stats", () => ({ refreshEventStats: refreshStatsSpy }));
 const sponsorExistsSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/sponsors", () => ({ sponsorExistsOnEvent: sponsorExistsSpy }));
 
@@ -62,6 +64,8 @@ const PROMO = {
   validFrom: null as Date | null,
   validUntil: null as Date | null,
   ticketTypes: [] as { ticketTypeId: string }[],
+  sponsorCoversFee: false,
+  sponsorId: null as string | null,
 };
 
 const BASE = { registrationId: "reg-1", eventId: "evt-1", code: "save10", source: "rest" as const };
@@ -203,6 +207,95 @@ describe("applyPromoCodeToRegistration", () => {
     expect(mockDb.promoCode.update).not.toHaveBeenCalled();
     expect(mockDb.promoCodeRedemption.create).not.toHaveBeenCalled();
     expect(mockDb.promoCodeRedemption.updateMany).toHaveBeenCalled();
+  });
+});
+
+/**
+ * Owner, Nov 16, 2026 (reversing Nov 12): the status follows the balance. A
+ * code entered after registering that leaves nothing to pay settles the
+ * registration exactly as the same code on the form does.
+ */
+describe("applyPromoCodeToRegistration: a code that takes the whole fee settles the registration", () => {
+  const FULL = { ...PROMO, code: "SEHA", discountValue: 100 };
+  const regUpdate = () => mockDb.registration.update.mock.calls[0][0].data;
+
+  it("100% off: COMPLIMENTARY, with the code and the discount kept as the reason", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...FULL });
+    const r = await applyPromoCodeToRegistration(BASE);
+    expect(r).toMatchObject({ ok: true, settledAs: "COMPLIMENTARY", financials: { finalPrice: 0, discountAmount: 100 } });
+    expect(regUpdate()).toEqual({ promoCodeId: "promo-1", discountAmount: 100, paymentStatus: "COMPLIMENTARY" });
+  });
+
+  it("a PENDING registration is settled the same way", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ ...REG, paymentStatus: "PENDING" });
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...FULL });
+    const r = await applyPromoCodeToRegistration(BASE);
+    expect(r).toMatchObject({ ok: true, settledAs: "COMPLIMENTARY" });
+    expect(regUpdate().paymentStatus).toBe("COMPLIMENTARY");
+  });
+
+  it("a fixed amount that reaches the price settles too", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...PROMO, discountType: "FIXED_AMOUNT", discountValue: 500 });
+    const r = await applyPromoCodeToRegistration(BASE);
+    expect(r).toMatchObject({ ok: true, settledAs: "COMPLIMENTARY", financials: { discountAmount: 100, finalPrice: 0 } });
+  });
+
+  it("the sponsor's code that covers the fee: INCLUSIVE under that sponsor", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...FULL, sponsorCoversFee: true, sponsorId: "sp-1" });
+    const r = await applyPromoCodeToRegistration(BASE);
+    expect(r).toMatchObject({ ok: true, settledAs: "INCLUSIVE" });
+    expect(regUpdate()).toEqual({ promoCodeId: "promo-1", discountAmount: 100, paymentStatus: "INCLUSIVE", sponsorId: "sp-1" });
+  });
+
+  it("a sponsor's 100% code WITHOUT the switch is Complimentary and names no sponsor", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...FULL, sponsorCoversFee: false, sponsorId: "sp-1" });
+    await applyPromoCodeToRegistration(BASE);
+    expect(regUpdate()).toEqual({ promoCodeId: "promo-1", discountAmount: 100, paymentStatus: "COMPLIMENTARY" });
+  });
+
+  it("a code that leaves a balance changes no status, for UNPAID and for PENDING", async () => {
+    for (const paymentStatus of ["UNPAID", "PENDING"]) {
+      vi.clearAllMocks();
+      mockDb.registration.findFirst.mockResolvedValue({ ...REG, paymentStatus });
+      const r = await applyPromoCodeToRegistration(BASE);
+      expect(r).toMatchObject({ ok: true, settledAs: null });
+      expect(regUpdate()).toEqual({ promoCodeId: "promo-1", discountAmount: 10 });
+      expect(refreshStatsSpy).not.toHaveBeenCalled();
+    }
+  });
+
+  it("the same code applied again on a price it now covers settles on the refresh branch", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ ...REG, promoCodeId: "promo-1" });
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...FULL });
+    const r = await applyPromoCodeToRegistration(BASE);
+    expect(r).toMatchObject({ ok: true, settledAs: "COMPLIMENTARY" });
+    expect(regUpdate()).toEqual({ discountAmount: 100, paymentStatus: "COMPLIMENTARY" });
+    expect(mockDb.promoCode.update).not.toHaveBeenCalled();
+  });
+
+  it("the audit row and the log say what the status became, and the event's counts are refreshed", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...FULL });
+    await applyPromoCodeToRegistration(BASE);
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "PROMO_APPLIED",
+          changes: expect.objectContaining({ paymentStatus: { from: "UNPAID", to: "COMPLIMENTARY" } }),
+        }),
+      }),
+    );
+    expect(mockApiLogger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "promo:applied", settledAs: "COMPLIMENTARY" }));
+    expect(refreshStatsSpy).toHaveBeenCalledWith("evt-1");
+  });
+
+  it("once settled, the code is not removed or replaced through this service", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ ...REG, paymentStatus: "COMPLIMENTARY", promoCodeId: "promo-1", status: "CONFIRMED" });
+    expect(await removePromoCodeFromRegistration({ registrationId: "reg-1", eventId: "evt-1", source: "registrant" })).toMatchObject({
+      ok: false,
+      code: "ALREADY_SETTLED",
+    });
+    expect(await applyPromoCodeToRegistration(BASE)).toMatchObject({ ok: false, code: "ALREADY_SETTLED" });
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
   });
 });
 

@@ -1,3 +1,4 @@
+import { paymentStatusForFee } from "@/lib/promo-redeem";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, tenantTransaction } from "@/lib/db";
@@ -165,11 +166,6 @@ async function sessionEmailIs(email: string): Promise<boolean> {
 function setPasswordLink(slug: string, email: string): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
   return `${appUrl}/e/${slug}/forgot-password?email=${encodeURIComponent(email)}`;
-}
-
-function initialPaymentStatus(sponsorCovered: boolean, finalPrice: number): "INCLUSIVE" | "COMPLIMENTARY" | "UNPAID" {
-  if (sponsorCovered) return "INCLUSIVE";
-  return finalPrice === 0 ? "COMPLIMENTARY" : "UNPAID";
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -755,7 +751,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           // signal — there was no payment. COMPLIMENTARY is the correct
           // "no money due" status, consistent with the service layer's
           // free-ticket default and the CSV import path.
-          paymentStatus: initialPaymentStatus(sponsorCovered, finalPrice),
+          paymentStatus: paymentStatusForFee(sponsorCovered, finalPrice),
           ...(sponsorCovered && promoCodeRecord?.sponsorId ? { sponsorId: promoCodeRecord.sponsorId } : {}),
           qrCode: generatedBarcode,
           promoCodeId: promoCodeRecord?.id || null,

@@ -7,6 +7,51 @@
 
 ---
 
+## A script policy (Content-Security-Policy) for the whole app (recorded Nov 16, 2026): not started
+
+Owner asked, Nov 16, 2026, after a storage and cookie scan: "worried about xss and csrf and
+other attacks". Then: "add to roadmap for now".
+
+**Where things stand, read on Nov 16.** Sign-in lives only in cookies: production's are
+`HttpOnly; Secure; SameSite=Lax` with the `__Host-` / `__Secure-` prefixes (read from the
+public `/api/auth/csrf`). CSRF is covered twice: `src/proxy.ts` refuses a signed-in mutation
+whose `Origin` is another host, and one with no `Origin` unless it carries an API key or a
+Bearer token; SameSite=Lax keeps the cookie off another site's form post. XSS defences are in
+the code: organiser HTML through `sanitizeHtml` (DOMPurify), stored emails in `sandbox=""`
+frames, JSON-LD escaped (`jsonLdText`), the brand colour checked as a hex value, SVG uploads
+refused and uploads served `nosniff`.
+
+**The gap.** The app-wide header in `next.config.ts` is `Content-Security-Policy:
+frame-ancestors 'self'`: it stops framing, and says nothing about scripts. Only the
+`/admin/docs/:path+` route has a real policy. So if a sanitiser bug or a missed spot ever let
+a script through, the browser would run it. The cookie is HttpOnly, so a script could not
+steal the session, but it could act as the signed-in person while the page is open, and on
+the public registration form read the password the form keeps in its tab
+(`src/lib/register-draft.ts`, owner's Oct 26 choice).
+
+**Why it is a project, not a header.** The pages load Google Fonts, the Zoom SDK from Zoom's
+CDN (`src/lib/zoom/load-embedded-sdk.ts`), Stripe, Sentry, YouTube and Vimeo lobby embeds,
+HLS from CloudFront (`HLS_CDN_BASE`), and Next's own inline scripts, which need a nonce
+(dynamic rendering per request) or `'unsafe-inline'`. A strict policy shipped in one step
+breaks pages in the browser with nothing in the server logs. The ZAP entry below
+(§"OWASP ZAP baseline", Sep 18) reached the same conclusion.
+
+**Steps.**
+1. `Content-Security-Policy-Report-Only` app-wide, with a report endpoint that logs each
+   violation (rate-limited, warn level, so it reaches SystemLog and `/logs`). Breaks nothing.
+2. Watch it for a week that includes a live webinar, a paid registration and a check-in day;
+   build the allow-list from what it reports, page group by page group.
+3. Decide nonce vs `'unsafe-inline'` for scripts. A nonce is the real protection and costs
+   static rendering on the pages it covers; `'unsafe-inline'` keeps every page as it is and
+   still blocks scripts loaded from other sites.
+4. Enforce, public pages (`/e/*`, `/catalogue`) first, then the dashboard; keep the
+   report-only header beside it for the stricter next version.
+
+**Smaller, same area:** `poweredByHeader: false` is still not set, so `X-Powered-By: Next.js`
+is sent (one line in `next.config.ts`).
+
+---
+
 ## Bulk reviewer assignment: what the first version left out (recorded Nov 12, 2026): not started
 
 Built Nov 12, 2026 (CHANGELOG): tick boxes, Select by IDs, the theme and "No reviewer yet" filters, Assign and Remove for the selection, and the pasted reviewer sheet. Left out on purpose, in the order they are likely to be asked for:
@@ -382,6 +427,32 @@ consumer moves to `updatedAfter`.
   type for every speaker (one join, no extra query); the single read and the list
   build the value in two places from one function.
 
+## A code that takes the whole fee settles the registration: what is left (recorded Nov 16, 2026)
+
+Owner, Nov 16, 2026, reversing the Nov 12 ruling: the status follows the balance. A code
+entered after registering that leaves nothing to pay makes the registration Complimentary
+(Inclusive under the sponsor when the sponsor's code covers the fee), as the same code on
+the form does. One rule: `paymentStatusForFee` in `src/lib/promo-redeem.ts`.
+
+**Owner step, after the deploy:** run `scripts/settle-promo-covered-registrations.ts` on
+the box (dry run first, then `--write`). Production had 14 such rows on Nov 16: 13 on the
+4th GCC Hematology Hub and 1 on the Annual Benign Hematology League Summit.
+
+**Trade taken: a registrant can no longer undo a mistaken full-fee code themselves.** While
+the row stayed Unpaid, the confirmation page and the portal offered Remove. A settled
+registration's code is not removed through the promo routes (`ALREADY_SETTLED`), which is
+how a code entered on the form has always behaved. Staff undo it: set the payment status
+back to Unpaid, then remove the code. If this comes up, the fix is a staff-only "remove the
+code that settled this" that returns the registration to Unpaid.
+
+**Older, now reaches more rows: the sheet's tier hint says "remove the promo code to change
+the tier"** on a Complimentary registration, where the code cannot be removed until the
+status is set back to Unpaid. Say that in the hint.
+
+**Older: the confirmation email is sent at registration**, so someone who registers at the
+full fee and enters a full-fee code a minute later already holds an email with the payment
+box. Nothing corrects it; the page and the portal show nothing to pay.
+
 ## Promo code on the public form: what the Nov 16 review left (recorded Nov 16, 2026): not started
 
 From the review of `73ef6416` (a typed, unapplied code is checked on submit; 0 BLOCKER,
@@ -551,7 +622,9 @@ Nov 12, 2026** (owner: "if someone is 0 or owes nothing, dont send any payment r
 emails"). The reminder, bulk and single, leaves out anyone whose balance is zero
 (`excludedAsNoBalance` with the balance from `computeRegistrationRowMoney`), and the
 confirmation's payment box is left out when a code covers the whole fee. The payment
-status of a registration whose code was entered after registering stays UNPAID (owner).
+status of a registration whose code was entered after registering stayed UNPAID (owner,
+Nov 12); reversed Nov 16, 2026: a code that takes the whole fee settles the registration
+whenever it is entered (`paymentStatusForFee`).
 
 **Same blind spot, recorded Nov 13, 2026, not fixed: who may watch a webinar.** The door
 now admits a registration whose code takes the whole fee (`registrationChargesNothing`,

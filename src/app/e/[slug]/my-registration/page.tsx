@@ -478,10 +478,10 @@ export default function EventMyRegistrationPage() {
           const isGroupCovered = !!reg.groupId;
           const showPayment =
             !isPaid && !isComplimentary && !isSponsored && !isRefunded && !isGroupCovered && reg.status !== "CANCELLED";
-          // A promo discounting to net 0 hides the payment block, but the
-          // reg is still OUTSTANDING (paymentStatus stays UNPAID) — keep
-          // the Remove control reachable so the registrant can undo a
-          // mistaken code themselves (July-1 review MED). True
+          // A registration still OUTSTANDING under a code that takes the
+          // whole fee (one from before Nov 16, 2026, when such a code began
+          // to settle the registration) keeps the Remove control, so a
+          // mistaken code can be undone (July-1 review MED).
           // COMPLIMENTARY / PAID / sponsored / refunded regs never show it.
           const promoRemovableWhileFree =
             !!reg.promoCode &&

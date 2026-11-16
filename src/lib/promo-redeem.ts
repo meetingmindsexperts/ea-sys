@@ -78,3 +78,19 @@ export function promoSponsorCovers(
 ): boolean {
   return isSponsorCoveredCode(promo) && finalPrice === 0;
 }
+
+/**
+ * The payment status a fee leaves a registration in: the sponsor pays
+ * (INCLUSIVE), nothing is owed (COMPLIMENTARY), or money is still due (UNPAID).
+ *
+ * ONE rule for the public form and for a code entered after registering
+ * (owner, Nov 16, 2026, reversing the Nov 12 ruling). The second path used to
+ * leave a fully covered registration UNPAID, so of twenty people on one
+ * sponsor's code seven read Complimentary and thirteen Unpaid, by nothing but
+ * where each had typed it. A status follows the balance, whenever it reaches
+ * zero. The code stays on the registration as the reason.
+ */
+export function paymentStatusForFee(sponsorCovered: boolean, finalPrice: number): "INCLUSIVE" | "COMPLIMENTARY" | "UNPAID" {
+  if (sponsorCovered) return "INCLUSIVE";
+  return finalPrice === 0 ? "COMPLIMENTARY" : "UNPAID";
+}

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Promo codes: a code that takes the whole fee makes the registration Complimentary, whenever it is entered (November 16)
+
+Owner decision, reversing the Nov 12 ruling ("a code entered after registering stays Unpaid"). On the 4th GCC Hematology Hub that ruling left twenty people on one sponsor's code split seven Complimentary and thirteen Unpaid, by nothing but where each had typed the code. The status now follows the balance, as it does in the payment and ticketing systems looked at (a zero balance is never "unpaid").
+
+- **Changed**: a code entered after registering (the confirmation page, the portal, staff on the registration) that leaves nothing to pay sets the payment status to **Complimentary**, or to **Inclusive** under the sponsor when the sponsor's code has "Sponsor covers the fee". The code and the discount stay on the registration as the reason. A code that leaves a balance changes no status. One rule for both paths: `paymentStatusForFee` in `src/lib/promo-redeem.ts`, which the public register route now calls instead of its own copy.
+- **Changed**: the audit entry and the log for an applied code say what the status became; the event's counts are refreshed; the three promo routes return `settledAs`.
+- **Changed**: the confirmation page keeps "Promo code X applied: nothing to pay" once the registration is settled, without Remove.
+- **Trade**: a registrant can no longer remove a full-fee code themselves once it has settled the registration, as with a code entered on the form. Staff set the payment status back to Unpaid, then remove it.
+- **Added**: `scripts/settle-promo-covered-registrations.ts` brings the existing rows into line (dry run by default; `--write` to apply; one audit entry per registration; no email, invoice or counter is touched). Production had 14 on Nov 16. **Run it after this deploys.**
+- **Docs**: `docs/PAYMENT_FLOW.md` section 10, the user guide's payment reminder note, ROADMAP.
+
 ### Webinar Console: send the attendee page, not Zoom's link, and a console that follows the webinar's state (November 16)
 
 From a UX review of the console from an organiser's side.

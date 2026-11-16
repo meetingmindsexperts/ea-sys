@@ -111,7 +111,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     apiLogger.info({ msg: "registrant/promo:applied", registrationId, userId: actor.id, ip: getClientIp(req) });
-    return NextResponse.json({ success: true, ...result.financials, replaced: result.replaced });
+    return NextResponse.json({ success: true, ...result.financials, replaced: result.replaced, settledAs: result.settledAs });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "registrant/promo:apply-failed" });

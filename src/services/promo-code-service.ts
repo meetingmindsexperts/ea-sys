@@ -5,7 +5,8 @@ import { readRegistrationBasePrice } from "@/lib/registration-financials";
 
 import { sponsorExistsOnEvent } from "@/lib/sponsors";
 import { sponsorCoverError } from "@/lib/promo-sponsor-cover";
-import { promoDiscount, promoRefusal, promoSponsorCovers, type PromoRefusal } from "@/lib/promo-redeem";
+import { paymentStatusForFee, promoDiscount, promoRefusal, promoSponsorCovers, type PromoRefusal } from "@/lib/promo-redeem";
+import { refreshEventStats } from "@/lib/event-stats";
 import { lockRegistrationRows } from "@/lib/registration-row-lock";
 
 /**
@@ -62,7 +63,13 @@ export interface ApplyPromoInput {
 }
 
 export type ApplyPromoResult =
-  | { ok: true; financials: PromoFinancials; replaced: boolean }
+  | {
+      ok: true;
+      financials: PromoFinancials;
+      replaced: boolean;
+      /** Set when the code left nothing to pay and the registration was settled by it. */
+      settledAs: "COMPLIMENTARY" | "INCLUSIVE" | null;
+    }
   | { ok: false; code: ApplyPromoErrorCode; message: string; meta?: Record<string, unknown> };
 
 export type RemovePromoResult =
@@ -187,6 +194,19 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
       );
       const finalPrice = Math.max(0, Math.round((basePrice - discountAmount) * 100) / 100);
 
+      // A code that leaves nothing to pay settles the registration, by the
+      // rule the public form uses (`paymentStatusForFee`; owner, Nov 16, 2026).
+      // A code that leaves a balance changes no status: UNPAID and PENDING
+      // stay what they were.
+      const sponsorCovered = promoSponsorCovers(promo, finalPrice);
+      const feeStatus = paymentStatusForFee(sponsorCovered, finalPrice);
+      const settledAs = feeStatus === "UNPAID" ? null : feeStatus;
+      const settleData = {
+        ...(settledAs ? { paymentStatus: settledAs } : {}),
+        // The sponsor pays: the registration is attributed to them, as at the form.
+        ...(settledAs === "INCLUSIVE" && promo.sponsorId ? { sponsorId: promo.sponsorId } : {}),
+      };
+
       // Each branch owns its own `replaced` value (July-1 review MED): deriving
       // it after the fact from the pre-apply snapshot was correct but fragile —
       // a future branch edit could silently desync the flag from what the
@@ -195,7 +215,7 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
       if (sameCodeAlreadyApplied) {
         // Idempotent refresh — the base price may have changed (tier/type edit);
         // keep the same redemption + usedCount, just re-sync the numbers.
-        await tx.registration.update({ where: { id: reg.id }, data: { discountAmount } });
+        await tx.registration.update({ where: { id: reg.id }, data: { discountAmount, ...settleData } });
         await tx.promoCodeRedemption.updateMany({
           where: { registrationId: reg.id },
           data: { promoCodeId: promo.id, email, originalPrice: basePrice, discountAmount, finalPrice },
@@ -223,7 +243,7 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
         }
         await tx.registration.update({
           where: { id: reg.id },
-          data: { promoCodeId: promo.id, discountAmount },
+          data: { promoCodeId: promo.id, discountAmount, ...settleData },
         });
         // registrationId is @unique on the redemption; deleteMany above cleared
         // any prior row, so create is safe.
@@ -243,6 +263,8 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
       return {
         code: promo.code,
         replaced,
+        settledAs,
+        previousPaymentStatus: reg.paymentStatus,
         financials: { code: promo.code, originalPrice: basePrice, discountAmount, finalPrice, currency },
       };
     });
@@ -255,7 +277,10 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
       source: input.source,
       discountAmount: out.financials.discountAmount,
       replaced: out.replaced,
+      settledAs: out.settledAs,
     });
+    // The event's counts by payment status moved.
+    if (out.settledAs) refreshEventStats(input.eventId);
 
     // Fire-and-forget audit — a log failure must not undo a committed application.
     db.auditLog
@@ -272,12 +297,13 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
             discountAmount: out.financials.discountAmount,
             finalPrice: out.financials.finalPrice,
             replaced: out.replaced,
+            ...(out.settledAs ? { paymentStatus: { from: out.previousPaymentStatus, to: out.settledAs } } : {}),
           },
         },
       })
       .catch((err) => apiLogger.warn({ msg: "promo:apply-audit-failed", registrationId: input.registrationId, err }));
 
-    return { ok: true, financials: out.financials, replaced: out.replaced };
+    return { ok: true, financials: out.financials, replaced: out.replaced, settledAs: out.settledAs };
   } catch (err) {
     if (err instanceof PromoSentinel) {
       apiLogger.warn({

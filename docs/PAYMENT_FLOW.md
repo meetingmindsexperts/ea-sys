@@ -492,7 +492,17 @@ apply promo:
   finalPrice     = max(0, basePrice − discountAmount)
   store on the registration: discountAmount, finalPrice, originalPrice (=basePrice)
   increment PromoCode.usedCount  ATOMICALLY, guarded by  usedCount < maxUses
+  nothing left to pay (finalPrice = 0)?  settle the registration:
+      the sponsor's code "covers the fee" -> INCLUSIVE + the sponsor
+      otherwise                           -> COMPLIMENTARY
 ```
+
+The status follows the balance, whenever it reaches zero (owner, Nov 16, 2026):
+`paymentStatusForFee` in [promo-redeem.ts](../src/lib/promo-redeem.ts) is the one
+rule, asked by the public form and by a code entered after registering. A code
+that leaves a balance changes no status. Once settled, the code is not removed
+through the promo routes (`ALREADY_SETTLED`); staff set the payment status back
+to Unpaid first.
 
 The **discount is applied to the tier (base) price, then VAT is charged on the
 discounted amount** — i.e. the promo lowers *both* the price and the VAT. This

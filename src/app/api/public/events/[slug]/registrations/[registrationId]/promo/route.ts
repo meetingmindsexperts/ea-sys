@@ -113,7 +113,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     apiLogger.info({ msg: "public/promo:applied", registrationId, slug, ip: getClientIp(req) });
-    return NextResponse.json({ success: true, ...result.financials, replaced: result.replaced });
+    return NextResponse.json({ success: true, ...result.financials, replaced: result.replaced, settledAs: result.settledAs });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "public/promo:apply-failed" });
