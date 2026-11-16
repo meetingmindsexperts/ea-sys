@@ -14,6 +14,13 @@ Found on the 4th GCC Hematology Hub: of twenty nurses on one sponsor's 100% code
 - **Fixed**: Enter in the promo code field applies the code. It used to submit the whole form, without the code just typed.
 - **Changed**: the code field has an id, a name and a linked label.
 - Registrations already made are not changed: the thirteen stay Unpaid with nothing due.
+- **Review of `73ef6416`** (0 BLOCKER, 1 HIGH, 2 MED, 6 LOW; the HIGH, both MEDs and five LOWs fixed):
+  - HIGH: the check is limited to 10 per 15 minutes per address, and a limited check told the person to clear a good code. A check that could not be made (rate limited, a server error, offline, overtaken) now sends the typed code and the register route judges it, as it always has for a code it is given. Only a refusal of the code itself stops the submit.
+  - MED: the decision is one function, `resolveSubmitPromo`, tested for accepted, refused, unchecked, another code's answer and a hidden field. The first tests passed with the fix switched off in six ways.
+  - MED: a code that came by `?promo=` link is always offered the field, so it can no longer fail its check out of sight.
+  - LOW: an answer counts only for the code in the field; a sponsor link's refusal no longer offers to register without a code; the notice by the button clears when the code is edited; Enter that confirms an input method's composition is left alone.
+  - Older defect, fixed: the code check answered only for PUBLISHED events and its "event not found" was not logged. It now takes the events the register route takes (PUBLISHED and LIVE, by slug or id) and logs the refusal.
+  - Left, in ROADMAP ("Promo code on the public form"): the check's rate limit (owner decision), the form not offering the field when every code is an "every type" code, and three LOWs.
 
 ### Webinars: the partner's handover message, and the user guide for partner streams (November 16)
 

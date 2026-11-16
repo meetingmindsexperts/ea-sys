@@ -382,6 +382,41 @@ consumer moves to `updatedAfter`.
   type for every speaker (one join, no extra query); the single read and the list
   build the value in two places from one function.
 
+## Promo code on the public form: what the Nov 16 review left (recorded Nov 16, 2026): not started
+
+From the review of `73ef6416` (a typed, unapplied code is checked on submit; 0 BLOCKER,
+1 HIGH, 2 MED, 6 LOW). The HIGH, both MEDs and LOWs 4 to 8 were fixed in the commit
+after it. Left:
+
+**Owner decision: the code check's rate limit.** `validate-promo` allows 10 checks per
+15 minutes per address; the register route allows 15 a minute and 100 per 15 minutes,
+raised because a hospital or a venue shares one address. Production hit the limit once
+(Nov 14, one address, 11 refusals in six minutes, after GCCHH26SEHA ran out). A limited
+check no longer costs anyone their code: the form sends the typed code and the register
+route judges it. What remains is the Apply button answering "We could not check that
+code just now" on a shared address. The limit also slows guessing codes, so raising it
+is a trade and not done unasked.
+
+**Older defect, MED: the form does not offer the code field on an event whose codes are
+all "every type" codes.** `hasPromoCodes` in `api/public/events/[slug]/route.ts` counts
+only codes tied to at least one registration type, while the check and the register
+route treat a code tied to none as good for all. No published event is affected today
+(two draft test events are). A code that comes by `?promo=` link is offered the field
+since Nov 16; a person holding such a code with no link still cannot enter it, registers
+at the full fee and enters it on the payment page. Fix: count every active code.
+
+**Older defect, LOW: an accepted code stays green after the registration type changes.**
+Only a link's code is checked again on a type change. The register route decides at
+claim time, so nothing is granted wrongly; the person sees the old type's saving until
+the route answers "not applicable". Fix: check the typed code again when the type changes.
+
+**LOW: a bad code from a `?promo=` link comes back after it is cleared**, when the
+registration type changes (the link effect fills it again). There is always a way out
+(clear it again). Fix: remember that the person edited the field.
+
+**LOW: no test renders the form.** The submit decision is a tested function
+(`resolveSubmitPromo`); the page's use of it is pinned by reading its source.
+
 ## Type change under a promo code: what the Nov 13 review left (recorded Nov 13, 2026): not started
 
 From the review of `cbead69f` (a type change is refused while a promo code is on a

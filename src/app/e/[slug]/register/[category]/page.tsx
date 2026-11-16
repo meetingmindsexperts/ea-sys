@@ -57,7 +57,7 @@ import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { isExhibitorBadge } from "@/lib/badge-layout";
 import { deskQrReopensClosedRate, deskQrTakesCode, readDeskQrClaims } from "@/lib/desk-qr-rules";
-import { unappliedPromoCode } from "@/lib/promo-entry";
+import { promoStopMessages, resolveSubmitPromo, type PromoCheckOutcome } from "@/lib/promo-entry";
 
 function toSlug(name: string): string {
   return name
@@ -291,7 +291,8 @@ function CategoryRegistrationContent() {
   const [billingSame, setBillingSame] = useState(true);
   const [promoCode, setPromoCode] = useState("");
   const [promoValidating, setPromoValidating] = useState(false);
-  const [promoResult, setPromoResult] = useState<{ valid: boolean; code?: string; discountType?: string; discountValue?: number; discountAmount?: number; originalPrice?: number; finalPrice?: number; coveredBySponsor?: string | null; error?: string } | null>(null);
+  type PromoResult = { valid: boolean; code?: string; discountType?: string; discountValue?: number; discountAmount?: number; originalPrice?: number; finalPrice?: number; coveredBySponsor?: string | null; error?: string };
+  const [promoResult, setPromoResult] = useState<PromoResult | null>(null);
   const [showPromoInput, setShowPromoInput] = useState(false);
   // Signing in from this form comes back to this form, not to My Registration,
   // which for a new event only says "Not registered yet" and links here again.
@@ -753,23 +754,36 @@ function CategoryRegistrationContent() {
     // Nov 16, 2026; the rule and its history are in promo-entry.ts). Accepted,
     // it rides this registration; refused, the person is told before they
     // register at a fee they did not expect.
-    let appliedPromo = promoResult;
-    const typedCode = unappliedPromoCode(promoCode, promoFieldShown, promoResult);
-    if (typedCode) {
-      setSubmitting(true);
-      appliedPromo = await applyPromo(typedCode);
-      setSubmitting(false);
-      if (!appliedPromo?.valid) {
-        toast.error(`The code ${typedCode} was not applied. Correct it, or clear the field to register without a code.`);
-        setSubmitNotice("Your promo code was not applied. Correct it, or clear the field to continue without it.");
-        setTimeout(() => document.getElementById("promo-code-field")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
-        return;
-      }
+    // A check that could not be made (rate limited, offline) sends the typed
+    // code for the register route to judge: it never costs someone their code.
+    const submitPromo = await resolveSubmitPromo({
+      typed: promoCode,
+      fieldShown: promoFieldShown,
+      result: promoResult,
+      // The button reads "Registering" while the code is checked, so a second
+      // press cannot start a second submit.
+      check: async (code) => {
+        setSubmitting(true);
+        try {
+          return await applyPromo(code);
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    });
+    if (submitPromo.action === "stop") {
+      const words = promoStopMessages(submitPromo.code, sponsorCodeRequired);
+      toast.error(words.toast);
+      setSubmitNotice(words.notice);
+      setTimeout(() => document.getElementById("promo-code-field")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+      return;
     }
+    const appliedPromo = submitPromo.result;
     // A sponsor link (this rate needs a sponsor's code): the server refuses
     // without a sponsor-covered code, so say so here and open the field rather
-    // than letting the request fail.
-    if (sponsorCodeRequired && !(appliedPromo?.valid && appliedPromo.coveredBySponsor)) {
+    // than letting the request fail. A code nobody could check goes to the
+    // server, which makes the same refusal in its own words.
+    if (sponsorCodeRequired && submitPromo.judged && !(appliedPromo?.valid && appliedPromo.coveredBySponsor)) {
       setShowPromoInput(true);
       toast.error(
         appliedPromo?.valid
@@ -814,7 +828,7 @@ function CategoryRegistrationContent() {
           ...(signedInEmail && { password: undefined, confirmPassword: undefined }),
           supportingDocumentUrl: supportingDoc?.url,
           supportingDocumentFilename: supportingDoc?.filename,
-          promoCode: appliedPromo?.valid ? appliedPromo.code : undefined,
+          promoCode: submitPromo.code,
           referrer: trackingRef.current.referrer || undefined,
           utmSource: trackingRef.current.utmSource || undefined,
           utmMedium: trackingRef.current.utmMedium || undefined,
@@ -857,11 +871,14 @@ function CategoryRegistrationContent() {
   }
 
   const promoRequestRef = useRef(0);
+  const COULD_NOT_CHECK = "We could not check that code just now. Press Apply again in a few minutes, or continue: it is checked again when you register.";
   // Validate a promo code against the chosen type and tier. Shared by the
   // Apply button and the `?promo=` link.
-  // Returns the answer, or null when a later check superseded this one.
-  async function applyPromo(code: string): Promise<typeof promoResult> {
-    if (!code.trim()) return null;
+  // Says whether the server judged the code. "unchecked" is everything else:
+  // rate limited, a server error, offline, or overtaken by a later check.
+  const UNCHECKED: PromoCheckOutcome<PromoResult> = { kind: "unchecked" };
+  async function applyPromo(code: string): Promise<PromoCheckOutcome<PromoResult>> {
+    if (!code.trim()) return UNCHECKED;
     // Only the LATEST check may set the result (review MED 3, Sep 29, 2026):
     // switching category quickly could let an earlier "not applicable" answer
     // land last, and a registration submitted then would drop the code and be
@@ -877,19 +894,25 @@ function CategoryRegistrationContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, ticketTypeId, pricingTierId: pricingTierId || undefined, email: email || "check@temp.com" }),
       });
-      const data = await res.json();
-      if (requestId !== promoRequestRef.current) return null;
+      // A refusal of the CODE is a 200 with `valid: false`. Anything else
+      // (429, 404, 500) is the check failing, never the code.
+      const data = res.ok ? ((await res.json()) as PromoResult) : null;
+      if (requestId !== promoRequestRef.current) return UNCHECKED;
+      if (!data) {
+        console.warn("[register] promo check not made:", res.status);
+        setPromoResult({ valid: false, error: COULD_NOT_CHECK });
+        return UNCHECKED;
+      }
       setPromoResult(data);
       // A code that now works fixes what the notice asked for (not a form
       // field, so the watch below never sees it; review L2).
-      if (data?.valid) setSubmitNotice(null);
-      return data;
+      if (data.valid) setSubmitNotice(null);
+      return { kind: "answered", result: data };
     } catch (err) {
       console.warn("[register] promo validation failed", err);
-      if (requestId !== promoRequestRef.current) return null;
-      const failed = { valid: false, error: "We could not check that code. Please try again." };
-      setPromoResult(failed);
-      return failed;
+      if (requestId !== promoRequestRef.current) return UNCHECKED;
+      setPromoResult({ valid: false, error: COULD_NOT_CHECK });
+      return UNCHECKED;
     } finally {
       if (requestId === promoRequestRef.current) setPromoValidating(false);
     }
@@ -1005,8 +1028,13 @@ function CategoryRegistrationContent() {
   const sponsorCodeRequired = (event?.codeRequiredTiers ?? []).includes(categorySlug) || deskQr?.kind === "exhibitor";
   // The promo code block is offered at all, and its field is open in it. The
   // submit asks the second: a typed code is only checked where it can be seen.
+  // A code that came by link is offered the field too: on an event whose codes
+  // are not tied to a type the block was not rendered, and a link's code that
+  // failed its check vanished without a word (review of 73ef6416).
   const promoBlockOffered =
-    !!selectedTicketId && (!deskQr || deskQrTakesCode(deskQr.kind)) && (!!event?.hasPromoCodes || sponsorCodeRequired);
+    !!selectedTicketId &&
+    (!deskQr || deskQrTakesCode(deskQr.kind)) &&
+    (!!event?.hasPromoCodes || sponsorCodeRequired || !!linkedPromo);
   const promoFieldShown = promoBlockOffered && (showPromoInput || sponsorCodeRequired);
   // Which evidence fields to render, from the type's switches rather than its
   // name — the same correction the supporting-document block below made.
@@ -1693,11 +1721,17 @@ function CategoryRegistrationContent() {
                                 onChange={(e) => {
                                   setPromoCode(e.target.value.toUpperCase());
                                   if (promoResult) setPromoResult(null);
+                                  // Not a form field, so the form's watch
+                                  // never clears what the notice asked for.
+                                  setSubmitNotice(null);
                                 }}
                                 // Enter here applies the code. It used to submit
                                 // the whole form, without the code just typed.
                                 onKeyDown={(e) => {
                                   if (e.key !== "Enter") return;
+                                  // Enter that confirms an input method's
+                                  // composition is not Enter on the field.
+                                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                                   e.preventDefault();
                                   if (promoCode.trim() && !promoValidating) void applyPromo(promoCode);
                                 }}

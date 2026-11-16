@@ -47,10 +47,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { code, ticketTypeId, pricingTierId, email } = parsed.data;
 
     const event = await db.event.findFirst({
-      where: await publicEventWhere(req, slug, { statuses: ["PUBLISHED"] }),
+      // The same events the register route takes (review of 73ef6416): this
+      // answered PUBLISHED only, so on a LIVE event no code could be checked
+      // and a sponsor link could register nobody.
+      where: await publicEventWhere(req, slug, { allowIdFallback: true, statuses: ["PUBLISHED", "LIVE"] }),
       select: { id: true, organizationId: true },
     });
     if (!event) {
+      apiLogger.warn({ msg: "public/validate-promo:event-not-found", slug });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
