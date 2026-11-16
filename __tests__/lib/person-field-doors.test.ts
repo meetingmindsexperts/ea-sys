@@ -81,7 +81,7 @@ const NOT_A_DOOR: Record<string, string> = {
     "the submitter's own edit of a record that exists: the demand is the profile gate at submit, which is a door above; its GET sends the rules",
   "src/app/api/registrant/registrations/route.ts": "the registrant's own edit of a registration that exists: never demanded them",
   "src/app/api/registrant/my-group/[groupId]/members/route.ts":
-    "a coordinator adding people to a group: this form has never asked Role or Specialty, and the route stores what it is sent (docs/ROADMAP.md, person fields: the one create door that does not keep only what the event asks)",
+    "a coordinator adding people to a group: this form has never asked Role or Specialty, and the route stores what it is sent, Role only as one of the answers since Nov 16, 2026 (docs/ROADMAP.md, person fields: the one create door that does not keep only what the event asks)",
 };
 
 /** A route's schema naming one of the three fields. */
@@ -253,6 +253,15 @@ describe("every route that takes these fields is a door, or named as not one", (
       return !routes.includes(file);
     });
     expect(stale).toEqual([]);
+  });
+
+  it("every classified route takes Role through a Role validator, never free text", () => {
+    // Role is text in the database since Nov 16, 2026 (docs/ORG_FIELDS_PLAN.md
+    // step 1b): nothing below the route refuses an unknown answer any more.
+    const loose = [...Object.keys(DOORS), ...Object.keys(NOT_A_DOOR)].filter((file) =>
+      /\brole\s*:\s*z\.string\(/.test(read(file)),
+    );
+    expect(loose).toEqual([]);
   });
 
   it("no route is listed both ways", () => {

@@ -31,21 +31,38 @@
 -- integration harnesses) has the columns and NOT the trigger. Nothing in this
 -- image may rely on the trigger: it reads and writes "roleKey" only. Raw SQL
 -- must name the physical column "roleKey".
+--
+-- REMOVING IT LATER (the contract step, once no older image can run): drop the
+-- triggers and the function FIRST, then the column. Postgres does not record
+-- the function body as depending on "role", so dropping the column first
+-- succeeds and then every write to the four tables fails.
+--
+-- Review of the first version (Nov 16, 2026): the function pins its search
+-- path and names the type with its schema; the triggers fire only when a role
+-- column is in the UPDATE; a blank key includes tabs and non-breaking spaces;
+-- the backfill also repairs the other direction; a lock wait is bounded.
+
+-- Fail fast rather than queue live traffic behind this migration while it
+-- waits for a table lock (a failed migrate deploy leaves the old slot serving;
+-- mark it rolled back with `prisma migrate resolve` and run it again).
+SET lock_timeout = '10s';
 
 ALTER TABLE "Attendee"       ADD COLUMN IF NOT EXISTS "roleKey" TEXT;
 ALTER TABLE "Speaker"        ADD COLUMN IF NOT EXISTS "roleKey" TEXT;
 ALTER TABLE "Contact"        ADD COLUMN IF NOT EXISTS "roleKey" TEXT;
 ALTER TABLE "AccountProfile" ADD COLUMN IF NOT EXISTS "roleKey" TEXT;
 
-CREATE OR REPLACE FUNCTION person_role_key_sync() RETURNS trigger
-LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION public.person_role_key_sync() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_catalog
+AS $$
 DECLARE
   key_changed  boolean;
   enum_changed boolean;
 BEGIN
   -- An empty or blank key is no answer. The enum column could never hold "",
   -- so nothing may start storing it now ("Not recorded" filters match NULL).
-  IF NEW."roleKey" IS NOT NULL AND btrim(NEW."roleKey") = '' THEN
+  IF NEW."roleKey" IS NOT NULL AND NEW."roleKey" ~ '^[[:space:]\u00a0]*$' THEN
     NEW."roleKey" := NULL;
   END IF;
 
@@ -59,8 +76,8 @@ BEGIN
 
   IF key_changed THEN
     IF NEW."roleKey" IS NOT NULL
-       AND NEW."roleKey" = ANY (enum_range(NULL::"AttendeeRole")::text[]) THEN
-      NEW."role" := NEW."roleKey"::"AttendeeRole";
+       AND NEW."roleKey" = ANY (enum_range(NULL::public."AttendeeRole")::text[]) THEN
+      NEW."role" := NEW."roleKey"::public."AttendeeRole";
     ELSE
       NEW."role" := NULL;
     END IF;
@@ -73,17 +90,17 @@ END;
 $$;
 
 CREATE OR REPLACE TRIGGER person_role_key_sync
-  BEFORE INSERT OR UPDATE ON "Attendee"
-  FOR EACH ROW EXECUTE FUNCTION person_role_key_sync();
+  BEFORE INSERT OR UPDATE OF "role", "roleKey" ON "Attendee"
+  FOR EACH ROW EXECUTE FUNCTION public.person_role_key_sync();
 CREATE OR REPLACE TRIGGER person_role_key_sync
-  BEFORE INSERT OR UPDATE ON "Speaker"
-  FOR EACH ROW EXECUTE FUNCTION person_role_key_sync();
+  BEFORE INSERT OR UPDATE OF "role", "roleKey" ON "Speaker"
+  FOR EACH ROW EXECUTE FUNCTION public.person_role_key_sync();
 CREATE OR REPLACE TRIGGER person_role_key_sync
-  BEFORE INSERT OR UPDATE ON "Contact"
-  FOR EACH ROW EXECUTE FUNCTION person_role_key_sync();
+  BEFORE INSERT OR UPDATE OF "role", "roleKey" ON "Contact"
+  FOR EACH ROW EXECUTE FUNCTION public.person_role_key_sync();
 CREATE OR REPLACE TRIGGER person_role_key_sync
-  BEFORE INSERT OR UPDATE ON "AccountProfile"
-  FOR EACH ROW EXECUTE FUNCTION person_role_key_sync();
+  BEFORE INSERT OR UPDATE OF "role", "roleKey" ON "AccountProfile"
+  FOR EACH ROW EXECUTE FUNCTION public.person_role_key_sync();
 
 -- Backfill AFTER the triggers exist, so a row the previous image writes while
 -- this runs is caught either by the trigger or by this statement. Only rows
@@ -92,3 +109,11 @@ UPDATE "Attendee"       SET "roleKey" = "role"::text WHERE "role" IS NOT NULL AN
 UPDATE "Speaker"        SET "roleKey" = "role"::text WHERE "role" IS NOT NULL AND "roleKey" IS NULL;
 UPDATE "Contact"        SET "roleKey" = "role"::text WHERE "role" IS NOT NULL AND "roleKey" IS NULL;
 UPDATE "AccountProfile" SET "roleKey" = "role"::text WHERE "role" IS NOT NULL AND "roleKey" IS NULL;
+
+-- The other direction: a key that is one of the nine with the old column empty
+-- (a database where this image wrote before the trigger existed, such as one
+-- built by db push and patched afterwards). Never true on production.
+UPDATE "Attendee"       SET "role" = "roleKey"::public."AttendeeRole" WHERE "role" IS NULL AND "roleKey" = ANY (enum_range(NULL::public."AttendeeRole")::text[]);
+UPDATE "Speaker"        SET "role" = "roleKey"::public."AttendeeRole" WHERE "role" IS NULL AND "roleKey" = ANY (enum_range(NULL::public."AttendeeRole")::text[]);
+UPDATE "Contact"        SET "role" = "roleKey"::public."AttendeeRole" WHERE "role" IS NULL AND "roleKey" = ANY (enum_range(NULL::public."AttendeeRole")::text[]);
+UPDATE "AccountProfile" SET "role" = "roleKey"::public."AttendeeRole" WHERE "role" IS NULL AND "roleKey" = ANY (enum_range(NULL::public."AttendeeRole")::text[]);

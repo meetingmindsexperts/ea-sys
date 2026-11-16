@@ -7,7 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { getClientIp } from "@/lib/security";
 import { addGroupMembers, type AddGroupMembersErrorCode } from "@/services/group-registration-service";
-import { titleEnum } from "@/lib/schemas";
+import { optionalAttendeeRole, titleEnum } from "@/lib/schemas";
 
 /**
  * POST /api/registrant/my-group/[groupId]/members
@@ -38,7 +38,10 @@ const attendeeSchema = z.object({
   state: z.string().trim().max(100).optional().nullable(),
   zipCode: z.string().trim().max(20).optional().nullable(),
   country: z.string().trim().max(100).optional().nullable(),
-  role: z.string().trim().max(50).optional().nullable(),
+  // One of the Role answers, as every other door takes it. Until Nov 16, 2026
+  // this took any text and the database's fixed list refused the rest; Role is
+  // text now, so the check has to be here (review of 6739135d).
+  role: optionalAttendeeRole.nullable(),
   specialty: z.string().trim().max(100).optional().nullable(),
   customSpecialty: z.string().trim().max(100).optional().nullable(),
 });

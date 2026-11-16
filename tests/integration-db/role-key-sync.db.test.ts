@@ -19,7 +19,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { db } from "@/lib/db";
 import { resetCrm } from "./helper";
 
@@ -66,6 +66,15 @@ const both = (id: string) =>
 
 beforeAll(async () => {
   await applyMigration();
+});
+
+// Leave the harness as db push built it, so no other file here runs with a
+// trigger it does not know about (review of 6739135d).
+afterAll(async () => {
+  for (const table of ["Attendee", "Speaker", "Contact", "AccountProfile"]) {
+    await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS person_role_key_sync ON "${table}"`);
+  }
+  await db.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public.person_role_key_sync()`);
 });
 
 beforeEach(async () => {
@@ -119,6 +128,41 @@ describe("person_role_key_sync on Contact", () => {
     await db.contact.update({ where: { id }, data: { role: "PHYSICIAN" } });
     await db.contact.update({ where: { id }, data: { role: "   " } });
     expect(await both(id)).toEqual({ role: null, roleLegacy: null });
+    await db.contact.update({ where: { id }, data: { role: "\t\u00a0" } });
+    expect(await both(id)).toEqual({ role: null, roleLegacy: null });
+  });
+
+  it("an upsert, a bulk create and a bulk update each keep the two in step", async () => {
+    counter += 1;
+    const email = `upsert-${counter}@example.test`;
+    const where = { organizationId_email: { organizationId: orgId, email } };
+    await db.contact.upsert({ where, create: { organizationId: orgId, email, firstName: "U", lastName: "P", role: "PHARMA" }, update: {} });
+    await db.contact.upsert({ where, create: { organizationId: orgId, email, firstName: "U", lastName: "P" }, update: { roleLegacy: "STUDENT" } });
+    const upserted = await db.contact.findUniqueOrThrow({ where, select: { role: true, roleLegacy: true } });
+    expect(upserted).toEqual({ role: "STUDENT", roleLegacy: "STUDENT" });
+
+    await db.contact.createMany({
+      data: [
+        { organizationId: orgId, email: `bulk-a-${counter}@example.test`, firstName: "B", lastName: "A", role: "PHYSICIAN" },
+        { organizationId: orgId, email: `bulk-b-${counter}@example.test`, firstName: "B", lastName: "B", roleLegacy: "PHARMA" },
+      ],
+    });
+    await db.contact.updateMany({ where: { organizationId: orgId, email: { startsWith: "bulk-" } }, data: { role: "ENGINEER" } });
+    const bulk = await db.contact.findMany({
+      where: { organizationId: orgId, email: { startsWith: "bulk-" } },
+      select: { role: true, roleLegacy: true },
+    });
+    expect(bulk).toEqual([
+      { role: "ENGINEER", roleLegacy: null },
+      { role: "ENGINEER", roleLegacy: null },
+    ]);
+  });
+
+  it("an update that writes the same role again changes nothing", async () => {
+    const { id } = await contact({ role: "ENGINEER" });
+    await db.contact.update({ where: { id }, data: { role: "ENGINEER" } });
+    await db.contact.update({ where: { id }, data: { tags: ["vip"] } });
+    expect(await both(id)).toEqual({ role: "ENGINEER", roleLegacy: null });
   });
 
   it("an ordinary read does not show the old column", async () => {
@@ -126,6 +170,19 @@ describe("person_role_key_sync on Contact", () => {
     const row = await db.contact.findUniqueOrThrow({ where: { id } });
     expect(row).not.toHaveProperty("roleLegacy");
     expect(row.role).toBe("PHYSICIAN");
+  });
+
+  it("a nested read and a transaction's read do not show it either", async () => {
+    const event = await db.event.create({
+      data: { organizationId: orgId, name: "Role Test", slug: `role-test-nested-${counter}`, startDate: new Date("2027-01-15"), endDate: new Date("2027-01-17") },
+      select: { id: true },
+    });
+    await db.speaker.create({ data: { organizationId: orgId, eventId: event.id, email: "n@example.test", firstName: "N", lastName: "S", role: "PHARMA" } });
+    const nested = await db.event.findUniqueOrThrow({ where: { id: event.id }, include: { speakers: true } });
+    expect(nested.speakers[0]).not.toHaveProperty("roleLegacy");
+    const inTx = await db.$transaction(async (tx) => tx.speaker.findFirstOrThrow({ where: { eventId: event.id } }));
+    expect(inTx).not.toHaveProperty("roleLegacy");
+    expect(inTx.role).toBe("PHARMA");
   });
 
   it("both in one write: the key wins", async () => {
@@ -188,5 +245,18 @@ describe("the backfill", () => {
     expect(await both(id)).toEqual({ role: "PHARMA", roleLegacy: "PHARMA" });
     await applyMigration();
     expect(await both(id)).toEqual({ role: "PHARMA", roleLegacy: "PHARMA" });
+  });
+
+  it("repairs a key written while there was no trigger", async () => {
+    await db.$executeRawUnsafe(`ALTER TABLE "Contact" DISABLE TRIGGER person_role_key_sync`);
+    let id = "";
+    try {
+      ({ id } = await contact({ role: "STUDENT" }));
+      expect(await both(id)).toEqual({ role: "STUDENT", roleLegacy: null });
+    } finally {
+      await db.$executeRawUnsafe(`ALTER TABLE "Contact" ENABLE TRIGGER person_role_key_sync`);
+    }
+    await applyMigration();
+    expect(await both(id)).toEqual({ role: "STUDENT", roleLegacy: "STUDENT" });
   });
 });

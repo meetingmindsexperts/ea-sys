@@ -176,6 +176,23 @@ reference document. Left, with why:
 Plan: `docs/ORG_FIELDS_PLAN.md`. The review of step 0a (`78a0b8a6`) and of the
 plan found these outside the plan's own steps.
 
+From the review of `6739135d` (Role stored as text, step 1b), Nov 16: 0 BLOCKER,
+0 HIGH, 1 MED, 8 LOW. Fixed: the MED (the coordinator's "add people" route took
+any text as Role and had relied on the database list to refuse it; it now takes
+`optionalAttendeeRole`, and `person-field-doors.test.ts` refuses a free-text
+`role:` on any classified route) and LOW 1, 2, 3, 4, 6, 7, 8. Left, with why:
+
+- **LOW 5: the compiler still thinks `roleLegacy` is on every row.** `buildDb()`
+  and `buildOperatorDb()` in `src/lib/db.ts` cast the client to plain
+  `PrismaClient`, which drops the global `omit` from the types, so
+  `row.roleLegacy` compiles and is `undefined` at run time. Typing the omit
+  through means retyping both lanes and every helper that takes a
+  `PrismaClient`; `role-legacy-unread.test.ts` already fails on any file that
+  names the field, which is the guard that matters.
+- **Older defect: `presenter-registration.ts:144` casts the speaker's role to the
+  nine-value union.** Harmless while every role is one of the nine; it belongs
+  to step 1c, which makes every reader take the organisation's answers.
+
 From the review of `f0899baf` (the switches), Nov 13. Fixed: both HIGH, all
 four MED, and LOW 4, 7, 8, 9, 11, 12 and the group part of 1. Left, with why:
 

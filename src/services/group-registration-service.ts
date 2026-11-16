@@ -376,7 +376,7 @@ async function claimSeatsAndCreateMembers(
       data: {
         organizationId,
         title: (a.title as never) ?? null,
-        role: (a.role as never) ?? null,
+        role: a.role || null,
         email: a.email,
         additionalEmail: a.additionalEmail ?? null,
         firstName: a.firstName,

@@ -19,6 +19,9 @@ Step 1b of `docs/ORG_FIELDS_PLAN.md` (owner decision D15, option C). Nothing cha
 - **Added**: the first database trigger, `person_role_key_sync`, keeps the two columns in step for the image still running during a deploy or a rollback: its writes to the old column are copied into the key; a key that is one of the nine is copied back, any other empties the old column; a blank key is stored as NULL.
 - **Added**: the shared Prisma client omits `roleLegacy` from every read, so a full-row read (the speakers API the website sync reads, a contact's detail, audit diffs) never shows it. `role-legacy-unread.test.ts` keeps application code off it; `tests/integration-db/role-key-sync.db.test.ts` pins the trigger on a real Postgres.
 - **Docs**: `docs/ROLLBACK.md` (what an older image sees once an organisation has its own answers), the plan, CLAUDE.md.
+- **Review of `6739135d`** (0 BLOCKER, 0 HIGH, 1 MED, 8 LOW; the MED and seven LOWs fixed, LOW 5 in ROADMAP):
+  - MED: the coordinator's "add people" route took any text as Role and had relied on the database list to refuse the rest; a hand-made "Doctor" would have been stored and copied to the contact, and every staff save of that registration would then have failed. It now takes one of the answers, and `person-field-doors.test.ts` refuses a free-text `role:` on any route that takes person fields.
+  - LOW: the trigger function pins its search path and names the type with its schema; the triggers fire only when an UPDATE names a role column; tabs and non-breaking spaces count as blank; the backfill also repairs the other direction; the migration waits at most 10 s for a lock; the database test covers upsert, bulk writes, same-value updates, nested and transaction reads, and removes the trigger afterwards; `docs/ROLLBACK.md` names the automatic fill-blank writers and the order of the eventual clean-up.
 
 ### Webinar Console: review of c1b4ae83, and step-8 readiness (November 16)
 

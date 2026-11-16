@@ -218,11 +218,16 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   an organisation can add its own Role answers (step 1d of docs/ORG_FIELDS_PLAN.md): the
   older image reads and writes `"role"` and the trigger copies its writes into `"roleKey"`.
   Once an organisation has its own answers, the older image reads NO role for those people
-  (the enum column is empty for an answer outside the nine) and an edit there that sets one
-  of the nine replaces the organisation's answer. Count them first:
+  (the enum column is empty for an answer outside the nine), and anything there that sets one
+  of the nine replaces the organisation's answer: a staff edit, and also writers that fill
+  blanks with no one asking (the contact sync's fill-only fields, the EventsAir import's
+  "role when none is held"). Count them first:
   `SELECT count(*) FROM "Contact" WHERE "roleKey" IS NOT NULL AND "role" IS NULL;` (and the
   same on the other three tables). Never drop the trigger or `"role"` while an image older
-  than this migration may still run.
+  than this migration may still run, and when that day comes drop the triggers and the
+  function `person_role_key_sync` BEFORE the column or the type: Postgres does not record
+  the function as depending on them, so the column drops cleanly and every later write to
+  the four tables then fails.
 
 - **CRM corporate projects (Nov 12, 2026; migration `20261112150000_add_crm_project`).** The
   migration is additive, so an image older than it runs against the new table and column

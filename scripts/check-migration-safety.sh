@@ -43,7 +43,7 @@
 # it. The migration-replay CI job pins the from-scratch result. Side effect to
 # know about: `migrate dev` DOES checksum — against a DB that applied the
 # original file it reports the edited migrations as "modified" and offers a
-# DATABASE RESET. Local dev points at prod Supabase, so never accept that
+# DATABASE RESET. Local dev used to point at prod Supabase (it is a local copy now), so never accept that
 # prompt; `migrate dev` against prod was always forbidden anyway.)
 #
 # Usage: bash scripts/check-migration-safety.sh
