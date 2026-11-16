@@ -2,7 +2,7 @@
  * The agent's create_event and a webinar's video source (Nov 16, 2026). The source is fixed at
  * creation, so on a server that can run a partner's stream the agent must ASK: a webinar with no
  * source is refused with WEBINAR_SOURCE_REQUIRED and nothing is created. On a server that cannot,
- * Zoom is the only answer and nothing is asked.
+ * Zoom is the only answer and nothing is asked; nor is anything asked of an API key, which keeps Zoom.
  */
 import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -60,6 +60,21 @@ describe("create_event: a webinar's video source", () => {
     partner.ready = false;
     await create({ eventType: "WEBINAR" });
     expect(mockCreateEvent).toHaveBeenCalledWith(expect.objectContaining({ webinarSource: "zoom" }));
+  });
+
+  it("an API key has no person to ask, so a webinar with no source stays our Zoom (review of 6f52fa22)", async () => {
+    await EVENT_EXECUTORS.create_event(
+      { name: "Automated webinar", startDate: "2027-01-20T19:00:00+04:00", endDate: "2027-01-20T20:00:00+04:00", eventType: "WEBINAR" },
+      { ...ctx, source: "mcp", fromApiKey: true },
+    );
+    expect(mockCreateEvent).toHaveBeenCalledWith(expect.objectContaining({ webinarSource: "zoom" }));
+  });
+
+  it("the MCP door tells create_event whether a key is calling, and a key is the default actor", () => {
+    const source = readFileSync("src/lib/agent/register-mcp-tools.ts", "utf8");
+    const block = source.slice(source.indexOf('runTool("create_event"'), source.indexOf('runTool("create_event"') + 400);
+    expect(block).toContain("fromApiKey: actor.fromApiKey");
+    expect(source).toContain("options?.actor ?? { role: null, fromApiKey: true }");
   });
 
   it("a conference never carries a source", async () => {

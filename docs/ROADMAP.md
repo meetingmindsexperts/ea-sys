@@ -52,6 +52,13 @@ is sent (one line in `next.config.ts`).
 
 ---
 
+## A webinar's video source from the agent: what the Nov 16 review left (recorded Nov 16, 2026): not started
+
+`create_event` asks how a webinar is streamed since `6f52fa22` (refused with `WEBINAR_SOURCE_REQUIRED` until the person answers; an API key keeps Zoom).
+
+1. **The Blueprint never asks.** An approved Blueprint whose format maps to WEBINAR calls `createEvent` with no source, so it gets a Zoom webinar even on a server that can run a partner's stream. Same as before the change. Add a source to the Blueprint's webinar draft if partner webinars start coming through it.
+2. **An API key cannot make a partner webinar without saying so.** It may pass `webinarSource: "external"`; omitting it is Zoom, by design, since nobody is there to ask.
+
 ## Bulk reviewer assignment: what the first version left out (recorded Nov 12, 2026): not started
 
 Built Nov 12, 2026 (CHANGELOG): tick boxes, Select by IDs, the theme and "No reviewer yet" filters, Assign and Remove for the selection, and the pasted reviewer sheet. Left out on purpose, in the order they are likely to be asked for:

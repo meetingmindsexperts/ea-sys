@@ -28,6 +28,12 @@ export interface AgentContext {
    * certificates.issue). Absent means "cannot tell": such a check fails closed.
    */
   principal?: Principal;
+  /**
+   * An API key is calling (n8n, a script): no person reads the answer, so a tool that would ask
+   * the person a question takes its default instead (create_event's webinar source). Absent on
+   * the in-app agent and an OAuth grant, where a person is in the conversation.
+   */
+  fromApiKey?: boolean;
 }
 
 export type ToolExecutor = (

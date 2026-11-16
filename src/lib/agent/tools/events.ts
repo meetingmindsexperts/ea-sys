@@ -19,12 +19,15 @@ const WEBINAR_SOURCES = new Set(["zoom", "external"]);
  * A webinar's video source, for create_event (Nov 16, 2026). It is fixed at creation (a Zoom
  * webinar is made within seconds), so on a server that can run a partner's stream the agent must
  * ASK rather than default to Zoom: a missing source is refused with WEBINAR_SOURCE_REQUIRED. On a
- * server that cannot, the only answer is Zoom and nothing is asked. "external" on such a server is
- * refused by the event service (PARTNER_STREAMS_NOT_AVAILABLE), the same rule as the New Event page.
+ * server that cannot, the only answer is Zoom and nothing is asked. An API key has no person to
+ * ask, so it keeps Zoom as before (review of 6f52fa22: an n8n flow would otherwise stop creating
+ * webinars the day the server is set up). "external" on a server that cannot run it is refused by
+ * the event service (PARTNER_STREAMS_NOT_AVAILABLE), the same rule as the New Event page.
  */
 function resolveWebinarSource(
   eventType: string | undefined,
   raw: unknown,
+  fromApiKey: boolean,
 ): { ok: true; source: "zoom" | "external" | null } | { ok: false; error: string; code: string } {
   if (eventType !== "WEBINAR") return { ok: true, source: null };
   if (raw != null) {
@@ -34,7 +37,7 @@ function resolveWebinarSource(
     }
     return { ok: true, source: source as "zoom" | "external" };
   }
-  if (!partnerStreamReadiness().ready) return { ok: true, source: "zoom" };
+  if (fromApiKey || !partnerStreamReadiness().ready) return { ok: true, source: "zoom" };
   return {
     ok: false,
     code: "WEBINAR_SOURCE_REQUIRED",
@@ -170,11 +173,10 @@ const createEvent: ToolExecutor = async (input, ctx) => {
     if (eventType && !EVENT_TYPES.has(eventType)) {
       return { error: `Invalid eventType. Must be one of: ${[...EVENT_TYPES].join(", ")}` };
     }
-    const webinarSource = resolveWebinarSource(eventType, input.webinarSource);
-    if (!webinarSource.ok) {
-      apiLogger.warn({ msg: "agent:create_event-refused", code: webinarSource.code, organizationId: ctx.organizationId, source: ctx.source });
-      return { error: webinarSource.error, code: webinarSource.code };
-    }
+    // A refusal is logged once, by the door that ran the tool ("agent tool validation-error" or
+    // "MCP tool validation-error"), with this error text.
+    const webinarSource = resolveWebinarSource(eventType, input.webinarSource, ctx.fromApiKey === true);
+    if (!webinarSource.ok) return { error: webinarSource.error, code: webinarSource.code };
     const status = input.status ? String(input.status) : undefined;
     if (status && !EVENT_STATUSES.has(status)) {
       return { error: `Invalid status. Must be one of: ${[...EVENT_STATUSES].join(", ")}` };
