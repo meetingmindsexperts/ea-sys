@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Person fields: the Role picker offers the organisation's answers (November 16)
+
+Step 1c, part C2, of `docs/ORG_FIELDS_PLAN.md`; step 1c is complete. Nothing changes for MM Group: its answers are today's nine.
+
+- **Changed**: the one Role picker every form uses offers the organisation's answers on offer, as the page's event asks them. A record that holds an answer no longer offered shows it, marked "(no longer offered)", so editing anything else keeps it.
+- **Fixed**: the registration sheet's "Role" label now points at its picker (it named an id the picker never had).
+
 ### Person fields: every door takes Role from the organisation's own answers (November 16)
 
 Step 1c, part C1, of `docs/ORG_FIELDS_PLAN.md`. Nothing changes for MM Group: its answers are today's nine. The forms still offer the nine until part C2.

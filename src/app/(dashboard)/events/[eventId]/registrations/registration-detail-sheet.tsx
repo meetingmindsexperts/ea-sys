@@ -1319,6 +1319,7 @@ export function RegistrationDetailSheet({
                       <div className="space-y-2">
                         <Label htmlFor="edit-role">Role</Label>
                         <RoleSelect
+                          id="edit-role"
                           value={editData.role}
                           onChange={(role) => setEditData({ ...editData, role })}
                         />

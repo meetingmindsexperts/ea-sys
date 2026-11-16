@@ -7,14 +7,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./select";
-import { ATTENDEE_ROLE_ORDER, ATTENDEE_ROLE_LABELS } from "@/lib/schemas";
-
-// Derived from the single source of truth in src/lib/schemas.ts so the picker,
-// tables, and CSV/label rendering can never drift.
-export const ROLE_OPTIONS = ATTENDEE_ROLE_ORDER.map((value) => ({
-  value,
-  label: ATTENDEE_ROLE_LABELS[value],
-}));
+import { usePersonFields } from "@/hooks/use-person-fields";
+import { storedAnswerLabel } from "@/lib/person-fields";
 
 interface RoleSelectProps {
   /** Put on the button you tap, so a <label htmlFor> can point at the picker. */
@@ -25,6 +19,17 @@ interface RoleSelectProps {
   placeholder?: string;
 }
 
+/**
+ * The Role picker every form uses (step 1c, part C2, of
+ * docs/ORG_FIELDS_PLAN.md): the organisation's answers on offer, as this page's
+ * event asks them (`usePersonFields`), never a fixed list. While they load, and
+ * if they cannot be read, today's answers.
+ *
+ * A record being edited may hold an answer the form no longer offers (retired,
+ * or from before the list changed). It is shown, as the record holds it, so the
+ * form neither blanks it nor makes the person pick again; the doors keep a held
+ * answer (`roleAnswerProblem`) and refuse only a newly chosen one.
+ */
 export function RoleSelect({
   id,
   value,
@@ -32,6 +37,8 @@ export function RoleSelect({
   disabled = false,
   placeholder = "Select role",
 }: RoleSelectProps) {
+  const role = usePersonFields().role;
+  const held = value && !role.answers.some((a) => a.key === value) ? value : null;
   return (
     // "" rather than undefined when empty: Radix Select (2.x) shows the
     // placeholder for "" and stays controlled, so picking a value no longer
@@ -41,11 +48,16 @@ export function RoleSelect({
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
-        {ROLE_OPTIONS.map((r) => (
-          <SelectItem key={r.value} value={r.value}>
+        {role.answers.map((r) => (
+          <SelectItem key={r.key} value={r.key}>
             {r.label}
           </SelectItem>
         ))}
+        {held && (
+          <SelectItem key={held} value={held}>
+            {storedAnswerLabel(role, held)} (no longer offered)
+          </SelectItem>
+        )}
       </SelectContent>
     </Select>
   );
