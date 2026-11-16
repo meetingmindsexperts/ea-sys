@@ -1,6 +1,7 @@
 /**
  * The Contacts page filters, shared by the list and the export (Oct 23, 2026).
  */
+import { DEFAULT_PUBLIC_PERSON_FIELDS, defaultPersonFields, storedAnswerLabel } from "@/lib/person-fields";
 import { describe, it, expect } from "vitest";
 import {
   MAX_VALUES_PER_FIELD,
@@ -16,9 +17,26 @@ import {
 } from "@/lib/contact-filters";
 import { describeContactFilters } from "@/components/contacts/contact-field-filters";
 
-const parse = (q: string) => parseContactFilters(new URLSearchParams(q));
+const ROLE_FIELD = defaultPersonFields().role;
+const parse = (q: string) => parseContactFilters(new URLSearchParams(q), ROLE_FIELD);
 
 describe("parseContactFilters", () => {
+  it("takes Role as one of the organisation's answers, by key or label, retired ones included (step 1c)", () => {
+    const own = { options: [...ROLE_FIELD.options, { key: "ENG", label: "Engineer", retired: false }, { key: "OLD", label: "Old job", retired: true }] };
+    const role = (q: string) => {
+      const r = parseContactFilters(new URLSearchParams(q), own);
+      return r.ok ? r.filters.role : `refused: ${r.field}`;
+    };
+    expect(role("role=ENG")).toBe("ENG");
+    expect(role("role=engineer")).toBe("ENG");
+    expect(role("role=OLD")).toBe("OLD");
+    expect(role("role=Others (Spouse)")).toBe("OTHERS");
+    expect(role("role=allied-health")).toBe("ALLIED_HEALTH");
+    expect(role("role=Astronaut")).toBe("refused: role");
+    expect(role("role=__none__")).toBe(NOT_SET);
+  });
+
+
   it("reads every filter and trims it", () => {
     const r = parse("search= amina &tags=vip, kol&specialty=Cardiology&country=India&role=physician");
     expect(r).toEqual({
@@ -90,9 +108,9 @@ describe("contactFiltersWhere", () => {
     ]);
   });
 
-  it("Not set matches null or empty, for role null only", () => {
+  it("Not set matches null or empty, Role included now that it is text", () => {
     const w = contactFiltersWhere("org1", { ...base, country: [NOT_SET], role: NOT_SET });
-    expect(w.AND).toEqual([{ role: null }, { OR: [{ country: null }, { country: "" }] }]);
+    expect(w.AND).toEqual([{ OR: [{ role: null }, { role: "" }] }, { OR: [{ country: null }, { country: "" }] }]);
   });
 
   it("keeps the organisation on every shape", () => {
@@ -106,7 +124,7 @@ describe("query and audit helpers", () => {
   it("contactFiltersQuery round-trips through the parser", () => {
     const q = contactFiltersQuery({ search: "a", tags: ["vip"], specialty: ["Cardiology", "Others, please specify"], country: [], role: "PHYSICIAN" });
     expect(q).toEqual({ search: "a", tags: "vip", specialty: ["Cardiology", "Others, please specify"], role: "PHYSICIAN" });
-    const r = parseContactFilters(toSearchParams(q));
+    const r = parseContactFilters(toSearchParams(q), ROLE_FIELD);
     expect(r.ok && r.filters.specialty).toEqual(["Cardiology", "Others, please specify"]);
   });
 
@@ -172,7 +190,10 @@ describe("export file name and filter wording", () => {
 
   it("describes the filters in words for the export dialog", () => {
     expect(
-      describeContactFilters({ search: "amina", tags: "vip,kol", country: ["India", "UAE"], role: "ALLIED_HEALTH", specialty: [NOT_SET] }),
+      describeContactFilters(
+        { search: "amina", tags: "vip,kol", country: ["India", "UAE"], role: "ALLIED_HEALTH", specialty: [NOT_SET] },
+        (v) => storedAnswerLabel(DEFAULT_PUBLIC_PERSON_FIELDS.role, v),
+      ),
     ).toEqual([
       "Search: “amina”",
       "Tags: vip, kol",

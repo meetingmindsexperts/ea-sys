@@ -13,6 +13,7 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { defaultPersonFields } from "@/lib/person-fields";
 import {
   REGISTRATION_EXPORT_HEADERS,
   buildRegistrationExportRow,
@@ -20,7 +21,8 @@ import {
   type RegistrationExportRow,
 } from "@/lib/registration-export";
 
-const ctx = { taxRate: 5, taxLabel: "VAT" };
+const personFields = defaultPersonFields();
+const ctx = { taxRate: 5, taxLabel: "VAT", personFields };
 
 function row(overrides: Partial<RegistrationExportRow> = {}): RegistrationExportRow {
   return {
@@ -117,7 +119,7 @@ describe("buildRegistrationExportRow", () => {
   it("prices from the pricing tier when one is set", () => {
     const r = buildRegistrationExportRow(
       row({ originalPrice: null, pricingTier: { name: "Early Bird", currency: "USD", price: 400 }, payments: [] }),
-      { taxRate: 0, taxLabel: null },
+      { taxRate: 0, taxLabel: null, personFields },
     );
     expect(col(r, "Pricing Tier")).toBe("Early Bird");
     expect(col(r, "Amount Due")).toBe("400.00");
@@ -171,7 +173,7 @@ describe("buildRegistrationExportRow", () => {
       createdAt: new Date("2026-01-01T00:00:00Z"),
       attendee: { firstName: "A", lastName: "B", email: "a@b.c" },
     };
-    const r = buildRegistrationExportRow(minimal, { taxRate: null, taxLabel: null });
+    const r = buildRegistrationExportRow(minimal, { taxRate: null, taxLabel: null, personFields });
     expect(r).toHaveLength(REGISTRATION_EXPORT_HEADERS.length);
     expect(col(r, "Tags")).toBe("");
     expect(col(r, "Checked In Date")).toBe("");
@@ -260,5 +262,18 @@ describe("computeRegistrationRowMoney", () => {
     const redacted = row();
     delete (redacted as Partial<RegistrationExportRow>).payments;
     expect(computeRegistrationRowMoney(redacted, ctx)).toBeNull();
+  });
+});
+
+describe("Role in the export (step 1c of docs/ORG_FIELDS_PLAN.md)", () => {
+  it("is the organisation's label for the stored answer, never a fixed list", () => {
+    const own = defaultPersonFields();
+    own.role.options = [...own.role.options, { key: "ENGINEER", label: "Engineer", retired: true }];
+    const withRole = (role: string | null) =>
+      buildRegistrationExportRow(row({ attendee: { ...row().attendee, role } }), { ...ctx, personFields: own });
+    expect(col(withRole("PHYSICIAN"), "Role")).toBe("Physician");
+    expect(col(withRole("ENGINEER"), "Role")).toBe("Engineer");
+    expect(col(withRole("UNHEARD_OF"), "Role")).toBe("UNHEARD_OF");
+    expect(col(withRole(null), "Role")).toBe("");
   });
 });

@@ -21,7 +21,8 @@
  */
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { answerLabel, defaultPersonFields } from "@/lib/person-fields";
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
 import type { Title } from "@prisma/client";
 
 const isEnabled = () => process.env.CONTACTS_CENTRAL_ENABLED === "true";
@@ -84,6 +85,9 @@ export interface EventMeta {
   tag: string | null;
 }
 
+/** A stored Role answer as its label, by today's list: what this feed has always sent. */
+const DEFAULT_ROLE_LABEL = (key: string) => answerLabel(defaultPersonFields().role, key);
+
 function uniq(xs: (string | null | undefined)[]): string[] {
   return [...new Set(xs.filter((x): x is string => typeof x === "string" && x.trim() !== ""))];
 }
@@ -97,6 +101,8 @@ export function buildCentralRow(
   eventMeta: Map<string, EventMeta>,
   regTypesByEmail: Map<string, string[]>,
   nowIso: string,
+  /** The contact's organisation's label for a Role answer (step 1c). */
+  roleLabelOf: (key: string) => string = DEFAULT_ROLE_LABEL,
 ): CentralContactRow {
   const email = c.email.toLowerCase().trim();
   const events = c.eventIds.map((id) => eventMeta.get(id)).filter((e): e is EventMeta => !!e);
@@ -118,7 +124,9 @@ export function buildCentralRow(
     city: c.city || null,
     country: c.country || null,
     speciality: speciality || null,
-    role: c.role ? formatAttendeeRole(c.role) : null,
+    // The organisation's label for the answer, never a fixed list (step 1c):
+    // for MM Group the same words this feed has always sent.
+    role: c.role ? roleLabelOf(c.role) : null,
     tags: uniq(c.tags),
     events_attended: uniq(events.map((e) => e.name)),
     registration_type: uniq([...(regTypesByEmail.get(email) ?? []), c.registrationType ?? ""]),
@@ -153,10 +161,16 @@ export async function buildCentralRows(opts: { since?: Date } = {}): Promise<Cen
     select: {
       email: true, title: true, firstName: true, lastName: true, organization: true, jobTitle: true,
       phone: true, city: true, country: true, specialty: true, customSpecialty: true,
-      role: true, tags: true, eventIds: true, registrationType: true,
+      role: true, tags: true, eventIds: true, registrationType: true, organizationId: true,
     },
   });
   if (contacts.length === 0) return [];
+
+  // Each organisation's Role labels, read once (one organisation on master).
+  const orgIds = uniq(contacts.map((c) => c.organizationId));
+  const fieldsByOrg = new Map(
+    await Promise.all(orgIds.map(async (id) => [id, await loadOrganizationPersonFields(id)] as const)),
+  );
 
   const eventIds = uniq(contacts.flatMap((c) => c.eventIds));
   const [events, regs] = await Promise.all([
@@ -190,7 +204,8 @@ export async function buildCentralRows(opts: { since?: Date } = {}): Promise<Cen
   // Dedup by lowercased email (single-org today; a guard for safety).
   const byEmail = new Map<string, CentralContactRow>();
   for (const c of contacts) {
-    const row = buildCentralRow(c, eventMeta, regTypesByEmail, nowIso);
+    const role = fieldsByOrg.get(c.organizationId)?.role ?? defaultPersonFields().role;
+    const row = buildCentralRow(c, eventMeta, regTypesByEmail, nowIso, (key) => answerLabel(role, key));
     byEmail.set(row.email, row);
   }
   return [...byEmail.values()];

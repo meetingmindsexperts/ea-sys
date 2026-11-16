@@ -12,6 +12,7 @@
  *  - a filter left open on a redacted field hands the same fact back by
  *    elimination, which is the shape a reviewer reads past.
  */
+import { defaultPersonFields } from "@/lib/person-fields";
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -119,6 +120,7 @@ describe("the Sponsor export column", () => {
   const ctx = {
     taxRate: null,
     taxLabel: null,
+    personFields: defaultPersonFields(),
     sponsorNameById: new Map([["spn_abbott", "Abbott"]]),
   };
   const base = {
@@ -151,7 +153,7 @@ describe("the Sponsor export column", () => {
     // wrong answer rather than a missing one.
     const out = buildRegistrationExportRow(
       { ...base, sponsorId: "spn_abbott" } as never,
-      { taxRate: null, taxLabel: null },
+      { taxRate: null, taxLabel: null, personFields: defaultPersonFields() },
     );
     expect(out[(REGISTRATION_EXPORT_HEADERS as readonly string[]).indexOf("Sponsor")]).toBe(
       "spn_abbott",

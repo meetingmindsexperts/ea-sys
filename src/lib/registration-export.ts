@@ -32,7 +32,7 @@ import { RECIPIENT_STATE_LABELS, type RecipientState } from "@/lib/certificates/
 import { displayRegistrationType } from "@/lib/faculty-filter";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatSerialId } from "@/lib/registration-serial";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { answerLabel, type PersonFieldsConfig } from "@/lib/person-fields";
 import { formatDate } from "@/lib/utils";
 
 /** Column headers, in order. Exported so tests can assert row/header parity. */
@@ -128,6 +128,12 @@ export interface RegistrationExportRow {
 }
 
 export interface RegistrationExportContext {
+  /**
+   * The event's organisation's person fields (step 1c of
+   * docs/ORG_FIELDS_PLAN.md): Role is written as the organisation's label for
+   * the stored answer, never by a fixed list. `loadOrganizationPersonFields`.
+   */
+  personFields: PersonFieldsConfig;
   /** Event tax rate as a number, or null when the event charges no tax. */
   taxRate: number | null;
   taxLabel: string | null;
@@ -264,7 +270,7 @@ export function buildRegistrationExportRow(
     r.id,
     formatSerialId(r.serialId),
     r.attendee.title || "",
-    formatAttendeeRole(r.attendee.role, ""),
+    answerLabel(ctx.personFields.role, r.attendee.role),
     r.attendee.firstName,
     r.attendee.lastName,
     r.attendee.email,

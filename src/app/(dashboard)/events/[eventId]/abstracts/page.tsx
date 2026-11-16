@@ -58,7 +58,7 @@ import {
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
 import { useAbstracts, useSpeakers, useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
 import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
@@ -170,6 +170,7 @@ interface Abstract {
 }
 
 export default function AbstractsPage() {
+  const roleField = usePersonFieldLabel("role");
   const params = useParams();
   const eventId = params.eventId as string;
   // Surface separation: bounce a submitter whose signup flow doesn't cover
@@ -950,7 +951,7 @@ export default function AbstractsPage() {
                     By {selectedAbstract.speaker.firstName}{" "}
                     {selectedAbstract.speaker.lastName}
                     {selectedAbstract.speaker.role && (
-                      <span> · {formatAttendeeRole(selectedAbstract.speaker.role)}</span>
+                      <span> · {roleField.of(selectedAbstract.speaker.role, "—")}</span>
                     )}
                   </p>
                 </div>
@@ -1193,7 +1194,7 @@ export default function AbstractsPage() {
                             <User className="h-4 w-4" />
                             {abstract.speaker.firstName} {abstract.speaker.lastName}
                             {abstract.speaker.role && (
-                              <span className="text-muted-foreground">· {formatAttendeeRole(abstract.speaker.role)}</span>
+                              <span className="text-muted-foreground">· {roleField.of(abstract.speaker.role, "—")}</span>
                             )}
                           </div>
                         )}

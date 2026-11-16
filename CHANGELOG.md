@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Person fields: every screen and file shows Role in the organisation's words (November 16)
+
+Step 1c, part A, of `docs/ORG_FIELDS_PLAN.md`. Nothing changes for MM Group: its list is today's nine with today's labels.
+
+- **Changed**: the registrations export writes each Role as the organisation's label for it, under the organisation's headings for Title, Role and Specialty (the heading row is escaped like every other row). The contacts feed to `contacts_centralv1` sends the contact's organisation's label.
+- **Changed**: the registrations, speakers, contacts and abstracts pages, My Details and the registration, speaker and contact sheets show a person's Role by the organisation's label, under its own caption (`usePersonFieldLabel`). A retired answer still shows by its label.
+- **Changed**: the Contacts Role filter accepts any of the organisation's answers, by key or label, case and punctuation ignored (`answerKeyFor`), and still refuses an unknown one; "Not recorded" also matches an empty Role. A label written loosely, like "Others (Spouse)", now resolves.
+- **Added**: the public person-fields read carries every answer's label, retired ones included, so screens can show a stored answer the form no longer offers. Forms still offer only live answers.
+
 ### Event URL slugs: letters, digits and hyphens only; Greek letters written out (November 16)
 
 A webinar's slug was saved as its pasted name, "Improving Outcomes in β-Thalassemia": every link to it was invalid, Zoom refused its custom stream setup four times, and its handouts would not load. One rule now (`src/lib/event-slug.ts`): Greek letters are written in English (β becomes beta), accents are removed, spaces become hyphens, anything else goes. The Settings slug box cleans as you type, has a "Generate from name" button, and warns about a broken saved slug or a change to a live link. The save route cleans a CHANGED slug the same way (an unchanged one such as MEHF2027 is never rewritten) and refuses one with nothing left (`INVALID_SLUG`). New events get the Greek letters too (`slugify`).

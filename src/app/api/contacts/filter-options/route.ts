@@ -1,3 +1,4 @@
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
     const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.read", { route: "contacts/filter-options:GET" });
     if (!gate.ok) return gate.response;
 
-    const parsed = parseContactFilters(new URL(req.url).searchParams);
+    const parsed = parseContactFilters(new URL(req.url).searchParams, (await loadOrganizationPersonFields(ctx.organizationId)).role);
     if (!parsed.ok) {
       apiLogger.warn({ msg: "contacts/filter-options:invalid-filter", organizationId: ctx.organizationId, userId: ctx.userId, field: parsed.field });
       return NextResponse.json({ error: parsed.error }, { status: 400 });

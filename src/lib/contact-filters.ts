@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { parseAttendeeRole, type AttendeeRoleValue } from "@/lib/schemas";
+import { answerKeyFor, type PersonFieldConfig } from "@/lib/person-fields";
 
 /**
  * The "Not recorded" choice for specialty, country and role. A sentinel no real
@@ -21,14 +21,15 @@ export const NOT_SET = "__none__";
  * values travel as repeated parameters (`specialty=A&specialty=B`), never one
  * comma list, because real values contain commas ("Others, please specify").
  * For all three, `NOT_SET` is the "Not recorded" choice; role is otherwise
- * the AttendeeRole enum and takes one value.
+ * one answer KEY on the organisation's own Role list, retired ones included
+ * (step 1c of docs/ORG_FIELDS_PLAN.md: never the fixed list of nine).
  */
 export interface ContactFilters {
   search: string;
   tags: string[];
   specialty: string[];
   country: string[];
-  role: AttendeeRoleValue | typeof NOT_SET | null;
+  role: string | null;
 }
 
 /** Query parameters with repeated keys, for the list, options and export URLs. */
@@ -59,9 +60,14 @@ export type ParsedContactFilters =
   | { ok: true; filters: ContactFilters }
   | { ok: false; error: string; field: string };
 
-export function parseContactFilters(params: URLSearchParams): ParsedContactFilters {
+/**
+ * `roleField` is the organisation's Role field (`loadOrganizationPersonFields`):
+ * a role is accepted when it names one of its answers, retired or not, by key
+ * or label (`answerKeyFor`), and is filtered by that answer's key.
+ */
+export function parseContactFilters(params: URLSearchParams, roleField: Pick<PersonFieldConfig, "options">): ParsedContactFilters {
   const roleParam = params.get("role")?.trim() || "";
-  const role = roleParam === NOT_SET ? NOT_SET : parseAttendeeRole(roleParam);
+  const role = roleParam === NOT_SET ? NOT_SET : answerKeyFor(roleField, roleParam);
   // An unknown role is refused, not ignored: ignoring it would return the
   // whole book while the caller believes it filtered.
   if (roleParam && !role) return { ok: false, error: `Unknown role: ${roleParam}`, field: "role" };
@@ -122,7 +128,8 @@ export function contactFiltersWhere(organizationId: string, f: ContactFilters): 
     });
   }
   if (f.tags.length > 0) and.push({ tags: { hasSome: f.tags } });
-  if (f.role === NOT_SET) and.push({ role: null });
+  // Role is text since Nov 16, 2026: an empty one is no answer, as null is.
+  if (f.role === NOT_SET) and.push({ OR: [{ role: null }, { role: "" }] });
   else if (f.role) and.push({ role: f.role });
   for (const clause of [textColumnWhere("specialty", f.specialty), textColumnWhere("country", f.country)]) {
     if (clause) and.push(clause);

@@ -175,7 +175,7 @@ describe("the switches stand by themselves", () => {
 });
 
 describe("what a public form is handed", () => {
-  it("only the answers on offer, with their labels, Others last: no retired answer, no settings", async () => {
+  it("only the answers on offer, with their labels, Others last: no retired answer offered, no settings", async () => {
     const { publicPersonFields } = await import("@/lib/person-fields");
     const fields = publicPersonFields(
       readPersonFields({
@@ -184,8 +184,33 @@ describe("what a public form is handed", () => {
         },
       }),
     );
-    expect(fields.specialty).toEqual({ enabled: true, required: true, label: "Area", answers: [{ key: "Cloud", label: "Cloud" }, { key: "Others", label: "Others" }] });
+    expect(fields.specialty).toEqual({
+      enabled: true,
+      required: true,
+      label: "Area",
+      answers: [{ key: "Cloud", label: "Cloud" }, { key: "Others", label: "Others" }],
+      // Every answer's label, the retired one included, so a screen shows a
+      // stored answer by its label (step 1c); a form offers only `answers`.
+      labels: { Cloud: "Cloud", Legacy: "Legacy" },
+    });
     expect(Object.keys(fields).sort()).toEqual(["role", "specialty", "title"]);
+  });
+
+  it("a screen shows a stored answer by the organisation's label, retired or not, and an unknown one as stored", async () => {
+    const { publicPersonFields, storedAnswerLabel, personFieldHeading } = await import("@/lib/person-fields");
+    const fields = publicPersonFields(
+      readPersonFields({
+        [PERSON_FIELDS_SETTING]: {
+          role: { label: "Profession", options: [{ key: "ENG", label: "Engineer" }, { key: "OLD", label: "Old job", retired: true }] },
+        },
+      }),
+    );
+    expect(storedAnswerLabel(fields.role, "ENG")).toBe("Engineer");
+    expect(storedAnswerLabel(fields.role, "OLD")).toBe("Old job");
+    expect(storedAnswerLabel(fields.role, "PHYSICIAN")).toBe("PHYSICIAN");
+    expect(storedAnswerLabel(fields.role, null, "—")).toBe("—");
+    expect(personFieldHeading("Role", fields)).toBe("Profession");
+    expect(personFieldHeading("Email", fields)).toBe("Email");
   });
 });
 

@@ -1,3 +1,4 @@
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
 import { NextResponse } from "next/server";
 import { contactFiltersWhere, parseContactFilters } from "@/lib/contact-filters";
 import { z } from "zod";
@@ -70,7 +71,7 @@ export async function GET(req: Request) {
 
     // The page's filters (search, tags, specialty, country, role), shared with
     // the export so a filtered export is exactly this list (Oct 23, 2026).
-    const parsed = parseContactFilters(searchParams);
+    const parsed = parseContactFilters(searchParams, (await loadOrganizationPersonFields(ctx.organizationId)).role);
     if (!parsed.ok) {
       apiLogger.warn({ msg: "contacts:invalid-filter", organizationId: ctx.organizationId, userId: ctx.userId, field: parsed.field });
       return NextResponse.json({ error: parsed.error }, { status: 400 });

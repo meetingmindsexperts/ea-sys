@@ -64,7 +64,7 @@ import {
 import { contactFiltersQuery } from "@/lib/contact-filters";
 import { TagFilterPopover, getTagColor, type TagUsage } from "@/components/contacts/tag-filter-popover";
 import { formatDate, formatPersonName } from "@/lib/utils";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { useCan } from "@/hooks/use-can";
 
 interface Contact {
@@ -123,6 +123,7 @@ export default function ContactsPage() {
   const canExportContacts = useCan("contacts.export") === "allowed";
 
   const queryClient = useQueryClient();
+  const roleField = usePersonFieldLabel("role");
   const [page, setPage] = useState(1);
   const [exportOpen, setExportOpen] = useState(false);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -515,7 +516,7 @@ export default function ContactsPage() {
                 </th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Contact</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell w-40">Organization</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell w-32">Role</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell w-32">{roleField.caption}</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell w-40">Specialty</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Tags</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden xl:table-cell">Added</th>
@@ -613,7 +614,7 @@ export default function ContactsPage() {
                       </td>
                       <td className="px-4 py-3.5 hidden lg:table-cell max-w-[160px]">
                         <span className="text-sm text-gray-700 truncate block">
-                          {contact.role ? formatAttendeeRole(contact.role) : <span className="text-gray-300">—</span>}
+                          {contact.role ? roleField.of(contact.role) : <span className="text-gray-300">—</span>}
                         </span>
                       </td>
                       <td className="px-4 py-3.5 hidden md:table-cell max-w-[200px]">
@@ -858,7 +859,7 @@ export default function ContactsPage() {
           open={exportOpen}
           onOpenChange={setExportOpen}
           filterQuery={filterQuery}
-          filterSummary={describeContactFilters(filterQuery)}
+          filterSummary={describeContactFilters(filterQuery, (v) => roleField.of(v), roleField.caption)}
           matching={isLoading || isFetching ? null : total}
           onClearFilters={clearAllFilters}
         />

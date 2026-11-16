@@ -74,7 +74,7 @@ import { SendEvidenceRequestDialog } from "@/components/registrations/evidence-r
 import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useEventTags, useSponsors, useEventSurveys } from "@/hooks/use-api";
 import { matchesSurveyResponded, type SurveyRespondedFilter } from "@/lib/survey/responded-filter";
 import { displayRegistrationType, pickableRegTypes } from "@/lib/faculty-filter";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { TagFilter } from "@/components/registrations/tag-filter";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -209,6 +209,7 @@ function RowMoney({ money, promoCode }: { money: Registration["rowMoney"]; promo
 }
 
 export default function RegistrationsPage() {
+  const roleField = usePersonFieldLabel("role");
   const params = useParams();
   const eventId = params.eventId as string;
   const { data: userSession } = useSession();
@@ -1037,7 +1038,7 @@ export default function RegistrationsPage() {
                   <TableHead className="w-16">ID</TableHead>
                   <TableHead>Attendee</TableHead>
                   <TableHead>Country</TableHead>
-                  <TableHead>Role</TableHead>
+                  <TableHead>{roleField.caption}</TableHead>
                   <TableHead>Tags</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Tier</TableHead>
@@ -1088,7 +1089,7 @@ export default function RegistrationsPage() {
                       {/* Specialty sits under the role rather than in its own
                           column, to make room for Country and Paid / Due. */}
                       <div className="text-sm text-muted-foreground leading-tight">
-                        <div>{formatAttendeeRole(registration.attendee.role, "-")}</div>
+                        <div>{roleField.of(registration.attendee.role, "-")}</div>
                         {registration.attendee.specialty && (
                           <div className="text-xs">{registration.attendee.specialty}</div>
                         )}

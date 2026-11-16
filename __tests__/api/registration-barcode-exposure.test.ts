@@ -37,7 +37,11 @@ vi.mock("@/lib/api-auth", () => ({ getOrgContext: () => mockOrgCtx() }));
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null, REGISTRATION_DESK_ALLOW: {} }));
 vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4", checkRateLimit: () => mockRateLimit() }));
-vi.mock("@/lib/schemas", () => ({ titleEnum: { optional: () => ({}) }, attendeeRoleEnum: { optional: () => ({}) } }));
+vi.mock("@/lib/schemas", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/schemas")>()),
+  titleEnum: { optional: () => ({}) },
+  attendeeRoleEnum: { optional: () => ({}) },
+}));
 // Real event-access + visibility helpers — the point of the test.
 vi.mock("@/lib/event-access", async () => await vi.importActual("@/lib/event-access"));
 vi.mock("@/lib/finance-visibility", async () => await vi.importActual("@/lib/finance-visibility"));

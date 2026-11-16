@@ -3,7 +3,7 @@
 import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/searchable-select";
 import type { ContactFilterOptions } from "@/hooks/use-api";
 import { NOT_SET, type ContactFilterParams } from "@/lib/contact-filters";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { MultiValueFilter, type MultiValueOption } from "./multi-value-filter";
 
 /** The "no filter" choice for Role; never sent to the server. */
@@ -19,7 +19,6 @@ export interface ContactFieldFilterValues {
 export const EMPTY_FIELD_FILTERS: ContactFieldFilterValues = { specialty: [], country: [], role: null };
 
 const plain = (v: string) => v;
-const role = (v: string) => formatAttendeeRole(v);
 const named = (v: string, format: (s: string) => string) => (v === NOT_SET ? NOT_SET_LABEL : format(v));
 
 /** Each value with its count, then Not recorded when some contacts have none. */
@@ -29,7 +28,10 @@ function multiOptions(values: { value: string; count: number }[], notSet: number
   return options;
 }
 
-function roleOptions(values: { value: string; count: number }[], notSet: number): SearchableSelectOption[] {
+/** A stored Role answer as the organisation labels it (step 1c: never a fixed list). */
+type RoleLabelOf = (stored: string) => string;
+
+function roleOptions(values: { value: string; count: number }[], notSet: number, role: RoleLabelOf): SearchableSelectOption[] {
   const withCount = (label: string, count: number) => `${label} (${count.toLocaleString()})`;
   const options: SearchableSelectOption[] = [{ value: ANY, label: "All roles" }];
   for (const v of values) options.push({ value: v.value, label: withCount(role(v.value), v.count) });
@@ -42,7 +44,7 @@ function roleOptions(values: { value: string; count: number }[], notSet: number)
  * (its last contact edited away) still shows as itself, never as "All": the list
  * and the export are still filtered by it (review M2, Oct 23, 2026).
  */
-function roleLabel(current: string | null, options: SearchableSelectOption[]): string {
+function roleLabel(current: string | null, options: SearchableSelectOption[], role: RoleLabelOf): string {
   if (!current) return "All roles";
   return options.find((o) => o.value === current)?.label ?? named(current, role);
 }
@@ -68,7 +70,9 @@ export function ContactFieldFilters({
   failed: boolean;
 }) {
   const waiting = loading && !options;
-  const roles = roleOptions(options?.roles ?? [], options?.roleNotSet ?? 0);
+  const roleField = usePersonFieldLabel("role");
+  const role: RoleLabelOf = (v) => roleField.of(v);
+  const roles = roleOptions(options?.roles ?? [], options?.roleNotSet ?? 0, role);
 
   return (
     <>
@@ -90,10 +94,10 @@ export function ContactFieldFilters({
         labelFor={(v) => named(v, plain)}
         disabled={waiting}
       />
-      <div className="w-60 max-w-full" aria-label="Role">
+      <div className="w-60 max-w-full" aria-label={roleField.caption}>
         <SearchableSelect
           value={value.role ?? ANY}
-          displayLabel={waiting ? "Loading choices…" : roleLabel(value.role, roles)}
+          displayLabel={waiting ? "Loading choices…" : roleLabel(value.role, roles, role)}
           onChange={(v) => onChange({ ...value, role: v === ANY ? null : v })}
           options={roles}
           disabled={waiting}
@@ -134,8 +138,11 @@ function describeField(name: string, value: string | string[] | undefined, forma
   return `${name}: ${values.map((v) => named(v, format)).join(" or ")}`;
 }
 
-/** The page's filters in words, for the export dialog ("Country: India or UAE"). */
-export function describeContactFilters(query: ContactFilterParams): string[] {
+/**
+ * The page's filters in words, for the export dialog ("Country: India or UAE").
+ * Role is in the organisation's words: the caller passes its label reader.
+ */
+export function describeContactFilters(query: ContactFilterParams, role: RoleLabelOf, roleCaption = "Role"): string[] {
   const out: string[] = [];
   const search = query.search;
   if (typeof search === "string" && search) out.push(`Search: “${search}”`);
@@ -144,7 +151,7 @@ export function describeContactFilters(query: ContactFilterParams): string[] {
   for (const line of [
     describeField("Specialty", query.specialty, plain),
     describeField("Country", query.country, plain),
-    describeField("Role", query.role, role),
+    describeField(roleCaption, query.role, role),
   ]) {
     if (line) out.push(line);
   }

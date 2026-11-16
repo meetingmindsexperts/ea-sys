@@ -24,6 +24,8 @@ import { rateLimited } from "@/lib/api-errors";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { toCsvRow } from "@/lib/csv-escape";
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
+import { personFieldHeading } from "@/lib/person-fields";
 import {
   REGISTRATION_EXPORT_HEADERS,
   buildRegistrationExportRow,
@@ -662,7 +664,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     // One query per request rather than per row. Sponsors are a table since
     // Sep 2 2026, so a per-row lookup would be a query per registration in a
     // 2,000-row export rather than a JSON re-parse.
-    const sponsorNameById = await getSponsorNameMap(eventId);
+    const [sponsorNameById, personFields] = await Promise.all([
+      getSponsorNameMap(eventId),
+      // Role's label and the field headings are the organisation's (step 1c).
+      loadOrganizationPersonFields(event.organizationId),
+    ]);
 
     if (searchParams.get("export") === "sales") {
       const rows = (payload as unknown as RegistrationExportRow[]).map((r) =>
@@ -671,6 +677,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             taxRate: event.taxRate != null ? Number(event.taxRate) : null,
             taxLabel: event.taxLabel ?? null,
             sponsorNameById,
+            personFields,
           }),
         ),
       );
@@ -733,10 +740,13 @@ export async function GET(req: Request, { params }: RouteParams) {
           taxRate: event.taxRate != null ? Number(event.taxRate) : null,
           taxLabel: event.taxLabel ?? null,
           sponsorNameById,
+          personFields,
           certificatesByRegistrationId,
         }),
       );
-      const csv = [REGISTRATION_EXPORT_HEADERS.join(","), ...rows.map((row) => toCsvRow(row))].join("\n");
+      const headers = REGISTRATION_EXPORT_HEADERS.map((h) => personFieldHeading(h, personFields));
+      // Escaped like every other cell: an organisation's own label may hold a comma.
+      const csv = [toCsvRow(headers), ...rows.map((row) => toCsvRow(row))].join("\n");
 
       recordExport(req, {
         entityType: "Registration",

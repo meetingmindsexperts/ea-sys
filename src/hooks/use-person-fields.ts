@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { usePathname } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchApi } from "@/hooks/use-api";
-import { DEFAULT_PUBLIC_PERSON_FIELDS, personFieldRules, type ConfigurablePersonField, type PersonFieldRules, type PublicPersonFields } from "@/lib/person-fields";
+import { DEFAULT_PUBLIC_PERSON_FIELDS, personFieldRules, storedAnswerLabel, type ConfigurablePersonField, type PersonFieldRules, type PublicPersonFields } from "@/lib/person-fields";
 
 /**
  * What the organisation's forms ask about a person (Nov 13, 2026; step 1 of
@@ -58,6 +58,23 @@ export function usePersonFields(opts: { organisationOnly?: boolean } = {}): Publ
     meta: { optional: true },
   });
   return data ?? DEFAULT_PUBLIC_PERSON_FIELDS;
+}
+
+/**
+ * How a screen shows one field (step 1c): its caption, the organisation's own
+ * label for it, and a stored answer by the organisation's label for it,
+ * retired answers included. Never a fixed list: an organisation's own Role
+ * answer would otherwise show as its key.
+ */
+export function usePersonFieldLabel(field: ConfigurablePersonField): {
+  caption: string;
+  of: (stored: string | null | undefined, fallback?: string) => string;
+} {
+  const fields = usePersonFields();
+  return useMemo(
+    () => ({ caption: fields[field].label, of: (stored, fallback = "") => storedAnswerLabel(fields[field], stored, fallback) }),
+    [fields, field],
+  );
 }
 
 /**

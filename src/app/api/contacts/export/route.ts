@@ -1,3 +1,4 @@
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -82,7 +83,7 @@ export async function GET(req: Request) {
     // The Contacts page's filters (Oct 23, 2026): the export is what the page
     // shows. The cap below is 25,000 and the book is larger, so this is how a
     // complete file is taken. Same refusal rule as the list.
-    const filterParse = parseContactFilters(new URL(req.url).searchParams);
+    const filterParse = parseContactFilters(new URL(req.url).searchParams, (await loadOrganizationPersonFields(ctx.organizationId)).role);
     if (!filterParse.ok) {
       apiLogger.warn({
         msg: "contacts-export:invalid-filter",

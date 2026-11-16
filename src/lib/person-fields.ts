@@ -220,6 +220,26 @@ export function answerLabel(field: PersonFieldConfig, stored: string | null | un
 }
 
 /**
+ * The same, for a reader that holds the public shape (a screen). An answer the
+ * organisation no longer has at all is shown as stored.
+ */
+export function storedAnswerLabel(field: Pick<PublicPersonField, "labels">, stored: string | null | undefined, fallback = ""): string {
+  if (!stored) return fallback;
+  return field.labels[stored] ?? stored;
+}
+
+/**
+ * The column heading or caption for a field: the organisation's own label for
+ * Title, Role and Specialty, any other heading as it is.
+ */
+export function personFieldHeading(heading: string, fields: Record<ConfigurablePersonField, { label: string }>): string {
+  if (heading === "Title") return fields.title.label;
+  if (heading === "Role") return fields.role.label;
+  if (heading === "Specialty") return fields.specialty.label;
+  return heading;
+}
+
+/**
  * What a form needs of a field, and nothing more: safe to hand to a public
  * page. Retired answers are left out; "Others" is the last answer where the
  * field allows it.
@@ -230,6 +250,12 @@ export interface PublicPersonField {
   required: boolean;
   label: string;
   answers: { key: string; label: string }[];
+  /**
+   * Every answer's label by its key, retired ones included, so a screen shows
+   * a stored answer the form no longer offers by its label, not its key
+   * (step 1c). Nothing here is private: they are the organisation's answers.
+   */
+  labels: Record<string, string>;
 }
 export type PublicPersonFields = Record<ConfigurablePersonField, PublicPersonField>;
 
@@ -239,6 +265,7 @@ export function publicPersonFields(config: PersonFieldsConfig): PublicPersonFiel
     required: field.enabled && field.required,
     label: field.label,
     answers: offeredAnswers(field).map(({ key, label }) => ({ key, label })),
+    labels: Object.fromEntries(field.options.map((o) => [o.key, o.label])),
   });
   return { title: one(config.title), role: one(config.role), specialty: one(config.specialty) };
 }
@@ -322,6 +349,30 @@ export function withEventChoices<T extends { enabled: boolean; required: boolean
     return { ...field, required: choice === "required" };
   };
   return { title: one(fields.title, choices.title), role: one(fields.role, choices.role), specialty: one(fields.specialty, choices.specialty) };
+}
+
+/** Lower case, every run of anything that is not a letter or a digit read as one space. */
+function looseForm(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+/**
+ * The stored KEY for what a person or a file wrote, matched against the
+ * field's answers, retired ones included: the key itself or the label, case
+ * and punctuation ignored ("Allied Health", "allied-health", "ALLIED_HEALTH",
+ * "Others (Spouse)"). Null when nothing matches. The ONE matcher for every
+ * reader that takes a written answer: CSV imports, the contacts filter, the
+ * contacts feed from contacts_centralv1 (step 1c of docs/ORG_FIELDS_PLAN.md).
+ * An exact key wins over a looser match.
+ */
+export function answerKeyFor(field: Pick<PersonFieldConfig, "options">, written: string | null | undefined): string | null {
+  const raw = written?.trim();
+  if (!raw) return null;
+  const exact = field.options.find((o) => o.key === raw);
+  if (exact) return exact.key;
+  const loose = looseForm(raw);
+  if (!loose) return null;
+  return field.options.find((o) => looseForm(o.key) === loose || looseForm(o.label) === loose)?.key ?? null;
 }
 
 /** Whether a NEWLY chosen answer is one the field offers. A stored answer is never judged by this. */

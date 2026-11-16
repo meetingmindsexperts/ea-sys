@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { TagInput } from "@/components/ui/tag-input";
 import { CountrySelect } from "@/components/ui/country-select";
 import {
@@ -66,6 +66,7 @@ export function ContactDetailSheet({
   open,
   onOpenChange,
 }: ContactDetailSheetProps) {
+  const roleField = usePersonFieldLabel("role");
   const queryClient = useQueryClient();
   const { data: contactData } = useContact(contactId ?? "");
   const contact = contactData?.contact;
@@ -532,8 +533,8 @@ export function ContactDetailSheet({
                   <div className="flex items-center gap-3">
                     <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div>
-                      <div className="text-xs text-muted-foreground">Role</div>
-                      <div className="text-sm">{formatAttendeeRole(contact.role)}</div>
+                      <div className="text-xs text-muted-foreground">{roleField.caption}</div>
+                      <div className="text-sm">{roleField.of(contact.role, "—")}</div>
                     </div>
                   </div>
                 )}

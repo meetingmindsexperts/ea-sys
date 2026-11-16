@@ -36,7 +36,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { useEvent, useSubmitterContext } from "@/hooks/use-api";
 import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-surfaces";
 import { isProfileIncomplete, missingProfileFields, rulesSentWith } from "@/lib/submitter-profile-completeness";
@@ -176,6 +176,7 @@ export default function SubmitterProfilePage() {
   // rules are not (review of f0899baf: the rules used to come from a second
   // read that could land after the profile).
   const [fieldRules, setFieldRules] = useState<PersonFieldRules>(DEFAULT_PERSON_FIELD_RULES);
+  const roleField = usePersonFieldLabel("role");
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
@@ -451,7 +452,7 @@ export default function SubmitterProfilePage() {
               <div className="grid sm:grid-cols-2 gap-4">
                 <Field icon={Mail} label="Email" value={profile.email} />
                 <Field icon={Mail} label="Additional email" value={profile.additionalEmail} />
-                <Field icon={Briefcase} label="Role" value={profile.role ? formatAttendeeRole(profile.role) : null} />
+                <Field icon={Briefcase} label={roleField.caption} value={profile.role ? roleField.of(profile.role, "—") : null} />
                 <Field icon={Stethoscope} label="Specialty" value={specialty} />
                 <Field icon={Building2} label="Organization" value={profile.organization} />
                 <Field icon={Briefcase} label="Job title" value={profile.jobTitle} />

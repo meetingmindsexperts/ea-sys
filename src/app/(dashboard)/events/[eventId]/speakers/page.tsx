@@ -31,7 +31,7 @@ import {
 import { Mic, Plus, RefreshCw, ChevronLeft, ChevronRight, Send, X, Search, Filter, Tag, Award } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { ImportRegistrationsButton } from "@/components/speakers/import-registrations-button";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
@@ -123,6 +123,7 @@ function bulkTagVerb(mode: string): string {
 }
 
 export default function SpeakersPage() {
+  const roleField = usePersonFieldLabel("role");
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
@@ -477,7 +478,7 @@ export default function SpeakersPage() {
                   <TableHead className="w-20">Reg #</TableHead>
                   <TableHead>Speaker</TableHead>
                   <TableHead className="w-48 max-w-48">Organization</TableHead>
-                  <TableHead>Role</TableHead>
+                  <TableHead>{roleField.caption}</TableHead>
                   <TableHead>Tags</TableHead>
                   <TableHead>Sessions</TableHead>
                   {canReadAbstracts && <TableHead>Abstracts</TableHead>}
@@ -528,7 +529,7 @@ export default function SpeakersPage() {
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">
-                        {formatAttendeeRole(speaker.role, "—")}
+                        {roleField.of(speaker.role, "—")}
                       </span>
                     </TableCell>
                     <TableCell>

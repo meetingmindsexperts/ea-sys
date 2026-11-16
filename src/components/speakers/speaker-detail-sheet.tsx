@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { TagInput } from "@/components/ui/tag-input";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpeakerRegistrationTypeField, SpeakerRegistrationTypeRow } from "@/components/speakers/speaker-registration-type";
@@ -168,6 +168,7 @@ export function SpeakerDetailSheet({
   open,
   onOpenChange,
 }: SpeakerDetailSheetProps) {
+  const roleField = usePersonFieldLabel("role");
   const queryClient = useQueryClient();
   // Event timezone — session times render in the EVENT's clock (review M10:
   // they used to render viewer-local, disagreeing with the agenda grid).
@@ -864,8 +865,8 @@ export function SpeakerDetailSheet({
                         <div className="flex items-center gap-3">
                           <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
                           <div>
-                            <div className="text-xs text-muted-foreground">Role</div>
-                            <div className="text-sm">{formatAttendeeRole(speaker.role)}</div>
+                            <div className="text-xs text-muted-foreground">{roleField.caption}</div>
+                            <div className="text-sm">{roleField.of(speaker.role, "—")}</div>
                           </div>
                         </div>
                       )}

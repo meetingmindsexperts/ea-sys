@@ -63,7 +63,7 @@ import {
 import { CountrySelect } from "@/components/ui/country-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
-import { formatAttendeeRole } from "@/lib/schemas";
+import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { SpeakerRegistrationTypeField, SpeakerRegistrationTypeRow } from "@/components/speakers/speaker-registration-type";
 import { TagInput } from "@/components/ui/tag-input";
@@ -181,6 +181,7 @@ interface Speaker {
 }
 
 export default function SpeakerDetailPage() {
+  const roleField = usePersonFieldLabel("role");
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
@@ -988,8 +989,8 @@ export default function SpeakerDetailPage() {
                     <div className="flex items-center gap-3">
                       <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
                       <div>
-                        <div className="text-xs text-muted-foreground">Role</div>
-                        <div className="text-sm">{formatAttendeeRole(speaker.role)}</div>
+                        <div className="text-xs text-muted-foreground">{roleField.caption}</div>
+                        <div className="text-sm">{roleField.of(speaker.role, "—")}</div>
                       </div>
                     </div>
                   )}

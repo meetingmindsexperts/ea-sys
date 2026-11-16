@@ -8,6 +8,7 @@ import {
   readPersonFields,
   withEventChoices,
   type PersonFieldRules,
+  type PersonFieldsConfig,
 } from "@/lib/person-fields";
 import { personFieldProblems } from "@/lib/person-field-check";
 
@@ -39,6 +40,22 @@ export interface PersonFieldEvent {
 async function readOrganizationFields(organizationId: string) {
   const org = await db.organization.findUnique({ where: { id: organizationId }, select: { settings: true } });
   return readPersonFields(org?.settings);
+}
+
+/**
+ * The organisation's fields themselves (labels, answers, switches) for a
+ * READER: an export, the contacts feed, a label on a page (step 1c). On a
+ * failed read the answers are today's, which on master are the organisation's:
+ * a label read must never fail an export.
+ */
+export async function loadOrganizationPersonFields(organizationId: string | null | undefined): Promise<PersonFieldsConfig> {
+  if (!organizationId) return defaultPersonFields();
+  try {
+    return await readOrganizationFields(organizationId);
+  } catch (err) {
+    apiLogger.error({ err, organizationId, msg: "person-fields:read-failed" });
+    return defaultPersonFields();
+  }
 }
 
 /** For a door with NO event: the organisation's rules as they stand. */
