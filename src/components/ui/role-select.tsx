@@ -43,7 +43,11 @@ export function RoleSelect({
     // "" rather than undefined when empty: Radix Select (2.x) shows the
     // placeholder for "" and stays controlled, so picking a value no longer
     // logs "changing from uncontrolled to controlled".
-    <Select value={value || ""} onValueChange={onChange} disabled={disabled}>
+    // An empty value from Radix is never a pick (no item has the value ""): it
+    // is Radix's hidden native <select> missing a held answer whose item
+    // renders one beat after a value set after mount, inside a <form>, and it
+    // would blank the record's answer (review of 45b4ba3b, reproduced).
+    <Select value={value || ""} onValueChange={(v) => { if (v) onChange(v); }} disabled={disabled}>
       <SelectTrigger id={id} className="w-full">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

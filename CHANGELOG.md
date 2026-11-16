@@ -16,6 +16,7 @@ Step 1c, part C2, of `docs/ORG_FIELDS_PLAN.md`; step 1c is complete. Nothing cha
 
 - **Changed**: the one Role picker every form uses offers the organisation's answers on offer, as the page's event asks them. A record that holds an answer no longer offered shows it, marked "(no longer offered)", so editing anything else keeps it.
 - **Fixed**: the registration sheet's "Role" label now points at its picker (it named an id the picker never had).
+- **Review of `45b4ba3b`** (0 BLOCKER, 0 HIGH, 2 MED, 3 LOW, none reachable until a Role list can be saved; MED 1 and LOW 2 fixed, the rest in ROADMAP as work to finish before 1d): the picker ignores the empty value Radix's hidden select sends for a held answer set after mount inside a form; the new-registration and new-speaker forms' Role label points at its picker.
 
 ### Person fields: every door takes Role from the organisation's own answers (November 16)
 

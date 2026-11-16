@@ -267,6 +267,7 @@ export function PersonFormFields({
           <div className="space-y-2">
             <Label htmlFor="role">Role</Label>
             <RoleSelect
+              id="role"
               value={data.role}
               onChange={(role) => updateField("role", role)}
               placeholder="Select a role (optional)"
