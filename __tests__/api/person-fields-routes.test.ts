@@ -51,6 +51,9 @@ vi.mock("@/services/person-field-service", async (original) => ({
   saveSpecialtyAnswers,
   savePersonFieldSwitches,
   countSpecialtyUse,
+  // Role's own answers (step 1d): no record holds them in these tests.
+  countRoleUse: vi.fn(async () => new Map()),
+  saveRoleAnswers: vi.fn(),
 }));
 
 import { GET as getSettings, PUT } from "@/app/api/organization/person-fields/route";

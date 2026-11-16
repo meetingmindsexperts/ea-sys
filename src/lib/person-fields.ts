@@ -344,8 +344,12 @@ export function withEventChoices<T extends { enabled: boolean; required: boolean
   return { title: one(fields.title, choices.title), role: one(fields.role, choices.role), specialty: one(fields.specialty, choices.specialty) };
 }
 
-/** Lower case, every run of anything that is not a letter or a digit read as one space. */
-function looseForm(text: string): string {
+/**
+ * Lower case, every run of anything that is not a letter or a digit read as
+ * one space. Two answers with the same loose form cannot be told apart by a
+ * file or a person typing (the Role save refuses them).
+ */
+export function looseForm(text: string): string {
   // NFKC first, so "Médecin" typed with a separate accent matches "Médecin".
   return text.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }

@@ -35,6 +35,7 @@ import {
   MAX_PERSON_FIELD_OPTIONS,
   OTHER_ANSWER,
   PERSON_FIELDS_SETTING,
+  looseForm,
   readPersonFields,
   type ConfigurablePersonField,
   type PersonFieldConfig,
@@ -324,5 +325,254 @@ export async function savePersonFieldSwitches(input: {
   } catch (err) {
     apiLogger.error({ err, organizationId: input.organizationId }, "person-fields:switches-save-failed");
     return { ok: false, code: "UNKNOWN", message: "Failed to save the form fields" };
+  }
+}
+
+/* ─────────────────────────────── Role answers ─────────────────────────────── */
+
+/**
+ * The organisation's own Role answers (step 1d of docs/ORG_FIELDS_PLAN.md).
+ * Unlike Specialty, Role stores a KEY and shows a label, so an answer can be
+ * relabelled without touching a single record; the key never changes.
+ *
+ * Rules, all enforced here:
+ *   - A new answer gets a key made once from its label (`roleKeyFor`), never
+ *     changed after; an existing answer is named by its key.
+ *   - An answer held by any record (a contact, an attendee or a speaker of the
+ *     organisation's events) is retired, never removed.
+ *   - No two answers may read the same once case, accents and punctuation are
+ *     ignored, key or label: a file or a person typing could not tell them
+ *     apart (`answerKeyFor` refuses a tie). The key "__none__" is the
+ *     contacts filter's "Not recorded" and is never an answer.
+ *   - Something must be offered: Role has no free-text "Others".
+ *   - A save made from an older copy of the list is refused (LIST_CHANGED).
+ *   - A RELABEL marks every contact holding that answer as updated in the
+ *     same transaction, so the contacts feed (contacts_centralv1, read by
+ *     Mailchimp through n8n, which keys segments on the label) re-sends them
+ *     with the new word on its next run, instead of holding old and new words
+ *     side by side.
+ */
+export type SaveRoleAnswersErrorCode =
+  | "ORGANIZATION_NOT_FOUND"
+  | "TOO_MANY"
+  | "INVALID_ANSWER"
+  | "UNKNOWN_KEY"
+  | "DUPLICATE_ANSWER"
+  | "NOTHING_OFFERED"
+  | "LIST_CHANGED"
+  | "ANSWER_IN_USE"
+  | "UNKNOWN";
+
+export type SaveRoleAnswersResult =
+  | { ok: true; field: PersonFieldConfig; relabelled: string[] }
+  | { ok: false; code: SaveRoleAnswersErrorCode; message: string; inUse?: AnswerInUse[] };
+
+const roleFail = (code: SaveRoleAnswersErrorCode, message: string, inUse?: AnswerInUse[]): SaveRoleAnswersResult => ({
+  ok: false,
+  code,
+  message,
+  ...(inUse ? { inUse } : {}),
+});
+
+export interface RoleAnswerInput {
+  /** An existing answer's key; absent for a new answer. */
+  key?: string;
+  label: string;
+  retired?: boolean;
+}
+
+export interface RoleListSnapshot {
+  answers: { key: string; label: string; retired?: boolean }[];
+}
+
+/** The reserved "Not recorded" choice of the contacts filter (contact-filters.ts NOT_SET). */
+const RESERVED_ROLE_KEY = "__none__";
+
+/**
+ * A new answer's key: its label in capitals, letters and digits joined by "_"
+ * ("Software engineer" → SOFTWARE_ENGINEER), made unique among `taken`. Made
+ * once; a later relabel keeps it.
+ */
+export function roleKeyFor(label: string, taken: Set<string>): string {
+  const base =
+    label
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 60) || "ANSWER";
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const next = `${base}_${n}`;
+    if (!taken.has(next)) return next;
+  }
+}
+
+function sameRoleList(field: PersonFieldConfig, expected: RoleListSnapshot): boolean {
+  if (field.options.length !== expected.answers.length) return false;
+  return field.options.every((o, i) => {
+    const e = expected.answers[i];
+    return o.key === e.key && o.label === e.label && o.retired === (e.retired === true);
+  });
+}
+
+/** The next Role list, or why the input cannot become one. Pure: no database. */
+export function planRoleAnswers(
+  input: RoleAnswerInput[],
+  current: PersonFieldOption[],
+): { ok: true; next: PersonFieldOption[]; relabelled: string[] } | { ok: false; result: SaveRoleAnswersResult } {
+  if (input.length > MAX_PERSON_FIELD_OPTIONS) {
+    return { ok: false, result: roleFail("TOO_MANY", `At most ${MAX_PERSON_FIELD_OPTIONS} answers.`) };
+  }
+  const byKey = new Map(current.map((o) => [o.key, o]));
+  const taken = new Set(current.map((o) => o.key));
+  const seenKeys = new Set<string>();
+  const next: PersonFieldOption[] = [];
+  const relabelled: string[] = [];
+  for (const entry of input) {
+    const label = typeof entry.label === "string" ? entry.label.trim() : "";
+    if (!label || label.length > MAX_PERSON_FIELD_ANSWER || CONTROL_CHARACTER.test(label) || !looseForm(label)) {
+      return { ok: false, result: roleFail("INVALID_ANSWER", `An answer needs 1 to ${MAX_PERSON_FIELD_ANSWER} characters, with a letter or a digit.`) };
+    }
+    let key: string;
+    if (entry.key !== undefined) {
+      const existing = byKey.get(entry.key);
+      if (!existing) return { ok: false, result: roleFail("UNKNOWN_KEY", "An answer in this save is not on the list. Reload and try again.") };
+      key = existing.key;
+      if (existing.label !== label) relabelled.push(key);
+    } else {
+      key = roleKeyFor(label, taken);
+      taken.add(key);
+    }
+    if (seenKeys.has(key)) return { ok: false, result: roleFail("DUPLICATE_ANSWER", `"${label}" is in the list twice.`) };
+    seenKeys.add(key);
+    next.push({ key, label, retired: entry.retired === true });
+  }
+  // Two answers that read the same, by key or label, once case, accents and punctuation are ignored.
+  const owner = new Map<string, string>();
+  for (const o of next) {
+    for (const form of new Set([looseForm(o.key), looseForm(o.label)])) {
+      const other = owner.get(form);
+      if (other !== undefined && other !== o.key) {
+        const a = next.find((x) => x.key === other)?.label ?? other;
+        return { ok: false, result: roleFail("DUPLICATE_ANSWER", `"${o.label}" and "${a}" read the same. Give one a different name.`) };
+      }
+      owner.set(form, o.key);
+    }
+    if (o.key === RESERVED_ROLE_KEY) return { ok: false, result: roleFail("INVALID_ANSWER", "That answer name is reserved.") };
+  }
+  if (next.every((o) => o.retired)) {
+    return { ok: false, result: roleFail("NOTHING_OFFERED", "Offer at least one answer: the forms ask for a role, and an empty picker cannot be answered.") };
+  }
+  return { ok: true, next, relabelled };
+}
+
+/**
+ * How many records in this organisation hold each of these Role keys: its
+ * contacts, and the attendees and speakers of its events. Records, not people.
+ * An account's own profile is not counted (it has no organisation); a removed
+ * key held only there still displays, as its key.
+ */
+export async function countRoleUse(tx: Tx | typeof db, organizationId: string, keys: string[]): Promise<Map<string, number>> {
+  const use = new Map<string, number>();
+  if (keys.length === 0) return use;
+  const add = (rows: { role: string | null; _count: { _all: number } }[]) => {
+    for (const row of rows) {
+      if (row.role) use.set(row.role, (use.get(row.role) ?? 0) + row._count._all);
+    }
+  };
+  const [contacts, attendees, speakers] = await Promise.all([
+    tx.contact.groupBy({ by: ["role"], where: { organizationId, role: { in: keys } }, _count: { _all: true } }),
+    tx.attendee.groupBy({ by: ["role"], where: { role: { in: keys }, registrations: { some: { event: { organizationId } } } }, _count: { _all: true } }),
+    tx.speaker.groupBy({ by: ["role"], where: { role: { in: keys }, event: { organizationId } }, _count: { _all: true } }),
+  ]);
+  add(contacts);
+  add(attendees);
+  add(speakers);
+  return use;
+}
+
+type RoleSaveOutcome =
+  | { saved: false; result: SaveRoleAnswersResult }
+  | { saved: true; before: PersonFieldConfig; after: PersonFieldConfig; removed: string[]; relabelled: string[]; contactsResent: number };
+
+export async function saveRoleAnswers(input: {
+  organizationId: string;
+  actorUserId: string;
+  answers: RoleAnswerInput[];
+  /** The list this edit started from, as the screen loaded it. */
+  expected: RoleListSnapshot;
+}): Promise<SaveRoleAnswersResult> {
+  try {
+    // Read, plan, in-use check, write and the contacts' re-send mark in ONE
+    // transaction holding the organisation row lock (as the Specialty save).
+    const outcome = await tenantTransaction(async (tx): Promise<RoleSaveOutcome> => {
+      const rows = await tx.$queryRaw<{ settings: Prisma.JsonValue | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${input.organizationId} FOR UPDATE`;
+      if (rows.length === 0) return { saved: false, result: roleFail("ORGANIZATION_NOT_FOUND", "Organisation not found") };
+      const settings = (rows[0].settings ?? {}) as Record<string, unknown>;
+      const before = readPersonFields(settings).role;
+      if (!sameRoleList(before, input.expected)) {
+        return { saved: false, result: roleFail("LIST_CHANGED", "Someone else changed this list after you opened it. It has been reloaded: make your change again.") };
+      }
+      const plan = planRoleAnswers(input.answers, before.options);
+      if (!plan.ok) return { saved: false, result: plan.result };
+
+      const kept = new Set(plan.next.map((o) => o.key));
+      const removed = before.options.map((o) => o.key).filter((key) => !kept.has(key));
+      const use = await countRoleUse(tx, input.organizationId, removed);
+      const inUse = removed.flatMap((key) => {
+        const records = use.get(key) ?? 0;
+        const label = before.options.find((o) => o.key === key)?.label ?? key;
+        return records > 0 ? [{ answer: label, records }] : [];
+      });
+      if (inUse.length > 0) {
+        const names = inUse.map((a) => `${a.answer} (${a.records})`).join(", ");
+        return { saved: false, result: roleFail("ANSWER_IN_USE", `These answers are held by records, so they can be retired and not removed: ${names}.`, inUse) };
+      }
+
+      // The label, the switches and Others are kept: this save is the answers.
+      const after: PersonFieldConfig = { enabled: before.enabled, required: before.required, label: before.label, options: plan.next, allowOther: false };
+      const saved = (settings[PERSON_FIELDS_SETTING] && typeof settings[PERSON_FIELDS_SETTING] === "object" ? settings[PERSON_FIELDS_SETTING] : {}) as Record<string, unknown>;
+      await tx.organization.update({
+        where: { id: input.organizationId },
+        data: { settings: { ...settings, [PERSON_FIELDS_SETTING]: { ...saved, role: after } } as unknown as Prisma.InputJsonValue },
+      });
+      // A relabel: the contacts holding the answer are marked updated, so the
+      // contacts feed re-sends them with the new label on its next run.
+      const resent = plan.relabelled.length
+        ? await tx.contact.updateMany({ where: { organizationId: input.organizationId, role: { in: plan.relabelled } }, data: { updatedAt: new Date() } })
+        : { count: 0 };
+      return { saved: true, before, after, removed, relabelled: plan.relabelled, contactsResent: resent.count };
+    });
+
+    if (!outcome.saved) return outcome.result;
+    const describe = (field: PersonFieldConfig) => field.options.map((o) => `${o.key}=${o.label}${o.retired ? " (retired)" : ""}`);
+    db.auditLog
+      .create({
+        data: {
+          userId: input.actorUserId,
+          action: "UPDATE",
+          entityType: "Organization",
+          entityId: input.organizationId,
+          changes: { roleAnswers: { before: describe(outcome.before), after: describe(outcome.after), relabelled: outcome.relabelled } } as unknown as Prisma.InputJsonValue,
+        },
+      })
+      .catch((err) => apiLogger.warn({ err, organizationId: input.organizationId }, "person-fields:audit-failed"));
+    apiLogger.info(
+      {
+        organizationId: input.organizationId,
+        by: input.actorUserId,
+        count: outcome.after.options.length,
+        removed: outcome.removed,
+        relabelled: outcome.relabelled,
+        contactsResent: outcome.contactsResent,
+      },
+      "person-fields:role-saved",
+    );
+    return { ok: true, field: outcome.after, relabelled: outcome.relabelled };
+  } catch (err) {
+    apiLogger.error({ err, organizationId: input.organizationId }, "person-fields:role-save-failed");
+    return roleFail("UNKNOWN", "Failed to save the role answers");
   }
 }

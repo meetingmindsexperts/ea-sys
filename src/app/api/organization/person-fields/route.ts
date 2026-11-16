@@ -7,7 +7,16 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { MAX_PERSON_FIELD_ANSWER, MAX_PERSON_FIELD_OPTIONS, readPersonFields } from "@/lib/person-fields";
-import { countSpecialtyUse, savePersonFieldSwitches, saveSpecialtyAnswers, switchesOf, type SaveSpecialtyAnswersErrorCode } from "@/services/person-field-service";
+import {
+  countRoleUse,
+  countSpecialtyUse,
+  savePersonFieldSwitches,
+  saveRoleAnswers,
+  saveSpecialtyAnswers,
+  switchesOf,
+  type SaveRoleAnswersErrorCode,
+  type SaveSpecialtyAnswersErrorCode,
+} from "@/services/person-field-service";
 
 /**
  * Settings, Form fields (Nov 13, 2026; steps 1 and 2 of
@@ -22,11 +31,20 @@ const answerList = z
   .array(z.object({ answer: z.string().max(MAX_PERSON_FIELD_ANSWER + 20), retired: z.boolean().optional() }))
   .max(MAX_PERSON_FIELD_OPTIONS);
 
+const roleAnswer = z.object({
+  key: z.string().max(MAX_PERSON_FIELD_ANSWER).optional(),
+  label: z.string().max(MAX_PERSON_FIELD_ANSWER + 20),
+  retired: z.boolean().optional(),
+});
+const roleList = z.array(roleAnswer).max(MAX_PERSON_FIELD_OPTIONS);
+const roleSnapshot = z.array(roleAnswer.extend({ key: z.string().max(MAX_PERSON_FIELD_ANSWER) })).max(MAX_PERSON_FIELD_OPTIONS);
+
 const fieldSwitch = z.object({ enabled: z.boolean(), required: z.boolean() });
 const switches = z.object({ title: fieldSwitch, role: fieldSwitch, specialty: fieldSwitch });
 
-// One save at a time: the Specialty answers, or the three fields' switches.
+// One save at a time: the Specialty answers, the Role answers (step 1d), or the three fields' switches.
 const putSchema = z.union([
+  z.object({ role: z.object({ answers: roleList, expected: z.object({ answers: roleSnapshot }) }) }).strict(),
   z
     .object({
       specialty: z.object({
@@ -54,14 +72,34 @@ const HTTP_STATUS: Record<SaveSpecialtyAnswersErrorCode, number> = {
   UNKNOWN: 500,
 };
 
+const ROLE_HTTP_STATUS: Record<SaveRoleAnswersErrorCode, number> = {
+  ORGANIZATION_NOT_FOUND: 404,
+  TOO_MANY: 400,
+  INVALID_ANSWER: 400,
+  UNKNOWN_KEY: 409,
+  DUPLICATE_ANSWER: 409,
+  NOTHING_OFFERED: 400,
+  LIST_CHANGED: 409,
+  ANSWER_IN_USE: 409,
+  UNKNOWN: 500,
+};
+
 const SWITCHES_HTTP_STATUS = { ORGANIZATION_NOT_FOUND: 404, SWITCHES_CHANGED: 409, UNKNOWN: 500 } as const;
 
 async function specialtyWithUse(organizationId: string) {
   const org = await db.organization.findUnique({ where: { id: organizationId }, select: { settings: true } });
   const config = readPersonFields(org?.settings);
   const field = config.specialty;
-  const use = await countSpecialtyUse(db, organizationId, field.options.map((o) => o.key));
+  const [use, roleUse] = await Promise.all([
+    countSpecialtyUse(db, organizationId, field.options.map((o) => o.key)),
+    countRoleUse(db, organizationId, config.role.options.map((o) => o.key)),
+  ]);
   return {
+    // Role's own answers (step 1d): a key that never changes, a label that may.
+    role: {
+      label: config.role.label,
+      answers: config.role.options.map((o) => ({ key: o.key, label: o.label, retired: o.retired, records: roleUse.get(o.key) ?? 0 })),
+    },
     // Asked or not, and demanded or not, for each of the three fields.
     fields: switchesOf(config),
     specialty: {
@@ -127,6 +165,17 @@ export async function PUT(req: Request) {
         if (!saved.ok) {
           apiLogger.warn({ msg: "person-fields:switches-rejected", organizationId, userId, code: saved.code });
           return NextResponse.json({ error: saved.message, code: saved.code }, { status: SWITCHES_HTTP_STATUS[saved.code] });
+        }
+        return NextResponse.json(await specialtyWithUse(organizationId));
+      }
+      if ("role" in parsed.data) {
+        const saved = await saveRoleAnswers({ organizationId, actorUserId: userId, ...parsed.data.role });
+        if (!saved.ok) {
+          apiLogger.warn({ msg: "person-fields:role-rejected", organizationId, userId, code: saved.code });
+          return NextResponse.json(
+            { error: saved.message, code: saved.code, ...(saved.inUse ? { inUse: saved.inUse } : {}) },
+            { status: ROLE_HTTP_STATUS[saved.code] },
+          );
         }
         return NextResponse.json(await specialtyWithUse(organizationId));
       }

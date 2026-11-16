@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Person fields: Role answers in Settings (November 16)
+
+Step 1d, part 2, of `docs/ORG_FIELDS_PLAN.md`. MM Group's Role answers are not changed (D16); the screen is for an organisation that needs its own.
+
+- **Added**: Settings, Form fields, Role answers: add an answer, rename one (everyone who chose it keeps it and reads the new name; its key never changes), retire one, remove one that no record holds, reorder. Answers that read the same once case, accents and punctuation are ignored are refused, and so is a save made from an older copy of the list. Audited.
+- **Added**: renaming an answer marks every contact holding it as updated in the same save, so the contacts feed (`contacts_centralv1`, Mailchimp) re-sends them with the new name on its next run. The screen warns before saving.
+- **Docs**: `docs/ROLLBACK.md` says how to check whether any organisation has its own Role list before a rollback.
+
 ### Person fields: the Role picker keeps a record's own answer and never submits a stale one (November 16)
 
 Step 1d, part 1, of `docs/ORG_FIELDS_PLAN.md` (owner, Nov 16: build 1d; MM Group's Role field and answers stay as they are). Nothing changes for MM Group.

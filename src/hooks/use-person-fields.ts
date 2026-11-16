@@ -119,9 +119,25 @@ export interface SpecialtyListInput {
 /** Asked or not, and demanded or not, for each of the three fields. */
 export type FieldSwitches = Record<ConfigurablePersonField, { enabled: boolean; required: boolean }>;
 
+/** One Role answer as Settings edits it (step 1d): a key that never changes, a label that may. */
+export interface RoleAnswerRow {
+  /** Absent on an answer added on this screen and not saved yet. */
+  key?: string;
+  label: string;
+  retired: boolean;
+  /** How many records in the organisation hold this answer. */
+  records: number;
+}
+
+export interface RoleSettings {
+  label: string;
+  answers: (RoleAnswerRow & { key: string })[];
+}
+
 interface FormFieldSettings {
   fields: FieldSwitches;
   specialty: SpecialtySettings;
+  role: RoleSettings;
 }
 
 /** Everything Settings, Form fields edits, in one read. */
@@ -136,6 +152,29 @@ function useFormFieldSettings() {
 export function useSpecialtySettings() {
   const query = useFormFieldSettings();
   return { ...query, data: query.data?.specialty };
+}
+
+/** The Role answers as Settings edits them: every answer, retired ones too, with how many records hold each. */
+export function useRoleSettings() {
+  const query = useFormFieldSettings();
+  return { ...query, data: query.data?.role };
+}
+
+export function useSaveRoleAnswers() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // `expected` is the list the edit started from: a save made from an older copy is refused.
+    mutationFn: (input: { answers: { key?: string; label: string; retired: boolean }[]; expected: { answers: { key: string; label: string; retired: boolean }[] } }) =>
+      fetchApi<FormFieldSettings>("/api/organization/person-fields", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: input }),
+      }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(SPECIALTY_SETTINGS_KEY, saved);
+      queryClient.invalidateQueries({ queryKey: PUBLIC_FIELDS_KEY });
+    },
+  });
 }
 
 /** The three fields' switches as Settings edits them. */

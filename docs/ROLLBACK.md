@@ -217,7 +217,10 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   of the nine values (Physician, Pharma and so on), which is all that any door accepts until
   an organisation can add its own Role answers (step 1d of docs/ORG_FIELDS_PLAN.md): the
   older image reads and writes `"role"` and the trigger copies its writes into `"roleKey"`.
-  Once an organisation has its own answers, the older image reads NO role for those people
+  Since step 1d (Nov 16, 2026) Settings, Form fields, Role answers can add, rename and retire
+  answers, so check before a rollback whether any organisation has saved its own list:
+  `SELECT id FROM "Organization" WHERE settings->'personFields' ? 'role';` (none means the
+  older image is safe). Once an organisation has its own answers, the older image reads NO role for those people
   (the enum column is empty for an answer outside the nine), and anything there that sets one
   of the nine replaces the organisation's answer: a staff edit, and also writers that fill
   blanks with no one asking (the contact sync's fill-only fields, the EventsAir import's
