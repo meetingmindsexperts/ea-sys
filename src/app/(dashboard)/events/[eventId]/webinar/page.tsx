@@ -102,6 +102,7 @@ import {
   useWebinarLiveStream,
   useWebinarStreamPreview,
   useWebinarPartnerStream,
+  useWebinarPresenceSummary,
   useWebinarViewerQuestions,
   type WebinarViewerQuestionRow,
   useUpdateWebinarViewerQuestion,
@@ -520,6 +521,11 @@ export default function WebinarConsolePage() {
             shown={data?.webinar?.showRecording === true}
             replayUrl={data?.webinar?.replayUrl ?? ""}
           />
+          {/* Who watched on our page: the only attendance for a partner's webinar, and the audience of a
+              custom-stream one, where Zoom's report sees the speakers only (Nov 16, 2026). */}
+          {(partner || data?.webinar?.viewingMode === "hls") && (
+            <PageAttendanceCard eventId={eventId} partner={partner} />
+          )}
           {partner ? (
             <PartnerAnalyticsNote />
           ) : (
@@ -1038,8 +1044,68 @@ function PartnerAnalyticsNote() {
     <Card>
       <CardContent className="py-5 text-sm text-muted-foreground">
         Zoom&apos;s attendance, poll and Q&amp;A reports do not apply here: this webinar is streamed by a partner, not
-        run on Zoom. While it runs, the Live now card on the Setup tab shows who is watching; the questions and polls
-        attendees answered are on the Q&amp;A and Polls tabs.
+        run on Zoom. Attendance is the page report above; the questions and polls attendees answered are on the Q&amp;A
+        and Polls tabs.
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Attendance from our own webinar page (Nov 16, 2026; presence-report.ts): who
+ * opened it, who reached the live view, and the minutes they watched while the
+ * room was open. The CSV carries names and emails, so its button needs the
+ * attendance-export permission, like Zoom's report.
+ */
+function PageAttendanceCard({ eventId, partner }: { eventId: string; partner: boolean }) {
+  const summary = useWebinarPresenceSummary(eventId);
+  const canExport = useCan("webinar.attendance.export", eventId) === "allowed";
+  const s = summary.data;
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <ConsoleTitle icon={Users} tone="emerald">
+              Attendance on our page
+            </ConsoleTitle>
+            <CardDescription>
+              {partner
+                ? "Who opened the webinar page and how long they watched while the room was open. For a partner's stream this is the attendance."
+                : "Who opened the webinar page and how long they watched the custom stream while the room was open. Zoom's report below sees only the speakers in this mode."}
+            </CardDescription>
+          </div>
+          {canExport && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(`/api/events/${eventId}/webinar/presence?export=csv`, "_blank")}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {summary.isLoading ? <CardLoading /> : null}
+        {summary.isError ? (
+          <p className="text-sm text-red-600">
+            {summary.error instanceof Error ? summary.error.message : "Could not load the page attendance."}
+          </p>
+        ) : null}
+        {s ? (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <KpiTile label="Opened the page" value={String(s.opened)} />
+            <KpiTile label="Reached the live view" value={String(s.joined)} />
+            <KpiTile label="Average watched" value={formatDuration(s.avgWatchedSeconds)} />
+            <KpiTile label="Total watched" value={formatDuration(s.totalWatchedSeconds)} />
+          </div>
+        ) : null}
+        <p className="mt-3 text-xs text-muted-foreground">
+          Minutes are counted while the page is open and in view, so time spent listening from a hidden tab or a
+          minimised window is not counted. Treat the figures as a floor.
+        </p>
       </CardContent>
     </Card>
   );

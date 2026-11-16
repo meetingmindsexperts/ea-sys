@@ -114,4 +114,36 @@ describe("presence heartbeat", () => {
     expect(arg.update.joinCount).toBeUndefined();
     expect(arg.update.lastSeenAt).toBeInstanceOf(Date);
   });
+
+  describe("minutes watched and returns (Nov 16, 2026; presence-watch.ts)", () => {
+    beforeEach(() => {
+      mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
+      mockDb.eventSession.findFirst.mockResolvedValue({ id: "sess1", status: "LIVE" });
+    });
+
+    it("a live-view beat 30 s after the last, room open: adds 30 seconds, no extra join", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000) });
+      await call({ phase: "joined" });
+      const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+      expect(arg.update.watchedSeconds).toEqual({ increment: 30 });
+      expect(arg.update.joinCount).toBeUndefined();
+      expect(mockDb.eventSession.findFirst).toHaveBeenCalledWith(expect.objectContaining({ select: { id: true, status: true } }));
+    });
+
+    it("room closed (the exit screen still beats 'joined'): nothing is added", async () => {
+      mockDb.eventSession.findFirst.mockResolvedValue({ id: "sess1", status: "COMPLETED" });
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000) });
+      await call({ phase: "joined" });
+      expect(mockDb.webinarPresence.upsert.mock.calls[0][0].update.watchedSeconds).toBeUndefined();
+    });
+
+    it("back after five minutes away: one more join, and the absence is not counted as watched", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 5 * 60_000) });
+      await call({ phase: "joined" });
+      const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+      expect(arg.update.joinCount).toEqual({ increment: 1 });
+      expect(arg.update.watchedSeconds).toBeUndefined();
+    });
+  });
 });
+

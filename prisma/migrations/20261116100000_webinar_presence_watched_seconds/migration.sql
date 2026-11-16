@@ -1,0 +1,14 @@
+-- Minutes watched on our own webinar page (Nov 16, 2026; external streams step 6,
+-- docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md §4.8).
+--
+-- For a webinar watched as the custom stream, and always for one a partner
+-- streams in, our page's presence record is the only attendance there is: Zoom
+-- sees the speakers, not the audience. The heartbeat now adds up the time each
+-- registration spent in the live view while the room was open.
+--
+-- Additive and idempotent: one column with a default, guarded so a re-run is a
+-- no-op. Existing rows read 0 (nothing was counted before this). The container
+-- still running the previous image never reads or writes the column, and its
+-- inserts get the default. No backfill: past webinars have no heartbeat history
+-- to add up.
+ALTER TABLE "WebinarPresence" ADD COLUMN IF NOT EXISTS "watchedSeconds" INTEGER NOT NULL DEFAULT 0;

@@ -783,6 +783,9 @@ model WebinarPresence {
   lastSeenAt     DateTime @default(now())
   joinCount      Int      @default(1)
   phase          String   @default("lobby") // "lobby" | "joined"
+  // Seconds in the live view while the room was open, added up from the heartbeat (Nov 16, 2026;
+  // src/lib/webinar/presence-watch.ts). The attendance report's "minutes watched".
+  watchedSeconds Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinars: attendance from our own page, with minutes watched (November 16)
+
+External streams step 6 (docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md §4.8). For a webinar watched as the custom stream, Zoom's report sees only the speakers, and for one a partner streams in there is no Zoom at all: our page's own record is the attendance.
+
+- **Added**: the Webinar Console's Analytics tab has an "Attendance on our page" card on every custom-stream webinar: people who opened the page, people who reached the live view, average and total time watched, and Export CSV (name, email, registration number, first on the page, last seen, times joined, minutes watched; times in the event's timezone). The CSV needs the same permission as Zoom's attendance export.
+- **Added**: the heartbeat now adds up the time each person spent in the live view while the room was open (a new column, `WebinarPresence.watchedSeconds`, additive migration). Time in a hidden tab or a closed laptop is not counted, so the figures are a floor. Earlier webinars show 0 minutes: there was nothing to add up.
+- **Changed**: "times joined" now also counts a return after more than two minutes away; it used to stop at the first admission from the lobby.
+
 ### Webinars: the Partner stream card, so a partner can stream into our webinar (November 16)
 
 External streams step 5 (docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md).

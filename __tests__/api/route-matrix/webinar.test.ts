@@ -88,6 +88,8 @@ const CASES: HandlerCase[] = [
   { name: "POST webinar/panelists/[panelistId]/resend", handler: resendPOST, method: "POST", params: { panelistId: "p1" }, body: {} },
   { name: "POST webinar/panelists/sync-speakers", handler: syncSpeakersPOST, method: "POST", body: {} },
   { name: "GET webinar/presence", handler: presenceGET, method: "GET" },
+  { name: "GET webinar/presence (summary)", handler: presenceGET, method: "GET", query: "view=summary" },
+  { name: "GET webinar/presence (csv)", handler: presenceGET, method: "GET", query: "export=csv" },
   { name: "GET webinar/questions", handler: questionsGET, method: "GET" },
   { name: "PATCH webinar/questions", handler: questionsPATCH, method: "PATCH", body: { id: "q1", status: "ANSWERED" } },
   { name: "POST webinar/recording/fetch", handler: recordingPOST, method: "POST", body: {} },

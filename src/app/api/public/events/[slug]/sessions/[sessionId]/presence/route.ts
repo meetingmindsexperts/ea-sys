@@ -8,6 +8,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
+import { presenceBeatEffect } from "@/lib/webinar/presence-watch";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -20,6 +21,10 @@ const presenceSchema = z.object({ phase: z.enum(["lobby", "joined"]) });
  * Tracks OUR page presence (registrant has the page open), NOT actual Zoom
  * viewing — the authoritative post-event attendance is ZoomAttendance. Org
  * staff (QA viewers) are intentionally NOT recorded.
+ *
+ * Since Nov 16, 2026 each beat also adds the time watched and counts a return
+ * after an absence (presence-watch.ts): for a custom-stream webinar, and one a
+ * partner streams in, this record is the attendance report.
  */
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -88,7 +93,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Session must belong to this event (defense against cross-event writes).
     const sessionRow = await db.eventSession.findFirst({
       where: { id: sessionId, eventId: event.id },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!sessionRow) {
       apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "presence:session-not-found");
@@ -104,8 +109,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // connection — critical at 5k attendees on the shared connection pool.
     const existing = await db.webinarPresence.findUnique({
       where: { sessionId_registrationId: { sessionId, registrationId: registration.id } },
-      select: { phase: true },
+      select: { phase: true, lastSeenAt: true },
     });
+    const effect = presenceBeatEffect({ beatPhase: phase, previous: existing, roomOpen: sessionRow.status === "LIVE", now });
+    const escalated = Boolean(existing) && phase === "joined" && existing?.phase !== "joined";
 
     await db.webinarPresence.upsert({
       where: { sessionId_registrationId: { sessionId, registrationId: registration.id } },
@@ -125,9 +132,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         organizationId: event.organizationId,
         // Only escalate on an existing lobby row beating "joined"; the create
         // branch already sets the phase for a brand-new row.
-        ...(existing && phase === "joined" && existing.phase !== "joined"
-          ? { phase: "joined", joinCount: { increment: 1 } }
-          : {}),
+        ...(escalated ? { phase: "joined" } : {}),
+        // One more join: admitted from the lobby, or back after an absence.
+        ...(escalated || effect.rejoined ? { joinCount: { increment: 1 } } : {}),
+        ...(effect.watchedSeconds > 0 ? { watchedSeconds: { increment: effect.watchedSeconds } } : {}),
       },
     });
 

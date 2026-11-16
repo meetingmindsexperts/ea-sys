@@ -3782,6 +3782,23 @@ export function useWebinarPresence(eventId: string, enabled = true) {
   });
 }
 
+/** Everyone who opened the webinar page, counted (no names): the page attendance report's summary. */
+export interface WebinarPresenceSummary {
+  opened: number;
+  joined: number;
+  totalWatchedSeconds: number;
+  avgWatchedSeconds: number;
+}
+
+export function useWebinarPresenceSummary(eventId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...queryKeys.webinarPresence(eventId), "summary"] as const,
+    queryFn: () => fetchApi<WebinarPresenceSummary>(`/api/events/${eventId}/webinar/presence?view=summary`),
+    enabled: !!eventId && enabled,
+    refetchInterval: 60_000,
+  });
+}
+
 export interface WebinarStreamTimelineEntry {
   id: string;
   kind:
