@@ -52,7 +52,7 @@ describe("slugifyTemplateName", () => {
 });
 
 describe("createCustomEmailTemplate", () => {
-  const base = { eventId: "evt-1", name: "Faculty Welcome", subject: "Welcome, {{firstName}}", htmlContent: "<p>Dear {{speakerName}},</p>" };
+  const base = { eventId: "evt-1", organizationId: "org-1", name: "Faculty Welcome", subject: "Welcome, {{firstName}}", htmlContent: "<p>Dear {{speakerName}},</p>" };
 
   it("refuses a slug outside the rule before touching the database", async () => {
     for (const slug of ["", "Faculty Welcome", "faculty_welcome", "a".repeat(101)]) {
@@ -105,6 +105,7 @@ describe("createCustomEmailTemplate", () => {
     expect(mockDb.emailTemplate.create).toHaveBeenCalledWith({
       data: {
         eventId: "evt-1",
+        organizationId: "org-1",
         slug: "faculty-welcome",
         name: "Faculty Welcome",
         subject: "Welcome, {{firstName}}",
@@ -151,30 +152,30 @@ describe("duplicateEmailTemplate", () => {
 
   it("copies subject and both bodies into a custom template that starts disabled, named and slugged as the first copy", async () => {
     mockDb.emailTemplate.findFirst.mockResolvedValueOnce(src);
-    const r = await duplicateEmailTemplate({ eventId: "ev1", sourceId: "tpl-src" });
+    const r = await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceId: "tpl-src" });
     expect(r).toMatchObject({ ok: true, source: { id: "tpl-src", slug: "faculty-welcome" } });
     expect(mockDb.emailTemplate.findFirst.mock.calls[0][0].where).toEqual({ id: "tpl-src", eventId: "ev1" });
     expect(mockDb.emailTemplate.create.mock.calls[0][0].data).toEqual({
-      eventId: "ev1", slug: "faculty-welcome-copy", name: "Faculty Welcome (copy)",
+      eventId: "ev1", organizationId: "org-1", slug: "faculty-welcome-copy", name: "Faculty Welcome (copy)",
       subject: src.subject, htmlContent: src.htmlContent, textContent: src.textContent, isActive: false,
     });
   });
 
   it("numbers the next copy when the first name is taken", async () => {
     taken("faculty-welcome-copy", "faculty-welcome-copy-2");
-    const r = await duplicateEmailTemplate({ eventId: "ev1", sourceSlug: "faculty-welcome" });
+    const r = await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceSlug: "faculty-welcome" });
     expect(r.ok && r.template).toMatchObject({ slug: "faculty-welcome-copy-3", name: "Faculty Welcome (copy 3)" });
   });
 
   it("moves to the next number when a concurrent copy wins the race on the unique index", async () => {
     taken();
     mockDb.emailTemplate.create.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "6" }));
-    const r = await duplicateEmailTemplate({ eventId: "ev1", sourceSlug: "faculty-welcome" });
+    const r = await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceSlug: "faculty-welcome" });
     expect(r.ok && r.template.slug).toBe("faculty-welcome-copy-2");
   });
 
   it("copies a built-in from its default text when the event has no row for it yet, into a custom slug", async () => {
-    const r = await duplicateEmailTemplate({ eventId: "ev1", sourceSlug: "speaker-invitation" });
+    const r = await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceSlug: "speaker-invitation" });
     expect(r).toMatchObject({ ok: true, source: { id: null, slug: "speaker-invitation" } });
     const data = mockDb.emailTemplate.create.mock.calls[0][0].data;
     expect(data.slug).toBe("speaker-invitation-copy");
@@ -184,27 +185,27 @@ describe("duplicateEmailTemplate", () => {
 
   it("keeps the source's speaker tokens: a custom template sent to speakers fills them", async () => {
     taken();
-    const r = await duplicateEmailTemplate({ eventId: "ev1", sourceSlug: "faculty-welcome" });
+    const r = await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceSlug: "faculty-welcome" });
     expect(r.ok && r.unknownTokens).toEqual([]);
   });
 
   it("uses a typed name as is, with its own slug, and numbers it only when taken", async () => {
     mockDb.emailTemplate.findFirst.mockResolvedValue(src);
-    const first = await duplicateEmailTemplate({ eventId: "ev1", sourceId: "tpl-src", name: "  Chair welcome " });
+    const first = await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceId: "tpl-src", name: "  Chair welcome " });
     expect(first.ok && first.template).toMatchObject({ slug: "chair-welcome", name: "Chair welcome" });
     mockDb.emailTemplate.findUnique.mockImplementation(async ({ where }: { where: { eventId_slug: { slug: string } } }) => (where.eventId_slug.slug === "chair-welcome" ? { id: "x" } : null));
-    const second = await duplicateEmailTemplate({ eventId: "ev1", sourceId: "tpl-src", name: "Chair welcome" });
+    const second = await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceId: "tpl-src", name: "Chair welcome" });
     expect(second.ok && second.template).toMatchObject({ slug: "chair-welcome-copy-2", name: "Chair welcome (copy 2)" });
   });
 
   it("refuses an unknown source, a name with no letters, and gives up after fifty taken numbers", async () => {
     mockDb.emailTemplate.findFirst.mockResolvedValueOnce(null);
-    expect(await duplicateEmailTemplate({ eventId: "ev1", sourceId: "nope" })).toMatchObject({ ok: false, code: "SOURCE_NOT_FOUND" });
-    expect(await duplicateEmailTemplate({ eventId: "ev1", sourceSlug: "no-such-template" })).toMatchObject({ ok: false, code: "SOURCE_NOT_FOUND" });
+    expect(await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceId: "nope" })).toMatchObject({ ok: false, code: "SOURCE_NOT_FOUND" });
+    expect(await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceSlug: "no-such-template" })).toMatchObject({ ok: false, code: "SOURCE_NOT_FOUND" });
     taken();
-    expect(await duplicateEmailTemplate({ eventId: "ev1", sourceSlug: "faculty-welcome", name: "***" })).toMatchObject({ ok: false, code: "INVALID_NAME" });
+    expect(await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceSlug: "faculty-welcome", name: "***" })).toMatchObject({ ok: false, code: "INVALID_NAME" });
     mockDb.emailTemplate.findUnique.mockImplementation(async ({ where }: { where: { eventId_slug: { slug: string } } }) => (where.eventId_slug.slug === src.slug ? src : { id: "x" }));
-    expect(await duplicateEmailTemplate({ eventId: "ev1", sourceSlug: "faculty-welcome" })).toMatchObject({ ok: false, code: "NO_FREE_SLUG" });
+    expect(await duplicateEmailTemplate({ eventId: "ev1", organizationId: "org-1", sourceSlug: "faculty-welcome" })).toMatchObject({ ok: false, code: "NO_FREE_SLUG" });
     expect(mockDb.emailTemplate.create).not.toHaveBeenCalled();
   });
 });

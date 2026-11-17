@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -47,6 +48,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "templates.manage", { route: ROUTE, eventId });
     if (!gate.ok) return gate.response;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
+
     const event = await findGatedEvent(gate, {
       select: { id: true },
     });
@@ -71,7 +74,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return zodErrorResponse(parsed, { route: ROUTE, eventId, templateId, userId: session.user.id });
     }
 
-    const result = await duplicateEmailTemplate({ eventId, sourceId: templateId, name: parsed.data.name });
+    const result = await duplicateEmailTemplate({ eventId, organizationId: orgGuard.orgId, sourceId: templateId, name: parsed.data.name });
     if (!result.ok) {
       const status = statusForCode(result.code);
       apiLogger.warn({ msg: "email-template-duplicate:refused", code: result.code, eventId, templateId, userId: session.user.id });
@@ -93,6 +96,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       .catch((err) => apiLogger.error({ err, msg: "email-template-duplicate:audit-log-failed", eventId, templateId: template.id }));
 
     return NextResponse.json({ ...template, unfillableTokens: unknownTokens }, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "email-template-duplicate:failed" });
     return NextResponse.json({ error: "Failed to duplicate email template" }, { status: 500 });

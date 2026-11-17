@@ -14,6 +14,7 @@
 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { getTenantOrgId } from "@/lib/tenant-context";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
 import type { EventStats } from "@prisma/client";
@@ -122,9 +123,17 @@ async function _doRefresh(eventId: string): Promise<void> {
     computedAt: new Date(),
   };
 
+  // The organisation is the lane this refresh runs in (Event RLS step 5, Nov
+  // 17 2026). Every caller is inside the event's organisation's lane already:
+  // the counts above are of policied tables, and outside a lane they are all
+  // zero where row security is on. So the lane IS the organisation the row
+  // policy will hold this row to, and 39 call sites need not each pass it.
+  const organizationId = getTenantOrgId() || null;
   await db.eventStats.upsert({
     where: { eventId },
-    create: { eventId, ...data },
-    update: data,
+    create: { eventId, organizationId, ...data },
+    // A row from before the column existed is stamped by its next refresh; a
+    // refresh made outside a lane never blanks a stamp that is there.
+    update: { ...data, ...(organizationId && { organizationId }) },
   });
 }

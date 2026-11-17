@@ -9,6 +9,12 @@ import { NOTIFIED_ROLES } from "@/lib/team-roles";
 
 interface CreateNotificationParams {
   userId: string;
+  /**
+   * The organisation the notice belongs to: the event's, or for a notice with
+   * no event the recipient's own. Stamped on the row, which carries a row
+   * policy on the platform (Event RLS step 5, Nov 17 2026).
+   */
+  organizationId: string | null;
   eventId?: string;
   type:
     | "REGISTRATION"
@@ -58,7 +64,7 @@ export async function createNotification(params: CreateNotificationParams) {
  */
 export async function notifyEventAdmins(
   eventId: string,
-  params: Omit<CreateNotificationParams, "userId" | "eventId"> & {
+  params: Omit<CreateNotificationParams, "userId" | "eventId" | "organizationId"> & {
     setting?: NotificationSettingKey;
   }
 ) {
@@ -97,6 +103,7 @@ export async function notifyEventAdmins(
       data: admins.map((admin) => ({
         userId: admin.id,
         eventId,
+        organizationId: event.organizationId,
         ...notification,
       })),
     });

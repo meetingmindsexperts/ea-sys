@@ -265,6 +265,9 @@ function seedDefaults(event: Event): void {
     .createMany({
       data: DEFAULT_TEMPLATES.map((t) => ({
         eventId: event.id,
+        // Stamped, or the row policy on the platform refuses the seed (found by
+        // running the browser suite under row security, Nov 17 2026).
+        organizationId: event.organizationId,
         slug: t.slug,
         name: t.name,
         subject: t.subject,

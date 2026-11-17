@@ -81,6 +81,10 @@ model MediaFile {
 model EmailTemplate {
   id          String   @id @default(cuid())
   eventId     String
+  /// Tenancy (Event RLS step 5, Nov 17 2026): the event's organisation,
+  /// denormalised. Nullable, no FK. Every writer stamps it; it backs the flat
+  /// row policy in prisma/rls/eventonly.sql (platform only; master ignores it).
+  organizationId String?
   slug        String // e.g. "registration-confirmation", "speaker-invitation"
   name        String // Human-readable: "Registration Confirmation"
   subject     String // Subject line with {{variables}}
@@ -94,6 +98,7 @@ model EmailTemplate {
 
   @@unique([eventId, slug])
   @@index([eventId])
+  @@index([organizationId])
 }
 
 // ==================== NOTIFICATIONS ====================
@@ -102,6 +107,11 @@ model Notification {
   id        String   @id @default(cuid())
   userId    String
   eventId   String?
+  /// Tenancy (Event RLS step 5, Nov 17 2026): the organisation the notice
+  /// belongs to, denormalised: its event's, or for a notice with no event the
+  /// recipient's own. Nullable, no FK. Backs the flat row policy in
+  /// prisma/rls/eventonly.sql (platform only; master ignores it).
+  organizationId String?
   type      String // REGISTRATION, PAYMENT, ABSTRACT, REVIEW, CHECK_IN
   title     String
   message   String
@@ -114,6 +124,7 @@ model Notification {
 
   @@index([userId, isRead])
   @@index([userId, createdAt])
+  @@index([organizationId])
 }
 
 // ==================== MOBILE PUSH NOTIFICATIONS ====================

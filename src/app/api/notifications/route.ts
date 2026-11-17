@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";
 
 /**
@@ -35,7 +36,13 @@ export async function GET(req: Request) {
       ...(unreadOnly ? { isRead: false } : {}),
     };
 
-    const [notifications, unreadCount] = await Promise.all([
+    // A notice belongs to an organisation (its event's, or the recipient's own)
+    // and carries a row policy on the platform (Event RLS step 5, Nov 17 2026),
+    // so it is read in the signed-in person's organisation's lane. An account
+    // with no organisation receives no notices; the empty lane says so quietly
+    // (this route is polled, so it does not log `tenant:no-org-lane`).
+    const lane = session.user.organizationId ?? "";
+    const [notifications, unreadCount] = await runWithTenant(lane, () => Promise.all([
       db.notification.findMany({
         where,
         orderBy: { createdAt: "desc" },
@@ -54,7 +61,7 @@ export async function GET(req: Request) {
       db.notification.count({
         where: { userId: session.user.id, isRead: false },
       }),
-    ]);
+    ]));
 
     return NextResponse.json({ notifications, unreadCount });
   } catch (err) {
@@ -84,21 +91,27 @@ export async function PUT(req: Request) {
     }
     const { ids, all } = parsed.data;
 
+    // In the person's organisation's lane, as the read above.
+    const lane = session.user.organizationId ?? "";
     if (all) {
-      await db.notification.updateMany({
-        where: { userId: session.user.id, isRead: false },
-        data: { isRead: true },
-      });
+      await runWithTenant(lane, () =>
+        db.notification.updateMany({
+          where: { userId: session.user.id, isRead: false },
+          data: { isRead: true },
+        }),
+      );
       // `Array.isArray` was here before the parse existed; the schema now
       // guarantees the shape, so only emptiness is left to decide.
     } else if (ids && ids.length > 0) {
-      await db.notification.updateMany({
-        where: {
-          id: { in: ids },
-          userId: session.user.id,
-        },
-        data: { isRead: true },
-      });
+      await runWithTenant(lane, () =>
+        db.notification.updateMany({
+          where: {
+            id: { in: ids },
+            userId: session.user.id,
+          },
+          data: { isRead: true },
+        }),
+      );
     } else {
       return NextResponse.json(
         { error: "Provide 'ids' array or 'all: true'" },

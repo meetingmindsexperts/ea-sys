@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
+import { runWithTenant } from "@/lib/tenant-context";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 
@@ -21,18 +22,21 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Verify event access
     const event = await findGatedEvent(gate, {
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const logs = await db.importLog.findMany({
-      where: { eventId },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+    // Inside the event's organisation's lane: ImportLog carries a row policy (Event RLS step 5).
+    const logs = await runWithTenant(event.organizationId, () =>
+      db.importLog.findMany({
+        where: { eventId },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    );
 
     return NextResponse.json(logs);
   } catch (error) {

@@ -83,6 +83,8 @@ export type CreateEmailTemplateResult =
 
 export async function createCustomEmailTemplate(args: {
   eventId: string;
+  /** The event's organisation, stamped on the row (EmailTemplate carries a row policy on the platform). */
+  organizationId: string;
   slug: string;
   name: string;
   subject: string;
@@ -155,7 +157,7 @@ export async function createCustomEmailTemplate(args: {
 
   try {
     const template = await db.emailTemplate.create({
-      data: { eventId, slug, name, subject, htmlContent, textContent, ...(args.isActive === false && { isActive: false }) },
+      data: { eventId, organizationId: args.organizationId, slug, name, subject, htmlContent, textContent, ...(args.isActive === false && { isActive: false }) },
     });
     apiLogger.info({ msg: "email-template-create:created", eventId, slug, templateId: template.id, unknownTokens });
     return { ok: true, template, unknownTokens };
@@ -208,6 +210,8 @@ function copyNameForTry(typedName: string | undefined, sourceName: string, n: nu
 
 export async function duplicateEmailTemplate(args: {
   eventId: string;
+  /** The event's organisation, stamped on the copy. */
+  organizationId: string;
   /** Exactly one of the two: the dashboard sends the row id, the agent the slug. */
   sourceId?: string;
   sourceSlug?: string;
@@ -236,7 +240,7 @@ export async function duplicateEmailTemplate(args: {
     if (!isCustomTemplateSlug(slug)) continue;
     const name = copyNameForTry(typedName, source.name, n);
     const result = await createCustomEmailTemplate({
-      eventId, slug, name,
+      eventId, organizationId: args.organizationId, slug, name,
       subject: source.subject, htmlContent: source.htmlContent, textContent: source.textContent,
       isActive: false,
     });

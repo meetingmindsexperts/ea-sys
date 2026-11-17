@@ -733,12 +733,17 @@ model Invoice {
 model InvoiceCounter {
   id           String      @id @default(cuid())
   eventId      String
+  /// Tenancy (Event RLS step 5, Nov 17 2026): the event's organisation,
+  /// denormalised. Nullable, no FK. Every writer stamps it; it backs the flat
+  /// row policy in prisma/rls/eventonly.sql (platform only; master ignores it).
+  organizationId String?
   type         InvoiceType
   lastSequence Int         @default(0)
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, type])
+  @@index([organizationId])
 }
 
 // One row per event holding the last-assigned registration serialId.
@@ -828,6 +833,10 @@ enum BillingAccountType {
 model EventBillingAccount {
   id               String   @id @default(cuid())
   eventId          String
+  /// Tenancy (Event RLS step 5, Nov 17 2026): the event's organisation,
+  /// denormalised. Nullable, no FK. Every writer stamps it; it backs the flat
+  /// row policy in prisma/rls/eventonly.sql (platform only; master ignores it).
+  organizationId String?
   billingAccountId String
   addedAt          DateTime @default(now())
   addedByUserId    String?
@@ -839,6 +848,7 @@ model EventBillingAccount {
   @@unique([eventId, billingAccountId])
   @@index([eventId])
   @@index([billingAccountId])
+  @@index([organizationId])
 }
 
 enum InvoiceType {

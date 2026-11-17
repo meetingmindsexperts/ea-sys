@@ -110,6 +110,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       await db.emailTemplate.createMany({
         data: missing.map((t) => ({
           eventId,
+          organizationId: orgGuard.orgId,
           slug: t.slug,
           name: t.name,
           subject: t.subject,
@@ -198,7 +199,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // ONE create for this route and the agent's create_email_template
     // (existence check, token normalisation, the P2002 race answered as
     // taken rather than a 500). The 201 body is the row, as before.
-    const result = await createCustomEmailTemplate({ eventId, slug, name, subject, htmlContent, textContent });
+    const result = await createCustomEmailTemplate({ eventId, organizationId: orgGuard.orgId, slug, name, subject, htmlContent, textContent });
     if (!result.ok) {
       const status = result.code === "SLUG_TAKEN" ? 409 : 400;
       const error = result.code === "SLUG_TAKEN" ? "Template with this slug already exists" : result.message;

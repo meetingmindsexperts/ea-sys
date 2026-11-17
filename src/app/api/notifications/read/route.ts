@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 
 const markReadSchema = z.union([
@@ -34,10 +35,13 @@ export async function PUT(req: Request) {
       ...("ids" in data && data.ids ? { id: { in: data.ids } } : {}),
     };
 
-    const result = await db.notification.updateMany({
-      where,
-      data: { isRead: true },
-    });
+    // In the person's organisation's lane: Notification carries a row policy on the platform (step 5).
+    const result = await runWithTenant(session.user.organizationId ?? "", () =>
+      db.notification.updateMany({
+        where,
+        data: { isRead: true },
+      }),
+    );
 
     return NextResponse.json({ updated: result.count });
   } catch (err) {

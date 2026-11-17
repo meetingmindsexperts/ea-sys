@@ -88,7 +88,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     await db.eventBillingAccount.upsert({
       where: { eventId_billingAccountId: { eventId, billingAccountId: result.billingAccount.id } },
       update: {},
-      create: { eventId, billingAccountId: result.billingAccount.id, addedByUserId: session.user.id },
+      create: { eventId, organizationId: orgId, billingAccountId: result.billingAccount.id, addedByUserId: session.user.id },
     });
 
     apiLogger.info({

@@ -55,7 +55,8 @@ describe("duplicate route", () => {
     const res = await POST(req(), params());
     expect(res.status).toBe(201);
     expect(await res.json()).toMatchObject({ id: "tpl-copy", isActive: false, unfillableTokens: [] });
-    expect(mockDuplicate).toHaveBeenCalledWith({ eventId: "ev1", sourceId: "tpl-src", name: undefined });
+    // The caller's organisation rides along, to be stamped on the copy (Event RLS step 5).
+    expect(mockDuplicate).toHaveBeenCalledWith({ eventId: "ev1", organizationId: "orgA", sourceId: "tpl-src", name: undefined });
     expect(mockDb.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ action: "CREATE", entityType: "EmailTemplate", entityId: "tpl-copy", changes: expect.objectContaining({ source: "rest", duplicatedFrom: { id: "tpl-src", slug: "speaker-invitation" } }) }),
     });
@@ -63,7 +64,7 @@ describe("duplicate route", () => {
 
   it("passes a typed name through", async () => {
     await POST(req(JSON.stringify({ name: "Chair welcome" })), params());
-    expect(mockDuplicate).toHaveBeenCalledWith({ eventId: "ev1", sourceId: "tpl-src", name: "Chair welcome" });
+    expect(mockDuplicate).toHaveBeenCalledWith({ eventId: "ev1", organizationId: "orgA", sourceId: "tpl-src", name: "Chair welcome" });
   });
 
   it("resolves the event through the caller's access first: another org's event is a 404 and nothing is copied", async () => {

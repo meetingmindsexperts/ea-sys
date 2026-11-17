@@ -816,6 +816,10 @@ model McpOAuthAccessToken {
 model EventStats {
   id                     String   @id @default(cuid())
   eventId                String   @unique
+  /// Tenancy (Event RLS step 5, Nov 17 2026): the event's organisation,
+  /// denormalised. Nullable, no FK. Every writer stamps it; it backs the flat
+  /// row policy in prisma/rls/eventonly.sql (platform only; master ignores it).
+  organizationId String?
   registrationsByStatus  Json     @default("{}")
   registrationsByPayment Json     @default("{}")
   totalRegistrations     Int      @default(0)
@@ -831,6 +835,8 @@ model EventStats {
   updatedAt              DateTime @updatedAt
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 /// Where an event-bound grant applies (docs/CUSTOM_ROLES_PLAN.md §3.1): every

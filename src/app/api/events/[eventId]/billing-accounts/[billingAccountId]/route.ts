@@ -106,6 +106,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         create: {
           eventId: g.eventId,
+          organizationId: g.orgId,
           billingAccountId: g.billingAccountId,
           addedByUserId: g.session.user.id,
         },

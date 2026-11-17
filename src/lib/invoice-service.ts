@@ -248,7 +248,7 @@ export async function createInvoice(params: {
 
   const invoice = await tenantTransaction(async (tx: Prisma.TransactionClient) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
-      tx, eventId, "INVOICE", eventCode
+      tx, eventId, "INVOICE", eventCode, organizationId,
     );
 
     return tx.invoice.create({
@@ -431,7 +431,7 @@ export async function createPaidInvoice(params: {
     }
 
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
-      tx, eventId, "INVOICE", eventCode
+      tx, eventId, "INVOICE", eventCode, organizationId,
     );
 
     return tx.invoice.create({
@@ -546,7 +546,7 @@ export async function createPaidReceipt(params: {
     }
 
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
-      tx, eventId, "RECEIPT", eventCode
+      tx, eventId, "RECEIPT", eventCode, organizationId,
     );
     return tx.invoice.create({
       data: {
@@ -728,7 +728,7 @@ export async function createCreditNote(params: {
     const coversFull = round2(creditedBefore + amt) >= collectedTotal - 0.005;
 
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
-      tx, eventId, "CREDIT_NOTE", eventCode
+      tx, eventId, "CREDIT_NOTE", eventCode, organizationId,
     );
 
     // Mark the original invoice REFUNDED only when this credit note covers the
@@ -1321,7 +1321,7 @@ export async function createGroupInvoice(params: {
 
   const invoice = await tenantTransaction(async (tx: Prisma.TransactionClient) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
-      tx, eventId, "INVOICE", eventCode,
+      tx, eventId, "INVOICE", eventCode, organizationId,
     );
     return tx.invoice.create({
       data: {

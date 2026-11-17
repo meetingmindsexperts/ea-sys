@@ -695,7 +695,7 @@ export async function createGroupRegistration(
     where: {
       eventId_billingAccountId: { eventId, billingAccountId: billingAccount.id },
     },
-    create: { eventId, billingAccountId: billingAccount.id },
+    create: { eventId, organizationId, billingAccountId: billingAccount.id },
     update: {},
   });
 

@@ -257,6 +257,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     db.importLog.create({
       data: {
         eventId,
+        organizationId,
         userId: session.user.id,
         source: "eventsair",
         entityType: "contacts",

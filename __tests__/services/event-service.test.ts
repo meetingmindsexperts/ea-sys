@@ -83,6 +83,12 @@ describe("createEvent", () => {
       await createEvent({ ...BASE, source });
       await flush();
       expect(mockDb.emailTemplate.createMany).toHaveBeenCalledTimes(1);
+      // Every seeded template carries the event's organisation (Event RLS step 5): without it the
+      // row policy refuses the seed. Found by the browser suite run under row security, which is the
+      // only thing that saw it: this query is written across two lines and every search missed it.
+      const seeded = mockDb.emailTemplate.createMany.mock.calls[0][0].data as { eventId: string; organizationId: string }[];
+      expect(seeded.length).toBeGreaterThan(0);
+      expect(seeded.every((t) => t.eventId === "evt-1" && t.organizationId === "org-1")).toBe(true);
       expect(mockDb.ticketType.create).toHaveBeenCalledTimes(ORG_TYPES.length);
       expect(mockDb.ticketType.create.mock.calls[0][0].data).toMatchObject({ eventId: "evt-1", isDefault: true });
       expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({

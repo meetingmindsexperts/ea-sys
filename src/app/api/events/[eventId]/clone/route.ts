@@ -493,6 +493,7 @@ export async function POST(
           await tx.emailTemplate.createMany({
             data: source.emailTemplates.map((t) => ({
               eventId: event.id,
+              organizationId: event.organizationId,
               slug: t.slug,
               name: t.name,
               subject: t.subject,

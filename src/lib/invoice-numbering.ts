@@ -19,14 +19,17 @@ export async function getNextInvoiceNumber(
   tx: Prisma.TransactionClient,
   eventId: string,
   type: InvoiceType,
-  eventCode: string
+  eventCode: string,
+  /** The event's organisation, stamped on the counter (it carries a row policy on the platform). */
+  organizationId: string,
 ): Promise<{ sequenceNumber: number; invoiceNumber: string }> {
   const counter = await tx.invoiceCounter.upsert({
     where: {
       eventId_type: { eventId, type },
     },
-    create: { eventId, type, lastSequence: 1 },
-    update: { lastSequence: { increment: 1 } },
+    create: { eventId, type, lastSequence: 1, organizationId },
+    // Also on the update: a counter from before the column existed is stamped the first time it is used.
+    update: { lastSequence: { increment: 1 }, organizationId },
   });
 
   const seq = counter.lastSequence;

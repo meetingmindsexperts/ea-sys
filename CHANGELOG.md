@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Six more tables get an organisation column and their own row security (Event RLS step 5) (November 17)
+
+Email templates, notifications, event statistics, import logs, invoice counters and the event's billing accounts each belong to an event and had no organisation of their own. Their only protection was each query's filter on the event. On a platform with several organisations, nothing at the database stopped one from reading another's templates or moving another's invoice numbers. The owner chose to give each its own organisation column, like the other 143 tables.
+
+- **A migration reaches production's database**: a new, empty-able `organizationId` column on the six tables, filled from each row's event (a notification with no event takes its recipient's organisation). Nothing on production reads it. Checked on the local copy of production: about 23,000 rows filled, none left empty, and a second run changes nothing.
+- **Every place that writes one of these rows now stamps the organisation** (13 places), and every route that reads them runs inside the organisation's lane: the notification bell, import logs, email templates.
+- **Six row security policies** for the platform, in the same shape as the rest (`prisma/rls/eventonly.sql`). Production has none, as before.
+
+Rehearsed under real row security:
+
+- **The tenancy harness**: a new file with 15 cases for the six tables; 41 files and 481 tests in all.
+- **The whole product**, with the six policies held back and then on: every one of 2,868 answers kept its status.
+- **One mistake caught by the rehearsal and by nothing else**: creating an event seeds its default email templates, and that one write did not stamp the organisation. The database refused it while the page still answered normally (the seed runs in the background and the Email Templates page fills the gap later). The query is written across two lines, so every search for it had missed it. Fixed, and a unit test now checks every seeded template carries the organisation.
+
+
 ### Event row security is switched on for the platform (step 6) (November 17)
 
 The last step for Event itself. **Production is untouched**: row security policies are never a migration, production's database holds none, and the code paths below are the same query there as before.

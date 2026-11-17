@@ -210,6 +210,12 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   `SELECT id, "abstractId", "recommendedFormat" FROM "AbstractReviewSubmission" WHERE "recommendedFormat" IN ('VIDEO','WORKSHOP');`.
   Never delete the enum values.
 
+- **Organisation column on six event tables (Nov 17, 2026; migration `20261117120000_event_only_tables_org_column`).**
+  A nullable `organizationId` on EmailTemplate, Notification, EventStats, ImportLog, InvoiceCounter and
+  EventBillingAccount. **Rolling back is safe**: an older image does not know the column and ignores it.
+  Rows it writes meanwhile carry no organisation, which nothing on master reads; after rolling forward
+  again, re-run the migration's UPDATE statements to stamp them (they are idempotent). Do not drop the
+  column on a rollback.
 - **Role stored as text (Nov 16, 2026; migration `20261116130000_role_key_text_column`).**
   Attendee, Speaker, Contact and AccountProfile gained a text column `"roleKey"`, which the
   code reads as `role`; the old enum column `"role"` stays and the trigger

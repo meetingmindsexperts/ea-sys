@@ -10,6 +10,7 @@ import { ORG_ADMIN_ROLES } from "@/lib/team-roles";
 import { linkConfirmedRegistrations, linkConfirmedSpeakers } from "@/lib/registrant-access";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const acceptInvitationSchema = z.object({
   token: z.string().min(1),
@@ -173,23 +174,30 @@ export async function POST(req: Request) {
 
     // Notify org admins of new team member (non-blocking)
     if (user.organizationId) {
-      db.user.findMany({
-        where: {
-          organizationId: user.organizationId,
-          role: { in: [...ORG_ADMIN_ROLES] },
-          id: { not: user.id },
-        },
-        select: { id: true },
-      }).then((admins) => {
-        for (const admin of admins) {
-          createNotification({
-            userId: admin.id,
-            type: "SIGNUP",
-            title: "Team Member Joined",
-            message: `${user.firstName} ${user.lastName} (${email}) accepted their invitation and set up their account`,
-            link: "/settings",
-          });
-        }
+      const organizationId = user.organizationId;
+      // Inside the organisation's lane, with the organisation stamped on each
+      // notice: Notification carries a row policy on the platform (step 5).
+      runWithTenant(organizationId, async () => {
+        const admins = await db.user.findMany({
+          where: {
+            organizationId,
+            role: { in: [...ORG_ADMIN_ROLES] },
+            id: { not: user.id },
+          },
+          select: { id: true },
+        });
+        await Promise.all(
+          admins.map((admin) =>
+            createNotification({
+              userId: admin.id,
+              organizationId,
+              type: "SIGNUP",
+              title: "Team Member Joined",
+              message: `${user.firstName} ${user.lastName} (${email}) accepted their invitation and set up their account`,
+              link: "/settings",
+            }),
+          ),
+        );
       }).catch((err) => apiLogger.warn({ err, msg: "accept-invitation:notify-admins-failed" }));
     }
 

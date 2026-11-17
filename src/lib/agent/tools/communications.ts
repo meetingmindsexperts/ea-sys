@@ -364,6 +364,7 @@ const updateEmailTemplate: ToolExecutor = async (input, ctx) => {
       updated = await db.emailTemplate.create({
         data: {
           eventId: ctx.eventId,
+          organizationId: ctx.organizationId,
           slug,
           name: name ?? defaultTpl.name,
           subject: subject ?? defaultTpl.subject,
@@ -438,7 +439,7 @@ const createEmailTemplate: ToolExecutor = async (input, ctx) => {
     // never invents one. A token no sender fills is refused with the list it
     // may choose from, not created and reported.
     const result = await createCustomEmailTemplate({
-      eventId: ctx.eventId, slug, name, subject, htmlContent, textContent, refuseUnknownTokens: true,
+      eventId: ctx.eventId, organizationId: ctx.organizationId, slug, name, subject, htmlContent, textContent, refuseUnknownTokens: true,
     });
     if (!result.ok) {
       if (result.code === "UNKNOWN_TOKENS") {
@@ -483,7 +484,7 @@ const duplicateEmailTemplateTool: ToolExecutor = async (input, ctx) => {
     if (!slug) return { error: "slug is required: the template to copy (list_email_templates shows them)", code: "MISSING_FIELDS" };
     const name = input.name != null ? String(input.name).trim().slice(0, 200) || undefined : undefined;
 
-    const result = await duplicateEmailTemplate({ eventId: ctx.eventId, sourceSlug: slug, name });
+    const result = await duplicateEmailTemplate({ eventId: ctx.eventId, organizationId: ctx.organizationId, sourceSlug: slug, name });
     if (!result.ok) return { error: result.message, code: result.code };
     const { template, source, unknownTokens } = result;
 

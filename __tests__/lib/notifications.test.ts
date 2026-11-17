@@ -35,6 +35,7 @@ describe("createNotification", () => {
 
     await createNotification({
       userId: "user-1",
+      organizationId: "org-1",
       eventId: "evt-1",
       type: "REGISTRATION",
       title: "New Registration",
@@ -45,6 +46,8 @@ describe("createNotification", () => {
     expect(mockDb.notification.create).toHaveBeenCalledWith({
       data: {
         userId: "user-1",
+        // The organisation the notice belongs to rides onto the row (Event RLS step 5).
+        organizationId: "org-1",
         eventId: "evt-1",
         type: "REGISTRATION",
         title: "New Registration",
@@ -61,6 +64,7 @@ describe("createNotification", () => {
     await expect(
       createNotification({
         userId: "user-1",
+      organizationId: "org-1",
         type: "PAYMENT",
         title: "Payment",
         message: "Payment received",
@@ -81,6 +85,7 @@ describe("createNotification", () => {
 
     await createNotification({
       userId: "user-1",
+      organizationId: "org-1",
       type: "CHECK_IN",
       title: "Check-in",
       message: "Attendee checked in",
@@ -89,6 +94,7 @@ describe("createNotification", () => {
     expect(mockDb.notification.create).toHaveBeenCalledWith({
       data: {
         userId: "user-1",
+        organizationId: "org-1",
         type: "CHECK_IN",
         title: "Check-in",
         message: "Attendee checked in",
@@ -130,9 +136,9 @@ describe("notifyEventAdmins", () => {
 
     expect(mockDb.notification.createMany).toHaveBeenCalledWith({
       data: [
-        { userId: "admin-1", eventId: "evt-1", type: "REGISTRATION", title: "New Registration", message: "Someone registered" },
-        { userId: "admin-2", eventId: "evt-1", type: "REGISTRATION", title: "New Registration", message: "Someone registered" },
-        { userId: "organizer-1", eventId: "evt-1", type: "REGISTRATION", title: "New Registration", message: "Someone registered" },
+        { userId: "admin-1", eventId: "evt-1", organizationId: "org-1", type: "REGISTRATION", title: "New Registration", message: "Someone registered" },
+        { userId: "admin-2", eventId: "evt-1", organizationId: "org-1", type: "REGISTRATION", title: "New Registration", message: "Someone registered" },
+        { userId: "organizer-1", eventId: "evt-1", organizationId: "org-1", type: "REGISTRATION", title: "New Registration", message: "Someone registered" },
       ],
     });
   });
@@ -191,6 +197,7 @@ describe("Notification types", () => {
 
     await createNotification({
       userId: "user-1",
+      organizationId: "org-1",
       type,
       title: "Test",
       message: "Test message",
