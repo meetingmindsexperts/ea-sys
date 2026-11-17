@@ -5,6 +5,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { agendaPayload, isAgendaPublished, loadAgendaEvent } from "@/lib/agenda-data";
+import { AGENDA_PUBLIC_EVENT_STATUSES } from "@/lib/agenda-display";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -65,7 +66,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const scope = await db.event.findFirst({
       where: await publicEventWhere(req, slug, {
         allowIdFallback: true,
-        statuses: ["PUBLISHED", "LIVE"],
+        statuses: [...AGENDA_PUBLIC_EVENT_STATUSES],
       }),
       select: { id: true, organizationId: true },
     });

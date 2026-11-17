@@ -154,7 +154,7 @@ function getDurationMin(start: string, end: string) {
  */
 type Unavailable = "not-published" | "no-event" | "failed" | "preview-sign-in" | "preview-denied";
 
-function unavailableReason(status: number, code: unknown): "not-published" | "no-event" | "failed" {
+function unavailableReason(status: number, code: unknown): Exclude<Unavailable, "preview-sign-in" | "preview-denied"> {
   if (status !== 404) return "failed";
   return code === "EVENT_NOT_FOUND" ? "no-event" : "not-published";
 }
@@ -176,6 +176,72 @@ function readPreviewEventId(): string | null {
   return new URLSearchParams(window.location.search).get("preview");
 }
 
+/** What the preview bar says: the organiser's switch, and whether attendees can open it now. */
+interface PreviewState {
+  published: boolean;
+  liveForAttendees: boolean;
+  eventStatus: string;
+}
+
+type PreviewData = EventData & PreviewState;
+
+/**
+ * Whether the event the preview id names is the one this address shows: its
+ * slug exactly (the public lookup matches exactly), or its id (the public
+ * route also accepts `/e/{eventId}/agenda`). Otherwise a pasted link would show
+ * one event's programme under another's name.
+ */
+function previewMatchesAddress(data: PreviewData, slugParam: string): boolean {
+  let address = slugParam;
+  try {
+    address = decodeURIComponent(slugParam);
+  } catch {
+    // A malformed escape stays as it came; it then simply fails to match.
+  }
+  return data.slug === address || data.id === address;
+}
+
+async function fetchPreview(
+  previewEventId: string,
+  slugParam: string,
+): Promise<{ data: PreviewData } | { reason: Unavailable }> {
+  const res = await fetch(`/api/events/${encodeURIComponent(previewEventId)}/agenda-preview`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const reason = previewUnavailableReason(res.status);
+    if (reason === "failed") console.error("[agenda] Failed to load the preview:", res.status);
+    return { reason };
+  }
+  const data: PreviewData = await res.json();
+  if (!previewMatchesAddress(data, slugParam)) return { reason: "preview-denied" };
+  return { data };
+}
+
+/**
+ * A preview address is never one to index, whatever it ends up showing (the
+ * sign-in notice included, which is what a crawler gets). Added as soon as the
+ * page sees `?preview`, not after the preview loads.
+ */
+function markNoIndex(): void {
+  if (document.head.querySelector('meta[name="robots"][data-agenda-preview]')) return;
+  const meta = document.createElement("meta");
+  meta.name = "robots";
+  meta.content = "noindex, nofollow";
+  meta.dataset.agendaPreview = "";
+  document.head.appendChild(meta);
+}
+
+function previewBarText(p: PreviewState): string {
+  if (p.liveForAttendees) {
+    return "Preview. This agenda is published: attendees see it at this address without “?preview”.";
+  }
+  if (p.published) {
+    return `Preview. The agenda is switched on, but the event is ${p.eventStatus.toLowerCase()}: attendees cannot open it until the event is published.`;
+  }
+  return "Preview. This agenda is not published yet: only the event team can see it. Publish it in Settings, Agenda.";
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────
 
 export default function PublicAgendaPage() {
@@ -187,8 +253,8 @@ export default function PublicAgendaPage() {
   // Why there is no agenda to show. The three read differently to a visitor:
   // "not live yet" is a normal state of a real event, the other two are not.
   const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
-  // Set when this is a staff preview: whether the agenda is published yet.
-  const [preview, setPreview] = useState<{ published: boolean } | null>(null);
+  // Set when this is a staff preview: what the preview bar says.
+  const [preview, setPreview] = useState<PreviewState | null>(null);
   const [attempt, setAttempt] = useState(0);
   const branding = usePublicEventBranding();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -197,26 +263,17 @@ export default function PublicAgendaPage() {
   useEffect(() => {
     async function fetchAgenda() {
       const previewEventId = readPreviewEventId();
+      if (previewEventId) markNoIndex();
       try {
         if (previewEventId) {
-          const res = await fetch(`/api/events/${encodeURIComponent(previewEventId)}/agenda-preview`, {
-            cache: "no-store",
-          });
-          if (!res.ok) {
-            const reason = previewUnavailableReason(res.status);
-            if (reason === "failed") console.error("[agenda] Failed to load the preview:", res.status);
-            setUnavailable(reason);
+          const result = await fetchPreview(previewEventId, slug);
+          if ("reason" in result) {
+            setUnavailable(result.reason);
             return;
           }
-          const data: EventData & { published: boolean } = await res.json();
-          // The id in the link names the event; the address must agree, or a
-          // pasted link would show one event's programme under another's name.
-          if (data.slug.toLowerCase() !== slug.toLowerCase()) {
-            setUnavailable("preview-denied");
-            return;
-          }
-          setEventData(data);
-          setPreview({ published: data.published });
+          const { published, liveForAttendees, eventStatus } = result.data;
+          setEventData(result.data);
+          setPreview({ published, liveForAttendees, eventStatus });
           setUnavailable(null);
           return;
         }
@@ -380,23 +437,17 @@ export default function PublicAgendaPage() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 print:bg-white">
       {preview && (
-        <>
-          {/* Hoisted into <head> by React: a preview link is never one to index. */}
-          <meta name="robots" content="noindex, nofollow" />
-          <div
-            role="status"
-            className={cn(
-              "sticky top-0 z-30 border-b px-4 py-2 text-center text-sm font-medium print:hidden",
-              preview.published
-                ? "border-slate-200 bg-slate-800 text-white"
-                : "border-amber-300 bg-amber-100 text-amber-900",
-            )}
-          >
-            {preview.published
-              ? "Preview. This agenda is published: attendees see it at this address without “?preview”."
-              : "Preview. This agenda is not published yet: only the event team can see it. Publish it in Settings, Agenda."}
-          </div>
-        </>
+        <div
+          role="status"
+          className={cn(
+            "sticky top-0 z-30 border-b px-4 py-2 text-center text-sm font-medium print:hidden",
+            preview.liveForAttendees
+              ? "border-slate-200 bg-slate-800 text-white"
+              : "border-amber-300 bg-amber-100 text-amber-900",
+          )}
+        >
+          {previewBarText(preview)}
+        </div>
       )}
       {/* ── Event branding banner (same art-directed image as the other
              public pages; hidden in print to save ink) ──────────────────── */}

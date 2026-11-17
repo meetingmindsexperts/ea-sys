@@ -25,6 +25,7 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { publicEventWhereForHost } from "@/lib/public-event";
 import { eventIsFull } from "@/lib/public-availability";
+import { isAgendaPublished } from "@/lib/agenda-display";
 import { buildEventMetadata, toPlainText, truncate } from "@/lib/public-event-metadata";
 import { formatEventDateRange, localDateInTz } from "@/lib/event-time";
 import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
@@ -192,7 +193,7 @@ export default async function EventOverviewPage({ params }: Props) {
   const now = new Date();
   const settings = (event.settings ?? {}) as Record<string, unknown>;
   const listed = isListed(settings);
-  const agendaPublished = !!(settings.agendaPublished || settings.programmePublished);
+  const agendaPublished = isAgendaPublished(settings);
   // The rule the API and the register page share, so this page never says
   // Register when the form would say closed or full.
   const { state, offer } = publicRegistration(

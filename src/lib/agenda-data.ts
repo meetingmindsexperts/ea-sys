@@ -16,6 +16,8 @@
 import { db } from "@/lib/db";
 import { readAgendaTrackBorder } from "@/lib/agenda-display";
 
+export { isAgendaPublished } from "@/lib/agenda-display";
+
 /** Sessions an attendee may see; draft and cancelled ones stay out of the preview too. */
 const VISIBLE_SESSION_STATUSES = ["SCHEDULED", "LIVE", "COMPLETED"] as const;
 
@@ -26,6 +28,7 @@ export function loadAgendaEvent(eventId: string) {
       id: true,
       name: true,
       slug: true,
+      status: true,
       startDate: true,
       endDate: true,
       timezone: true,
@@ -92,14 +95,7 @@ export function loadAgendaEvent(eventId: string) {
 
 export type AgendaEvent = NonNullable<Awaited<ReturnType<typeof loadAgendaEvent>>>;
 
-/** Whether the organiser has published the agenda (`programmePublished` is the old name). */
-export function isAgendaPublished(settings: unknown): boolean {
-  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return false;
-  const s = settings as Record<string, unknown>;
-  return Boolean(s.agendaPublished || s.programmePublished);
-}
-
-/** The JSON the agenda page reads. Never carries `settings` itself. */
+/** The JSON the agenda page reads. Never carries `settings` or `status` itself. */
 export function agendaPayload(event: AgendaEvent) {
   return {
     id: event.id,

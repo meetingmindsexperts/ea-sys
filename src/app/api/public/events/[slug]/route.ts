@@ -11,6 +11,7 @@ import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { abstractSubmissionsOpen } from "@/lib/webinar";
 import { UNLIMITED_SEAT_SENTINEL, eventIsFull, tierAvailability } from "@/lib/public-availability";
+import { isAgendaPublished } from "@/lib/agenda-display";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -262,7 +263,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       // page needs enablement + the organizer's member bounds. Parsed +
       // clamped server-side; disabled events expose the disabled default.
       groupRegistration: readGroupRegistrationSettings(event.settings),
-      agendaPublished: settings.agendaPublished === true || settings.programmePublished === true,
+      agendaPublished: isAgendaPublished(settings),
       // Master registration switch (Settings → Registration). Default OPEN when
       // the field is absent so existing events aren't accidentally closed.
       // When false, the public register flow shows "Registration Closed"

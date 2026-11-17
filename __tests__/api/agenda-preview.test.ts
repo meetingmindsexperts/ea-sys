@@ -31,11 +31,12 @@ import { GET } from "@/app/api/events/[eventId]/agenda-preview/route";
 
 const call = () => GET(new Request("http://localhost/api/events/ev1/agenda-preview"), { params: Promise.resolve({ eventId: "ev1" }) });
 
-function agendaEvent(settings: Record<string, unknown>) {
+function agendaEvent(settings: Record<string, unknown>, status = "PUBLISHED") {
   return {
     id: "ev1",
     name: "Conference",
     slug: "CONF2027",
+    status,
     startDate: new Date("2027-01-15T04:00:00Z"),
     endDate: new Date("2027-01-17T14:00:00Z"),
     timezone: "Asia/Dubai",
@@ -80,14 +81,26 @@ describe("GET /api/events/[eventId]/agenda-preview", () => {
     expect(res.status).toBe(200);
     expectPrivate(res);
     const body = await res.json();
-    expect(body).toMatchObject({ slug: "CONF2027", preview: true, published: false, trackBorder: false });
+    expect(body).toMatchObject({
+      slug: "CONF2027",
+      preview: true,
+      published: false,
+      liveForAttendees: false,
+      trackBorder: false,
+    });
     expect(body).not.toHaveProperty("settings");
   });
 
   it("says when the agenda is already published (the old programmePublished name too)", async () => {
-    mockLoadAgendaEvent.mockResolvedValue(agendaEvent({ programmePublished: true }));
+    mockLoadAgendaEvent.mockResolvedValue(agendaEvent({ programmePublished: true }, "LIVE"));
     const res = await call();
-    expect((await res.json()).published).toBe(true);
+    expect(await res.json()).toMatchObject({ published: true, liveForAttendees: true, eventStatus: "LIVE" });
+  });
+
+  it("does not call a switched-on agenda live while the event is a draft (a clone keeps the switch)", async () => {
+    mockLoadAgendaEvent.mockResolvedValue(agendaEvent({ agendaPublished: true }, "DRAFT"));
+    const res = await call();
+    expect(await res.json()).toMatchObject({ published: true, liveForAttendees: false, eventStatus: "DRAFT" });
   });
 
   it("answers 401, uncached, to a signed-out visitor", async () => {

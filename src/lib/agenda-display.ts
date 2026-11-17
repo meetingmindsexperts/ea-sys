@@ -13,6 +13,30 @@
 
 export const AGENDA_TRACK_BORDER_SETTING = "agendaTrackBorder";
 
+/**
+ * Whether the organiser switched the agenda on (Settings, Agenda;
+ * `programmePublished` is the old name). Strictly `true`: every stored value on
+ * production is a boolean (checked Nov 17, 2026), and a stray string must not
+ * publish a programme. The one rule for the agenda route, the event API and
+ * the event page.
+ */
+export function isAgendaPublished(settings: unknown): boolean {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return false;
+  const s = settings as Record<string, unknown>;
+  return s.agendaPublished === true || s.programmePublished === true;
+}
+
+/** The event statuses whose agenda the public can open (with the switch on). */
+export const AGENDA_PUBLIC_EVENT_STATUSES = ["PUBLISHED", "LIVE"] as const;
+
+/** Whether attendees can open the agenda right now: the switch AND a public event. */
+export function isAgendaLiveForAttendees(settings: unknown, eventStatus: string): boolean {
+  return (
+    isAgendaPublished(settings) &&
+    (AGENDA_PUBLIC_EVENT_STATUSES as readonly string[]).includes(eventStatus)
+  );
+}
+
 /** True unless the setting is explicitly `false`: a missing or odd value keeps the border. */
 export function readAgendaTrackBorder(settings: unknown): boolean {
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) return true;

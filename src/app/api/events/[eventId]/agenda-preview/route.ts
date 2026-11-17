@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { agendaPayload, isAgendaPublished, loadAgendaEvent } from "@/lib/agenda-data";
+import { isAgendaLiveForAttendees } from "@/lib/agenda-display";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -53,9 +54,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
         return privateJson({ error: "Event not found", code: "EVENT_NOT_FOUND" }, 404);
       }
 
+      // Two facts, because the public page needs both: the organiser's switch,
+      // and an event the public can open. A cloned draft keeps the switch on.
       const published = isAgendaPublished(event.settings);
-      apiLogger.info({ msg: "agenda-preview:served", eventId, userId: session.user.id, published });
-      return privateJson({ ...agendaPayload(event), preview: true, published }, 200);
+      const liveForAttendees = isAgendaLiveForAttendees(event.settings, event.status);
+      apiLogger.info({ msg: "agenda-preview:served", eventId, userId: session.user.id, published, liveForAttendees });
+      return privateJson(
+        { ...agendaPayload(event), preview: true, published, liveForAttendees, eventStatus: event.status },
+        200,
+      );
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "agenda-preview:failed" });
