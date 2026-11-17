@@ -943,8 +943,16 @@ function SessionCard({
                           <div className={cn("shrink-0", !inColumn && "sm:w-44 sm:pt-0.5")}>
                             {timeRange ? (
                               <>
-                                <p className="print-topic-time text-sm font-semibold tabular-nums" style={{ color }}>
-                                  <span className="whitespace-nowrap">{timeRange}</span>
+                                {/* A neutral pill (owner, Nov 17 2026): the times are what
+                                    people scan down a session for, so they get a shape of
+                                    their own instead of the track colour, which on
+                                    one-colour events was a column of red. Smaller than the
+                                    topic title on purpose: at 15px bold the time outranked
+                                    the topic it belongs to. */}
+                                <p className="print-topic-time text-[13px] font-semibold text-slate-700 tabular-nums">
+                                  <span className="inline-block whitespace-nowrap rounded-full border border-slate-200 bg-white px-2.5 py-0.5 shadow-[0_1px_1px_rgba(15,23,42,0.04)] print:border-0 print:bg-transparent print:p-0 print:shadow-none">
+                                    {timeRange}
+                                  </span>
                                   {topic.duration ? (
                                     <span
                                       className={cn(
@@ -957,7 +965,7 @@ function SessionCard({
                                   ) : null}
                                 </p>
                                 {topic.duration && !inColumn ? (
-                                  <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">
+                                  <p className="text-xs text-slate-400 mt-1 pl-2.5 hidden sm:block print:mt-0.5 print:pl-0">
                                     {topic.duration} min
                                   </p>
                                 ) : null}

@@ -298,8 +298,8 @@
     .print-day-heading {
       break-after: avoid;
     }
-    /* Topic times are track-colored via an inline style on screen; print in
-       readable dark ink (!important outranks the inline style). */
+    /* Topic times print in dark ink, without their on-screen pill (the pill
+       drops its border and padding through print: classes). */
     .print-topic-time {
       color: #334155 !important;
     }
