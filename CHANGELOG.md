@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Abstracts: a search box on the list (November 17)
+
+Owner: "add search abstracts option". The Abstracts page listed every abstract of the event with no way to find one: on MEHF2027 that is 169 cards to scroll. A search box beside the list heading now filters the list as you type, for everyone who sees the page (staff, a reviewer, an author).
+
+- **Finds by**: the abstract number however it is typed ("173", "A-173", "a173"), the title, the author's name and email, co-authors, the theme, sub-theme and track. Every word typed must match, in any order; case and accents are ignored. The rule is `src/lib/abstract-search.ts`.
+- **With the reviewer tools**: the search narrows what the theme and "No reviewer yet" filters leave, so "Select all" ticks exactly the abstracts shown, and what was ticked stays ticked when the search is cleared.
+- It is a filter over the abstracts the page already holds: no new request, nothing changes on the server.
+
 ### Agenda: search for the speaker when assigning a session role (November 17)
 
 Owner: "when assigning session roles in agenda, there is no search". In the session form, the speaker of a role (moderator, chairperson, panelist, speaker) was a plain dropdown, which on an event with 202 speakers could only be scrolled. It is now the searchable picker the forms already use (`SearchableSelect`): type part of a name, pick with the mouse or the keyboard. The role itself keeps its four-choice dropdown, and the topic speakers already had a search. Nothing about what is saved changes.

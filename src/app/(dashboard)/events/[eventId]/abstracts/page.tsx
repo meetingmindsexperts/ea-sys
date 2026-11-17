@@ -55,9 +55,11 @@ import {
   Mail,
   Download,
   Share2,
+  Search,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
+import { abstractMatchesSearch } from "@/lib/abstract-search";
 import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
 import { useAbstracts, useSpeakers, useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
@@ -245,6 +247,9 @@ export default function AbstractsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [themeFilter, setThemeFilter] = useState<string>(ALL_THEMES);
   const [unassignedOnly, setUnassignedOnly] = useState(false);
+  // The list's search box: a filter over the abstracts already loaded
+  // (src/lib/abstract-search.ts). For everyone who sees the list.
+  const [searchQuery, setSearchQuery] = useState("");
   // Open and mode apart: the mode must outlive the close, or the Remove
   // dialog's title read "Assign reviewers" while it faded out.
   const [bulkMode, setBulkMode] = useState<BulkReviewerMode>("assign");
@@ -465,10 +470,16 @@ export default function AbstractsPage() {
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
-  // The filters belong to whoever assigns reviewers; everyone else sees the whole list.
-  const shownAbstracts = canAssignReviewers
+  // The theme and "no reviewer yet" filters belong to whoever assigns
+  // reviewers; the search is everyone's. Both narrow the same list, so
+  // "Select all" ticks exactly what the search and the filters leave shown.
+  const filteredAbstracts = canAssignReviewers
     ? abstracts.filter((a) => matchesReviewerFilters(a, themeFilter, unassignedOnly))
     : abstracts;
+  const searching = searchQuery.trim() !== "";
+  const shownAbstracts = searching
+    ? filteredAbstracts.filter((a) => abstractMatchesSearch(a, searchQuery))
+    : filteredAbstracts;
   const shownIds = shownAbstracts.map((a) => a.id);
   // From the list, not the id set: an abstract deleted since it was ticked drops out.
   const selectedAbstracts = abstracts.filter((a) => selectedIds.has(a.id));
@@ -1065,9 +1076,33 @@ export default function AbstractsPage() {
 
       {/* Abstracts List */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">
-          {listWording(isSubmitter, isReviewer).heading}
-        </h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">
+            {listWording(isSubmitter, isReviewer).heading}
+          </h2>
+          {abstracts.length > 0 && (
+            <div className="flex w-full items-center gap-3 sm:w-auto">
+              {/* The reviewer toolbar below already says "Showing N of M" to
+                  whoever has it; this is the count for everyone else. */}
+              {searching && !canAssignReviewers && (
+                <span className="shrink-0 text-sm text-muted-foreground" aria-live="polite">
+                  {shownAbstracts.length} of {filteredAbstracts.length}
+                </span>
+              )}
+              <div className="relative w-full sm:w-80">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  aria-label="Search abstracts"
+                  placeholder="Search by number, title, author or theme..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+          )}
+        </div>
         {abstracts.length >= ABSTRACT_LIST_LIMIT && (
           <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             Showing the newest {ABSTRACT_LIST_LIMIT} abstracts. Older ones are not listed here, so they cannot be
@@ -1115,8 +1150,15 @@ export default function AbstractsPage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground text-center py-8">
-                No abstracts match these filters.
+                {searching ? `No abstracts match "${searchQuery.trim()}".` : "No abstracts match these filters."}
               </p>
+              {searching && (
+                <div className="-mt-4 pb-4 text-center">
+                  <Button type="button" variant="link" onClick={() => setSearchQuery("")}>
+                    Clear the search
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
