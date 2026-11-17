@@ -7,6 +7,41 @@
 
 ---
 
+## Session role picker: what the Nov 17 review left (recorded Nov 17, 2026): not started
+
+From the review of `2d3068a6` (0 BLOCKER, 0 HIGH, 0 MED, 5 LOW). Fixed in the
+follow-up: the list is sorted by name, stray spaces in a name no longer defeat the
+search, and the test pins the label shown on the row.
+
+**LOW, listed, not fixed:**
+
+- **Two speakers with the same name look the same.** The row shows the name only.
+  The Reviewers page uses the same picker with the title and the email in the
+  label, which also makes the email searchable. Left because it changes what the
+  row shows once picked (a long label in a narrow row) and same-name speakers on
+  one event are rare; do it if an organiser meets one.
+- **No status on the row.** The topic speakers' picker shows each speaker's status
+  (Invited, Confirmed, Declined, Cancelled); the role picker does not, so a
+  declined speaker can be made moderator with no cue, as before the change. It
+  needs an optional badge on the shared `SearchableSelect`, which the country and
+  specialty pickers also use.
+
+**Older defects the review turned up, for the owner to decide (not touched):**
+
+- **A role row left on "Select speaker" fails with a half-empty message.** The row
+  is sent with an empty speaker, the server refuses it, and the toast reads
+  "Speaker IDs not found in this event: " with nothing after it. The form should
+  drop or refuse the empty row with a plain message.
+- **The same speaker can be picked in two role rows**; with different roles the
+  server refuses the save. The list is not narrowed to speakers not yet chosen.
+- **While the speakers are still loading, or the load failed, the form says the
+  event has no speakers**, even when editing a session that has roles.
+- **No search on three other speaker dropdowns**: the abstract's speaker on the
+  Abstracts page, New abstract, and New session proposal.
+- In the topic speakers' picker, two same-named speakers share one keyboard
+  highlight (`multi-select.tsx` keys its rows by label), and its list is rebuilt
+  for every topic on every render.
+
 ## Branded public messages: what the Nov 17 review left (recorded Nov 17, 2026): not started
 
 From the review of `73355f9e` (0 BLOCKER, 2 HIGH, 2 MED, 7 LOW). Both HIGHs and both

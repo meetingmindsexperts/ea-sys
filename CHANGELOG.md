@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Owner: "when assigning session roles in agenda, there is no search". In the session form, the speaker of a role (moderator, chairperson, panelist, speaker) was a plain dropdown, which on an event with 202 speakers could only be scrolled. It is now the searchable picker the forms already use (`SearchableSelect`): type part of a name, pick with the mouse or the keyboard. The role itself keeps its four-choice dropdown, and the topic speakers already had a search. Nothing about what is saved changes.
 
+Review of `2d3068a6` (0 BLOCKER, 0 HIGH, 0 MED, 5 LOW; nothing breaks and what is saved is unchanged). Fixed: the list is sorted by name (the API returns speakers newest first, so a second look for someone in 200 rows had no order to go by); a stray space in a stored name no longer hides the speaker from a search; the test pins the name shown on the row. Left, in `docs/ROADMAP.md`: same-name speakers look alike, no status on the row, and five older defects for the owner.
+
 ### Tenancy: the staff API's remaining event reads, second sweep (November 17)
 
 Event RLS step 2 (`docs/SECURITY_AUDIT_ACTION_PLAN.md` §3.1). Preparation for a second organisation; nothing a person sees changes.

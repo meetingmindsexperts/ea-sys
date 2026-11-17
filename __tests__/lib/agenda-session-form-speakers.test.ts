@@ -39,7 +39,17 @@ describe("agenda session form without speakers", () => {
     expect(roles).toContain("<SearchableSelect");
     expect(roles).toContain('searchPlaceholder="Search speakers..."');
     expect(roles).toContain("options={speakerOptions}");
+    // Without the label the row shows the speaker's raw id once one is picked.
+    expect(roles).toContain("displayLabel={speakerNameById.get(sr.speakerId)");
     // The role itself (four choices) stays a plain dropdown; the speaker does not.
     expect(roles.match(/<Select\b/g)).toHaveLength(1);
+  });
+
+  // Review of 2d3068a6: the API hands speakers over newest first, and names are
+  // stored as typed (a trailing space in a first name is two spaces in the label).
+  it("lists the speakers by name, with stray spaces collapsed", () => {
+    const options = block("const speakerOptions = useMemo(", "const speakerNameById");
+    expect(options).toContain('.replace(/\\s+/g, " ").trim()');
+    expect(options).toContain("a.label.localeCompare(b.label");
   });
 });

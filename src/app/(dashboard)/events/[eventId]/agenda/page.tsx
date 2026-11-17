@@ -893,8 +893,16 @@ export default function AgendaPage() {
   const hasSpeakers = (speakers as Speaker[]).length > 0;
   // The session-role picker's list and its name lookup. One list for every
   // role row, not rebuilt per row on each keystroke in the form.
+  //
+  // Sorted by name: the API returns speakers newest first, which in a list of
+  // 200 is no order at all to someone looking for a person. Spaces are
+  // collapsed because names are stored as typed, and "Ahmed " + "Al Mansoori"
+  // would otherwise carry two spaces that a search for "ahmed al" never matches.
   const speakerOptions = useMemo(
-    () => (speakers as Speaker[]).map((sp) => ({ value: sp.id, label: `${sp.firstName} ${sp.lastName}` })),
+    () =>
+      (speakers as Speaker[])
+        .map((sp) => ({ value: sp.id, label: `${sp.firstName} ${sp.lastName}`.replace(/\s+/g, " ").trim() }))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" })),
     [speakers],
   );
   const speakerNameById = useMemo(() => new Map(speakerOptions.map((o) => [o.value, o.label])), [speakerOptions]);
