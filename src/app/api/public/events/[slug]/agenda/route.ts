@@ -53,11 +53,11 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Resolve the tenant BEFORE reading anything policied.
     //
-    // Event carries no RLS policy, so this slim lookup works with no lane —
-    // and it is the only thing here that can run without one. Everything below
-    // reads tables that ARE policied (TicketType, PricingTier, EventSession,
-    // PromoCode), and under RLS a query outside a tenant lane returns zero
-    // rows rather than an error. This route previously did the event lookup
+    // `findPublicEvent` reads the slim row inside the lane of the organisation
+    // the host names (Event carries a row policy since Nov 17, 2026). Everything
+    // below reads tables that are policied too (TicketType, PricingTier,
+    // EventSession, PromoCode), and under RLS a query outside a tenant lane
+    // returns zero rows rather than an error. This route previously did the event lookup
     // and those policied includes in ONE query, so on the platform the event
     // resolved fine and its registration types came back EMPTY — every public
     // event page would have read "Registration Closed" with nothing in the

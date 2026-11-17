@@ -301,7 +301,7 @@ GET submitter-context
   BASE        403         403         403         403
   BASE_MKT    403         403         403         403
   REVIEWER    403         403         403         403
-  SUBMITTER   200 r       200 r       200 r       200 r
+  SUBMITTER   404         200 r       404         200 r
   REGISTRANT  403         403         403         403
   API_KEY     401         401         401         401
   NONE        401         401         401         401

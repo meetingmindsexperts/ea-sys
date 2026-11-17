@@ -80,7 +80,7 @@ export async function withFloorPlanLink(
     apiLogger.warn({ msg: `${door.route}:malformed-token`, slug });
     return inactive();
   }
-  // Event carries no RLS policy, so this lookup runs before any lane; any status, as sharing is the team's choice.
+  // Read inside the lane of the organisation the host names; any status, as sharing is the team's choice.
   const event = await findPublicEvent(req, slug, {}, { select: FLOOR_PLAN_EVENT_SELECT });
   if (!event?.organizationId) {
     apiLogger.warn({ msg: `${door.route}:event-not-found`, slug });

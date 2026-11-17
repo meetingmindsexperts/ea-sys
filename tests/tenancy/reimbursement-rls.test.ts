@@ -9,7 +9,7 @@
  *   - The token is GLOBALLY unique (the plaintext public link). A cross-tenant
  *     `findUnique({ token })` under the wrong lane returns NULL — the exact
  *     public-route bootstrap: resolveReimbursementEventOrg resolves the org
- *     from the un-swept Event by host+slug FIRST, then the token reads on
+ *     from the Event by host+slug FIRST, then the token reads on
  *     that lane (the RSVP-token shape).
  *   - speakerId is also GLOBALLY unique (one form per speaker) — same proof.
  *   - The 2-hop document addressed by its parent reimbursementId resolves

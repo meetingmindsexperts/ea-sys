@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { principalFromSession } from "@/lib/permissions/require-permission";
+import { inOwnLane } from "@/lib/tenant/event-tenant";
 import { REVIEWABLE_ABSTRACT_STATUSES, excludeOwnAbstracts, mustConfirmEmailToReview, type ReviewerIdentity } from "@/lib/abstract-reviewer-access";
 
 /**
@@ -20,15 +22,13 @@ import { REVIEWABLE_ABSTRACT_STATUSES, excludeOwnAbstracts, mustConfirmEmailToRe
  * For each abstract, reports the user's own submission status so the portal
  * can render PENDING / SUBMITTED / NEEDS_UPDATE badges without a second call.
  *
- * MULTI-TENANCY (Abstract sweep, Domain #11): this route is DELIBERATELY NOT
- * wrapped in runWithTenant. It is CROSS-ORG BY DESIGN — a single reviewer's feed
- * unions abstracts across EVERY event/org where they hold a pool membership or an
- * AbstractReviewer row, so there is no single tenant org to scope to at request
- * time (the reviewer User is org-independent, organizationId = null). Same class
- * as the deferred REGISTRANT self-service routes: it belongs to the open Phase-1
- * identity-model decision (shared User + per-event Membership), NOT this sweep.
- * On the RLS-enabled platform this read fail-closes until that decision lands;
- * on master (RLS off) it is unaffected. See docs/MULTI_TENANCY.md §13.
+ * MULTI-TENANCY. The feed is read in a lane since Nov 17, 2026 (review of
+ * c6a7318c): a team member's in their own organisation's, anyone else's in the
+ * lane the request's host names (`inOwnLane`). It was left unwrapped by the
+ * Abstract sweep as "cross-organisation by design", pending the identity
+ * decision. That decision was taken on Aug 21 (PLATFORM_DECISIONS item 6: an
+ * account belongs to one tenant), so a reviewer's assignments are all the
+ * host's organisation's, and the same rule now lists their events.
  */
 
 function submissionStatusOf(sub: { updatedAt: Date } | null | undefined, abstractSubmittedAt: Date) {
@@ -53,6 +53,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    return await inOwnLane({ principal: principalFromSession(session) }, req, async () => {
     const userId = session.user.id;
     const identity = { id: userId, email: session.user.email };
     if (new URL(req.url).searchParams.get("summary") === "1") {
@@ -139,6 +140,7 @@ export async function GET(req: Request) {
     });
 
     return NextResponse.json({ rows, total: rows.length });
+    });
   } catch (err) {
     apiLogger.error({ err, msg: "my-reviews:list-failed" });
     return NextResponse.json(

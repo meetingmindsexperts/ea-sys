@@ -37,6 +37,7 @@ import path from "node:path";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import { listPoliciedTables } from "../src/lib/tenant/rls-assert";
+import { readPolicyFiles, sharedPolicyDir } from "../prisma/rls/apply";
 
 /** Tables worth naming in the report even when unpoliced, for contrast. */
 const ALWAYS_REPORT = ["Event"];
@@ -106,6 +107,25 @@ async function main() {
 
     const policied = new Set((await listPoliciedTables(owner)).map((t) => t.table));
     const tables = [...new Set([...policied, ...ALWAYS_REPORT])].sort();
+
+    // Every table the repository has a policy FOR must have one in THIS
+    // database (review of 9c0a24c5). A database bootstrapped before a policy
+    // file was added (Event's, on Nov 17, 2026) would otherwise "verify" with
+    // that table readable from every lane: the loop below only warns about a
+    // table with no policy, because some are global by design.
+    const expected = new Set(
+      readPolicyFiles([sharedPolicyDir()])
+        .flatMap((f) => f.statements)
+        .flatMap((st) => [...st.matchAll(/ALTER TABLE\s+"(\w+)"\s+ENABLE ROW LEVEL SECURITY/gi)].map((m) => m[1])),
+    );
+    const missing = [...expected].filter((t) => !policied.has(t)).sort();
+    if (missing.length > 0) {
+      fail(
+        `NOT APPLIED: ${missing.join(", ")}\n` +
+          `   prisma/rls has a policy for ${missing.length === 1 ? "this table" : "these tables"} and this database has none.\n` +
+          `   Run scripts/bootstrap-rls.ts (it is idempotent), then verify again.`,
+      );
+    }
 
     console.log(`\nOrganizations: ${orgs.map((o) => o.name).join(", ")}`);
     console.log(`Tables checked: ${tables.length} (${policied.size} policied)\n`);

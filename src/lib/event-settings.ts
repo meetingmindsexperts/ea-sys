@@ -23,7 +23,7 @@
  */
 import { db, tenantTransaction } from "@/lib/db";
 import { Prisma } from "@prisma/client";
-import { getTenantOrgId, runWithTenant } from "@/lib/tenant-context";
+import { getTenantStore, runWithTenant } from "@/lib/tenant-context";
 
 export type SettingsObject = Record<string, unknown>;
 export type SettingsPatch = SettingsObject | ((current: SettingsObject) => SettingsObject);
@@ -73,7 +73,7 @@ async function mergeSettingsLocked(
 /**
  * Atomically merge a patch into `Event.settings`. Throws `EVENT_NOT_FOUND` if the event is gone, or, with
  * `organizationId`, if it belongs to another organisation: a second wall behind the route's own check
- * (Event has no row-level policy, so nothing else would stop a mis-scoped id; venue tenancy review, Oct 27).
+ * (written Oct 27, when Event had no row policy and nothing else stopped a mis-scoped id; it has one since Nov 17, 2026).
  */
 export function updateEventSettings(eventId: string, patch: SettingsPatch, opts: { organizationId?: string } = {}): Promise<SettingsObject> {
   const merge = () => mergeSettingsLocked("Event", eventId, patch, "EVENT_NOT_FOUND", opts.organizationId);
@@ -84,7 +84,9 @@ export function updateEventSettings(eventId: string, patch: SettingsPatch, opts:
   // organisation it names stays a second wall and never becomes a way out of
   // the lane it is in (tests/tenancy/gated-event-rls.test.ts). A caller that
   // names none must already be inside a lane.
-  return opts.organizationId && !getTenantOrgId() ? runWithTenant(opts.organizationId, merge) : merge();
+  // `getTenantStore()`, not the organisation id: the fail-closed EMPTY lane is a lane too, and a
+  // caller inside it stays there (review of 9c0a24c5).
+  return opts.organizationId && getTenantStore() === undefined ? runWithTenant(opts.organizationId, merge) : merge();
 }
 
 /** Atomically merge a patch into `Organization.settings`. Throws `ORGANIZATION_NOT_FOUND` if gone. */

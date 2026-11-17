@@ -123,3 +123,15 @@ export function isRoleGrantableHere(
   return true;
 }
 
+/**
+ * The outside identities (custom roles plan §1): not organisation staff, no
+ * role in the catalogue. Their access comes from being LINKED to an event (a
+ * reviewer assignment, a speaker record, a registration), which
+ * `buildEventAccessWhere` expresses. A list, never "whatever is not a team
+ * role": a role nobody has classed is neither (src/lib/tenant/event-tenant.ts
+ * hands the privileged discovery read to these three and no other).
+ */
+export const LINKED_EVENT_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT"] as const;
+export type LinkedRole = (typeof LINKED_EVENT_ROLES)[number];
+export const isLinkedRole = (role: string | null | undefined): boolean =>
+  (LINKED_EVENT_ROLES as readonly (string | null | undefined)[]).includes(role);

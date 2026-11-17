@@ -82,16 +82,19 @@ while IFS= read -r file; do
   # Pattern 1: any direct event find in the public surface must use the
   # helper in its where. Flag db.event.find* calls whose following ~400 chars
   # don't mention publicEventWhere.
-  # A read by the id of an event the helper already found is sanctioned too
+  # A read by the id of an event the helper already FOUND is sanctioned too
   # (Nov 17, 2026): `findPublicEvent` reads the event inside the host's lane,
   # and a route may then read more of the SAME event with `where: { id: scope.id }`.
-  # Only where the file does call the helper.
+  # Only by the variable the helper's answer was assigned to (review of
+  # c6a7318c: the first version allowed `{ id: <anything>.id }` in any file
+  # that called the helper, so `{ id: body.id }` would have passed).
   hits="$(printf '%s' "$src" | perl -0777 -ne '
-    my $found_by_helper = /\b(?:findPublicEvent|resolvePublicEventOrg|resolvePublicEventTenant)\s*\(/;
+    my %found;
+    $found{$1} = 1 while /\bconst\s+(\w+)\s*=\s*await\s+(?:findPublicEvent|resolvePublicEventTenant)\s*\(/g;
     while (/db\.event\.find(?:First|Unique|Many)\s*\(.{0,400}/gs) {
       my $m = $&;
       next if $m =~ /publicEventWhere/;
-      next if $found_by_helper && $m =~ /^db\.event\.find\w+\s*\(\s*\{\s*where:\s*\{\s*id:\s*\w+\.id\s*\}/;
+      next if $m =~ /^db\.event\.find\w+\s*\(\s*\{\s*where:\s*\{\s*id:\s*(\w+)\.id\s*\}/ && $found{$1};
       print "db.event.find… without publicEventWhere\n";
     }')"
   [ -n "$hits" ] && report "$rel" "direct event lookup" "$hits"

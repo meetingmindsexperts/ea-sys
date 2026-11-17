@@ -69,6 +69,22 @@ export async function listPoliciedTables(client: RlsQueryClient): Promise<Polici
  */
 export function assertPlatformClaimsRls(env: NodeJS.ProcessEnv = process.env): void {
   if (!env.PLATFORM_ORG_ID?.trim()) return;
+  // The privileged lane is on the request path since Event carries a policy
+  // (Nov 17, 2026): the one read made before a tenant lane exists goes through
+  // `dbOperator`. With DATABASE_URL_OPERATOR unset, or the same as the app's
+  // connection, `dbOperator` IS `db`: every reviewer, submitter and registrant
+  // would get "not found" on every event, and every worker scan would return
+  // nothing and log success. Refuse to serve instead (review of 9c0a24c5).
+  const operatorUrl = env.DATABASE_URL_OPERATOR?.trim();
+  if (env.RLS_SET_LOCAL === "1" && (!operatorUrl || operatorUrl === env.DATABASE_URL?.trim())) {
+    throw new Error(
+      "PLATFORM_ORG_ID and RLS_SET_LOCAL=1 are set but DATABASE_URL_OPERATOR is " +
+        (operatorUrl ? "the same connection as DATABASE_URL" : "not set") +
+        ". The privileged client would connect as the app's own role: worker scans would find " +
+        "nothing, and a reviewer, submitter or registrant could open no event. Set it to the " +
+        "table-owner connection (docs/PLATFORM_PROVISIONING.md, B3). Refusing to serve.",
+    );
+  }
   if (env.RLS_SET_LOCAL === "1") return;
   throw new Error(
     "PLATFORM_ORG_ID is set (this deployment serves other organisations) but RLS_SET_LOCAL is not \"1\", " +

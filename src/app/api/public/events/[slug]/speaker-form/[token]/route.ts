@@ -6,7 +6,7 @@
  *          written to Speaker.bio. Conditional claim PENDING → SUBMITTED.
  *
  * Mirrors the reimbursement public routes: plaintext token lookup, slug +
- * tenant asserted, org bootstrapped from the un-swept Event before any swept
+ * tenant asserted, org bootstrapped from the Event before any swept
  * read. Submitted forms are LOCKED — the organizer reopens from the speaker
  * page (audited) if changes are needed.
  */

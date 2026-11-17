@@ -3,7 +3,7 @@
  *   1. prisma db push against the OWNER connection (TENANCY_DIRECT_URL —
  *      raw Postgres, superuser/owner role)
  *   2. apply tests/tenancy/policies/*.sql in filename order over the owner
- *      connection: the app_user role split, then the PILOT Event RLS policy
+ *      connection: the app_user role split (the Event policy was here too, as a pilot,
  *      (harness-only — real RLS migrations are Phase-2 per-domain work)
  *   3. seed two tenants (prisma/seed-tenancy.ts, owner connection)
  *

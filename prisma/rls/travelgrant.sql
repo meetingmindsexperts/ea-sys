@@ -10,7 +10,7 @@
 -- Domain notes:
 --   - TravelGrant.token is GLOBALLY unique and plaintext (the copyable link),
 --     exactly like SpeakerReimbursement.token. The public route therefore MUST
---     bootstrap the org from the un-swept Event by host+slug BEFORE the token
+--     bootstrap the org from the Event by host+slug BEFORE the token
 --     findUnique, or every link fail-closes to "invalid". This is not a
 --     theoretical ordering nicety: get it backwards and the feature is dead on
 --     the platform while passing every test on master, where RLS is off.

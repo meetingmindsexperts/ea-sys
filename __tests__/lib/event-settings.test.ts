@@ -107,3 +107,43 @@ describe("the merge is a TENANT transaction (review of 2db57e7f)", () => {
     expect(mockDb._tx.organization.update).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("updateEventSettings and the tenant lane (Event RLS, Nov 17 2026)", () => {
+  // The merge is a tenant transaction: with no lane around it, it is a plain one, which finds no
+  // row where Event has a policy. So it enters the lane of the organisation it is HANDED, but only
+  // when its caller is outside every lane. The real tenant context is used here; only the database is mocked.
+  let laneSeen: string | undefined | null;
+  beforeEach(() => {
+    laneSeen = null;
+    mockDb._tx.$queryRaw.mockResolvedValue([{ settings: {} }]);
+    tenantTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const { getTenantStore } = await import("@/lib/tenant-context");
+      laneSeen = getTenantStore()?.orgId;
+      return mockDb.$transaction(fn);
+    });
+  });
+
+  it("a caller outside every lane that names the organisation gets that organisation's lane", async () => {
+    // What the catalogue settings PATCH and the user-delete clean-up rely on.
+    await updateEventSettings("ev1", { a: 1 }, { organizationId: "org-1" });
+    expect(laneSeen).toBe("org-1");
+  });
+
+  it("a caller that names none is left as it is: it must already be inside a lane", async () => {
+    await updateEventSettings("ev1", { a: 1 });
+    expect(laneSeen).toBeUndefined();
+  });
+
+  it("a caller already inside a lane keeps it, whatever organisation it names", async () => {
+    const { runWithTenant } = await import("@/lib/tenant-context");
+    // Naming another organisation from inside a lane is never a way out of the lane.
+    await runWithTenant("org-A", () => updateEventSettings("ev1", { a: 1 }, { organizationId: "org-B" }));
+    expect(laneSeen).toBe("org-A");
+  });
+
+  it("the fail-closed EMPTY lane is a lane too: a caller inside it stays there", async () => {
+    const { runWithTenant } = await import("@/lib/tenant-context");
+    await runWithTenant("", () => updateEventSettings("ev1", { a: 1 }, { organizationId: "org-1" }));
+    expect(laneSeen).toBe("");
+  });
+});

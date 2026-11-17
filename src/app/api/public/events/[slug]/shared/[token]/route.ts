@@ -100,7 +100,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return gone();
     }
 
-    // Event carries no RLS policy, so this lookup runs before any lane; any
+    // Read inside the lane of the organisation the host names; any
     // status, because sharing is an explicit organiser act and abstracts are
     // often reviewed before an event is published.
     const event = await findPublicEvent(req, slug, {}, { select: EVENT_SELECT });

@@ -72,7 +72,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Tenancy (Domain #17): resolve the tenant org from the un-swept Event by
+    // Tenancy (Domain #17): resolve the tenant org from the Event by
     // host+slug FIRST — the swept token lookup below fail-closes without it.
     const org = await resolveReimbursementEventOrg(req, slug);
     if (!org) {

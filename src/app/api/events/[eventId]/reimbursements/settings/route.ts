@@ -41,8 +41,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ eventId, userId: session.user.id }, "reimbursement-settings:event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-    // Event carries no RLS policy, so nothing here needs the lane; the wrap
-    // keeps this swept domain's every-handler invariant honest.
+    // Nothing here reads the database (the event came through findGatedEvent);
+    // the wrap keeps this swept domain's every-handler invariant honest.
     return await runWithTenant(event.organizationId, async () =>
       NextResponse.json({ claimItems: readEventClaimItems(event.settings) }),
     );

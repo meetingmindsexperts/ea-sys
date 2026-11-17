@@ -4,7 +4,7 @@
  * without dragging Node built-ins into the client bundle.
  *
  * Mirrors src/lib/reimbursement/server.ts: plaintext unique token, tenant
- * bootstrap from the un-swept Event first, then token lookup + slug assert +
+ * bootstrap from the Event first, then token lookup + slug assert +
  * tenant assert.
  */
 
@@ -27,7 +27,7 @@ export function generateProfileFormToken(): string {
 /**
  * Tenancy bootstrap for the public token routes: SpeakerProfileForm reads
  * would fail-close under platform RLS with no tenant store, so resolve the
- * org from the un-swept Event by host+slug FIRST, then run everything inside
+ * org from the Event by host+slug FIRST, then run everything inside
  * runWithTenant(<this org>) at the route. Null when the slug doesn't resolve
  * on this host (route 404s). The read itself is the shared discovery in
  * src/lib/tenant/event-tenant.ts.

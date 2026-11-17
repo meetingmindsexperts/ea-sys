@@ -108,7 +108,9 @@ describe("findGatedEvent", () => {
     // event content that no policy binds.
     const source = (await import("node:fs")).readFileSync("src/lib/tenant/event-tenant.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     expect(source.match(/asEventDiscovery\(/g)).toHaveLength(1);
-    expect(source.match(/dbOperator\./g)).toHaveLength(1);
+    // Exactly two tokens: the import and the one use. A count of `dbOperator.` alone is passed by an
+    // alias (`const p = dbOperator`), an index (`dbOperator["event"]`) or a re-export (review of 9c0a24c5).
+    expect(source.match(/\bdbOperator\b/g)).toHaveLength(2);
     expect(source).toMatch(/asEventDiscovery\(\(\) => dbOperator\.event\.findFirst\(\{ where, select: \{ id: true, organizationId: true \} \}\)\)/);
     const body = source.slice(source.indexOf("export async function findGatedEvent"));
     // Inside the helper, db is touched only by `read`, and `read` runs only inside a lane.
@@ -182,6 +184,9 @@ describe("findGatedEvent", () => {
       { organizationId: null, baseRole: "ORGANIZER", fromApiKey: false },
       { organizationId: null, baseRole: null, fromApiKey: true },
       { organizationId: null, baseRole: null, fromApiKey: false },
+      // A role nobody has taught this file about is NOT a linked role: the three are a list.
+      { organizationId: null, baseRole: "SOME_FUTURE_ROLE", fromApiKey: false },
+      { organizationId: "org1", baseRole: "SOME_FUTURE_ROLE", fromApiKey: false },
     ]) {
       reads = [];
       await findGatedEvent({ principal, eventWhere: { id: "ev1" } }, { select: { id: true, settings: true } });

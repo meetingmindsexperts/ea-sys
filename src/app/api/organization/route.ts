@@ -5,6 +5,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { resolveActingOrgId } from "@/lib/platform-operator";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
@@ -74,29 +75,34 @@ export async function GET(req: Request) {
     // used to return the whole row: the `settings` JSON with the encrypted
     // Zoom, Stripe and AI credentials, and the staff list with emails, which
     // `users.read` otherwise restricts.
-    const row = await db.organization.findUnique({
-      where: { id: orgId },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        logo: true,
-        primaryColor: true,
-        settings: true,
-        companyName: true,
-        companyAddress: true,
-        companyCity: true,
-        companyState: true,
-        companyZipCode: true,
-        companyCountry: true,
-        companyPhone: true,
-        companyEmail: true,
-        taxId: true,
-        invoicePrefix: true,
-        createdAt: true,
-        _count: { select: { events: true, users: true } },
-      },
-    });
+    // Inside the organisation's lane (review of 9c0a24c5): the event count under the
+    // organisation is a read of Event, which carries a row policy, and outside a lane
+    // it came back 0 on the platform while the organisation itself was found.
+    const row = await runWithTenant(orgId, () =>
+      db.organization.findUnique({
+        where: { id: orgId },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          logo: true,
+          primaryColor: true,
+          settings: true,
+          companyName: true,
+          companyAddress: true,
+          companyCity: true,
+          companyState: true,
+          companyZipCode: true,
+          companyCountry: true,
+          companyPhone: true,
+          companyEmail: true,
+          taxId: true,
+          invoicePrefix: true,
+          createdAt: true,
+          _count: { select: { events: true, users: true } },
+        },
+      }),
+    );
 
     if (!row) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });

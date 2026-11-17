@@ -37,10 +37,18 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Confirm your email address to review abstracts.", code: "EMAIL_NOT_CONFIRMED" }, { status: 403 });
     }
 
-    // The caller may hold no organisation, so the event names the lane.
-    const tenant = await resolveEventTenant({ id: eventId, status: { not: "CANCELLED" } });
+    // The caller may hold no organisation, so the event names the lane. The
+    // discovery reads on the privileged client, so its filter is bound to the
+    // caller's own ASSIGNMENT to this abstract (review of 9c0a24c5): someone
+    // not assigned is never put in the event's organisation's lane at all.
+    // They are answered as before: the same 404 the unassigned always got.
+    const tenant = await resolveEventTenant({
+      id: eventId,
+      status: { not: "CANCELLED" },
+      abstracts: { some: { id: abstractId, reviewers: { some: { userId: user.id } } } },
+    });
     if (!tenant) {
-      apiLogger.warn({ msg: "my-reviews:event-not-found", eventId, abstractId, userId: user.id });
+      apiLogger.warn({ msg: "my-reviews:event-not-found-or-not-assigned", eventId, abstractId, userId: user.id });
       return NextResponse.json(NOT_FOUND, { status: 404 });
     }
 

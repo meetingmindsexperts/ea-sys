@@ -73,7 +73,7 @@ SWEPT_ROUTE_DIRS=(
   # Reimbursement sweep (Domain #17, Aug 3, 2026) — the dashboard console
   # (list/add + detail/reopen/delete + doc stream + send) wraps in the
   # RESOURCE org (buildEventAccessWhere serves org-null SUPER_ADMIN); the 3
-  # public token routes bootstrap the org from the un-swept Event by
+  # public token routes bootstrap the org from the Event by
   # host+slug (resolveReimbursementEventOrg — the RSVP pattern) then wrap.
   # src/lib/reimbursement/server.ts is a runs-inside-wraps lib (its loader
   # opens no runWithTenant of its own, by design — not listed).
@@ -483,6 +483,11 @@ OPERATOR_LANE_ALLOWLIST=(
   # the normal client. Not a worker scan and not an operator surface: the third
   # kind of member, and the only one of its kind.
   "src/lib/tenant/event-tenant.ts"           # event id + organisation discovery for a linked role
+  # The operator's list of every tenant with its event and user counts (the
+  # organisation switcher). Behind denyNonOperator(). The event count under an
+  # organisation is a read of Event, which a tenant lane cannot give for every
+  # tenant at once (review of 9c0a24c5).
+  "src/app/api/organizations/route.ts"       # operator-global tenant list with counts
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't
@@ -568,7 +573,7 @@ check_read_placement() {
   else
     fail_header
     printf '%s\n' "$out"
-    echo "    → open runWithTenant BEFORE the swept read (org comes from the un-swept Event/session, not the swept row)."
+    echo "    → open runWithTenant BEFORE the swept read (org comes from the Event/session, not the swept row)."
   fi
 }
 

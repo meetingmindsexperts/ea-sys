@@ -24,7 +24,9 @@ process.env.DIRECT_URL = pooled;
 // DATABASE_URL_OPERATOR). Since Event carries a policy (Nov 17, 2026) the one
 // read made before a lane exists goes through it, so without this a reviewer,
 // submitter or registrant would find no event anywhere in the harness.
-process.env.DATABASE_URL_OPERATOR = process.env.TENANCY_DIRECT_URL;
+const owner = process.env.TENANCY_DIRECT_URL;
+if (!owner) throw new Error("TENANCY_DIRECT_URL must be set (the owner connection; see .env.example)");
+process.env.DATABASE_URL_OPERATOR = owner;
 
 // Deterministic resolver behavior regardless of the developer's shell env.
 delete process.env.DEFAULT_ORG_ID;

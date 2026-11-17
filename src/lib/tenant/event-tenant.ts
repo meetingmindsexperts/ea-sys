@@ -41,7 +41,8 @@ import { db, dbOperator } from "@/lib/db";
 import { publicEventWhere, publicEventWhereForHost, publicOrgScopeForHost, type PublicEventScopeOptions } from "@/lib/public-event";
 import { asEventDiscovery } from "@/lib/tenant/lane-shadow";
 import { runWithTenant } from "@/lib/tenant-context";
-import { isTeamRole } from "@/lib/team-roles";
+import { isLinkedRole, isTeamRole } from "@/lib/team-roles";
+import { apiLogger } from "@/lib/logger";
 
 export interface EventTenant {
   id: string;
@@ -126,7 +127,9 @@ function ownLane(principal: EventGate["principal"]): string | null {
  * privilege in the route).
  */
 function reachesByLink(principal: EventGate["principal"]): boolean {
-  return !principal.fromApiKey && !!principal.baseRole && !isTeamRole(principal.baseRole);
+  // The three roles, named: a role this list does not know is NOT handed the
+  // privileged read by default (review of 9c0a24c5).
+  return !principal.fromApiKey && isLinkedRole(principal.baseRole);
 }
 
 /**
@@ -299,9 +302,13 @@ export async function findGatedEvent<A extends GatedEventArgs>(
   const organizationId = ownLane(gate.principal);
   if (organizationId) return runWithTenant(organizationId, () => read(gate.eventWhere));
   // A team role or a key with no organisation: the empty lane, which is a
-  // pass-through on master and answers nothing where row security is on. The
-  // route's own `runWithTenantLane` logs `tenant:no-org-lane` for it.
-  if (!reachesByLink(gate.principal)) return runWithTenant("", () => read(gate.eventWhere));
+  // pass-through on master and answers nothing where row security is on.
+  // Said out loud here (review of 9c0a24c5: only some routes use
+  // `runWithTenantLane`, so most of these refusals had no line saying why).
+  if (!reachesByLink(gate.principal)) {
+    apiLogger.warn({ msg: "tenant:no-org-lane", route: "findGatedEvent", role: gate.principal.baseRole, fromApiKey: gate.principal.fromApiKey });
+    return runWithTenant("", () => read(gate.eventWhere));
+  }
   // ONE read is made before a lane exists, and it is `resolveEventTenant`
   // (review of 2db57e7f), on the privileged client. A second pre-lane read
   // written here would answer 404 to every reviewer, submitter and registrant.

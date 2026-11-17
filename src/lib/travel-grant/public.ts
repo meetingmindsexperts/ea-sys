@@ -5,7 +5,7 @@
  *
  * `TravelGrant.token` is GLOBALLY unique and plaintext, so under RLS a
  * `findUnique({ token })` issued outside the owning tenant's lane returns
- * NOTHING. The org therefore has to be resolved from the un-swept Event by
+ * NOTHING. The org therefore has to be resolved from the Event by
  * host+slug BEFORE the token is looked up.
  *
  * Get that backwards and every travel-grant link fail-closes to "invalid" on

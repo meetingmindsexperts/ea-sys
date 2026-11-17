@@ -58,8 +58,8 @@ export async function GET(req: Request) {
     // An event's slug, or its id: the public pages name an event by its slug
     // (and take its id), the dashboard's pages by its id.
     const ref = new URL(req.url).searchParams.get("event")?.trim().slice(0, 200) || null;
-    // The event's organisation through the one sanctioned discovery read
-    // (event-tenant.ts): a slug is unique inside an organisation, not across
+    // The event's organisation, read inside the lane the request's host names
+    // (event-tenant.ts; nothing privileged): a slug is unique inside an organisation, not across
     // them, so the address the request came to decides whose event it is.
     const eventOrganizationId = ref ? await resolvePublicEventOrg(req, ref, { allowIdFallback: true }) : null;
     const organizationId = eventOrganizationId ?? (await auth())?.user?.organizationId ?? (await resolveRequestOrgId(req));

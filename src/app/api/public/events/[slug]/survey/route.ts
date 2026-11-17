@@ -339,7 +339,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Tenancy sweep: open the tenant store BEFORE the swept Registration read
     // (resolved from HOST — the token path resolves the registration by
-    // token→id and reads no un-swept Event first). Passthrough on master.
+    // token→id and reads no Event first). Passthrough on master.
     const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
     return await runWithTenant(tenant.orgId ?? "", async () => {
     const registration = await db.registration.findFirst({
@@ -596,7 +596,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Tenancy sweep: open the tenant store BEFORE the swept Registration read
     // (resolved from HOST — the token path resolves the registration by
-    // token→id and reads no un-swept Event first). Passthrough on master.
+    // token→id and reads no Event first). Passthrough on master.
     const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
     return await runWithTenant(tenant.orgId ?? "", async () => {
     stage = "load-registration";

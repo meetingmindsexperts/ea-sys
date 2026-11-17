@@ -36,15 +36,18 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Resolve the event's org first (Event un-swept), then read the SUBMITTER's
+    // Resolve the event's org first (a submitter reaches it by their link), then read the SUBMITTER's
     // Speaker (swept #9) + its abstract/proposal counts (swept #11/#14) on the
     // resource-org lane — this route was a pre-existing unwrapped reader of
     // those swept tables (fail-closed to empty once RLS turns on).
     // Found by the sanctioned discovery (id and organisation only): a submitter
     // reaches the event by their link to it, so there is no lane to read it in yet.
-    const event = await resolveEventTenant({ id: eventId });
+    // The discovery reads on the privileged client, so its filter is bound to
+    // the caller's own speaker record on the event (review of 9c0a24c5): a
+    // submitter with none is never put in the event's organisation's lane.
+    const event = await resolveEventTenant({ id: eventId, speakers: { some: { userId: session.user.id } } });
     if (!event) {
-      apiLogger.warn({ msg: "submitter-context:event-not-found", eventId, userId: session.user.id });
+      apiLogger.warn({ msg: "submitter-context:event-not-found-or-not-linked", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Not linked to this event" }, { status: 404 });
     }
 

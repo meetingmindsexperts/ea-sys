@@ -14,6 +14,17 @@
  *
  * Re-record ONLY when a change of behaviour is intended and reviewed:
  * `npx vitest run __tests__/api/route-matrix -u`, then read the diff.
+ *
+ * RE-RECORDED Nov 17, 2026, on purpose (review of 9c0a24c5): `GET
+ * submitter-context` for SUBMITTER reads 404 on `conf` and `webinar` (was
+ * 200). The route's discovery read of the event runs on the privileged client,
+ * so its filter is now bound to the caller's own speaker record on the event.
+ * The harness links the SUBMITTER to `assigned` and `foreign` only, while
+ * these fixture rows put a speaker row on every event: the two used to
+ * disagree and the cell followed the row. In the database they are one fact
+ * (a speaker row with your user id IS the link), so no real caller's answer
+ * changed. The same route in event-misc lost its "r" on those two columns:
+ * same status, the rows are no longer reached.
  */
 import { describe, it, expect, vi } from "vitest";
 

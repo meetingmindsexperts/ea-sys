@@ -27,6 +27,7 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import type { Session } from "next-auth";
 import { apiLogger } from "@/lib/logger";
+import { LINKED_EVENT_ROLES, isLinkedRole, type LinkedRole } from "@/lib/team-roles";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { describePermission, type PermissionKey } from "./catalogue";
 import { can, eventWhereFor, principalFromUser, systemPrincipal, type EventFacts, type Principal } from "./can";
@@ -72,15 +73,10 @@ export function principalFromCaller(
   return systemPrincipal({ role: orgCtx.role, organizationId: orgCtx.organizationId, userId: orgCtx.userId ?? null });
 }
 
-/**
- * The outside identities (plan §1): not org staff, no role in the catalogue.
- * Their access comes from being linked to an event (a reviewer pool, a speaker
- * record, a registration), which `buildEventAccessWhere` already expresses.
- */
-const LINKED_EVENT_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT"] as const;
-export type LinkedRole = (typeof LINKED_EVENT_ROLES)[number];
-export const isLinkedRole = (role: string | null | undefined): boolean =>
-  (LINKED_EVENT_ROLES as readonly (string | null | undefined)[]).includes(role);
+// The outside identities (plan §1) live in team-roles.ts, a leaf module, since
+// Nov 17, 2026: the tenant helpers ask the same question and must not import
+// this file to do it. Re-exported, so nothing that imported them from here moved.
+export { isLinkedRole, type LinkedRole };
 
 export type PermissionGate =
   | {

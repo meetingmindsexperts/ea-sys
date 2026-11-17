@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event row security: what three independent reviews found, fixed (November 17)
+
+Each of the three commits of this work was reviewed by an independent reader. None found a BLOCKER or a HIGH in the new work, and none found a change of behaviour on production. They did find that the new safety net had holes, and one real miss.
+
+- **The real miss.** With the Event policy on, an organisation's event count read 0 in two places (Settings, and the operator's list of organisations), while the organisation itself was found. The count is a read of Event made through the Organization table, which the detector cannot see, and "3" and "0" are the same size, so the before-and-after comparison passed. Fixed, with a test under real row security and a rule that refuses the shape.
+- **The safety net.** The test that holds "every query on Event runs inside a lane" accepted a plain transaction as a lane, missed queries written across two lines or through a differently named client, and did not cover the six tables of step 5. It now does all of that, and lists every file allowed to call the one privileged read.
+- **The privileged read is tighter.** Two of its three direct callers now bind it to the caller's own link to the event (assigned to that abstract; a speaker record on that event), with no change to any answer. A role nobody has classed is not handed it.
+- **Refusals say why.** A staff account or key with no organisation is refused with a log line; a platform that forgot to wire the privileged connection refuses to start instead of answering "not found" to every reviewer, submitter and registrant; the isolation check fails when a policy is missing from the database.
+- **A reviewer's list of reviews** runs inside a lane like their list of events (it had been left out, so on the platform one would have listed and the other not).
+
+Recorded for later, in the roadmap ("Row security rehearsal"):
+
+- **Older defects the reviews noticed in passing, on the platform only.** The two that matter before any platform runs: two nightly clean-up jobs would delete documents and email attachments they should keep, and a sponsor tier that is in use could be removed.
+- **Two owner decisions**: what an unassigned person is told when they post a review to an event they have no part in, and which lane attendee lists use if attendees ever sign in on one shared address.
+
+
 ### Six more tables get an organisation column and their own row security (Event RLS step 5) (November 17)
 
 Email templates, notifications, event statistics, import logs, invoice counters and the event's billing accounts each belong to an event and had no organisation of their own. Their only protection was each query's filter on the event. On a platform with several organisations, nothing at the database stopped one from reading another's templates or moving another's invoice numbers. The owner chose to give each its own organisation column, like the other 143 tables.
@@ -32,7 +48,7 @@ The last step for Event itself. **Production is untouched**: row security polici
 Rehearsed under real row security before committing:
 
 - **The tenancy harness**: 40 files, 466 tests, with new cases (two organisations sharing a web address each get their own event and cannot reach the other's; lists; a linked role; an organisation-less staff account refused).
-- **The whole product**: the production build run as the non-owner database role with all 137 policies, then every route and page (478 addresses, six callers) and the browser suite, each run with the Event policy held back and with it on. **Switching it on changed nothing**: the same status for all 2,868 answers, the same size for the 382 API answers that returned 200, and no Event query outside a lane.
+- **The whole product**: the production build run as the non-owner database role with all 137 policies, then every route and page (478 addresses, six callers) and the browser suite, each run with the Event policy held back and with it on. **Switching it on changed no status and no size**: the same status for all 2,868 answers, the same size for the 382 API answers that returned 200, and no Event query outside a lane. (A review then found the one thing that comparison cannot see, an event count that read 0; see the review entry above.)
 - **Found on the way, not about Event** (recorded in the roadmap): the test seed does not fill the organisation column, one import-completion flow fails under row security with or without the Event policy, and the non-owner role is refused on one table.
 
 Still to come: the organisation column on the six tables that have an event but no organisation (step 5).

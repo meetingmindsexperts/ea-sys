@@ -106,9 +106,8 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
     try {
       // Per-row tenant context (multi-tenancy sweep): org resolved from the row itself — the candidate sweep stays org-blind (worker precondition, see MULTI_TENANCY.md §13).
       // Prefer the attempt's own denormalized organizationId, falling back to its
-      // registration's; a NULL org (pre-backfill row) processes WITHOUT a wrap so
-      // flag-off master behavior is unchanged. `continue` became `return` inside
-      // the closure (same per-attempt control flow).
+      // registration's. `continue` became `return` inside the closure (same
+      // per-attempt control flow).
       // Last, the registration's EVENT's (Event RLS step 2, Nov 17 2026): the work below notifies
       // the event's organisers, which reads the event, so no attempt is worked outside a lane.
       const attemptOrg =
@@ -308,6 +307,8 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
           : "No matching refund at Stripe — booking rolled back by sweep",
       );
       };
+      // The registration's event always names an organisation, so the plain call is for a row whose
+      // registration could not be read with its event at all: worked as it always was.
       if (attemptOrg) {
         await runWithTenant(attemptOrg, processAttempt);
       } else {

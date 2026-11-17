@@ -18,7 +18,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { findGatedEvent, findPublicEvent, inHostLane, inOwnLane, inScopeLane, resolvePublicEventOrg } from "@/lib/tenant/event-tenant";
 import { clearTenantResolverCache } from "@/lib/tenant/resolver";
 import { updateEventSettings } from "@/lib/event-settings";
-import { ORG_A_ID, ORG_B_ID, EVENT_A_SHARED_ID, EVENT_B_SHARED_ID, EVENT_B_ONLY_ID, HOST_A, HOST_B, SHARED_SLUG, ORG_B_ONLY_SLUG } from "./constants";
+import { ORG_A_ID, ORG_B_ID, EVENT_A_SHARED_ID, EVENT_B_SHARED_ID, EVENT_B_ONLY_ID, HOST_A, HOST_B, SHARED_SLUG, ORG_B_ONLY_SLUG, SPEAKER_A_ID, UPLOADER_A_ID, UPLOADER_B_ID } from "./constants";
 
 const staffA = { organizationId: ORG_A_ID, baseRole: "ORGANIZER", fromApiKey: false };
 const keyA = { organizationId: ORG_A_ID, baseRole: null, fromApiKey: true };
@@ -82,6 +82,28 @@ describe("findGatedEvent under the Event policy", () => {
     expect(await findGatedEvent({ principal: attached, eventWhere: { id: EVENT_B_ONLY_ID } }, { select: { id: true, slug: true } })).toMatchObject({ id: EVENT_B_ONLY_ID });
   });
 
+  it("a REAL link: the event is found by the privileged read through the person's own speaker record, then read inside the event's lane", async () => {
+    // The two cases above pass a bare id, which would be found with no policy at all (review of
+    // 9c0a24c5). Here the filter is the one a submitter's gate builds, a relation into Speaker, which
+    // carries a policy of its own: only the privileged client can follow it before a lane exists, and
+    // only the app's client, inside the event's lane, may return the content.
+    await owner.speaker.update({ where: { id: SPEAKER_A_ID }, data: { userId: UPLOADER_A_ID } });
+    try {
+      const linked = { organizationId: null, baseRole: "SUBMITTER", fromApiKey: false };
+      const mine = { id: EVENT_A_SHARED_ID, speakers: { some: { userId: UPLOADER_A_ID } } };
+      // On the app's client, outside a lane, the same filter finds nothing: it is the policy that hides it.
+      expect(await db.event.findFirst({ where: mine, select: { id: true } })).toBeNull();
+      expect(await findGatedEvent({ principal: linked, eventWhere: mine }, { select: { id: true } })).toEqual({ id: EVENT_A_SHARED_ID });
+      const full = await findGatedEvent({ principal: linked, eventWhere: mine }, { select: { id: true, organizationId: true, name: true, speakers: { where: { userId: UPLOADER_A_ID }, select: { id: true } } } });
+      expect(full).toMatchObject({ id: EVENT_A_SHARED_ID, organizationId: ORG_A_ID, speakers: [{ id: SPEAKER_A_ID }] });
+      // Another person's link is not theirs: tenant B's uploader holds no speaker record on this event.
+      const notMine = { id: EVENT_A_SHARED_ID, speakers: { some: { userId: UPLOADER_B_ID } } };
+      expect(await findGatedEvent({ principal: linked, eventWhere: notMine }, { select: { id: true, name: true } })).toBeNull();
+    } finally {
+      await owner.speaker.update({ where: { id: SPEAKER_A_ID }, data: { userId: null } });
+    }
+  });
+
   it("the gate's filter still decides: a link that does not exist finds nothing, privileged client or not", async () => {
     const linked = { organizationId: null, baseRole: "REGISTRANT", fromApiKey: false };
     const where = { id: EVENT_A_SHARED_ID, registrations: { some: { userId: "nobody-is-linked-like-this" } } };
@@ -99,6 +121,21 @@ describe("findGatedEvent under the Event policy", () => {
       expect(await findGatedEvent({ principal, eventWhere: { id: EVENT_A_SHARED_ID } }, { select: { id: true } }), JSON.stringify(principal)).toBeNull();
       expect(await findGatedEvent({ principal, eventWhere: { id: EVENT_A_SHARED_ID } }, { select: { id: true, name: true } }), JSON.stringify(principal)).toBeNull();
     }
+  });
+});
+
+describe("Event read THROUGH another table under the Event policy", () => {
+  it("an organisation's event count is right inside its lane and 0 outside one, with the organisation itself found", async () => {
+    // Organization has no policy, so the row comes back either way; the events under it are a read
+    // of Event. This is the shape the detector cannot see, and it shipped once: Settings and the
+    // operator's organisation list both showed "0 events" (review of 9c0a24c5).
+    const withCount = () => db.organization.findUnique({ where: { id: ORG_B_ID }, select: { id: true, _count: { select: { events: true } } } });
+    const real = await owner.event.count({ where: { organizationId: ORG_B_ID } });
+    expect(real).toBeGreaterThan(1);
+    expect(await runWithTenant(ORG_B_ID, withCount)).toEqual({ id: ORG_B_ID, _count: { events: real } });
+    expect(await withCount()).toEqual({ id: ORG_B_ID, _count: { events: 0 } });
+    // And from another tenant's lane: the organisation's name is readable, its events are not.
+    expect(await runWithTenant(ORG_A_ID, withCount)).toEqual({ id: ORG_B_ID, _count: { events: 0 } });
   });
 });
 

@@ -334,7 +334,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const { registrationId, rate: linkRate } = parsedLink;
 
     // Tenancy sweep: open the tenant store BEFORE the swept Registration read
-    // (resolved from HOST — this route reads no un-swept Event first, the
+    // (resolved from HOST — this route reads no Event first, the
     // registration is resolved by token→id). Passthrough on master.
     const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
     return await runWithTenant(tenant.orgId ?? "", async () => {

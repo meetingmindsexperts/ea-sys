@@ -12,7 +12,7 @@
  *
  * Rate-limited per IP + per token. Every rejection logs `{ slug, stage }`.
  *
- * NOTE ON ORDERING: the tenant org is resolved from the un-swept Event by
+ * NOTE ON ORDERING: the tenant org is resolved from the Event by
  * host+slug BEFORE the token lookup, because the token is globally unique and
  * a swept findUnique fail-closes outside the owning lane. See
  * lib/travel-grant/public.ts.
