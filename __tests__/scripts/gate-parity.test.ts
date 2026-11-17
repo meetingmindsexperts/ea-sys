@@ -221,8 +221,8 @@ function scratchRepo(copies: string[], stubs: Record<string, string>) {
   for (const [name, body] of Object.entries(stubs)) {
     fs.writeFileSync(path.join(bin, name), `#!/bin/bash\n${body}\n`, { mode: 0o755 });
   }
-  const env = (extra: Record<string, string> = {}) => {
-    const clean: Record<string, string | undefined> = { ...process.env, ...extra };
+  const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => {
+    const clean: NodeJS.ProcessEnv = { ...process.env, ...extra };
     // The suite may itself be running inside a git hook or a gate: none of that may leak in.
     for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GATE_OVERRIDE", "GATE_WORKDIR"]) if (!(key in extra)) delete clean[key];
     return { ...clean, PATH: `${bin}:${process.env.PATH}`, TMPDIR: dir };
