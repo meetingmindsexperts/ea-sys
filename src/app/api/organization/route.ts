@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { resolveActingOrgId } from "@/lib/platform-operator";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
@@ -55,8 +56,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // An account with no organisation (a reviewer, submitter or registrant) has
+    // none to read. It used to reach Prisma with a null id and answer 500
+    // (found by the route smoke test, Nov 17, 2026).
+    const org = requireOrgId(session, { route: "organization:GET" });
+    if ("error" in org) return org.error;
+
     // Reading ANOTHER org is a platform-operator action, not an org-admin one.
-    const orgId = resolveActingOrgId(req, session.user, session.user.organizationId!, {
+    const orgId = resolveActingOrgId(req, session.user, org.orgId, {
       route: "organization:GET",
     });
 

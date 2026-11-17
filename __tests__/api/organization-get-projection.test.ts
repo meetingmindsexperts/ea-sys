@@ -41,6 +41,17 @@ describe("GET /api/organization", () => {
     expect(args.select).not.toHaveProperty("users");
   });
 
+  it("an account with no organisation is refused, and the database is never asked with a null id", async () => {
+    // A reviewer, submitter or registrant. It reached Prisma with `id: null`,
+    // a validation error, and answered 500 (the route smoke test, Nov 17, 2026).
+    for (const role of ["REVIEWER", "SUBMITTER", "REGISTRANT"]) {
+      mockAuth.mockResolvedValue({ user: { id: "u1", role, organizationId: null } });
+      const res = await GET(new Request("http://localhost/api/organization"));
+      expect(`${role}: ${res.status}`).toBe(`${role}: 403`);
+    }
+    expect(mockFindUnique).not.toHaveBeenCalled();
+  });
+
   it("keeps the company and tax details for the people whose Billing screen uses them", async () => {
     const onsite = await (await GET(new Request("http://localhost/api/organization"))).json();
     expect(onsite).not.toHaveProperty("taxId");
