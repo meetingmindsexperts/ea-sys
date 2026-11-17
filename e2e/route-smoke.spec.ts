@@ -1,7 +1,7 @@
 /**
- * Route smoke test (Nov 17, 2026): every GET route in the API, found on disk,
- * is asked on a real database as every seeded role and signed out. None may
- * answer with a server error.
+ * Route smoke test (Nov 17, 2026): every GET route handler, found on disk, is
+ * asked on a real database as each of the five seeded roles and signed out.
+ * None may answer with a server error.
  *
  * WHY. A rename by pattern changed `loadEvent(gate.eventWhere)` to
  * `loadEvent(gate)` in the desk Walk-in QR route, whose own `loadEvent` took a
@@ -14,7 +14,9 @@
  * WHAT IT IS NOT. It does not check that an answer is CORRECT, only that the
  * server did not fall over: a 200, a 400 for a missing query parameter, a 403
  * and a 404 all pass. Writes (POST, PUT, DELETE) are not asked: they change
- * rows, and a sweep cannot know a safe body for each.
+ * rows, and a sweep cannot know a safe body for each. The seed has five roles:
+ * a route only a super admin, a Member or the desk reaches is asked, and stops
+ * at its refusal (ROADMAP, "Route smoke test: more roles and rows").
  *
  * The route list comes from the folder tree, so a new route is covered the day
  * it is added. Ids in the address are real seeded rows where the seed has one
@@ -24,11 +26,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Browser } from "@playwright/test";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { loginAs } from "./fixtures/login";
 import { EVENT_ID, EVENT_SLUG, ORG_ID, USERS, type SeedRole } from "./fixtures/seed-constants";
 
-const API_ROOT = path.resolve(__dirname, "../src/app/api");
+// The whole app folder, not only src/app/api: ten route handlers live outside
+// it (uploads, the shared docs, the venue page, health probes, llms.txt).
+const APP_ROOT = path.resolve(__dirname, "../src/app");
 
 /** A route file that answers GET, in any of the shapes the codebase exports one. */
 const EXPORTS_GET = /export\s+(?:async\s+)?function\s+GET\b|export\s+const\s+GET\b|export\s+const\s*\{[^}]*\bGET\b|export\s*\{[^}]*\bGET\b[^}]*\}/;
@@ -43,7 +47,9 @@ const SKIPPED: Record<string, string> = {};
  * Routes that answer 5xx BY DESIGN on a test server (a dependency that is not
  * configured here), with the status and the reason. Same staleness rule.
  */
-const EXPECTED_5XX: Record<string, { status: number[]; why: string }> = {};
+const EXPECTED_5XX: Record<string, { status: number[]; why: string }> = {
+  "/worker/health": { status: [503], why: "the probe of the worker tier; the test server runs no worker, and 503 is its answer to that" },
+};
 
 /** An id that is well formed (a cuid's shape) and matches no row. */
 const NO_SUCH_ID = "cmzzzzzzzzzzzzzzzzzzzzzzz";
@@ -59,7 +65,11 @@ const FIXED_PARAMS: Record<string, string> = {
   path: "smoke",
 };
 
-/** `[sessionId]` is a row of `eventSession`, and so on, where the name is not the model's. */
+/**
+ * `[sessionId]` is a row of `eventSession`, and so on, where the name is not
+ * the model's. A test below fails if a value here stops naming a Prisma model:
+ * the first version held two that never had, and read as "no seeded row".
+ */
 const MODEL_FOR_PARAM: Record<string, string> = {
   sessionId: "eventSession",
   ticketId: "ticketType",
@@ -69,15 +79,24 @@ const MODEL_FOR_PARAM: Record<string, string> = {
   companyId: "crmCompany",
   crmContactId: "crmContact",
   quoteId: "crmQuote",
+  threadId: "crmEmailThread",
+  messageId: "crmEmailMessage",
+  projectId: "crmProject",
   proposalId: "sessionProposal",
-  pollId: "webinarLivePoll",
-  handoutId: "webinarHandout",
+  pollId: "livePoll",
   documentId: "speakerDocument",
   templateId: "certificateTemplate",
+  certificateId: "issuedCertificate",
   runId: "certificateIssueRun",
   requestId: "spendRequest",
   commitmentId: "commitment",
+  budgetId: "eventBudget",
+  reimbursementId: "speakerReimbursement",
+  groupId: "registrationGroup",
 };
+
+/** Prisma's model names as the client spells its accessors: `EventSession` is `db.eventSession`. */
+const PRISMA_MODELS = new Set(Object.values(Prisma.ModelName).map((m) => m[0].toLowerCase() + m.slice(1)));
 
 type Finder = { findFirst(args: unknown): Promise<{ id: string } | null> };
 
@@ -95,16 +114,16 @@ function discoverRoutes(): SmokeRoute[] {
       if (entry.isDirectory()) walk(full);
       else if (entry.name === "route.ts" && EXPORTS_GET.test(fs.readFileSync(full, "utf8"))) {
         const segments = path
-          .relative(API_ROOT, path.dirname(full))
+          .relative(APP_ROOT, path.dirname(full))
           .split(path.sep)
           .filter((s) => s !== "" && !(s.startsWith("(") && s.endsWith(")")));
-        const pattern = `/api/${segments.join("/")}`.replace(/\/$/, "");
+        const pattern = `/${segments.join("/")}`;
         const params = [...pattern.matchAll(/\[(?:\.\.\.)?([^\]]+)\]/g)].map((m) => m[1]);
         found.push({ pattern, params });
       }
     }
   };
-  walk(API_ROOT);
+  walk(APP_ROOT);
   return found.sort((a, b) => a.pattern.localeCompare(b.pattern));
 }
 
@@ -208,6 +227,8 @@ test.describe("route smoke: no GET route answers with a server error", () => {
     const known = new Set(ROUTES.map((r) => r.pattern));
     expect(Object.keys(SKIPPED).filter((p) => !known.has(p))).toEqual([]);
     expect(Object.keys(EXPECTED_5XX).filter((p) => !known.has(p))).toEqual([]);
+    expect(ROUTES.filter((r) => !r.pattern.startsWith("/api/")).length).toBeGreaterThanOrEqual(9);
+    expect(Object.entries(MODEL_FOR_PARAM).filter(([, model]) => !PRISMA_MODELS.has(model))).toEqual([]);
 
     const real = Object.entries(ids).filter(([, id]) => id).map(([name]) => name);
     const placeholder = Object.entries(ids).filter(([, id]) => !id).map(([name]) => name);

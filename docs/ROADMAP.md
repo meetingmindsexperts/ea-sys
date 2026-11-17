@@ -7,6 +7,35 @@
 
 ---
 
+## The gate, the git hooks and the agent command guard: what the Nov 17 review left (recorded Nov 17, 2026): not started
+
+Built Nov 17, 2026 (`398ddca9`, fixes in the commit after it; AGENTS.md rule 5). Review of `398ddca9`: 0 BLOCKER, 3 HIGH, 8 MED, about 20 LOW. The HIGHs and MEDs are fixed. What is below was left, each with why.
+
+**Owner decisions**
+
+- **`prisma migrate dev --create-only` is refused by the guard, and three documents recommend it** (AGENTS.md "Commands", CLAUDE.md "Local database", docs/LOCAL_DEV_DATABASE.md). They say it "writes the file and never touches a database"; it does connect to the database to work out the difference, and can offer a reset when it finds drift, which is the INC-002 prompt. The guard refuses every `migrate dev`. Either the three sentences go, or the guard lets `--create-only` through to a prompt. Until decided the guard is the stricter of the two.
+- **A guard script that already fails at HEAD stops every session's commit**, and an agent cannot bypass the hook. That is the intent (the failing guard is fixed first, by whoever is told), but it means one bad push by override blocks all agent work until it is repaired.
+- **The test server still reads Stripe and Anthropic values from `.env`.** AWS, Sentry, the cron secret and the IP lookup are neutralised in `playwright.config.ts`; these two are not, because a spec may rely on the Stripe test keys. The route smoke test asks GET only and none of those calls Stripe or a model, so nothing is spent today.
+
+**The 29 rules that are still prose only.** The audit behind this work found 58 "never" rules in AGENTS.md and CLAUDE.md: 15 enforced, 14 partly, 29 not at all. About 15 of the 29 can be checked by scanning the source (a registrant query by `attendee: { email }`, `status: { not: "CANCELLED" }` in a webinar attendee route, `role === "REVIEWER"` in a review path, a direct `deletePhoto()`, `fs` in a route, a second writer of `autoIssueOnSurvey`, an event slug written from raw text, a second importer of the SES send command, and `check-permission-guards.sh`'s hand list of 362 of 526 route files, which should be read from disk). This was the fourth proposal on Nov 17 and was not chosen then. It is the largest remaining gain.
+
+**Route smoke test: more roles and rows** (MED, recorded not fixed: it needs seed work, and a thin check that says it is thin is better than none)
+
+- The e2e seed has five roles (admin, organizer, reviewer, submitter, registrant). No SUPER_ADMIN, MEMBER, ONSITE, CRM_USER, HR_USER or BASE account, so the operator, infra, logs, CRM, HR and budget routes are asked and stop at their refusal.
+- Of 44 id parameters in route addresses the seed has a row for 4 (registration, speaker, ticket type, user). The rest are asked with a well-formed id that matches nothing, so those routes are proven not to crash up to their lookup, not past it. The spec prints both lists on every run.
+- GET only. A write route that crashes is still found by its own tests or a reviewer.
+- Three GET routes write to the e2e database on every run (`email-templates` seeds an event's templates, `organization/login-activity` stamps resolved addresses, `export-bundle` counts against its 5 an hour limit). Harmless on a database rebuilt each run; noted so nobody is surprised.
+
+**Small things left** (LOW)
+
+- The guard cannot tell which repository a command runs in: `git -C /some/other/repo add -A` is refused though it touches nothing here. Rare for an agent; naming the files works.
+- Two gates started in the same instant on a stale lock can both take it. Both then fail at the browser step (one port), so the result is red, never a false green.
+- The gate copies this checkout's `node_modules` when the lockfile matches the commit's and does not check that the folder really matches the lockfile. A stale folder shows up as a type or build error, not a false pass.
+- A gate killed outright (not interrupted) leaves its folder and may leave its server on port 3199. The next gate removes the folder and names the process holding the port; it does not kill it.
+- The Claude Code hook fails open when `scripts/agent-command-guard.mjs` is missing (an old checkout): the deny list in the permission file still refuses the plainest spellings.
+- The commit hook's check of "what is staged changed while checking" closes a window of about ten seconds to the instant between its last line and git writing the commit. `git commit -m "..." -- <paths>` has no window at all.
+- The push hook asks GitHub whether a deploy is running and gives it 10 seconds. With no network that is a 10 second wait on every push.
+
 ## Deleting an abstract: what the Nov 17 review left (recorded Nov 17, 2026): partly done
 
 From the review of `35e73eae`, which gave admins abstract delete (0 BLOCKER, 0 HIGH,

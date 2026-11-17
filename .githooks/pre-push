@@ -28,15 +28,28 @@ override() {
   echo "pre-push: GATE_OVERRIDE is set: $2 skipped for $(printf '%s' "$1" | cut -c1-8). Recorded."
 }
 
-# A deploy already running for main? Fails OPEN when gh cannot answer: the gate
-# record below is the check that matters, this one only avoids overlapping deploys.
+# A deploy already running, queued or waiting for main? Fails OPEN when gh
+# cannot answer: the gate record below is the check that matters, this one only
+# avoids overlapping deploys. gh is given 10 seconds and then killed (it is a
+# Go program and ignores the alarm signal a `perl -e alarm` wrapper would send).
 deploy_running() {
   [ "${GATE_NO_CI_CHECK:-}" = "1" ] && return 1
   command -v gh >/dev/null 2>&1 || return 1
-  local active
-  active=$(perl -e 'alarm 10; exec @ARGV' gh run list --workflow deploy.yml --branch main --limit 5 \
-    --json status --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length' 2>/dev/null) || return 1
-  [ -n "$active" ] && [ "$active" != "0" ]
+  local out pid killer rc active base
+  base="${TMPDIR:-/tmp}"
+  out=$(mktemp "${base%/}/ea-sys-prepush.XXXXXX") || return 1
+  gh run list --workflow deploy.yml --branch main --limit 5 --json status \
+    --jq '[.[] | select(.status == "in_progress" or .status == "queued" or .status == "waiting" or .status == "pending" or .status == "requested")] | length' \
+    > "$out" 2>/dev/null < /dev/null &
+  pid=$!
+  (sleep 10; kill -9 "$pid" 2>/dev/null) > /dev/null 2>&1 &
+  killer=$!
+  wait "$pid" 2>/dev/null
+  rc=$?
+  kill "$killer" 2>/dev/null
+  active=$(cat "$out" 2>/dev/null)
+  rm -f "$out"
+  [ "$rc" = "0" ] && [ -n "$active" ] && [ "$active" != "0" ]
 }
 
 while read -r local_ref local_sha remote_ref _remote_sha; do

@@ -79,6 +79,11 @@ export default defineConfig({
           AWS_SESSION_TOKEN: "",
           AWS_PROFILE: "",
           AWS_ENDPOINT_URL: "http://127.0.0.1:9",
+          // Nor report to Sentry: a crash the suite provokes on purpose is not a production error.
+          SENTRY_DSN: "",
+          NEXT_PUBLIC_SENTRY_DSN: "",
+          // No outside IP lookups: the sign-in activity read resolves addresses with a third party unless told not to.
+          LOGIN_GEO_ENABLED: "false",
           // Set, so the legacy cron shims refuse an unsigned caller with 401 as
           // they do in production. Unset, they answer 500 "Server misconfigured",
           // which the route smoke test would have to excuse.

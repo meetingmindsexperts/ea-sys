@@ -193,3 +193,144 @@ describe("as a Claude Code PreToolUse hook", () => {
     }
   });
 });
+
+/**
+ * Review of 398ddca9 (0 BLOCKER, 3 HIGH, 8 MED). Every string below is one the
+ * reviewer got past the first version, or one it refused that it should not.
+ */
+describe("review of 398ddca9: what the first version let through", () => {
+  const at = (command: string) => refusalFor(command, { cwd: ROOT })?.decision ?? "allow";
+
+  it.each([
+    ["timeout 120 npx prisma migrate dev"],
+    ["yarn prisma migrate dev"],
+    ["yarn prisma migrate reset --force"],
+    ["pnpm prisma migrate dev"],
+    ["npx dotenv -e .env -- prisma migrate dev"],
+    ["dotenv -e .env -- npx prisma migrate dev"],
+    ["npx prisma --schema prisma/schema.prisma migrate dev"],
+    ["npx prisma migrate --schema prisma dev"],
+    ["/usr/local/bin/npx prisma migrate dev"],
+    ["npx prisma migrate dev --create-only --name x"],
+    ['timeout 120 npx prisma migrate diff --shadow-database-url "$DIRECT_URL" --from-migrations prisma/migrations'],
+    ['npx dotenv -e .env.local -- prisma migrate diff --shadow-database-url "$DIRECT_URL"'],
+    ["sudo -u ubuntu docker ps"],
+    ["nice -n 10 docker ps"],
+    ["env -u FOO docker ps"],
+    ["timeout 5 docker ps"],
+    ["watch -n1 docker ps"],
+    ["a-wrapper-nobody-listed --flag docker compose up"],
+  ])("HIGH, a wrapper or a flag's value hid the program: %s", (command) => {
+    expect(at(command)).toBe("deny");
+  });
+
+  it.each([
+    ['ssh -i key.pem ubuntu@host "sudo docker exec ea-sys-worker npx tsx scripts/x.ts"'],
+    ["ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@host docker ps"],
+    ["ssh -p 22 ubuntu@host docker ps"],
+    ["ssh -o ConnectTimeout=5 ubuntu@host 'npx prisma migrate reset'"],
+    ["ssh host -- docker ps"],
+  ])("HIGH, an ssh option with a value was read as the host: %s", (command) => {
+    expect(at(command)).toBe("deny");
+  });
+
+  it("an ssh command that runs nothing forbidden on the far side is not refused", () => {
+    expect(at("ssh -i key.pem ubuntu@host uptime")).toBe("allow");
+  });
+
+  it.each([
+    ["git commit -m x ."],
+    ["git commit . -m x"],
+    ["git add .."],
+    ["git add ./."],
+    ["git add ./*"],
+    ['git add "$PWD"'],
+    ["git stage -A"],
+  ])("MED, the whole tree by another spelling: %s", (command) => {
+    expect(at(command)).toBe("deny");
+  });
+
+  it.each([
+    ["git add src/"],
+    ["git add src/lib"],
+    ["git commit src -m x"],
+    ["git checkout -f"],
+    ["git checkout -f main"],
+    ["git switch --discard-changes main"],
+    ["git checkout -- src"],
+    ["git checkout HEAD -- src/ __tests__/"],
+    ["git checkout -- '*'"],
+    ["git restore src"],
+    ["git restore '*'"],
+    ["git reset --merge"],
+  ])("MED, a folder or a pattern, and the other ways to discard: the owner is asked: %s", (command) => {
+    expect(at(command)).toBe("ask");
+  });
+
+  it.each([
+    ['echo "$(grep -c "can\'t" notes.txt)"; docker ps'],
+    ['echo "count: $(grep -c "don\'t" x)" && git add -A'],
+    ['x=$(grep -c ":)" x.txt); docker ps'],
+  ])("MED, an apostrophe or a bracket inside a quoted string inside $() swallowed the rest: %s", (command) => {
+    expect(at(command)).toBe("deny");
+  });
+
+  it("MED, an aws option with no value no longer hides the service", () => {
+    expect(at("aws --no-cli-pager s3 cp get-data.json s3://bucket/")).toBe("ask");
+    expect(at("aws --no-cli-pager ec2 describe-instances --region ap-south-1")).toBe("allow");
+  });
+
+  it.each([
+    ["git -c core.hooksPath=/dev/null commit -m x"],
+    ["git config core.hooksPath /dev/null"],
+    ["git config --unset core.hooksPath"],
+    ["touch .git/gate/abc123.ok"],
+    ["echo passed > .git/gate/abc123.ok"],
+    ['cp a "$(git rev-parse --git-common-dir)/gate/abc.ok"'],
+  ])("switching the hooks off, or writing a gate record by hand: %s", (command) => {
+    expect(at(command)).toBe("deny");
+  });
+
+  it("a command that may drop local data is put to the owner", () => {
+    expect(at("LOCAL_DATA_LOSS_OK=1 npm run db:push -- --accept-data-loss")).toBe("ask");
+  });
+
+  it.each([
+    ["command -v docker"],
+    ['git commit -m "-a"'],
+    ["git commit -mcleanup"],
+    ["git commit -uno -m x"],
+    ["git add -n ."],
+    ["git clean -n"],
+    ["GATE_WORKDIR=/tmp/x npm run gate"],
+    ["git config core.hooksPath"],
+    ["git checkout main"],
+    ["git checkout -b feature/x"],
+    ["git checkout -- src/lib/db.ts"],
+    ["git checkout HEAD -- src/lib/db.ts package.json"],
+    ["git restore --staged src/lib/db.ts"],
+    ["git add src/lib/db.ts AGENTS.md"],
+    ['git add "src/app/(dashboard)/events/[eventId]/agenda/page.tsx"'],
+    ["git commit -q -F - -- src/app/api/organization/route.ts AGENTS.md"],
+    ['git commit -m "fix: prisma migrate dev is refused; docker too" -- AGENTS.md'],
+    ["cd docker && ls"],
+    ["cat docker/Dockerfile.dev"],
+    ["ls .git/gate/"],
+    ["test -f .git/gate/abc.ok && echo yes"],
+    ["yarn dev"],
+    ["timeout 60 npm test"],
+    ["npx prisma migrate status"],
+    ["git reset --soft HEAD~1"],
+    ["npm run hooks:install"],
+  ])("LOW, refused before and should not be, or everyday work near the new rules: %s", (command) => {
+    expect(at(command)).toBe("allow");
+  });
+
+  it("the hook hands the working directory on, so a folder is recognised as one", () => {
+    const answer = hookAnswer({ tool_name: "Bash", cwd: ROOT, tool_input: { command: "git add src/lib" } });
+    expect(answer?.hookSpecificOutput.permissionDecision).toBe("ask");
+    // With no directory to look in, only a trailing slash or a pattern says "folder".
+    expect(refusalFor("git add src/lib")).toBeNull();
+    expect(refusalFor("git add src/lib/")?.decision).toBe("ask");
+  });
+});

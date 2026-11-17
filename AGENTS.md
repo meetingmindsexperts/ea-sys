@@ -133,10 +133,12 @@ npm run gate            # the commit at HEAD; `npm run gate -- <sha>` for anothe
 One command, about five minutes, on exactly that commit in a clean worktree beside the checkout:
 Prisma client, type check, lint, every `scripts/check-*` guard, the unit tests, the build, and the
 browser suite with the **route smoke test** (`e2e/route-smoke.spec.ts`: every GET route, found on
-disk, asked on a real database as every role; none may answer 500). It is the list CI gates on
-(`gate-parity.test.ts` fails when the two differ) less the three checks that need containers (the
-tenancy and integration database suites, the migration replay), which still block the deploy in CI.
-One gate runs at a time: they share port 3199 and the e2e database.
+disk, asked on a real database as each of the five seeded roles and signed out; none may answer
+with a server error). It is the list CI gates on (`gate-parity.test.ts` classifies every line the
+check jobs run, and fails on one nobody classified) less four checks that stay in CI, where they
+still block the deploy: the tenancy and integration database suites and the migration replay (they
+need containers), and the lockfile sync check. One gate runs at a time: they share port 3199 and
+the e2e database.
 
 **Three things enforce it, so none of it rests on memory** (Nov 17, 2026; before that, a month of
 pushes had five red CI runs, and the agent permission file pre-approved `prisma migrate dev`).
@@ -144,14 +146,17 @@ Install the first two once per clone with `npm run hooks:install`.
 
 - **`pre-commit`** lints the staged files and runs the guards on the staged tree (about 10 seconds).
   It checks the INDEX, not the working tree: another session's unfinished file can neither fail
-  your commit nor hide a problem in it.
+  your commit nor hide a problem in it. The index is shared too, so it refuses when what is staged
+  changed while it checked. **Commit with `git commit -m "..." -- <your paths>`**: that form takes
+  only the files named, whatever another session has staged.
 - **`pre-push`** refuses a push to main whose tip has no green gate record, or while a deploy is
   running. A commit on top of a gated one is a new tip and needs its own run.
 - **`scripts/agent-command-guard.mjs`** (a Claude Code hook, wired in `.claude/settings.example.json`)
   refuses outright `prisma migrate dev|reset`, `--shadow-database-url`, docker, `git add -A` /
-  `git commit -a` and a forced push, and puts to the owner every push, every `aws` command that is
-  not a read, and anything that discards the working tree. It reads the command typed, not the
-  scripts it runs: a seatbelt, not a sandbox.
+  `git commit -a`, a forced push, and any attempt to switch the hooks off or write a gate record by
+  hand. It puts to the owner every push, every `aws` command that is not a read, staging or
+  committing a whole folder, and the commands that discard uncommitted work. It reads the command
+  typed, not the scripts it runs: a seatbelt, not a sandbox.
 
 The owner's bypasses are `git commit --no-verify` and `GATE_OVERRIDE=1 git push` (recorded in
 `.git/gate/overrides.log`). An agent may not use either: the guard refuses the command.

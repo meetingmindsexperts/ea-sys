@@ -11,6 +11,12 @@
 # a temp folder and checked there, so another session's unfinished file can
 # neither fail your commit nor hide a problem in it.
 #
+# THE INDEX IS SHARED TOO. A plain `git commit` takes whatever is staged when
+# git writes the commit, including a file another session staged while this
+# hook was running. So the hook notes what was staged when it started and
+# refuses if that changed. `git commit -m "..." -- <paths>` is immune (git
+# gives it an index of its own) and is the form to prefer in this checkout.
+#
 # Owner bypass: git commit --no-verify. Agents may not use it
 # (scripts/agent-command-guard.mjs refuses the command).
 set -u
@@ -18,69 +24,111 @@ set -u
 REPO=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$REPO" || exit 0
 [ -n "$(git diff --cached --name-only)" ] || exit 0
-if [ ! -d node_modules ]; then
-  echo "pre-commit: no node_modules in this checkout, so nothing was checked (run npm ci)."
-  exit 0
-fi
 
 BEGAN=$(date +%s)
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/ea-sys-precommit.XXXXXX") || exit 0
+BASE="${TMPDIR:-/tmp}"
+TMP=$(mktemp -d "${BASE%/}/ea-sys-precommit.XXXXXX") || { echo "pre-commit: no temp folder could be made, so nothing was checked."; exit 0; }
 trap 'rm -rf "$TMP"' EXIT
+TREE="$TMP/tree"
+STATE="$TMP/state"
+mkdir "$TREE" "$STATE"
 
-# The staged tree. `git commit <paths>` works on a temporary index, which git
-# names in GIT_INDEX_FILE: made absolute, because the checks run from $TMP.
-case "${GIT_INDEX_FILE:-}" in
-  "" | /*) ;;
-  *) export GIT_INDEX_FILE="$REPO/$GIT_INDEX_FILE" ;;
-esac
-git checkout-index -a --prefix="$TMP/" || { echo "pre-commit: could not export the index"; exit 1; }
-STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+# `git commit <paths>` works on a temporary index, which git names in
+# GIT_INDEX_FILE: made absolute, because the checks run from another folder.
 GIT_DIR=$(git rev-parse --absolute-git-dir)
 export GIT_DIR
-export GIT_WORK_TREE="$TMP"
-ln -s "$REPO/node_modules" "$TMP/node_modules"
-cd "$TMP" || exit 1
+case "${GIT_INDEX_FILE:-}" in
+  "") REAL_INDEX="$GIT_DIR/index" ;;
+  /*) REAL_INDEX="$GIT_INDEX_FILE" ;;
+  *) REAL_INDEX="$REPO/$GIT_INDEX_FILE" ;;
+esac
+export GIT_INDEX_FILE="$REAL_INDEX"
+
+# What is staged right now, as one id (empty when it cannot be written, as in a
+# merge with conflicts). Worked out on a copy: this hook never writes the real index.
+staged_tree() {
+  cp "$REAL_INDEX" "$STATE/probe.index" 2>/dev/null || return 0
+  GIT_INDEX_FILE="$STATE/probe.index" git write-tree 2>/dev/null || true
+}
+STAGED_TREE=$(staged_tree)
+git diff --cached --name-only -z --diff-filter=ACMR > "$STATE/staged.z"
+git checkout-index -a --prefix="$TREE/" || { echo "pre-commit: could not export the index"; exit 1; }
+
+# The checks get a COPY of the index and the exported tree as their work tree:
+# a guard that asks git a question can touch neither the real index nor the checkout.
+cp "$REAL_INDEX" "$STATE/index"
+export GIT_INDEX_FILE="$STATE/index"
+export GIT_WORK_TREE="$TREE"
+
+# node_modules: this checkout's, or the main checkout's when this is a linked worktree without its own.
+MODULES="$REPO/node_modules"
+if [ ! -d "$MODULES" ]; then
+  MAIN=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+  MODULES="$MAIN/node_modules"
+fi
+HAVE_MODULES=0
+if [ -d "$MODULES" ]; then
+  ln -s "$MODULES" "$TREE/node_modules"
+  HAVE_MODULES=1
+fi
+cd "$TREE" || exit 1
 
 # The guards, side by side (they are greps and small parsers).
-mkdir "$TMP/.precommit"
 for guard in scripts/check-*.sh scripts/check-*.mjs; do
   [ -f "$guard" ] || continue
   name=$(basename "$guard")
   case "$guard" in
-    *.sh) (bash "$guard" > ".precommit/$name.out" 2>&1; echo $? > ".precommit/$name.rc") & ;;
-    *) (node "$guard" > ".precommit/$name.out" 2>&1; echo $? > ".precommit/$name.rc") & ;;
+    *.sh) (bash "$guard" > "$STATE/$name.out" 2>&1; echo $? > "$STATE/$name.rc") & ;;
+    *) (node "$guard" > "$STATE/$name.out" 2>&1; echo $? > "$STATE/$name.rc") & ;;
   esac
 done
 
-# Lint, on the staged files only.
+# Lint, on the staged files only. Names are passed NUL-separated: a space or an accent in one is safe.
 LINT_RC=0
-LINTABLE=$(printf '%s\n' "$STAGED" | grep -E '\.(ts|tsx|js|jsx|mjs)$' | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done)
-if [ -n "$LINTABLE" ]; then
-  printf '%s\n' "$LINTABLE" | tr '\n' '\0' | xargs -0 npx eslint --no-warn-ignored > .precommit/eslint.out 2>&1 || LINT_RC=$?
+while IFS= read -r -d '' staged; do
+  case "$staged" in
+    *.ts | *.tsx | *.js | *.jsx | *.mjs) if [ -f "$staged" ]; then printf '%s\0' "$staged"; fi ;;
+  esac
+done < "$STATE/staged.z" > "$STATE/lint.z"
+if [ -s "$STATE/lint.z" ]; then
+  if [ "$HAVE_MODULES" = "1" ]; then
+    xargs -0 npx eslint --no-warn-ignored < "$STATE/lint.z" > "$STATE/eslint.out" 2>&1 || LINT_RC=$?
+  else
+    echo "pre-commit: NO node_modules here or in the main checkout: the staged files were NOT linted (run npm ci)."
+  fi
 fi
 wait
 
 FAILED=0
-for rc in .precommit/*.rc; do
+for rc in "$STATE"/*.rc; do
   [ -f "$rc" ] || continue
   if [ "$(cat "$rc")" != "0" ]; then
     name=$(basename "$rc" .rc)
     echo ""
     echo "COMMIT REFUSED by guard scripts/$name:"
-    sed 's/^/  /' ".precommit/$name.out" | tail -40
+    sed 's/^/  /' "$STATE/$name.out" | tail -40
     FAILED=1
   fi
 done
 if [ "$LINT_RC" != "0" ]; then
   echo ""
   echo "COMMIT REFUSED by lint, on the staged files:"
-  sed -e "s|$TMP/||g" -e 's/^/  /' .precommit/eslint.out | tail -60
+  sed -e "s|$TREE/||g" -e 's/^/  /' "$STATE/eslint.out" | tail -60
   FAILED=1
 fi
-
 if [ "$FAILED" = "1" ]; then
   echo ""
   echo "Checked what is STAGED, not the working tree. Fix it, stage the fix, commit again."
   exit 1
 fi
-echo "pre-commit: lint and $(ls .precommit/*.rc 2>/dev/null | wc -l | tr -d ' ') guards passed on the staged files ($(( $(date +%s) - BEGAN ))s)"
+
+# Was the same thing staged all along? If not, this commit would carry a file nothing above looked at.
+if [ -n "$STAGED_TREE" ] && [ "$(staged_tree)" != "$STAGED_TREE" ]; then
+  echo ""
+  echo "COMMIT REFUSED: what is staged changed while it was being checked."
+  echo "  Another session staged or unstaged a file in this checkout in the last few seconds."
+  echo "  Look at: git diff --cached --stat      then commit only your files:"
+  echo "    git commit -m \"...\" -- <your paths>"
+  exit 1
+fi
+echo "pre-commit: lint and $(ls "$STATE"/*.rc 2>/dev/null | wc -l | tr -d ' ') guards passed on the staged files ($(( $(date +%s) - BEGAN ))s)"
