@@ -81,8 +81,11 @@ function CatalogueNav({ organization, signedIn }: { organization: SiteOrganizati
       <Link href="/catalogue" className="flex min-w-0 items-center gap-2.5 font-semibold">
         {organization?.logo ? (
           // White on the navy hero; the logo file stays whatever was uploaded.
+          // Tall enough for a STACKED logo (a mark above its wordmark) to be
+          // read: at 32px the words of such a logo were about 10px high. A wide
+          // one-line logo is held by the width instead.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={organization.logo} alt={organization.name} className="h-8 max-w-[120px] shrink-0 object-contain brightness-0 invert" />
+          <img src={organization.logo} alt={organization.name} className="h-14 w-auto max-w-[180px] shrink-0 object-contain object-left brightness-0 invert sm:h-16 sm:max-w-[220px]" />
         ) : (
           <span className="truncate">{organization?.name ?? "Events"}</span>
         )}
@@ -527,7 +530,7 @@ export function CatalogueFooter({ organization, specialties }: { organization: S
         <div className="col-span-2 grid max-w-[40ch] content-start gap-3 md:col-span-1">
           {organization?.logo ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={organization.logo} alt={name} className="h-8 w-auto max-w-[140px] justify-self-start object-contain brightness-0 invert" />
+            <img src={organization.logo} alt={name} className="h-16 w-auto max-w-[200px] justify-self-start object-contain object-left brightness-0 invert sm:h-20 sm:max-w-[240px]" />
           ) : (
             <span className="font-semibold text-white">{name}</span>
           )}

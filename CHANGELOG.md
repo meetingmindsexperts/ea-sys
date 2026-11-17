@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Catalogue: the brand logo is twice the height in the header and the footer (November 17)
+
+Owner: "increase height of meetingminds experts logo in the catalogue header and footer". The logo was held to 32px high in both places. The Meeting Minds Experts logo is stacked (the mark above the words), so at that height it drew 52px wide and its words were about 10px tall.
+
+- **Header**: 64px high on a desktop, 56px on a phone (was 32px). **Footer**: 80px and 64px (was 32px).
+- The same on the specialty and country pages, which share the header and footer. A wide one-line logo of another organisation is held by its width instead (220px and 240px), so it does not grow taller than this one.
+- Measured in a browser at both widths, before on the live page and after on the local build.
+
 ### Deleting an abstract: counts refreshed, a limit, refusals logged (November 17)
 
 Owner, on the fourth item the review of the admin delete change left: "do no 4 for now". Three small things on the delete route, nothing else from that list.
