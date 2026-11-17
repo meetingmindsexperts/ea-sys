@@ -10,10 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Owner, on the fourth item the review of the admin delete change left: "do no 4 for now". Three small things on the delete route, nothing else from that list.
 
-- **Fixed**: the event's abstract counts are refreshed after a delete. They are a stored total that create and update refresh and the delete did not, so the dashboard tile and the agent's dashboard read stayed one too high until the next abstract changed.
-- **Added**: a limit of 60 deletes an hour for each person (`RATE_LIMITED`, with `retryAfterSeconds`, as on the other limited routes). Checked after the permission, so someone who may not delete spends none of it. Room for clearing out test and duplicate submissions by hand; a script can no longer empty an event.
+- **Fixed**: the event's abstract counts by status are refreshed after a delete. They are a stored total that create and update refresh and the delete did not, so the AI agent's `get_event_stats` answer stayed one too high until the next abstract changed. (Nothing on screen reads that total; an earlier wording of this entry said a dashboard tile did, and the review of `fe19836e` corrected it.)
+- **Added**: a limit of 60 deletes an hour for each person (`RATE_LIMITED`, with `retryAfterSeconds`, as on the other limited routes). Checked after the permission, so someone who may not delete spends none of it; it counts attempts, so a refused or not-found delete spends one. Room for clearing out test and duplicate submissions by hand; a script is slowed to that pace and each refusal is logged. It is not a wall: the counter is per container and starts again on a deploy.
 - **Added**: the three refusals that answered without a log line are logged at warn: no such event, no such abstract, an abstract linked to a session.
-- Still open from that list, by the owner's choice: an abstract scheduled as a session topic is not refused; the list offers delete on every status; a reviewer is sent the author's whole speaker record.
+- Still open from that list, by the owner's choice: an abstract scheduled as a session topic is not refused; the list offers delete on every status; the user menu's hand-written permission list. (A reviewer being sent the author's whole speaker record is open too, on the search review's list.)
+- Review of `fe19836e` (0 BLOCKER, 0 HIGH, 0 MED, 7 LOW; the code was sound, the words and two tests were not): the corrections above, the 429 message says "delete attempts", and the tests now pin the `Retry-After` header, that the limit is checked before anything is read, and the status of each refusal.
 
 ### Rules that are enforced, not remembered: one gate, two git hooks, an agent command guard (November 17)
 

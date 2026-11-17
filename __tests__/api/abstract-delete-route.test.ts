@@ -27,7 +27,13 @@ const { mockDb, mockAuth, tx, mockRateLimit, mockRefreshStats, mockLogger } = vi
 });
 
 vi.mock("next/server", () => ({
-  NextResponse: { json: (b: unknown, i?: { status?: number }) => ({ status: i?.status ?? 200, json: async () => b }) },
+  NextResponse: {
+    json: (b: unknown, i?: { status?: number; headers?: Record<string, string> }) => ({
+      status: i?.status ?? 200,
+      headers: i?.headers ?? {},
+      json: async () => b,
+    }),
+  },
 }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({
@@ -165,17 +171,20 @@ describe("what is refused whoever asks", () => {
 describe("the event's abstract counts after a delete", () => {
   beforeEach(() => signedInAs("ADMIN"));
 
-  it("are refreshed, so the dashboard tile does not stay one too high", async () => {
+  // The stored counts are read by the agent's get_event_stats tool.
+  it("are refreshed, so the agent's count does not stay one too high", async () => {
     await del();
     expect(mockRefreshStats).toHaveBeenCalledWith("ev1");
   });
 
   it("are left alone when nothing was deleted", async () => {
+    // Refused: linked to a session.
     mockDb.abstract.findFirst.mockResolvedValue({ ...ABSTRACT, eventSession: { id: "ses1", name: "Plenary" } });
-    await del();
+    expect((await del()).status).toBe(400);
+    // Failed: the transaction threw, so the abstract is still there.
     tx.auditLog.create.mockRejectedValue(new Error("audit insert failed"));
     mockDb.abstract.findFirst.mockResolvedValue(ABSTRACT);
-    await del();
+    expect((await del()).status).toBe(500);
     expect(mockRefreshStats).not.toHaveBeenCalled();
   });
 });
@@ -187,12 +196,14 @@ describe("the limit on deleting", () => {
     expect(mockRateLimit).toHaveBeenCalledWith({ key: "abstract-delete:u1", limit: 60, windowMs: 60 * 60 * 1000 });
   });
 
-  it("answers 429 with when to try again, and deletes nothing", async () => {
+  it("answers 429 with when to try again, before anything is read, and deletes nothing", async () => {
     signedInAs("ADMIN");
     mockRateLimit.mockReturnValue({ allowed: false, remaining: 0, retryAfterSeconds: 1234 });
     const res = await del();
     expect(res.status).toBe(429);
     expect(await res.json()).toMatchObject({ code: "RATE_LIMITED", retryAfterSeconds: 1234, limit: 60, windowSeconds: 3600 });
+    expect((res as unknown as { headers: Record<string, string> }).headers["Retry-After"]).toBe("1234");
+    expect(mockDb.event.findFirst).not.toHaveBeenCalled();
     expect(mockDb.abstract.findFirst).not.toHaveBeenCalled();
     expect(tx.abstract.delete).not.toHaveBeenCalled();
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "abstracts:delete-rate-limited", userId: "u1" }));
@@ -200,8 +211,16 @@ describe("the limit on deleting", () => {
 
   it("is not spent by someone who may not delete at all", async () => {
     signedInAs("ORGANIZER");
-    await del();
+    expect((await del()).status).toBe(403);
     expect(mockRateLimit).not.toHaveBeenCalled();
+  });
+
+  // It counts attempts: the check runs before the abstract is looked up.
+  it("is spent by an attempt that finds nothing", async () => {
+    signedInAs("ADMIN");
+    mockDb.abstract.findFirst.mockResolvedValue(null);
+    expect((await del()).status).toBe(404);
+    expect(mockRateLimit).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -220,7 +239,7 @@ describe("every refusal is logged", () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "abstracts:delete-event-not-found", eventId: "ev1" }));
   });
 
-  it("an abstract linked to a session, with the session named", async () => {
+  it("an abstract linked to a session, with the session's id", async () => {
     mockDb.abstract.findFirst.mockResolvedValue({ ...ABSTRACT, eventSession: { id: "ses1", name: "Plenary" } });
     await del();
     expect(mockLogger.warn).toHaveBeenCalledWith(

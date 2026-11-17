@@ -725,9 +725,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     // Per person, after the permission check so a refused caller spends none
-    // of it. A delete is one abstract at a time and permanent; 60 an hour is
-    // room for clearing out test and duplicate submissions by hand, and stops
-    // a script emptying an event (review of 35e73eae).
+    // of it. It counts ATTEMPTS (a 404 or a refused linked abstract spends one
+    // too). A delete is one abstract at a time and permanent; 60 an hour is
+    // room for clearing out test and duplicate submissions by hand, and slows
+    // a script to that pace with a log line for each refusal. It does not stop
+    // one: the counter is per container and starts again on a deploy
+    // (review of 35e73eae).
     const rl = checkRateLimit({
       key: `abstract-delete:${session.user.id}`,
       limit: ABSTRACT_DELETE_LIMIT,
@@ -737,7 +740,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "abstracts:delete-rate-limited", eventId, abstractId, userId: session.user.id, retryAfterSeconds: rl.retryAfterSeconds });
       return NextResponse.json(
         {
-          error: "Too many abstracts deleted in a short time. Try again later.",
+          error: "Too many delete attempts in a short time. Try again later.",
           code: "RATE_LIMITED",
           retryAfterSeconds: rl.retryAfterSeconds,
           limit: ABSTRACT_DELETE_LIMIT,
@@ -818,9 +821,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       userId: session.user.id,
     });
 
-    // The event's abstract counts (the dashboard tile, the agent's dashboard
-    // read) are a stored total. Create and update refresh it; the delete did
-    // not, so the tile stayed one too high until the next abstract changed.
+    // The event's abstract counts by status are a stored total, read by the
+    // agent's `get_event_stats` tool (nothing on screen reads it). Create and
+    // update refresh it; the delete did not, so the agent's count stayed one
+    // too high until the next abstract changed.
     refreshEventStats(eventId);
 
     return NextResponse.json({ success: true });

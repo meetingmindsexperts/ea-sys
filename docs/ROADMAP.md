@@ -7,13 +7,16 @@
 
 ---
 
-## Deleting an abstract: what the Nov 17 review left (recorded Nov 17, 2026): not started
+## Deleting an abstract: what the Nov 17 review left (recorded Nov 17, 2026): partly done
 
 From the review of `35e73eae`, which gave admins abstract delete (0 BLOCKER, 0 HIGH,
 1 MED, 6 LOW). The MED and the LOWs are fixed in the follow-up: the audit copy
 holds the reviews, one transaction, a confirmation that names the abstract. What
-follows was there before the change and is now reachable by more people; none of
-it is touched.
+follows was there before the change and is now reachable by more people. The
+owner was shown four items (a session topic is not refused; delete on every status;
+a reviewer is sent the whole speaker record, which is on the search review's list
+above; and, as the fourth, the counts and the rate limit together) and chose the
+fourth: "do no 4 for now, leave rest for later".
 
 **Older defects, for the owner to decide:**
 
@@ -28,9 +31,11 @@ it is touched.
   If the list should match the edit page, hide the button unless the abstract is
   a draft (the super admin could keep the wider one).
 - ~~The event's abstract counts are not refreshed after a delete~~ and ~~no rate
-  limit on the delete, its 404 and 400 not logged~~: DONE Nov 17, 2026 (owner:
-  "do no 4 for now, leave rest for later"). Counts refreshed, 60 deletes an hour
-  for each person, the three refusals logged.
+  limit on the delete, its 404 and 400 not logged~~: DONE Nov 17, 2026
+  (`fe19836e`). Counts refreshed (they feed the agent's `get_event_stats`, not a
+  screen), 60 delete attempts an hour for each person, the three refusals logged.
+  The same stale count remains after an abstracts CSV import, which creates
+  abstracts and never refreshes the total: not touched.
 - **The user menu's permission list is hand-written per role** (`header.tsx`,
   `ROLE_META`), which is how it came to show a cross for something the role
   holds. It also says an Organizer cannot "Review & approve abstracts", which an
