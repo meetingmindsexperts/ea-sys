@@ -533,7 +533,8 @@ describe("review fixes: areas, restore, removal", () => {
   });
 
   it("archiving still needs none of that: withdrawing access is always allowed", async () => {
-    mockDb.permissionSet.findFirst.mockResolvedValue({ id: "r1", name: "Purger", isSystem: false, archivedAt: null, permissions: [{ permission: "abstracts.delete", scope: "ALL" }], _count: { holders: 1 } });
+    // A role beyond the admin's own access (not `abstracts.delete`, which admins hold since Nov 17, 2026).
+    mockDb.permissionSet.findFirst.mockResolvedValue({ id: "r1", name: "Purger", isSystem: false, archivedAt: null, permissions: [{ permission: "apiKeys.internalTier", scope: null }], _count: { holders: 1 } });
     mockDb.permissionSet.updateMany.mockResolvedValue({ count: 1 });
     mockDb.permissionSet.findFirstOrThrow.mockResolvedValue({ id: "r1" });
     expect(await setPermissionSetArchived({ ...admin, permissionSetId: "r1", archived: true })).toMatchObject({ ok: true });

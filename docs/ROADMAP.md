@@ -7,6 +7,37 @@
 
 ---
 
+## Deleting an abstract: what the Nov 17 review left (recorded Nov 17, 2026): not started
+
+From the review of `35e73eae`, which gave admins abstract delete (0 BLOCKER, 0 HIGH,
+1 MED, 6 LOW). The MED and the LOWs are fixed in the follow-up: the audit copy
+holds the reviews, one transaction, a confirmation that names the abstract. What
+follows was there before the change and is now reachable by more people; none of
+it is touched.
+
+**Older defects, for the owner to decide:**
+
+- **An abstract scheduled as a session topic is deleted without a word (MED).**
+  The route refuses an abstract linked to a SESSION. An abstract linked to a
+  session TOPIC (set from the agenda or by the agent) is not checked: it deletes,
+  and the topic silently loses its abstract. The list shows no cue for it either.
+  Fix: read the topic link as well and refuse on either, with the session's name
+  in the message.
+- **The delete button is on every status on the list page**, accepted included;
+  the abstract's edit page offers delete on a draft only. Decide which is meant.
+  If the list should match the edit page, hide the button unless the abstract is
+  a draft (the super admin could keep the wider one).
+- **The event's abstract counts are not refreshed after a delete**, so the
+  dashboard tile and the agent's dashboard read stay one too high until the next
+  abstract is created or changed.
+- **No rate limit on the delete, and its 404 and 400 are not logged.** A signed-in
+  holder can script the deletion of every unlinked abstract of the organisation.
+  Each leaves its audit copy; nothing slows it or reports it.
+- **The user menu's permission list is hand-written per role** (`header.tsx`,
+  `ROLE_META`), which is how it came to show a cross for something the role
+  holds. It also says an Organizer cannot "Review & approve abstracts", which an
+  Organizer can. Deriving the list from the permission keys ends the class.
+
 ## Abstracts search: what the Nov 17 review left (recorded Nov 17, 2026): not started
 
 From the review of `0418aac8` (0 BLOCKER, 0 HIGH, 2 MED, 9 LOW). Both MEDs are fixed

@@ -21,7 +21,6 @@ const staffEventWhere = (user: { id: string; role: string; organizationId?: stri
 //   SUBMITTER             — Abstracts-only (org-independent, per-speaker linkage)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const ALL_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "REVIEWER", "SUBMITTER"] as const;
 const PRIVILEGED_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
 
 // ── Layer 1: API Guard (denyReviewer) ──────────────────────────────────────
@@ -425,16 +424,6 @@ describe("RBAC: Abstract-specific access rules", () => {
     );
   });
 
-  describe("DELETE abstract restricted to SUPER_ADMIN", () => {
-    it.each([...ALL_ROLES])("role %s delete permission", (role) => {
-      const canDelete = role === "SUPER_ADMIN";
-      if (role === "SUPER_ADMIN") {
-        expect(canDelete).toBe(true);
-      } else {
-        expect(canDelete).toBe(false);
-      }
-    });
-  });
 });
 
 // ── Middleware: CSRF protection ─────────────────────────────────────────────

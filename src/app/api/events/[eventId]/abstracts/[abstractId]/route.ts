@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -738,6 +738,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       },
       include: {
         eventSession: true,
+        // Deleting the abstract deletes these with it (both cascade), and the
+        // audit row below is the only copy left: the reviewer assignments and
+        // every submitted review, with its scores and notes. Until Nov 17,
+        // 2026 the copy held the abstract's own row alone, so the reviews of
+        // a deleted abstract were gone for good (review of 35e73eae).
+        reviewers: true,
+        submissions: true,
       },
     });
 
@@ -753,23 +760,33 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
-    await db.abstract.delete({
-      where: { id: abstractId },
+    // One transaction: the abstract is not deleted unless its copy is written.
+    await tenantTransaction(async (tx) => {
+      await tx.abstract.delete({
+        where: { id: abstractId },
+      });
+      await tx.auditLog.create({
+        data: {
+          eventId,
+          userId: session.user.id,
+          action: "DELETE",
+          entityType: "Abstract",
+          entityId: abstractId,
+          changes: { deleted: abstract, ip: getClientIp(req) },
+        },
+      });
     });
 
-    // Log the action
-    await db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "DELETE",
-        entityType: "Abstract",
-        entityId: abstractId,
-        changes: { deleted: abstract, ip: getClientIp(req) },
-      },
+    apiLogger.info({
+      msg: "Abstract deleted",
+      eventId,
+      abstractId,
+      title: abstract.title,
+      status: abstract.status,
+      reviewersDeleted: abstract.reviewers.length,
+      reviewsDeleted: abstract.submissions.length,
+      userId: session.user.id,
     });
-
-    apiLogger.info({ msg: "Abstract deleted", eventId, abstractId, title: abstract.title, userId: session.user.id });
 
     return NextResponse.json({ success: true });
     });

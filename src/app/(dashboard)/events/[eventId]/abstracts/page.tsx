@@ -93,6 +93,29 @@ function presentationTypeLabel(type: string): string {
 }
 
 /**
+ * What the delete confirmation says. It names the abstract (the button is an
+ * icon on every row, beside Reject) and what goes with it: the reviews and
+ * reviewer assignments are deleted too, and an accepted abstract can be
+ * deleted like any other (review of 35e73eae).
+ */
+function deleteConfirmation(abstract: Abstract): string {
+  const reviews = abstract.reviewCount ?? 0;
+  const reviewers = abstract.assignedReviewerCount ?? 0;
+  const lost = [
+    reviews > 0 ? `${reviews} submitted review${reviews === 1 ? "" : "s"}` : null,
+    reviewers > 0 ? `${reviewers} reviewer assignment${reviewers === 1 ? "" : "s"}` : null,
+  ].filter(Boolean);
+  return [
+    `Delete abstract ${formatAbstractSerial(abstract.serialId)}, "${abstract.title}"?`,
+    `Status: ${abstractStatusLabel(abstract.status)}.`,
+    lost.length > 0 ? `Deleted with it: ${lost.join(" and ")}.` : null,
+    "This cannot be undone.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
  * Why the list is empty. With a reviewer filter on as well, the search alone is
  * not to blame: "No abstracts match A-012" read as "A-012 does not exist" when
  * the "No reviewer yet" filter was what hid it (review of 0418aac8).
@@ -389,7 +412,7 @@ export default function AbstractsPage() {
     onError: (err: Error) => toast.error(err.message || "Failed to save review"),
   });
 
-  // Delete abstract mutation (SUPER_ADMIN only)
+  // Delete abstract mutation (whoever holds abstracts.delete)
   const deleteAbstractMutation = useMutation({
     mutationFn: async (abstractId: string) => {
       const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`, {
@@ -408,9 +431,9 @@ export default function AbstractsPage() {
     onError: (err: Error) => toast.error(err.message || "Failed to delete abstract"),
   });
 
-  const handleDelete = (abstractId: string) => {
-    if (!confirm("Delete this abstract? This cannot be undone.")) return;
-    deleteAbstractMutation.mutate(abstractId);
+  const handleDelete = (abstract: Abstract) => {
+    if (!confirm(deleteConfirmation(abstract))) return;
+    deleteAbstractMutation.mutate(abstract.id);
   };
 
   const isSubmitting = createAbstractMutation.isPending || reviewAbstractMutation.isPending;
@@ -1418,7 +1441,9 @@ export default function AbstractsPage() {
                               variant="outline"
                               size="sm"
                               className="text-red-600 hover:bg-red-50"
-                              onClick={() => handleDelete(abstract.id)}
+                              aria-label={`Delete abstract ${formatAbstractSerial(abstract.serialId)}`}
+                              title="Delete abstract"
+                              onClick={() => handleDelete(abstract)}
                               disabled={deleteAbstractMutation.isPending}
                             >
                               <Trash2 className="h-4 w-4" />

@@ -83,7 +83,7 @@ const ROLE_META: Record<string, RoleMeta> = {
     permissions: [
       { label: "Manage events & team",     allowed: true },
       { label: "Review & approve abstracts", allowed: true },
-      { label: "Delete abstracts",          allowed: false },
+      { label: "Delete abstracts",          allowed: true },
       { label: "Organisation settings",    allowed: true },
     ],
   },

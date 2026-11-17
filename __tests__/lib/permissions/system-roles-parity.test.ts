@@ -29,6 +29,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { UserRole } from "@prisma/client";
+import { REST_API_KEY_PERMISSIONS, TOOL_PERMISSIONS } from "@/lib/permissions/tool-permissions";
 
 import {
   canAdminProcurement,
@@ -171,10 +172,18 @@ describe("the matrix itself", () => {
     // never a desk power (L-4).
     expect(can(principal("SUPER_ADMIN"), "abstracts.delete")).toBe(true);
     expect(can(principal("ADMIN"), "abstracts.delete")).toBe(true);
-    for (const role of ["ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "BASE", "REVIEWER", "SUBMITTER", "REGISTRANT"] as const) {
-      expect(can(principal(role), "abstracts.delete"), role).toBe(false);
-    }
+    // Every role in the enum but those two, so a role added later is refused
+    // until someone decides otherwise.
+    const refused = ROLES.filter((r) => r !== "SUPER_ADMIN" && r !== "ADMIN");
+    expect(refused.length).toBeGreaterThanOrEqual(10);
+    for (const role of refused) expect(can(principal(role), "abstracts.delete"), role).toBe(false);
+    // No API key deletes an abstract: the full key does not hold the key, and
+    // nothing a key can reach (an agent or MCP tool, a REST route that takes a
+    // key) is behind it, so a key bound to a custom role that ticks it still
+    // has no door. The delete route takes a signed-in person only.
     expect(SYSTEM_ROLES.API_KEY.grants.some((g) => g.permission === "abstracts.delete")).toBe(false);
+    expect(Object.entries(TOOL_PERMISSIONS).filter(([, key]) => key === "abstracts.delete")).toEqual([]);
+    expect(REST_API_KEY_PERMISSIONS.filter((r) => r.permission === "abstracts.delete")).toEqual([]);
     expect(can(principal("WEBINARS"), "registrations.delete")).toBe(false);
     // MEMBER reads money but never codes, exports or supporting documents.
     expect(can(principal("MEMBER"), "finance.view")).toBe(true);
