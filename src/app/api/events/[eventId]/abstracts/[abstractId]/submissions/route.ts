@@ -4,7 +4,7 @@ import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { findGatedEvent } from "@/lib/tenant/event-tenant";
+import { findGatedEvent, resolveEventTenant } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
@@ -206,7 +206,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       linkedRoles: "linked",
     });
     if (!gate.ok) return gate.response;
-    const eventWhere = can(gate.principal, "abstracts.decide") ? gate.eventWhere : { id: eventId };
+    const decides = can(gate.principal, "abstracts.decide");
 
     if (!body) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
@@ -224,9 +224,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org, so
     // an org-null reviewer caller works). submitAbstractReview reads/writes
     // swept tables, so the service call runs INSIDE the wrap.
-    const event = await findGatedEvent({ principal: gate.principal, eventWhere }, {
-      select: { id: true, organizationId: true },
-    });
+    // Someone who decides reads the event behind their gate. Anyone else is
+    // here by ASSIGNMENT to this abstract, which the service judges: the event
+    // may belong to another organisation than their account's (a colleague
+    // asked to review), so it is found by the sanctioned discovery, by id,
+    // and never read in the caller's own lane (review of 231e5ce0).
+    const event = decides
+      ? await findGatedEvent(gate, { select: { id: true, organizationId: true } })
+      : await resolveEventTenant({ id: eventId });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
     return await runWithTenant(event.organizationId, async () => {

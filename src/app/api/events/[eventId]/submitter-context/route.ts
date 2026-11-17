@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { resolveEventTenant } from "@/lib/tenant/event-tenant";
 
 /**
  * GET — the signed-in SUBMITTER's surface context for this event:
@@ -39,10 +40,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Speaker (swept #9) + its abstract/proposal counts (swept #11/#14) on the
     // resource-org lane — this route was a pre-existing unwrapped reader of
     // those swept tables (fail-closed to empty once RLS turns on).
-    const event = await db.event.findUnique({
-      where: { id: eventId },
-      select: { organizationId: true },
-    });
+    // Found by the sanctioned discovery (id and organisation only): a submitter
+    // reaches the event by their link to it, so there is no lane to read it in yet.
+    const event = await resolveEventTenant({ id: eventId });
     if (!event) {
       apiLogger.warn({ msg: "submitter-context:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Not linked to this event" }, { status: 404 });

@@ -97,16 +97,21 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!accessible) {
       return apiErrorResponse(404, "Event not found", { route, eventId, userId: session.user.id });
     }
-    const event = await db.event.findUnique({
-      where: { id: eventId },
-      select: {
-        id: true,
-        organizationId: true,
-        name: true,
-        slug: true,
-        organization: { select: { name: true } },
-      },
-    });
+    // The second read of the same event, in its organisation's lane: outside one it
+    // would find nothing once Event has a policy, right after the read above
+    // succeeded (review of 231e5ce0).
+    const event = await runWithTenant(accessible.organizationId, () =>
+      db.event.findUnique({
+        where: { id: eventId },
+        select: {
+          id: true,
+          organizationId: true,
+          name: true,
+          slug: true,
+          organization: { select: { name: true } },
+        },
+      }),
+    );
     if (!event) {
       return apiErrorResponse(404, "Event not found", { route, eventId, userId: session.user.id });
     }

@@ -27,10 +27,12 @@
  *     cannot tell them apart, so it is unchanged by that sweep.
  *
  *  4. OTHER DIRECT USES of a gate's event filter, outside the two sound ones
- *     (a relation filter inside a lane, a gate built for the helpers). Counted
- *     exactly; see GATE_FILTER_USE. Second sweep, Nov 17, 2026: 117 to 12.
+ *     (a relation filter inside a lane, a gate built for the helpers). Listed
+ *     per file with a reason; see GATE_FILTER_USE_LEFT.
  *
- * ALL FOUR ARE EXACT. Going up fails, with what to do instead. Going down fails
+ *  5. A FILTER PARAMETER TYPED LOOSELY (`where: object`). Zero.
+ *
+ * ALL OF THEM ARE EXACT. Going up fails, with what to do instead. Going down fails
  * too, with the new number to write here: that is what makes it a ratchet
  * rather than a ceiling that quietly drifts back up.
  *
@@ -65,8 +67,30 @@ const EVENT_READ = /\b(?:db|tx)\.event\.(?:find\w*|count|aggregate|groupBy|updat
 /** Any sign the file runs inside, or deliberately outside, a lane. */
 const LANE_MARKER = /runWithTenant|tenantTransaction|dbOperator|resolveEventTenant|resolvePublicEventOrg/;
 
-/** Shape 3: the gate's own filter handed straight to an Event query, whatever comments sit between. */
-const BARE_GATED_READ = /\b(?:db|tx)\.event\.find\w*\(\s*\{\s*where:\s*gate\.eventWhere\b/g;
+/**
+ * Shape 3: an Event read whose filter is a gate's, or any variable or call
+ * named like one (`gate.eventWhere`, `access.eventWhere`, a bare `eventWhere`,
+ * `hubEventWhere(...)`), handed straight to the query. Widened after the review
+ * of 231e5ce0: the first version matched the literal `gate.eventWhere` only,
+ * so a local helper that took the filter as a parameter was invisible to it.
+ */
+const BARE_GATED_READ = /\b(?:db|tx)\.event\.find\w*\(\s*\{\s*where:\s*[\w.]*[eE]ventWhere\b/g;
+/**
+ * The files still doing it, exactly: the dashboard's event pages and the
+ * traffic report, which build their filter with `hubEventWhere`. They are the
+ * next sweep's (docs/SECURITY_AUDIT_ACTION_PLAN.md §3.1). Nothing else may.
+ */
+const BARE_GATED_READ_FILES = [
+  "src/app/(dashboard)/events/[eventId]/page.tsx",
+  "src/app/(dashboard)/events/[eventId]/setup/page.tsx",
+  "src/app/api/analytics/traffic/route.ts",
+];
+/**
+ * A function that takes a filter typed `object`, `unknown` or `any`. The type
+ * checker cannot tell a filter from a whole gate there: that is how every
+ * walk-in QR came to answer 500 in 231e5ce0, caught in review before a push.
+ */
+const LOOSELY_TYPED_FILTER = /function\s+\w+\(\s*(?:\w+\??:\s*[^,)]*,\s*)*\w*[wW]here\w*\??:\s*(?:object|unknown|any)\b/g;
 
 /**
  * Shape 4: a gate's filter used some other way than through `findGatedEvent`.
@@ -86,19 +110,37 @@ const BARE_GATED_READ = /\b(?:db|tx)\.event\.find\w*\(\s*\{\s*where:\s*gate\.eve
  * quietly add a differently spelled bare read (review of 2db57e7f).
  */
 const GATE_FILTER_USE = /\.eventWhere\b/;
-const SOUND_GATE_FILTER_USE = /\bevent:\s|principal:|organisationGate\(|inOwnLane\(|findGatedEvent\(/;
+/**
+ * The two sound uses, matched by their SHAPE and not by a word on the line
+ * (review of 231e5ce0: `event: ` alone also matched a typed variable named
+ * event): a relation filter whose value is the gate's filter, and a gate
+ * being built for or handed to the helpers.
+ */
+const SOUND_GATE_FILTER_USE =
+  /\bevent:\s*(?:[\w.]*[eE]ventWhere\b|\{\s*AND:\s*\[[^\]]*[eE]ventWhere)|principal:\s*[\w.]+\s*,\s*eventWhere\b|organisationGate\(|findGatedEvent\(/;
 /** Where the filter is built and described, not used. */
 const GATE_FILTER_HOME = /^src\/lib\/permissions\//;
 /**
- * The 12 left on Nov 17, 2026, each read and found sound: a filter built from
- * two gates and kept in a variable before it feeds a gate or a relation filter
- * inside a lane (scheduled emails x2, import-contacts, the abstract
- * submissions route, email logs), the two sub-theme helper calls made inside
- * a lane, the walk-in's list of scopes (x2), the two event LISTS (inside
- * `inOwnLane`, their filter on its own line), and the public catalogue's own
- * filter, which only shares the name.
+ * The lines left, per file, each read on Nov 17, 2026 and found sound. A file
+ * not listed here may hold none; a listed file may hold no more than its count.
  */
-const GATE_FILTER_USE_BASELINE = 12;
+const GATE_FILTER_USE_LEFT: Record<string, number> = {
+  // A relation filter's value, kept in a variable; both queries run inside the lane.
+  "src/app/api/email-logs/route.ts": 1,
+  // A helper that uses the filter as a relation filter, called inside the lane.
+  "src/app/api/events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]/route.ts": 2,
+  // Two gates combined into one filter, then used as a relation filter inside the lane.
+  "src/app/api/events/[eventId]/emails/schedule/[id]/retry/route.ts": 1,
+  "src/app/api/events/[eventId]/emails/schedule/[id]/route.ts": 1,
+  // Two gates combined, then handed to findGatedEvent with the gate's principal.
+  "src/app/api/events/[eventId]/registrations/import-contacts/route.ts": 1,
+  // The scopes of up to three gates, combined and handed to findGatedEvent.
+  "src/app/api/events/[eventId]/registrations/walk-in/route.ts": 2,
+  // The two event LISTS, inside inOwnLane; their filter sits on its own line.
+  "src/app/api/events/route.ts": 2,
+  // The public catalogue's own filter, which only shares the name.
+  "src/lib/catalogue-data.ts": 1,
+};
 
 const DISCOVERY_WRAP_BASELINE = 126;
 
@@ -111,7 +153,6 @@ const UNLANED_EVENT_FILES_BASELINE: string[] = [
   "src/app/api/analytics/traffic/route.ts",
   "src/app/api/auth/forgot-password/route.ts",
   "src/app/api/events/[eventId]/onsite-staff/route.ts",
-  "src/app/api/events/[eventId]/speaker-agreement-template/route.ts",
   "src/app/api/events/route.ts",
   "src/app/api/import/eventsair/route.ts",
   "src/app/api/organization/catalogue/route.ts",
@@ -211,36 +252,42 @@ describe("Event lane ratchet", () => {
   });
 
   it("reads the event behind a permission gate through findGatedEvent, never bare", () => {
-    const bare = files
-      .map((f) => [f, sources.get(f)!.match(BARE_GATED_READ)?.length ?? 0] as const)
-      .filter(([, n]) => n > 0);
+    const bare = files.filter((f) => (sources.get(f)!.match(BARE_GATED_READ)?.length ?? 0) > 0).sort();
     expect(
-      bare.map(([f, n]) => `${f} (${n})`),
-      "A route reads its event with `db.event.findFirst({ where: gate.eventWhere, ... })`. Outside a lane that " +
-        "read returns null once Event has a policy, and the route answers 404 with nothing logged. Call " +
-        "`findGatedEvent(gate, { select: ... })` from src/lib/tenant/event-tenant.ts: the same query, made " +
-        "inside the caller's lane.",
+      bare,
+      "A file reads Event with a gate's filter handed straight to the query (`db.event.find*({ where: " +
+        "<...>eventWhere })`). Outside a lane that read returns null once Event has a policy, and the route " +
+        "answers 404 with nothing logged. Call `findGatedEvent(gate, { select: ... })` from " +
+        "src/lib/tenant/event-tenant.ts. If a listed file was converted, remove it from BARE_GATED_READ_FILES.",
+    ).toEqual(BARE_GATED_READ_FILES);
+  });
+
+  it("types a filter parameter as what it is, never object, unknown or any", () => {
+    const loose = files
+      .filter((f) => f.startsWith("src/app/"))
+      .flatMap((f) => (sources.get(f)!.match(LOOSELY_TYPED_FILTER) ?? []).map((found) => `${f}: ${found}`));
+    expect(
+      loose,
+      "A function takes a filter typed object / unknown / any. Type it `Prisma.EventWhereInput`, or take the " +
+        "gate as `EventGate` and read through findGatedEvent: with a loose type, a whole gate passed where a " +
+        "filter was meant compiles and fails only when the query runs.",
     ).toEqual([]);
   });
 
   it("does not add direct uses of a gate's event filter (use findGatedEvent)", () => {
-    const perFile = files
-      .filter((f) => !GATE_FILTER_HOME.test(f))
-      .map((f) => [f, sources.get(f)!.split("\n").filter((line) => GATE_FILTER_USE.test(line) && !SOUND_GATE_FILTER_USE.test(line)).length] as const)
-      .filter(([, n]) => n > 0);
-    const total = perFile.reduce((sum, [, n]) => sum + n, 0);
-    if (total > GATE_FILTER_USE_BASELINE) {
-      expect.fail(
-        `Direct uses of a gate's event filter went UP: ${total} (baseline ${GATE_FILTER_USE_BASELINE}). Read the ` +
-          "event with findGatedEvent(gate, { select }) from src/lib/tenant/event-tenant.ts and pass the EVENT " +
-          "(its id, its organisation) on, not the filter. If the new use is a relation filter inside a lane, " +
-          "raise the baseline and say so in review. Files: " + perFile.map(([f, n]) => `${f} (${n})`).join(", "),
-      );
-    }
+    const left = Object.fromEntries(
+      files
+        .filter((f) => !GATE_FILTER_HOME.test(f))
+        .map((f) => [f, sources.get(f)!.split("\n").filter((line) => GATE_FILTER_USE.test(line) && !SOUND_GATE_FILTER_USE.test(line)).length] as const)
+        .filter(([, n]) => n > 0),
+    );
     expect(
-      total,
-      `Direct uses of a gate's event filter went DOWN to ${total}. Good: set GATE_FILTER_USE_BASELINE to ${total}.`,
-    ).toBe(GATE_FILTER_USE_BASELINE);
+      left,
+      "The lines that name a gate's event filter outside the two sound shapes (a relation filter, a gate " +
+        "handed to the helpers) changed. More than listed: read the event with findGatedEvent(gate, { select }) " +
+        "and pass the EVENT on, not the filter. Fewer: good, lower or remove the file's count in " +
+        "GATE_FILTER_USE_LEFT. A new sound line needs its file, its count and a reason there.",
+    ).toEqual(GATE_FILTER_USE_LEFT);
   });
 
   it("does not add files that read Event and never enter a lane", () => {

@@ -9,6 +9,7 @@ import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
+import { runWithTenant } from "@/lib/tenant-context";
 import {
   SPEAKER_AGREEMENT_DOCX_MIME,
   SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE,
@@ -103,13 +104,17 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     let meta: SpeakerAgreementTemplateMeta;
     try {
-      meta = await saveSpeakerAgreementTemplate({
-        eventId,
-        organizationId: orgGuard.orgId,
-        buffer,
-        filename: file.name,
-        actorUserId: session.user.id,
-      });
+      // Inside the organisation's lane: the service writes the Event row, and a
+      // write outside one matches no row once Event has a policy (review of 231e5ce0).
+      meta = await runWithTenant(orgGuard.orgId, () =>
+        saveSpeakerAgreementTemplate({
+          eventId,
+          organizationId: orgGuard.orgId,
+          buffer,
+          filename: file.name,
+          actorUserId: session.user.id,
+        }),
+      );
     } catch (err) {
       if (err instanceof SpeakerAgreementTemplateError) {
         const status = err.code === "EVENT_NOT_FOUND" ? 404 : 400;
@@ -162,10 +167,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       await deleteStoredFile(previous.url, UPLOAD_PREFIX.agreements);
     }
 
-    await db.event.update({
-      where: { id: eventId },
-      data: { speakerAgreementTemplate: Prisma.DbNull },
-    });
+    // Inside the organisation's lane. The event read above now succeeds under
+    // an Event policy; this write outside a lane would then match no row and
+    // throw AFTER the stored file was removed (review of 231e5ce0).
+    await runWithTenant(orgGuard.orgId, () =>
+      db.event.update({
+        where: { id: eventId },
+        data: { speakerAgreementTemplate: Prisma.DbNull },
+      }),
+    );
 
     await db.auditLog.create({
       data: {

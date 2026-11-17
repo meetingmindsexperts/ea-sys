@@ -17,6 +17,7 @@ import { mintDeskQrToken } from "@/lib/desk-qr-token";
 import { DESK_QR_KINDS, freeDeskRate, type DeskQrKind, type FreeDeskRate } from "@/lib/desk-qr-rules";
 import { isComplimentaryRate } from "@/lib/desk-walkin-payment";
 import { DEFAULT_EVENT_TIMEZONE, knownTimezone, localDateInTz, wallTimeInTzToDate } from "@/lib/event-time";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 
 /**
  * The desk's Walk-in QR (docs/ONSITE_DESK_PLAN.md §8.1, §10).
@@ -180,9 +181,10 @@ function rateFor(kind: DeskQrKind, event: LoadedEvent): { rate: string } | { err
   };
 }
 
-async function loadEvent(eventWhere: object) {
-  return db.event.findFirst({
-    where: eventWhere,
+// Typed as the gate, never `object`: a loose type here let a filter be swapped
+// for a whole gate unnoticed, and every walk-in QR answered 500 (review of 231e5ce0).
+async function loadEvent(gate: EventGate) {
+  return findGatedEvent(gate, {
     select: {
       id: true,
       slug: true,

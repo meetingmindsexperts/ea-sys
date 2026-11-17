@@ -125,6 +125,20 @@ describe("GET the options", () => {
     expect(await (await get()).json()).toMatchObject({ free: { rateName: "Early Bird", paidTypes: ["Physician"] } });
   });
 
+  it("asks the database with the gate's FILTER for this event, never with the gate itself", async () => {
+    // 231e5ce0 handed this route's own loader the whole gate where its filter
+    // was meant. The loader's parameter was typed `object`, so it compiled, and
+    // Prisma refused the query at run time: every walk-in QR answered 500.
+    // No test looked at the filter. This one does, for both verbs.
+    await get();
+    await post({ kind: "exhibitor" });
+    expect(mockDb.event.findFirst).toHaveBeenCalledTimes(2);
+    for (const [args] of mockDb.event.findFirst.mock.calls) {
+      expect(JSON.stringify(args.where)).toContain("evt-1");
+      for (const notAFilter of ["ok", "principal", "eventWhere"]) expect(args.where).not.toHaveProperty(notAFilter);
+    }
+  });
+
   it("reads each rate's price, seats and sales window, and the event's cap", async () => {
     await get();
     const select = mockDb.event.findFirst.mock.calls[0][0].select;
