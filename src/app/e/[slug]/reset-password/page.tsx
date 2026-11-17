@@ -107,7 +107,8 @@ function EventResetPasswordInner() {
       try {
         const res = await fetch(`/api/public/events/${slug}`);
         if (!res.ok) {
-          setEventError("Event not found");
+          // Only a 404 means there is no such event (see the sign-in page).
+          setEventError(res.status === 404 ? "Event not found" : "Failed to load event details");
           return;
         }
         const data = await res.json();

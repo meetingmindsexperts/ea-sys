@@ -3,7 +3,7 @@ import { buildEventMetadata, getPublicEventShell } from "@/lib/public-event-meta
 import { brandPaletteCss } from "@/lib/org-color";
 import { Suspense } from "react";
 import { PageAnalytics } from "@/analytics/react/page-analytics";
-import { PublicEventBrandingProvider } from "@/components/public/event-notice";
+import { PublicEventBrandingProvider } from "@/components/public/event-branding-context";
 
 /**
  * Base per-event SEO metadata for the public `/e/[slug]` subtree. Each public

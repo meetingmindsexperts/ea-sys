@@ -7,6 +7,60 @@
 
 ---
 
+## Branded public messages: what the Nov 17 review left (recorded Nov 17, 2026): not started
+
+From the review of `73355f9e` (0 BLOCKER, 2 HIGH, 2 MED, 7 LOW). Both HIGHs and both
+MEDs are fixed in the follow-up commit, with the LOWs about an unknown timezone, the
+crash page's way out, the size of what the layout loads and the log level of an
+unknown slug.
+
+**LOW, listed, not fixed:**
+
+- **A page reached by event id is not branded.** `/e/{eventId}/agenda` and
+  `/e/{eventId}/register` work (the APIs take an id where the slug belongs), but
+  the layout's lookup is by slug only, so a message there has no banner, and the
+  live agenda no footer or Contact support. Not fixed because the same lookup
+  feeds the page title, the brand colour and the visitor-analytics beacon, whose
+  site key is the slug: taking an id there changes all three. Fix it only if
+  id links are still in circulation (check the access log first).
+- **The footer travels with every public page.** `footerHtml` (up to 10,000
+  characters) and the support address are now in the server payload of every
+  page of a public event, whether or not a message is shown. All of it is
+  already public; it is weight. If it shows up in a page-weight measurement,
+  hand over the footer only to pages that can show a message.
+- **No test for each page's own condition.** The frame, the fallback, the
+  status gate and the agenda's two 404s are pinned; which state of each of the
+  20 pages shows which message is not (it was checked by hand and in a browser).
+  The four pages that read a failed load as "no such event" were found by review,
+  not by test. A page test per form is the size of the e2e suite, so it belongs
+  there: one spec that opens each page with a bad slug and a bad token.
+- **The message is not announced.** When a message replaces a loading spinner, a
+  screen reader is not told. `role="status"` on the card would do it; left
+  because it needs a pass with a real screen reader across all the pages.
+
+**Older defects the review turned up, for the owner to decide (not touched):**
+
+- **A draft event's name is public in the page title.** `buildEventMetadata` has
+  no status check, so a DRAFT or CANCELLED event's name, the first 160
+  characters of its description, its date, venue and banner address are in the
+  `<title>` and link-preview tags of every `/e/{slug}/...` page for anyone who
+  guesses the slug. The follow-up is one line (return nothing unless the status
+  is public); it changes what a staff member previewing a draft sees in the tab.
+- **The tenant-scoping guard has a blind window.** `scripts/check-tenant-scoping.sh`
+  checks each event lookup together with the 400 characters after it, so a
+  second lookup close behind a compliant one is never examined. That is how the
+  second read of the public event route and of the agenda route pass. Both are
+  safe (they read by the id the scoped lookup returned), but the guard would not
+  notice one that was not. Naming that shape in the guard, then examining every
+  lookup on its own, closes it.
+- **Sign-in and password reset for an event that has ended are a dead end.** The
+  event's own sign-in, forgot-password and reset-password pages need the event
+  to be Published or Live. After it is Completed they show a message instead of
+  the form (the general sign-in page still works). The same rule stops a
+  completed event's published agenda from being shown.
+- **A button inside a link** on the session page's "Back to Agenda" and the
+  survey's "Return to home" (invalid HTML; works in every browser).
+
 ## A script policy (Content-Security-Policy) for the whole app (recorded Nov 16, 2026): not started
 
 Owner asked, Nov 16, 2026, after a storage and cookie scan: "worried about xss and csrf and

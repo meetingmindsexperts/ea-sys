@@ -103,7 +103,8 @@ function EventForgotPasswordInner() {
       try {
         const res = await fetch(`/api/public/events/${slug}`);
         if (!res.ok) {
-          setError("Event not found");
+          // Only a 404 means there is no such event (see the sign-in page).
+          setError(res.status === 404 ? "Event not found" : "Failed to load event details");
           return;
         }
         const data = await res.json();

@@ -9,6 +9,24 @@ interface RouteParams {
   params: Promise<{ slug: string }>;
 }
 
+/**
+ * "No such event" and "the agenda is not live yet" are both a 404 to a
+ * browser; the code tells the page which message to show.
+ */
+function notAvailable(code: "EVENT_NOT_FOUND" | "AGENDA_NOT_PUBLISHED", error: string) {
+  return NextResponse.json({ error, code }, { status: 404 });
+}
+
+/**
+ * No public event answers to this slug. Logged at info, not warn: an old link
+ * to a deleted or finished event is opened again and again, and warn fills the
+ * SystemLog table (one deleted event drew 986 analytics warnings in a week).
+ */
+function noPublicEvent(slug: string) {
+  apiLogger.info({ slug }, "public-agenda:no-public-event");
+  return notAvailable("EVENT_NOT_FOUND", "Event not found");
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const clientIp = getClientIp(req);
@@ -51,12 +69,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       select: { id: true, organizationId: true },
     });
 
-    if (!scope) {
-      // The codes tell the page which message to show: "no such event" and
-      // "the agenda is not live yet" are both a 404 to a browser.
-      apiLogger.warn({ slug }, "public-agenda:event-not-found");
-      return NextResponse.json({ error: "Event not found", code: "EVENT_NOT_FOUND" }, { status: 404 });
-    }
+    if (!scope) return noPublicEvent(slug);
 
     return await runWithTenant(scope.organizationId, async () => {
     const event = await db.event.findFirst({
@@ -132,14 +145,14 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     if (!event) {
       apiLogger.warn({ slug }, "public-agenda:event-not-found");
-      return NextResponse.json({ error: "Event not found", code: "EVENT_NOT_FOUND" }, { status: 404 });
+      return notAvailable("EVENT_NOT_FOUND", "Event not found");
     }
 
     // Check if the agenda has been published by the organizer
     const settings = (event.settings ?? {}) as Record<string, unknown>;
     if (!settings.agendaPublished && !settings.programmePublished) {
       apiLogger.warn({ slug, eventId: event.id }, "public-agenda:not-published");
-      return NextResponse.json({ error: "Agenda not published yet", code: "AGENDA_NOT_PUBLISHED" }, { status: 404 });
+      return notAvailable("AGENDA_NOT_PUBLISHED", "Agenda not published yet");
     }
 
     const response = NextResponse.json({

@@ -3,7 +3,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
 import { PublicEventNotice } from "@/components/public/event-notice";
 
 /**
@@ -27,6 +27,11 @@ export default function PublicEventPageError({
   reset: () => void;
 }) {
   const params = useParams<{ slug: string }>();
+  // When the page that crashed IS the event page, a link back to it is a link
+  // to the failure. Then the way out is the site's home, as on the boundary
+  // above the layout.
+  const eventPath = `/e/${params.slug}`;
+  const crashedOnEventPage = usePathname() === eventPath;
 
   useEffect(() => {
     Sentry.captureException(error, {
@@ -56,10 +61,10 @@ export default function PublicEventPageError({
           Try again
         </button>
         <Link
-          href={`/e/${params.slug}`}
+          href={crashedOnEventPage ? "/" : eventPath}
           className="rounded-md border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
         >
-          Back to event
+          {crashedOnEventPage ? "Go home" : "Back to event"}
         </Link>
       </div>
     </PublicEventNotice>

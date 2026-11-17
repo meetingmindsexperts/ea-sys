@@ -121,7 +121,7 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
   const slug = params.slug;
 
   const [event, setEvent] = useState<PublicEvent | null>(null);
-  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "missing" | "error">("loading");
 
   // Coordinator
   const [coFirst, setCoFirst] = useState("");
@@ -193,6 +193,12 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
     (async () => {
       try {
         const res = await fetch(`/api/public/events/${slug}`);
+        // A 404 is "no such event"; anything else is a failed load, which
+        // must not read as "this event is closed".
+        if (res.status === 404) {
+          if (!cancelled) setLoadState("missing");
+          return;
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as PublicEvent;
         if (!cancelled) {
@@ -397,7 +403,18 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
       </div>
     );
   }
-  if (loadState === "error" || !event) {
+  if (loadState === "error") {
+    return (
+      <PublicEventNotice
+        tone="error"
+        title="We couldn&apos;t load this page"
+        description="This is a loading problem, not a problem with the event. Please try again in a moment."
+      >
+        <Button onClick={() => window.location.reload()}>Try again</Button>
+      </PublicEventNotice>
+    );
+  }
+  if (loadState === "missing" || !event) {
     return (
       <PublicEventNotice
         tone="error"

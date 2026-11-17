@@ -4,11 +4,8 @@ import { join, relative } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import {
-  PublicEventBrandingProvider,
-  PublicEventNotice,
-  type PublicEventNoticeProps,
-} from "@/components/public/event-notice";
+import { PublicEventBrandingProvider } from "@/components/public/event-branding-context";
+import { PublicEventNotice, type PublicEventNoticeProps } from "@/components/public/event-notice";
 import type { PublicEventBranding } from "@/lib/public-event-branding";
 
 /**
@@ -34,7 +31,7 @@ const BRANDING: PublicEventBranding = {
 
 function render(props: PublicEventNoticeProps, branding: PublicEventBranding | null) {
   return renderToStaticMarkup(
-    createElement(PublicEventBrandingProvider, { branding, children: createElement(PublicEventNotice, props) }),
+    createElement(PublicEventBrandingProvider, { branding }, createElement(PublicEventNotice, props)),
   );
 }
 
@@ -138,39 +135,77 @@ describe("no public event page writes its own full-page message", () => {
   const root = process.cwd();
 
   /**
-   * A full-page card is a `min-h-screen` box that centres its content AND pads
-   * it. The padding is what tells it from a loading spinner, which centres a
-   * bare icon and is left alone.
+   * How many full-height elements each public file has today, counted in the
+   * raw source (a className string, `cn(...)`, a template literal and a
+   * comment all count, so no way of writing one hides it).
+   *
+   * Every one of these is a loading spinner, the page's own working frame, or
+   * the notice itself. The two that are neither: `src/app/e/error.tsx` is the
+   * boundary ABOVE the [slug] layout, where the branding is out of reach, and
+   * one of complete-registration's four is TabletHandBack, the desk tablet's
+   * own "registration complete" screen.
+   *
+   * A count that changes fails this test. Adding a spinner or a new page
+   * frame: raise the number. Adding a full-page MESSAGE (not found, closed,
+   * a dead link): do not, render it with <PublicEventNotice> so it keeps the
+   * event's banner and footer. The first version of this sweep matched only a
+   * padded, centred `className="..."` and missed three of the shapes the same
+   * commit had just converted (review of 73355f9e).
    */
-  const FULL_PAGE_CARD = /className="[^"]*\bmin-h-screen\b[^"]*"/g;
-  const isCard = (cls: string) => /\bjustify-center\b/.test(cls) && /\bp[xy]?-\d/.test(cls);
-
-  /** Deliberate, with the reason. Adding a line here is a decision, not a fix. */
-  const ALLOWED: Record<string, string> = {
-    "src/app/e/error.tsx": "the boundary ABOVE the [slug] layout: the branding provider is gone by then",
-    "src/app/e/[slug]/complete-registration/page.tsx":
-      "TabletHandBack, the desk tablet's own 'registration complete' screen with the event in its header",
-    "src/components/public/event-notice.tsx": "the notice itself",
+  const FULL_HEIGHT_ELEMENTS: Record<string, number> = {
+    "src/app/e/[slug]/agenda/page.tsx": 2,
+    "src/app/e/[slug]/complete-registration/page.tsx": 4,
+    "src/app/e/[slug]/confirmation/page.tsx": 2,
+    "src/app/e/[slug]/floor-plan/[token]/page.tsx": 1,
+    "src/app/e/[slug]/forgot-password/page.tsx": 3,
+    "src/app/e/[slug]/group/register/group-register-content.tsx": 3,
+    "src/app/e/[slug]/login/page.tsx": 3,
+    "src/app/e/[slug]/my-group/page.tsx": 2,
+    "src/app/e/[slug]/my-registration/page.tsx": 2,
+    "src/app/e/[slug]/page.tsx": 1,
+    "src/app/e/[slug]/presenter-agreement/page.tsx": 3,
+    "src/app/e/[slug]/register/[category]/page.tsx": 3,
+    "src/app/e/[slug]/register/page.tsx": 4,
+    "src/app/e/[slug]/reimbursement/[token]/page.tsx": 2,
+    "src/app/e/[slug]/reset-password/page.tsx": 3,
+    "src/app/e/[slug]/rsvp/[token]/page.tsx": 3,
+    "src/app/e/[slug]/session/[sessionId]/page.tsx": 3,
+    "src/app/e/[slug]/shared/[token]/page.tsx": 1,
+    "src/app/e/[slug]/speaker-agreement/page.tsx": 3,
+    "src/app/e/[slug]/speaker-form/[token]/page.tsx": 2,
+    "src/app/e/[slug]/survey/page.tsx": 3,
+    "src/app/e/[slug]/travel-grant/[token]/page.tsx": 2,
+    "src/app/e/[slug]/verify-details/page.tsx": 3,
+    "src/app/e/error.tsx": 1,
+    "src/components/public/event-notice.tsx": 2,
+    "src/components/public/exhibitor-floor-plan.tsx": 1,
+    "src/components/public/shared-view/shell.tsx": 1,
+    "src/components/public/submitter-register.tsx": 2,
   };
 
-  const offenders = [...walk(join(root, "src/app/e")), ...walk(join(root, "src/components/public"))]
-    .map((file) => ({ rel: relative(root, file), src: readFileSync(file, "utf8") }))
-    .flatMap(({ rel, src }) => (src.match(FULL_PAGE_CARD) ?? []).filter(isCard).map((cls) => ({ rel, cls })));
+  const FULL_HEIGHT = /(?<![\w-])(?:min-h-screen|h-screen|min-h-dvh|h-dvh|min-h-svh|h-svh)(?![\w-])/g;
 
-  it("finds the cards it is meant to find (the pattern still matches the allowed ones)", () => {
-    const seen = new Set(offenders.map((o) => o.rel));
-    expect(seen.has("src/app/e/error.tsx")).toBe(true);
-    expect(seen.has("src/app/e/[slug]/complete-registration/page.tsx")).toBe(true);
+  const counted: Record<string, number> = {};
+  for (const file of [...walk(join(root, "src/app/e")), ...walk(join(root, "src/components/public"))]) {
+    const n = (readFileSync(file, "utf8").match(FULL_HEIGHT) ?? []).length;
+    if (n > 0) counted[relative(root, file)] = n;
+  }
+
+  it("each public file has exactly the full-height elements it had", () => {
+    expect(counted, "a new full-page message belongs in <PublicEventNotice>; see the comment above the table").toEqual(
+      FULL_HEIGHT_ELEMENTS,
+    );
   });
 
-  it("every other page shows its message through PublicEventNotice", () => {
-    const unexpected = offenders.filter((o) => !(o.rel in ALLOWED));
-    expect(unexpected, "render the message with <PublicEventNotice> so it keeps the event's banner and footer").toEqual([]);
-  });
-
-  it("allows each exception exactly one card", () => {
-    for (const rel of ["src/app/e/error.tsx", "src/app/e/[slug]/complete-registration/page.tsx"]) {
-      expect(offenders.filter((o) => o.rel === rel)).toHaveLength(1);
-    }
+  it("counts every way of writing one", () => {
+    const sample = [
+      '<div className="min-h-screen flex">',
+      'className={cn("min-h-screen", wide && "p-4")}',
+      "className={`h-screen ${x}`}",
+      '<main className="min-h-dvh">',
+    ].join("\n");
+    expect(sample.match(FULL_HEIGHT)).toHaveLength(4);
+    // Not a full-height element: a longer class that merely contains the words.
+    expect("max-h-screen-safe my-min-h-screen".match(FULL_HEIGHT)).toBeNull();
   });
 });

@@ -81,7 +81,10 @@ function EventLoginForm() {
       try {
         const res = await fetch(`/api/public/events/${slug}`);
         if (!res.ok) {
-          setError("Event not found");
+          // Only a 404 means there is no such event. A 429 or a 500 is a
+          // failed load of an event that may be open, and must not read as
+          // "this event is closed".
+          setError(res.status === 404 ? "Event not found" : "Failed to load event");
           return;
         }
         setEvent(await res.json());

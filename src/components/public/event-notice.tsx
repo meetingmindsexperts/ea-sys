@@ -8,7 +8,7 @@
  * Every such state used to be a bare card on a blank screen, about twenty of
  * them, each written by hand, because a page took its banner and footer from
  * the request that had just failed. The branding now arrives from the public
- * `[slug]` layout through `PublicEventBrandingProvider`, so the frame is the
+ * `[slug]` layout (`event-branding-context.tsx`), so the frame is the
  * same as the working page's: banner band, the event's name, dates and place,
  * the message, and the event's footer.
  *
@@ -20,32 +20,18 @@
  * keeps the thin brand-colour stripe the forms use when an event has no
  * banner, and the message stands alone.
  */
-import { createContext, useContext, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AlertCircle, Calendar, MapPin, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sanitizeHtml } from "@/lib/sanitize";
-import { formatEventDateRange } from "@/lib/event-time";
+import { DEFAULT_EVENT_TIMEZONE, formatEventDateRange, knownTimezone } from "@/lib/event-time";
 import type { PublicEventBranding } from "@/lib/public-event-branding";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { usePublicEventBranding } from "@/components/public/event-branding-context";
 
-const BrandingContext = createContext<PublicEventBranding | null>(null);
-
-export function PublicEventBrandingProvider({
-  branding,
-  children,
-}: {
-  branding: PublicEventBranding | null;
-  children: ReactNode;
-}) {
-  return <BrandingContext.Provider value={branding}>{children}</BrandingContext.Provider>;
-}
-
-/** The event's public branding, or null when there is none to show. */
-export function usePublicEventBranding(): PublicEventBranding | null {
-  return useContext(BrandingContext);
-}
+export { usePublicEventBranding };
 
 /** The event's own footer (Settings, Branding), at the width of the page body. */
 export function PublicEventFooter({ footerHtml, className }: { footerHtml?: string | null; className?: string }) {
@@ -65,7 +51,9 @@ function eventDateLine(event: PublicEventBranding): string | null {
   const start = new Date(event.startDate);
   const end = event.endDate ? new Date(event.endDate) : start;
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  return formatEventDateRange(start, end, event.timezone ?? "");
+  // The timezone column takes any string, and one Intl does not know makes
+  // every format call throw. A message page must not crash over its date line.
+  return formatEventDateRange(start, end, knownTimezone(event.timezone) ?? DEFAULT_EVENT_TIMEZONE);
 }
 
 function EventInfoStrip({ event }: { event: PublicEventBranding }) {
