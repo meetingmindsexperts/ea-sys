@@ -268,10 +268,9 @@ export function SpeakersAndAgendaPreview({ slug }: SpeakersAndAgendaPreviewProps
                         {(session.location || session.track) && (
                           <div className="flex flex-wrap items-center gap-3 mt-0.5 text-xs text-slate-500">
                             {session.track && (
-                              <span
-                                className="inline-flex items-center gap-1"
-                                style={{ color: session.track.color }}
-                              >
+                              // Grey with a coloured dot, as on the agenda page:
+                              // in the track colour it shouted on one-colour events.
+                              <span className="inline-flex items-center gap-1 text-slate-600">
                                 <span
                                   className="h-2 w-2 rounded-full"
                                   style={{ backgroundColor: session.track.color }}

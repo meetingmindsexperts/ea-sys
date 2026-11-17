@@ -323,6 +323,10 @@ export default function EventSettingsPage() {
   // page is open, so a save sends it only when it was changed HERE; otherwise
   // saving an unrelated setting would undo that listing (review of 4d44bf3b).
   const loadedShowInCatalogue = useRef<boolean | null>(null);
+  // Sent only when changed on this page, like showInCatalogue: otherwise every
+  // save from this tab would stamp the default (true) into the settings and
+  // "never chosen" would stop being distinguishable from "chose on".
+  const loadedAgendaTrackBorder = useRef<boolean | null>(null);
   const [registrationSettings, setRegistrationSettings] = useState({
     registrationOpen: true,
     waitlistEnabled: false,
@@ -520,9 +524,10 @@ export default function EventSettingsPage() {
         loadedPersonFieldChoices.current = readEventPersonFieldChoices(settings);
         setPersonFieldChoices(loadedPersonFieldChoices.current);
 
+        loadedAgendaTrackBorder.current = readAgendaTrackBorder(settings);
         setAgendaSettings({
           agendaPublished: settings.agendaPublished ?? settings.programmePublished ?? false,
-          [AGENDA_TRACK_BORDER_SETTING]: readAgendaTrackBorder(settings),
+          [AGENDA_TRACK_BORDER_SETTING]: loadedAgendaTrackBorder.current,
         });
 
         const gr = settings.groupRegistration ?? {};
@@ -862,12 +867,16 @@ export default function EventSettingsPage() {
     // the PUT runs the recompute-on-set + below-count guard; everything else
     // stays in the settings JSON blob.
     const { maxAttendees, showInCatalogue, ...registrationSettingsJson } = registrationSettings;
+    const { [AGENDA_TRACK_BORDER_SETTING]: agendaTrackBorder, ...agendaSettingsJson } = agendaSettings;
     return {
       maxAttendees,
       settings: {
             ...registrationSettingsJson,
             ...(showInCatalogue !== loadedShowInCatalogue.current && { showInCatalogue }),
-            ...agendaSettings,
+            ...agendaSettingsJson,
+            ...(agendaTrackBorder !== loadedAgendaTrackBorder.current && {
+              [AGENDA_TRACK_BORDER_SETTING]: agendaTrackBorder,
+            }),
             ...abstractSettings,
             ...notificationSettings,
             groupRegistration: groupSettings,

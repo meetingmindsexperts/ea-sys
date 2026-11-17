@@ -298,10 +298,10 @@
     .print-day-heading {
       break-after: avoid;
     }
-    /* Topic times print in dark ink, without their on-screen pill (the pill
-       drops its border and padding through print: classes). */
-    .print-topic-time {
-      color: #334155 !important;
+    /* No coloured bar on paper: a session card's left border is an inline
+       style on screen (the track colour), which a print: class cannot beat. */
+    .print-session-card {
+      border-left-width: 0 !important;
     }
 
     * {

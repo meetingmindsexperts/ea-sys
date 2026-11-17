@@ -633,7 +633,17 @@ function ParallelBlock({
           <div key={column.room ?? "no-room"} className="flex flex-col gap-3">
             {column.room && (
               <div className="flex items-center gap-1.5 px-1">
-                <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                {/* The heading is the track's name (roomOf). With the coloured
+                    border off, its colour moves here, since cards in a column
+                    carry no track line of their own. */}
+                {!trackBorder && column.color ? (
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: column.color }}
+                  />
+                ) : (
+                  <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                )}
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                   {column.room}
                 </span>
@@ -847,7 +857,7 @@ function SessionCard({
                     header, so repeating it on every card is noise. */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
                   {session.track && !inColumn && (
-                    // The hall name in grey, its colour only in the dot: in the
+                    // The track name in grey, its colour only in the dot: in the
                     // track colour every card's meta line competed with the
                     // title (and with one colour for every hall it said nothing).
                     <span className="flex items-center gap-1.5 text-sm font-medium text-slate-600">
