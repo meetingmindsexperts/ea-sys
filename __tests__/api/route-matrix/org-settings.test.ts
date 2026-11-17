@@ -18,6 +18,13 @@
  * before (200, 404, or a 500 from a write). Production has no such account:
  * its one SUPER_ADMIN belongs to the organisation and holds every key.
  *
+ * Re-recorded on purpose (Nov 17, 2026): the organisation GET answers 403, not
+ * 404, to a caller with no organisation that names none (the operator, a
+ * reviewer, a submitter, a registrant). The 404 was this harness's stand-in
+ * database answering "no row"; the real one refused the null id and the route
+ * answered 500 (found by e2e/route-smoke.spec.ts). An operator who NAMES an
+ * organisation (`x-org-id`) still reads it: organization-get-projection.test.ts.
+ *
  * Every network call fails here (`fetch` is stubbed to throw), so no
  * credential test reaches Stripe, Zoom, EventsAir or a model provider.
  *

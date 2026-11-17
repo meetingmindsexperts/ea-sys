@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { resolveActingOrgId } from "@/lib/platform-operator";
-import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
@@ -56,16 +55,19 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // An account with no organisation (a reviewer, submitter or registrant) has
-    // none to read. It used to reach Prisma with a null id and answer 500
-    // (found by the route smoke test, Nov 17, 2026).
-    const org = requireOrgId(session, { route: "organization:GET" });
-    if ("error" in org) return org.error;
-
     // Reading ANOTHER org is a platform-operator action, not an org-admin one.
-    const orgId = resolveActingOrgId(req, session.user, org.orgId, {
+    // The override is asked FIRST: an operator may have no organisation of
+    // their own and still name one to read.
+    const orgId = resolveActingOrgId(req, session.user, session.user.organizationId ?? "", {
       route: "organization:GET",
     });
+    // An account with no organisation that names none (a reviewer, submitter
+    // or registrant) has nothing to read. It used to reach Prisma with a null
+    // id and answer 500 (found by the route smoke test, Nov 17, 2026).
+    if (!orgId) {
+      apiLogger.warn({ msg: "organization:GET:no-organization", userId: session.user.id, role: session.user.role });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     // Exactly what the Settings screens show, nothing more (Phase 6 review,
     // Oct 7, 2026). Any signed-in account in the org reaches this GET, and it

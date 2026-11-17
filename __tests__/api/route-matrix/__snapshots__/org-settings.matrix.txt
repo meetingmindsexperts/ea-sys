@@ -5,7 +5,7 @@
 GET organization
   caller      -
   SUPER_ADMIN 404
-  OPERATOR    404
+  OPERATOR    403
   ADMIN       404
   ORGANIZER   404
   MEMBER      404
@@ -15,9 +15,9 @@ GET organization
   HR_USER     404
   BASE        404
   BASE_MKT    404
-  REVIEWER    404
-  SUBMITTER   404
-  REGISTRANT  404
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
   API_KEY     401
   NONE        401
 

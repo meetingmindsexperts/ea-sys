@@ -52,6 +52,27 @@ describe("GET /api/organization", () => {
     expect(mockFindUnique).not.toHaveBeenCalled();
   });
 
+  it("a platform operator with no organisation of their own still reads the one they name", async () => {
+    // The first version of the refusal ran before the override was asked, and
+    // would have locked the operator out (caught by the route status matrix).
+    mockAuth.mockResolvedValue({ user: { id: "op1", role: "SUPER_ADMIN", organizationId: null } });
+    const named = await GET(new Request("http://localhost/api/organization", { headers: { "x-org-id": "org1" } }));
+    expect(named.status).toBe(200);
+    expect(mockFindUnique.mock.calls[0][0].where).toEqual({ id: "org1" });
+
+    mockFindUnique.mockClear();
+    const none = await GET(new Request("http://localhost/api/organization"));
+    expect(none.status).toBe(403);
+    expect(mockFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("naming an organisation does nothing for an account that is not an operator", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "REVIEWER", organizationId: null } });
+    const res = await GET(new Request("http://localhost/api/organization", { headers: { "x-org-id": "org1" } }));
+    expect(res.status).toBe(403);
+    expect(mockFindUnique).not.toHaveBeenCalled();
+  });
+
   it("keeps the company and tax details for the people whose Billing screen uses them", async () => {
     const onsite = await (await GET(new Request("http://localhost/api/organization"))).json();
     expect(onsite).not.toHaveProperty("taxId");
