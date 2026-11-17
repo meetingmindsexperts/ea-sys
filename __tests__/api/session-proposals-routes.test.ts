@@ -62,7 +62,7 @@ vi.mock("next/server", () => {
 });
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({
-  db: mockDb,
+  db: mockDb, dbOperator: mockDb,
   // Flag-off tenantTransaction IS db.$transaction — run the callback against
   // the same mock client so tx.sessionProposal.create === mockDb create.
   tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb),

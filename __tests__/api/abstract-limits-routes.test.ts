@@ -41,7 +41,7 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({
-  db: mockDb,
+  db: mockDb, dbOperator: mockDb,
   tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb),
 }));
 vi.mock("@/lib/abstract-serial", () => ({

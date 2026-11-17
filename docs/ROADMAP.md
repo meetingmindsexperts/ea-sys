@@ -7,6 +7,24 @@
 
 ---
 
+## Row security rehearsal: what the Event switch-on left (recorded Nov 17, 2026): not started
+
+Event row security is finished for the code (every query inside a lane, the policy in `prisma/rls/event.sql`, the plan in [SECURITY_AUDIT_ACTION_PLAN.md](SECURITY_AUDIT_ACTION_PLAN.md) §3.1). It was rehearsed by running the whole product as the non-owner database role with every policy applied. The Event policy changed nothing. The rehearsal itself turned up items that are not about Event, and a few things were left on purpose.
+
+**Found by the rehearsal, not about Event**
+
+1. **The import-completion flow fails under row security**, with or without the Event policy (`e2e/import-completion-self-select.spec.ts`: a person imported without a registration type opens their completion link and never sees the type picker). A real gap in another table's lane, on the platform only. Not diagnosed.
+2. **The e2e seed leaves the denormalised organisation column empty** on its rows (`prisma/seed-e2e.ts` never writes `organizationId`). Row security hides a row with none, so 5 browser tests fail under it for that reason alone. Master does not care. Stamp the column in the seed before the suite is ever run under row security for real.
+3. **The non-owner role is refused on `AlertState`** (Postgres 42501, tens of thousands of log lines in a two-minute run). The table has no organisation and no policy; the grant is missing for a table created after the role split ran, or the worker health path reads it as the wrong role. Check the platform bootstrap's grants.
+4. **Make the rehearsal a command.** It was done by hand: rebuild the e2e database on the tenancy harness's Postgres, apply the role split and every policy, run the standalone build as `app_user` with `RLS_SET_LOCAL=1` and `DATABASE_URL_OPERATOR` set, then the crawl and the browser suite with no global setup. As `npm run e2e:rls` it would be the one check that sees the whole product under row security, which is what "ready for a second tenant" needs. Size: a setup script, a Playwright config, a section in SANDBOX.md.
+
+**Left on purpose**
+
+5. **Collect the worker's detector lines on or after Nov 23, 2026**, then remove `RLS_SHADOW=1` from the box (the section "Event RLS: the shadow detector in production" below has the query and the steps). The worker was read by hand, job by job, on Nov 17 and three jobs were fixed; the week of lines is now a confirmation, not the inventory. Expect `contacts-central-sync` and `contacts-central-reconcile` to appear: they are master only and outside a lane by design.
+6. **Scripts run by hand** are not held to a lane by any test (`scripts/` is not scanned): `repair-drifted-deadlines`, `adopt-ordinary-faculty-type`, `backfill-speaker-companion-registrations` read or write Event outside one. One-off, written for master. A script that is ever run on a deployment with row security must enter a lane or use the privileged client.
+7. **A certificate run or a refund attempt with no organisation at all** is worked in an empty lane and logged. Rows from before the columns were backfilled; the platform is born with them filled.
+8. **Organization has no row policy** (its own section below) is next in the same pattern, and smaller.
+
 ## The gate, the git hooks and the agent command guard: what the Nov 17 review left (recorded Nov 17, 2026): not started
 
 Built Nov 17, 2026 (`398ddca9`, fixes in the commit after it; AGENTS.md rule 5). Review of `398ddca9`: 0 BLOCKER, 3 HIGH, 8 MED, about 20 LOW. The HIGHs and MEDs are fixed. What is below was left, each with why.

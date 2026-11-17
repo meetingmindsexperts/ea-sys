@@ -179,8 +179,9 @@ async function main() {
       for (const r of unpoliciedWithData) console.log(`    ${r.table} (${r.ownerTotal} rows)`);
       console.log(
         "\n  Not necessarily wrong. Some are global by design (the tenant list, the\n" +
-          "  API keys read in order to LEARN the tenant). Event is the one that is\n" +
-          "  neither: it is un-swept. See docs/PLATFORM_PROVISIONING.md.\n",
+          "  API keys read in order to LEARN the tenant). Event is NOT one of them\n" +
+          "  since Nov 17, 2026 (prisma/rls/event.sql): if it is listed here, the\n" +
+          "  policy files were not all applied. See docs/PLATFORM_PROVISIONING.md.\n",
       );
     }
   } finally {

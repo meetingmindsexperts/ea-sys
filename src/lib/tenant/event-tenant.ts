@@ -29,12 +29,15 @@
  * where row security applies normally. It runs inside `asEventDiscovery`, so
  * the shadow detector (lane-shadow.ts) does not report it.
  *
- * It reads through `db` today. Where row security is on it must read through
- * the privileged client (`dbOperator`), or it finds nothing: that one-line
- * move is made in the change that promotes the Event policy into prisma/rls/.
+ * It reads through the PRIVILEGED client (`dbOperator`, since the Event
+ * policy was promoted into prisma/rls/event.sql on Nov 17, 2026): where row
+ * security is on, no other client can read an event before a lane exists. On
+ * master the two clients are the same object, so nothing changed there. This
+ * file is on the privileged allow-list (scripts/check-tenant-als.sh) for that
+ * one read and no other: never reach for `dbOperator` here to return content.
  */
 import type { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, dbOperator } from "@/lib/db";
 import { publicEventWhere, publicEventWhereForHost, publicOrgScopeForHost, type PublicEventScopeOptions } from "@/lib/public-event";
 import { asEventDiscovery } from "@/lib/tenant/lane-shadow";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -51,7 +54,7 @@ export interface EventTenant {
  * nothing matches; the caller answers 404.
  */
 export async function resolveEventTenant(where: Prisma.EventWhereInput): Promise<EventTenant | null> {
-  return asEventDiscovery(() => db.event.findFirst({ where, select: { id: true, organizationId: true } }));
+  return asEventDiscovery(() => dbOperator.event.findFirst({ where, select: { id: true, organizationId: true } }));
 }
 
 /**
@@ -111,6 +114,19 @@ export interface EventGate {
 function ownLane(principal: EventGate["principal"]): string | null {
   if (!principal.organizationId) return null;
   return principal.fromApiKey || isTeamRole(principal.baseRole) ? principal.organizationId : null;
+}
+
+/**
+ * A caller whose reach is their LINK to an event (a reviewer, a submitter, a
+ * registrant), not an organisation. Only they are answered through the
+ * privileged discovery. A team role or a key that carries no organisation is
+ * not: it has no lane, and is not handed one by a read that sees every tenant
+ * (owner, Aug 11 2026, PLATFORM_DECISIONS item 5: an operator reaching into a
+ * tenant's event is answered by a membership in the tenant, never by a
+ * privilege in the route).
+ */
+function reachesByLink(principal: EventGate["principal"]): boolean {
+  return !principal.fromApiKey && !!principal.baseRole && !isTeamRole(principal.baseRole);
 }
 
 /**
@@ -259,13 +275,16 @@ function onlyAsked(tenant: EventTenant, args: GatedEventArgs): Partial<EventTena
  *     key): inside that organisation's lane, entered first. The policy then
  *     applies to the read as to everything after it, so a mistake in a gate's
  *     filter still cannot reach another tenant's event.
- *   - for anyone else (a reviewer, a submitter, a registrant, an operator with
- *     no organisation): through the sanctioned discovery (`resolveEventTenant`,
- *     the only read made before a lane exists). When the route asks for no
- *     more than the id and the organisation, the discovery's answer is the
- *     result. When it asks for more,
- *     the event is found first and then read inside ITS organisation's lane,
- *     so event content never comes back from a read outside a lane.
+ *   - for a caller who reaches the event by their LINK to it (a reviewer, a
+ *     submitter, a registrant): through the sanctioned discovery
+ *     (`resolveEventTenant`, the only read made before a lane exists, on the
+ *     privileged client). When the route asks for no more than the id and the
+ *     organisation, the discovery's answer is the result. When it asks for
+ *     more, the event is found first and then read inside ITS organisation's
+ *     lane, so event content never comes back from a read outside a lane.
+ *   - for a team role or a key that carries no organisation: in the empty
+ *     lane. On master that is the query as it always ran; where row security
+ *     is on it finds nothing, and the privileged read is never used for it.
  *
  * The route goes on to `runWithTenant(event.organizationId, ...)` exactly as
  * before. Never pass a filter here that the gate did not build.
@@ -279,10 +298,13 @@ export async function findGatedEvent<A extends GatedEventArgs>(
 
   const organizationId = ownLane(gate.principal);
   if (organizationId) return runWithTenant(organizationId, () => read(gate.eventWhere));
+  // A team role or a key with no organisation: the empty lane, which is a
+  // pass-through on master and answers nothing where row security is on. The
+  // route's own `runWithTenantLane` logs `tenant:no-org-lane` for it.
+  if (!reachesByLink(gate.principal)) return runWithTenant("", () => read(gate.eventWhere));
   // ONE read is made before a lane exists, and it is `resolveEventTenant`
-  // (review of 2db57e7f): the day discovery moves to the privileged client, it
-  // moves there for this function too. A second pre-lane read written here
-  // would stay behind and answer 404 to every reviewer, submitter and registrant.
+  // (review of 2db57e7f), on the privileged client. A second pre-lane read
+  // written here would answer 404 to every reviewer, submitter and registrant.
   const tenant = await resolveEventTenant(gate.eventWhere);
   if (!tenant) return null;
   if (asksOnlyDiscoveryColumns(args as GatedEventArgs)) return onlyAsked(tenant, args as GatedEventArgs) as Prisma.EventGetPayload<A>;

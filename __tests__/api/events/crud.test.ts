@@ -60,7 +60,7 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 
 vi.mock("@/lib/db", () => ({
-  db: mockDb,
+  db: mockDb, dbOperator: mockDb,
   // As the real one on master: `db.$transaction`. A test that fakes the
   // transaction (the seat cap) sets `mockDb.$transaction`; the others run on mockDb.
   tenantTransaction: (fn: (tx: unknown) => Promise<unknown>) => {

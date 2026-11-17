@@ -476,6 +476,13 @@ OPERATOR_LANE_ALLOWLIST=(
   # rows for exactly the ids an operator needs to identify. Read-only
   # (findMany only) and paired with denyNonOperator().
   "src/app/api/admin/lookup/route.ts"        # operator-global id → name lookup
+  # The ONE read of Event made before a tenant lane exists (Event RLS step 6,
+  # Nov 17, 2026): resolveEventTenant, for a reviewer, submitter or registrant
+  # who reaches an event by their link to it. It returns the id and the
+  # organisation and nothing else; the content is then read inside that lane on
+  # the normal client. Not a worker scan and not an operator surface: the third
+  # kind of member, and the only one of its kind.
+  "src/lib/tenant/event-tenant.ts"           # event id + organisation discovery for a linked role
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't
@@ -502,9 +509,11 @@ HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|
 # platform; the ≥-count check above can't see placement). Matches a Prisma op on
 # a SWEPT model — `<db|tx>.<model>.<method>` — precisely (the trailing method
 # name means a plain property chain like `payment.registration.event` never
-# matches). GROW SWEPT_MODELS as domains are swept; un-swept models (Event, User,
-# session) are the ONLY reads allowed before the wrap (org resolution).
-SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|webinarViewerQuestion|webinarQuestionVote|livePoll|livePollVote|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmQuote|crmQuoteLine|crmQuoteSequence|crmEmailSendClaim|crmDealType|crmProject|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|certificateAssignment|externalStream|sessionProposal|sessionProposalTheme|rsvpCampaign|rsvpItem|rsvpInvite|rsvpResponse|survey|surveyResponse|speakerReimbursement|speakerReimbursementDocument|emailLog|scheduledEmail|auditLog|helpChatQuery|employee|leaveCode|attendanceEntry|attendanceRule|leaveGrant|publicHoliday|sponsor|budgetCategory|budgetProduct|supplier|supplierProduct|spendRequest|spendRequestQuote|commitment|commitmentLine|paymentRecord|spendRequestCounter|commitmentCounter|budgetTemplate|budgetTemplateLine|eventBudget|budgetLine|budgetRevenueLine|approvalWorkflowDefinition|approvalRequest|approvalStep|eventFinancialSummary|permissionSet|permissionSetGrant|userPermissionSet|agentRun|agentStep|venueActivity|venueReport|venueAiUsage'
+# matches). GROW SWEPT_MODELS as domains are swept; un-swept models (User,
+# session) are the ONLY reads allowed before the wrap (org resolution). Event
+# joined the list on Nov 17, 2026: a route finds its event with findGatedEvent
+# or findPublicEvent, which enter the lane themselves.
+SWEPT_MODELS='event|registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|webinarViewerQuestion|webinarQuestionVote|livePoll|livePollVote|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmQuote|crmQuoteLine|crmQuoteSequence|crmEmailSendClaim|crmDealType|crmProject|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|certificateAssignment|externalStream|sessionProposal|sessionProposalTheme|rsvpCampaign|rsvpItem|rsvpInvite|rsvpResponse|survey|surveyResponse|speakerReimbursement|speakerReimbursementDocument|emailLog|scheduledEmail|auditLog|helpChatQuery|employee|leaveCode|attendanceEntry|attendanceRule|leaveGrant|publicHoliday|sponsor|budgetCategory|budgetProduct|supplier|supplierProduct|spendRequest|spendRequestQuote|commitment|commitmentLine|paymentRecord|spendRequestCounter|commitmentCounter|budgetTemplate|budgetTemplateLine|eventBudget|budgetLine|budgetRevenueLine|approvalWorkflowDefinition|approvalRequest|approvalStep|eventFinancialSummary|permissionSet|permissionSetGrant|userPermissionSet|agentRun|agentStep|venueActivity|venueReport|venueAiUsage'
 # `[.]` (literal-dot char class, no backslash) sidesteps awk -v escape handling.
 # The second alternative is the stream resolver (src/lib/webinar/session-stream.ts,
 # Nov 12, 2026): its helpers read ZoomMeeting and ExternalStream for the caller, so

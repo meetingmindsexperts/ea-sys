@@ -8,9 +8,11 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { findFirst, info } = vi.hoisted(() => ({ findFirst: vi.fn(), info: vi.fn() }));
+const { findFirst, operatorFindFirst, info } = vi.hoisted(() => ({ findFirst: vi.fn(), operatorFindFirst: vi.fn(), info: vi.fn() }));
 
-vi.mock("@/lib/db", () => ({ db: { event: { findFirst } } }));
+// Two clients, told apart: the app's, which row security binds, and the
+// privileged one, which only the sanctioned discovery may use (step 6).
+vi.mock("@/lib/db", () => ({ db: { event: { findFirst } }, dbOperator: { event: { findFirst: operatorFindFirst } } }));
 vi.mock("@/lib/logger", () => ({
   dbLogger: { info, warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -25,8 +27,8 @@ const staff = { principal: { organizationId: "org1", baseRole: "ORGANIZER", from
 const LINKED = { id: "ev1", speakers: { some: { userId: "u1" } } };
 const orgNull = { principal: { organizationId: null, baseRole: "SUBMITTER", fromApiKey: false }, eventWhere: LINKED };
 
-/** What each read saw: its arguments, the lane it ran in, and whether the detector would report it. */
-let reads: { args: { where: unknown; select?: unknown }; lane: string | undefined; reported: boolean }[];
+/** What each read saw: which client made it, its arguments, the lane it ran in, and whether the detector would report it. */
+let reads: { client: "db" | "operator"; args: { where: unknown; select?: unknown }; lane: string | undefined; reported: boolean }[];
 const ORIGINAL = process.env.RLS_SHADOW;
 
 beforeEach(() => {
@@ -37,9 +39,15 @@ beforeEach(() => {
   findFirst.mockReset();
   findFirst.mockImplementation(async (args) => {
     const before = info.mock.calls.length;
-    // What the query extension does for every Event operation.
+    // What the query extension does for every Event operation on the app's client.
     noteUnlanedEventQuery("Event", `findFirst#${reads.length}`);
-    reads.push({ args, lane: getTenantOrgId() ?? undefined, reported: info.mock.calls.length > before });
+    reads.push({ client: "db", args, lane: getTenantOrgId() ?? undefined, reported: info.mock.calls.length > before });
+    return { id: "ev1", organizationId: "org9", name: "Congress" };
+  });
+  operatorFindFirst.mockReset();
+  // The privileged client carries no tenant extension: nothing reports its reads.
+  operatorFindFirst.mockImplementation(async (args) => {
+    reads.push({ client: "operator", args, lane: getTenantOrgId() ?? undefined, reported: false });
     return { id: "ev1", organizationId: "org9", name: "Congress" };
   });
 });
@@ -88,22 +96,25 @@ describe("findGatedEvent", () => {
       expect(reads, JSON.stringify(select)).toHaveLength(1);
       // The ONE pre-lane read there is: resolveEventTenant's, id and organisation only.
       expect(reads[0].args).toEqual({ where: orgNull.eventWhere, select: { id: true, organizationId: true } });
-      // No lane yet, and the detector treats it as the sanctioned discovery.
-      expect(reads[0]).toMatchObject({ lane: undefined, reported: false });
+      // No lane yet: it is the sanctioned discovery, made on the privileged client.
+      expect(reads[0]).toMatchObject({ client: "operator", lane: undefined, reported: false });
     }
   });
 
-  it("makes every read before a lane through resolveEventTenant, so discovery has ONE place to move from", async () => {
-    // The day discovery moves to the privileged client it is one line there;
-    // a second pre-lane read written in findGatedEvent would stay behind and
-    // answer 404 to every reviewer, submitter and registrant (review of 2db57e7f).
+  it("makes every read before a lane through resolveEventTenant, the ONE use of the privileged client in the file", async () => {
+    // A second pre-lane read written in findGatedEvent, on the app's client,
+    // would answer 404 to every reviewer, submitter and registrant (review of
+    // 2db57e7f); a second use of the privileged client would be a read of
+    // event content that no policy binds.
     const source = (await import("node:fs")).readFileSync("src/lib/tenant/event-tenant.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     expect(source.match(/asEventDiscovery\(/g)).toHaveLength(1);
+    expect(source.match(/dbOperator\./g)).toHaveLength(1);
+    expect(source).toMatch(/asEventDiscovery\(\(\) => dbOperator\.event\.findFirst\(\{ where, select: \{ id: true, organizationId: true \} \}\)\)/);
     const body = source.slice(source.indexOf("export async function findGatedEvent"));
     // Inside the helper, db is touched only by `read`, and `read` runs only inside a lane.
     expect(body.match(/db\.event\./g)).toHaveLength(1);
-    expect(body.match(/\bread\(/g)).toHaveLength(2);
-    expect(body.match(/runWithTenant\([^)]*\(\) => read\(/g)).toHaveLength(2);
+    expect(body.match(/\bread\(/g)).toHaveLength(3);
+    expect(body.match(/runWithTenant\([^)]*\(\) => read\(/g)).toHaveLength(3);
   });
 
   it("for a caller with no organisation asking for more: found first, then read inside the EVENT's organisation's lane", async () => {
@@ -112,13 +123,13 @@ describe("findGatedEvent", () => {
     expect(reads).toHaveLength(2);
     // The read outside a lane asks for the id and the organisation only ...
     expect(reads[0].args).toEqual({ where: orgNull.eventWhere, select: { id: true, organizationId: true } });
-    expect(reads[0]).toMatchObject({ lane: undefined, reported: false });
-    // ... and the content comes from a read inside the lane, still under the gate's filter.
+    expect(reads[0]).toMatchObject({ client: "operator", lane: undefined, reported: false });
+    // ... and the content comes from a read on the app's client inside the lane, still under the gate's filter.
     expect(reads[1].args).toEqual({
       where: { AND: [orgNull.eventWhere, { id: "ev1" }] },
       select: { id: true, organizationId: true, settings: true },
     });
-    expect(reads[1]).toMatchObject({ lane: "org9", reported: false });
+    expect(reads[1]).toMatchObject({ client: "db", lane: "org9", reported: false });
   });
 
   it("never treats a read with a relation, an include or no select as discovery", async () => {
@@ -133,10 +144,13 @@ describe("findGatedEvent", () => {
 
   it("answers null without a second read when the gate's filter matches no event", async () => {
     findFirst.mockResolvedValue(null);
+    operatorFindFirst.mockResolvedValue(null);
     expect(await findGatedEvent(orgNull, { select: { id: true, settings: true } })).toBeNull();
-    expect(findFirst).toHaveBeenCalledTimes(1);
+    expect(operatorFindFirst).toHaveBeenCalledTimes(1);
+    expect(findFirst).not.toHaveBeenCalled();
     expect(await findGatedEvent(staff, { select: { id: true, settings: true } })).toBeNull();
-    expect(findFirst).toHaveBeenCalledTimes(2);
+    expect(findFirst).toHaveBeenCalledTimes(1);
+    expect(operatorFindFirst).toHaveBeenCalledTimes(1);
   });
 
   it("an organisation's API key reads in that organisation's lane, as its staff do", async () => {
@@ -152,10 +166,29 @@ describe("findGatedEvent", () => {
       reads = [];
       await findGatedEvent({ principal: { organizationId: "org1", baseRole, fromApiKey: false }, eventWhere: LINKED }, { select: { id: true, settings: true } });
       expect(reads, baseRole).toHaveLength(2);
-      expect(reads[0]).toMatchObject({ lane: undefined, reported: false });
+      expect(reads[0]).toMatchObject({ client: "operator", lane: undefined, reported: false });
       // The lane is the EVENT's organisation (org9), never the account's (org1).
       expect(reads[1].lane, baseRole).toBe("org9");
     }
+  });
+
+  it("a team role or a key with NO organisation is never answered by the privileged read: one read, in the empty lane", async () => {
+    // Owner, Aug 11 2026 (PLATFORM_DECISIONS item 5): an operator reaching into
+    // a tenant's event is answered by a membership in the tenant, not by a
+    // privilege in the route. On master the empty lane is a pass-through, so
+    // the read is the one it always was; where row security is on it finds nothing.
+    for (const principal of [
+      { organizationId: null, baseRole: "SUPER_ADMIN", fromApiKey: false },
+      { organizationId: null, baseRole: "ORGANIZER", fromApiKey: false },
+      { organizationId: null, baseRole: null, fromApiKey: true },
+      { organizationId: null, baseRole: null, fromApiKey: false },
+    ]) {
+      reads = [];
+      await findGatedEvent({ principal, eventWhere: { id: "ev1" } }, { select: { id: true, settings: true } });
+      expect(reads, JSON.stringify(principal)).toHaveLength(1);
+      expect(reads[0], JSON.stringify(principal)).toMatchObject({ client: "db", lane: "", args: { where: { id: "ev1" } } });
+    }
+    expect(operatorFindFirst).not.toHaveBeenCalled();
   });
 
   it("leaves no lane behind it", async () => {

@@ -172,8 +172,12 @@ So: treat rough edges as *data*, not bugs — they map the remaining sweep work.
   `SET LOCAL app.current_org` per query) + `TENANCY_ENFORCE_HOST=1` (an unknown
   host 404s instead of falling back — so public isolation is strict). Everything
   else (`NEXTAUTH_SECRET`, email, etc.) comes from your normal `.env`.
-- **Policies**: `00-roles.sql` (the app_user split) + every `prisma/rls/*.sql` —
-  deliberately **not** the Event pilot policy (`tests/tenancy/policies/10-event-rls.sql`),
-  because Event is un-swept and RLS on it would fail-close the dashboard.
+- **Policies**: `00-roles.sql` (the app_user split) + every `prisma/rls/*.sql`.
+  Since Nov 17, 2026 that includes **Event** (`prisma/rls/event.sql`); re-run
+  `npm run sandbox:setup` on a sandbox made before then to apply it.
+- **The privileged lane**: `dev:sandbox` sets `DATABASE_URL_OPERATOR` to the
+  owner connection, as the platform does. With Event policied, the one read
+  made before a tenant lane exists (a reviewer, submitter or registrant opening
+  an event) goes through it; without it they would find no event.
 - **Files**: `scripts/setup-sandbox.ts`, `scripts/seed-sandbox.ts`, the
   `dev:sandbox` / `sandbox:setup` / `sandbox:seed` package scripts.

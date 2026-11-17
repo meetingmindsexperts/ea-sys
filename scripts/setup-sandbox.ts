@@ -7,9 +7,10 @@
  *   1. CREATE DATABASE sandbox (idempotent)
  *   2. prisma db push (full schema, OWNER connection)
  *   3. apply the role split (tests/tenancy/policies/00-roles.sql) + EVERY
- *      per-domain policy in prisma/rls/*.sql — deliberately NOT the Event pilot
- *      policy (tests/tenancy/policies/10-event-rls.sql): Event is un-swept, so
- *      RLS on it would fail-close the whole dashboard.
+ *      per-domain policy in prisma/rls/*.sql. Since Nov 17, 2026 that includes
+ *      Event (prisma/rls/event.sql): until then its policy was a harness-only
+ *      pilot, kept out of the sandbox because reads of Event ran outside a
+ *      tenant lane and the dashboard would have come back empty.
  *   4. seed two tenants (scripts/seed-sandbox.ts)
  *
  * The app then connects as the non-owner `app_user` (RLS enforces) via
@@ -58,13 +59,12 @@ async function main() {
     stdio: "inherit",
   });
 
-  // 3. role split + domain policies (NOT the Event pilot policy)
+  // 3. role split + domain policies (Event's among them since Nov 17, 2026)
   console.log("[sandbox] applying role split + domain RLS policies");
   const owner = new PrismaClient({ datasourceUrl: OWNER_URL });
   try {
-    // The role split first, by explicit path: this is the ONE file taken from
-    // tests/tenancy/policies, deliberately NOT the whole directory, because
-    // 10-event-rls.sql lives there too (see the note in the header).
+    // The role split first, by explicit path: the one file in
+    // tests/tenancy/policies. Every policy is in prisma/rls.
     const rolesFile = path.resolve(process.cwd(), "tests/tenancy/policies/00-roles.sql");
     for (const statement of splitSql(readFileSync(rolesFile, "utf8"))) {
       await owner.$executeRawUnsafe(statement);

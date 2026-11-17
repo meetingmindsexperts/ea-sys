@@ -1,5 +1,6 @@
 /**
- * Event RLS step 2 against the REAL pilot Event policy (Nov 16, 2026): the
+ * Event RLS against the REAL Event policy (prisma/rls/event.sql; it was the
+ * harness-only pilot until step 6, Nov 17 2026). First written Nov 16 for the
  * read every per-event route opens with (`findGatedEvent`) and the settings
  * merge about fifteen routes write through (`updateEventSettings`). Runs as
  * the non-owner app_user through pgbouncer with RLS_SET_LOCAL=1, like rls.test.ts.
@@ -14,9 +15,10 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { findGatedEvent } from "@/lib/tenant/event-tenant";
+import { findGatedEvent, findPublicEvent, inHostLane, inOwnLane, inScopeLane, resolvePublicEventOrg } from "@/lib/tenant/event-tenant";
+import { clearTenantResolverCache } from "@/lib/tenant/resolver";
 import { updateEventSettings } from "@/lib/event-settings";
-import { ORG_A_ID, ORG_B_ID, EVENT_A_SHARED_ID, EVENT_B_ONLY_ID, UPLOADER_A_ID } from "./constants";
+import { ORG_A_ID, ORG_B_ID, EVENT_A_SHARED_ID, EVENT_B_SHARED_ID, EVENT_B_ONLY_ID, HOST_A, HOST_B, SHARED_SLUG, ORG_B_ONLY_SLUG } from "./constants";
 
 const staffA = { organizationId: ORG_A_ID, baseRole: "ORGANIZER", fromApiKey: false };
 const keyA = { organizationId: ORG_A_ID, baseRole: null, fromApiKey: true };
@@ -67,16 +69,76 @@ describe("findGatedEvent under the Event policy", () => {
     expect(await db.event.findMany({ select: { id: true } })).toHaveLength(0);
   });
 
-  it("STEP 6 MARKER: a reviewer, submitter or registrant is not found until discovery moves to the privileged client", async () => {
-    // Their event is found by `resolveEventTenant`, the ONE read made before a
-    // lane exists. It reads through `db` today (Event has no policy in
-    // production), so under the policy it finds nothing. When step 6 moves
-    // that one read to the privileged client, this expectation flips to the
-    // event: change it then, in the same commit.
+  it("a reviewer, submitter or registrant is found through the privileged discovery, and reads the content inside the event's lane", async () => {
+    // Step 6 (Nov 17, 2026): `resolveEventTenant`, the ONE read made before a
+    // lane exists, is on the privileged client. Until then this found nothing.
     const linked = { organizationId: null, baseRole: "SUBMITTER", fromApiKey: false };
-    const where = { id: EVENT_A_SHARED_ID, speakers: { some: { userId: UPLOADER_A_ID } } };
+    expect(await findGatedEvent({ principal: linked, eventWhere: { id: EVENT_A_SHARED_ID } }, { select: { id: true } })).toEqual({ id: EVENT_A_SHARED_ID });
+    const full = await findGatedEvent({ principal: linked, eventWhere: { id: EVENT_A_SHARED_ID } }, { select: { id: true, organizationId: true, name: true } });
+    expect(full).toMatchObject({ id: EVENT_A_SHARED_ID, organizationId: ORG_A_ID });
+    expect(typeof full?.name).toBe("string");
+    // The account's own organisation is not its lane: an event of another organisation is found the same way.
+    const attached = { organizationId: ORG_A_ID, baseRole: "REVIEWER", fromApiKey: false };
+    expect(await findGatedEvent({ principal: attached, eventWhere: { id: EVENT_B_ONLY_ID } }, { select: { id: true, slug: true } })).toMatchObject({ id: EVENT_B_ONLY_ID });
+  });
+
+  it("the gate's filter still decides: a link that does not exist finds nothing, privileged client or not", async () => {
+    const linked = { organizationId: null, baseRole: "REGISTRANT", fromApiKey: false };
+    const where = { id: EVENT_A_SHARED_ID, registrations: { some: { userId: "nobody-is-linked-like-this" } } };
     expect(await findGatedEvent({ principal: linked, eventWhere: where }, { select: { id: true } })).toBeNull();
-    expect(await findGatedEvent({ principal: linked, eventWhere: { id: EVENT_A_SHARED_ID } }, { select: { id: true, name: true } })).toBeNull();
+    expect(await findGatedEvent({ principal: linked, eventWhere: where }, { select: { id: true, name: true } })).toBeNull();
+  });
+
+  it("a team role or a key with NO organisation is not answered by the privileged read: it finds nothing", async () => {
+    // Owner, Aug 11 2026 (PLATFORM_DECISIONS item 5). An operator's gate filter is the bare id.
+    for (const principal of [
+      { organizationId: null, baseRole: "SUPER_ADMIN", fromApiKey: false },
+      { organizationId: null, baseRole: "ORGANIZER", fromApiKey: false },
+      { organizationId: null, baseRole: null, fromApiKey: true },
+    ]) {
+      expect(await findGatedEvent({ principal, eventWhere: { id: EVENT_A_SHARED_ID } }, { select: { id: true } }), JSON.stringify(principal)).toBeNull();
+      expect(await findGatedEvent({ principal, eventWhere: { id: EVENT_A_SHARED_ID } }, { select: { id: true, name: true } }), JSON.stringify(principal)).toBeNull();
+    }
+  });
+});
+
+describe("a public address under the Event policy (findPublicEvent, the public lists)", () => {
+  const req = (host: string) => new Request(`https://${host}/e/${SHARED_SLUG}`, { headers: { host } });
+  beforeAll(() => clearTenantResolverCache());
+
+  it("each host finds its OWN organisation's event behind the slug both organisations use", async () => {
+    const a = await findPublicEvent(req(HOST_A), SHARED_SLUG, {}, { select: { id: true, organizationId: true, name: true } });
+    const b = await findPublicEvent(req(HOST_B), SHARED_SLUG, {}, { select: { id: true, organizationId: true, name: true } });
+    expect(a).toMatchObject({ id: EVENT_A_SHARED_ID, organizationId: ORG_A_ID });
+    expect(b).toMatchObject({ id: EVENT_B_SHARED_ID, organizationId: ORG_B_ID });
+  });
+
+  it("a host cannot reach another organisation's event, by slug or by id", async () => {
+    expect(await findPublicEvent(req(HOST_A), ORG_B_ONLY_SLUG, {}, { select: { id: true } })).toBeNull();
+    expect(await findPublicEvent(req(HOST_A), EVENT_B_ONLY_ID, { allowIdFallback: true }, { select: { id: true } })).toBeNull();
+    expect(await resolvePublicEventOrg(req(HOST_A), ORG_B_ONLY_SLUG)).toBeNull();
+    expect(await resolvePublicEventOrg(req(HOST_B), ORG_B_ONLY_SLUG)).toBe(ORG_B_ID);
+  });
+
+  it("a host that names no organisation has no lane, so with row security on it finds nothing", async () => {
+    // A deployment that cannot say whose page this is. The platform refuses such a host outright.
+    expect(await findPublicEvent(req("unknown.tenancy.test"), SHARED_SLUG, {}, { select: { id: true } })).toBeNull();
+  });
+
+  it("a public list reads the host's organisation's events and no other", async () => {
+    const listed = await inHostLane(req(HOST_A), () => db.event.findMany({ select: { organizationId: true } }));
+    expect(listed.length).toBeGreaterThan(0);
+    expect(new Set(listed.map((e) => e.organizationId))).toEqual(new Set([ORG_A_ID]));
+    // The catalogue's loaders are handed the scope; a refused host's is the sentinel, which is nobody's lane.
+    expect(await inScopeLane({ organizationId: ORG_B_ID }, () => db.event.count())).toBeGreaterThan(1);
+    expect(await inScopeLane({ organizationId: "__tenant_unresolved__" }, () => db.event.count())).toBe(0);
+  });
+
+  it("a list behind a gate: staff in their own lane whatever the host, a linked role in the host's", async () => {
+    const count = () => db.event.count();
+    expect(await inOwnLane({ principal: staffA }, req(HOST_B), count)).toBe(await runWithTenant(ORG_A_ID, count));
+    const linked = { organizationId: null, baseRole: "REGISTRANT", fromApiKey: false };
+    expect(await inOwnLane({ principal: linked }, req(HOST_B), count)).toBe(await runWithTenant(ORG_B_ID, count));
   });
 });
 

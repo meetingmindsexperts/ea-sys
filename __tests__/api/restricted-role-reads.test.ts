@@ -44,7 +44,7 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: unknown) => fn }));
+vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb, tenantTransaction: (fn: unknown) => fn }));
 vi.mock("@/lib/tenant-context", () => ({
   runWithTenant: (org: string, fn: () => unknown) => {
     laneSpy(org);

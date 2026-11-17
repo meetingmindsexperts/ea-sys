@@ -29,7 +29,7 @@ vi.mock("next/server", () => ({
     json: (b: unknown, i?: { status?: number }) => ({ status: i?.status ?? 200, json: async () => b, headers: { set: () => {} } }),
   },
 }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/api-auth", () => ({ getOrgContext: () => mockOrgCtx() }));
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));

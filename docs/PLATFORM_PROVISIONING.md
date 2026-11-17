@@ -226,7 +226,10 @@ Organization, a SUPER_ADMIN, and a `TenantDomain` row for its hostname.
 
 `DATABASE_URL_OPERATOR` is what makes `dbOperator` a real second lane. While it
 is unset, `dbOperator` **is the same object as `db`** and the privileged lane is
-inert — which is correct on master and wrong on platform.
+inert — which is correct on master and wrong on platform. Since Nov 17, 2026
+(Event carries a policy) it is also what lets a reviewer, submitter or
+registrant open an event: the read that finds the event's organisation before a
+lane exists runs on it.
 
 ### B4. The box
 
@@ -372,19 +375,16 @@ stated rather than omitted. Regenerate its screenshots with
 Each of these is decided but unbuilt, and each has its build-time items recorded
 in [PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md):
 
-- **`Event` itself has no RLS policy.** There is one, but only in
-  `tests/tenancy/policies/10-event-rls.sql`, which the harness applies and
-  neither the sandbox nor the bootstrap does. `Event` was never one of the 20
-  swept domains; `setup-sandbox.ts` states the reason in its header, that RLS on
-  it "would fail-close the whole dashboard". Sizing the sweep: **343 call sites
-  across 201 files**, the largest single domain left. Impact is narrower than it
-  sounds, because child tables carry their own denormalized `organizationId` and
-  are policied independently, so a leaked Event row does not cascade into
-  registrations. What is cross-readable at the DB layer is Event rows: names,
-  dates, venues, and the `settings` JSON. Not a blocker for tenant #1, who has
-  nobody to leak to. A before-tenant-#2 item, same shelf as the CRM
-  reply mailbox (the shared SES sender left this shelf on Sep 2, 2026, decided
-  in PLATFORM_DECISIONS.md §9).
+- ~~**`Event` itself has no RLS policy.**~~ **Done Nov 17, 2026.** The policy
+  is `prisma/rls/event.sql`, applied by the bootstrap with every other, after
+  three sweeps put every read of Event inside a tenant lane
+  ([SECURITY_AUDIT_ACTION_PLAN.md](SECURITY_AUDIT_ACTION_PLAN.md) §3.1). It
+  makes `DATABASE_URL_OPERATOR` (B3) load-bearing for a second reason: a
+  reviewer, submitter or registrant reaches an event by their link to it, so
+  the event's organisation is found by ONE read on the privileged client
+  (`resolveEventTenant`). With the variable unset on a platform, those three
+  roles find no event. Still open on the same shelf: `Organization` has no
+  policy ([ROADMAP](ROADMAP.md)), and the CRM reply mailbox.
 - **Tenant management and onboarding** (§1). Nothing exists. This is the largest
   remaining product gap and the reason B2 is a manual seed.
 - **Per-tenant email** (§9). Decided Sep 2, 2026: one AWS account per tenant

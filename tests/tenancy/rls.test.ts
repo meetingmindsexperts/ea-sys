@@ -1,6 +1,6 @@
 /**
  * The RLS transport, end-to-end: ALS tenant store → the db.ts SET LOCAL
- * query extension → pgbouncer TRANSACTION pooling → the pilot Event policy.
+ * query extension → pgbouncer TRANSACTION pooling → the Event policy (prisma/rls/event.sql).
  * Runs as the NON-owner app_user (owners bypass RLS) via `@/lib/db` with
  * RLS_SET_LOCAL=1.
  *

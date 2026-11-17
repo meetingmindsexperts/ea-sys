@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event row security is switched on for the platform (step 6) (November 17)
+
+The last step for Event itself. **Production is untouched**: row security policies are never a migration, production's database holds none, and the code paths below are the same query there as before.
+
+- **The policy is in the shared set.** It was a test-only pilot since July (`tests/tenancy/policies/10-event-rls.sql`). It is now `prisma/rls/event.sql`, applied wherever the other 61 policy files are: the platform's bootstrap, the tenancy harness, the local sandbox.
+- **One read is privileged, and only one.** A reviewer, submitter or registrant opens an event by their link to it, before any tenant lane exists. That read (`resolveEventTenant`: the event's id and organisation, nothing else) now runs on the privileged client. On the platform this needs `DATABASE_URL_OPERATOR`, as documented; the sandbox script sets it.
+- **A staff account or an API key with no organisation is not given that read.** It finds nothing where row security is on, as the owner ruled on Aug 11 for the same question ("a membership in the tenant, not a privilege escalation in the route"). On production the query is unchanged.
+
+Rehearsed under real row security before committing:
+
+- **The tenancy harness**: 40 files, 466 tests, with new cases (two organisations sharing a web address each get their own event and cannot reach the other's; lists; a linked role; an organisation-less staff account refused).
+- **The whole product**: the production build run as the non-owner database role with all 137 policies, then every route and page (478 addresses, six callers) and the browser suite, each run with the Event policy held back and with it on. **Switching it on changed nothing**: the same status for all 2,868 answers, the same size for the 382 API answers that returned 200, and no Event query outside a lane.
+- **Found on the way, not about Event** (recorded in the roadmap): the test seed does not fill the organisation column, one import-completion flow fails under row security with or without the Event policy, and the non-owner role is refused on one table.
+
+Still to come: the organisation column on the six tables that have an event but no organisation (step 5).
+
+
 ### Event row security, step 2 finished: every query on Event runs inside a tenant lane (November 17)
 
 Owner: "lets try and complete event rls completely". Row security on Event is what stops one organisation's code from reading another's events even when a filter is wrong. It could not be switched on while reads of Event ran outside a tenant lane: under the policy such a read finds nothing, so the page answers "not found" with nothing in the logs. Two sweeps had moved the staff API. This one moves everything else. **Nothing changes on production today**: it has one organisation and row security is off there by design, where a lane is a pass-through.

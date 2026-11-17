@@ -54,10 +54,6 @@ const DELIBERATELY_UNPOLICIED: Record<string, string> = {
   User:
     "Identity, decision item 6. Enforced by a platform-only compound unique index " +
     "(prisma/platform/010-user-identity.sql), not a policy, because the row is read on the auth path.",
-  Event:
-    "Never one of the 20 swept domains: 343 call sites across 201 files. A policy would fail-close " +
-    "the whole dashboard. Child tables carry their own denormalized organizationId and are policied " +
-    "independently, so a readable Event row does not cascade. Recorded as a before-tenant-#2 item.",
   LoginEvent:
     "Security telemetry, recorded as deferred by its own sweep. Unknown-email attempts are org-null " +
     "by nature, so a strict policy would hide exactly the rows an attack shows up in.",

@@ -68,7 +68,7 @@ export default async function globalSetup() {
   try {
     // Two sources, in order:
     //   1. tests/tenancy/policies/ — harness-specific (role split, the
-    //      original Event pilot policy)
+    //      Event policy, here until it joined prisma/rls on Nov 17, 2026)
     //   2. prisma/rls/            — the SHARED per-domain policy files the
     //      future platform bootstrap applies too (single source of truth;
     //      the harness proving exactly the SQL the platform will run is the

@@ -23,7 +23,7 @@
  */
 import { db, tenantTransaction } from "@/lib/db";
 import { Prisma } from "@prisma/client";
-import { runWithTenant } from "@/lib/tenant-context";
+import { getTenantOrgId, runWithTenant } from "@/lib/tenant-context";
 
 export type SettingsObject = Record<string, unknown>;
 export type SettingsPatch = SettingsObject | ((current: SettingsObject) => SettingsObject);
@@ -77,11 +77,14 @@ async function mergeSettingsLocked(
  */
 export function updateEventSettings(eventId: string, patch: SettingsPatch, opts: { organizationId?: string } = {}): Promise<SettingsObject> {
   const merge = () => mergeSettingsLocked("Event", eventId, patch, "EVENT_NOT_FOUND", opts.organizationId);
-  // A caller that names the organisation gets its lane here as well (Event RLS
-  // step 2, Nov 17 2026): the merge is a tenant transaction, and a tenant
-  // transaction with no lane around it is a plain one, which finds no row once
-  // Event has a policy. A caller that names none must already be inside a lane.
-  return opts.organizationId ? runWithTenant(opts.organizationId, merge) : merge();
+  // A caller OUTSIDE any lane that names the organisation gets its lane here
+  // (Event RLS step 2, Nov 17 2026): the merge is a tenant transaction, and a
+  // tenant transaction with no lane around it is a plain one, which finds no
+  // row once Event has a policy. A caller already inside a lane keeps it: the
+  // organisation it names stays a second wall and never becomes a way out of
+  // the lane it is in (tests/tenancy/gated-event-rls.test.ts). A caller that
+  // names none must already be inside a lane.
+  return opts.organizationId && !getTenantOrgId() ? runWithTenant(opts.organizationId, merge) : merge();
 }
 
 /** Atomically merge a patch into `Organization.settings`. Throws `ORGANIZATION_NOT_FOUND` if gone. */
