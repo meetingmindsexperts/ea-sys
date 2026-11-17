@@ -2,6 +2,7 @@
 
 import { ALL_FORM_FIELDS_SHOWN, showsField, type FormFieldVisibility, type OptionalFormField } from "@/lib/registration-form-fields";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -976,48 +977,39 @@ function CategoryRegistrationContent() {
   // refuses the tier too, so this is signposting, not the gate.
   if (isPresenterCategory && event) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-sky-50 flex items-center justify-center">
-            <FileText className="h-7 w-7 text-primary" />
-          </div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">
-            This rate is for abstract presenters
-          </h2>
-          <p className="text-slate-500 text-sm mb-5">
-            Presenter rates are offered when you sign up to submit an abstract, so that
-            your submission and your registration stay together.
-          </p>
-          <Link
-            href={`/e/${slug}/abstract/register`}
-            className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
-          >
-            Submit an abstract
-          </Link>
-          <div className="mt-4">
-            <Link href={`/e/${slug}/register`} className="text-primary text-sm font-medium hover:underline">
-              I am attending as a delegate
-            </Link>
-          </div>
-        </div>
-      </div>
+      <PublicEventNotice
+        event={event}
+        icon={FileText}
+        tone="info"
+        title="This rate is for abstract presenters"
+        description="Presenter rates are offered when you sign up to submit an abstract, so that your submission and your registration stay together."
+      >
+        <Link
+          href={`/e/${slug}/abstract/register`}
+          className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
+        >
+          Submit an abstract
+        </Link>
+        <Link href={`/e/${slug}/register`} className="text-primary text-sm font-medium hover:underline">
+          I am attending as a delegate
+        </Link>
+      </PublicEventNotice>
     );
   }
 
   if (error || !event || !formLabel) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-red-50 flex items-center justify-center">
-            <AlertCircle className="h-7 w-7 text-red-500" />
-          </div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Registration not available"}</h2>
-          <p className="text-slate-500 text-sm mb-4">Please check the link and try again.</p>
-          <Link href={`/e/${slug}/register`} className="text-primary text-sm font-medium hover:underline">
-            View all registration forms
-          </Link>
-        </div>
-      </div>
+      <PublicEventNotice
+        event={event}
+        tone="error"
+        missingEvent={error === "Event not found"}
+        title={error || "Registration not available"}
+        description="Please check the link and try again."
+      >
+        <Link href={`/e/${slug}/register`} className="text-primary text-sm font-medium hover:underline">
+          View all registration forms
+        </Link>
+      </PublicEventNotice>
     );
   }
 

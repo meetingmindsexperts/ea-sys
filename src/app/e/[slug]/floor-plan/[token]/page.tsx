@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { Link2Off, Loader2 } from "lucide-react";
 import { ExhibitorFloorPlan, type FloorPlanPayload } from "@/components/public/exhibitor-floor-plan";
+import { PublicEventNotice } from "@/components/public/event-notice";
 
 const REFRESH_MS = 60_000;
 
@@ -59,13 +60,7 @@ export default function ExhibitorFloorPlanPage() {
   if (result.data === "inactive" || result.data === "not-ready" || result.isError || !result.data) {
     const message = MESSAGES[result.data === "not-ready" || result.data === "inactive" ? result.data : "failed"];
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <div className="max-w-sm space-y-2 text-center">
-          <Link2Off className="mx-auto h-8 w-8 text-slate-400" aria-hidden />
-          <h1 className="text-lg font-semibold text-slate-900">{message.title}</h1>
-          <p className="text-sm text-slate-600">{message.body}</p>
-        </div>
-      </main>
+      <PublicEventNotice icon={Link2Off} title={message.title} description={message.body} />
     );
   }
   return null;

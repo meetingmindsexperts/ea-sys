@@ -7,6 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhereForHost } from "@/lib/public-event";
+import { toPublicEventBranding, type PublicEventBranding } from "@/lib/public-event-branding";
 
 /**
  * Shared builder for the per-event SEO metadata on the public `/e/[slug]/*`
@@ -37,6 +38,15 @@ const getEventForMeta = cache(async (host: string | null, slug: string) =>
       city: true,
       country: true,
       startDate: true,
+      // What a page shows around a message when it cannot show its content
+      // (src/lib/public-event-branding.ts). Here for the same reason as the
+      // brand colour below: one cached lookup per request serves all three.
+      status: true,
+      endDate: true,
+      timezone: true,
+      bannerImageMobile: true,
+      footerHtml: true,
+      supportEmail: true,
       // Brand colour for the public theme. Selected HERE rather than in a
       // second query so the `[slug]` layout's metadata + theming share the
       // one cached lookup per request.
@@ -53,25 +63,34 @@ const getEventForMeta = cache(async (host: string | null, slug: string) =>
  */
 /**
  * What the public `[slug]` layout needs from the one cached event lookup: the
- * brand colour, and whether the slug resolves to an event at all.
+ * brand colour, whether the slug resolves to an event at all, and the event's
+ * branding for the pages below it.
  *
  * `exists` lets the layout skip the analytics beacon for a slug with no event
  * (a deleted event's old links). Every such beacon was dropped by the ingest as
  * `analytics:track-unresolved-site` anyway: EHSMHC2026, deleted Sep 24, 2026,
  * drew 986 of those warnings in one week. A failed lookup reports `exists: true`
  * so a database blip never switches measurement off for a live event.
+ *
+ * `branding` is null for a slug with no event, for an event whose branding is
+ * not public (`BRANDED_EVENT_STATUSES`), and on a failed lookup: an unbranded
+ * message is fine, a draft's banner shown to the public is not.
  */
 export async function getPublicEventShell(
   slug: string,
-): Promise<{ exists: boolean; brandColor: string | null }> {
+): Promise<{ exists: boolean; brandColor: string | null; branding: PublicEventBranding | null }> {
   try {
     const host = (await headers()).get("host");
     const event = await getEventForMeta(host, slug);
-    return { exists: event !== null, brandColor: event?.organization?.primaryColor ?? null };
+    return {
+      exists: event !== null,
+      brandColor: event?.organization?.primaryColor ?? null,
+      branding: toPublicEventBranding(event),
+    };
   } catch (err) {
     // Theming must never break a public page — an unbranded page is fine.
     apiLogger.warn({ err, msg: "public-event-theme:brand-color-lookup-failed", slug });
-    return { exists: true, brandColor: null };
+    return { exists: true, brandColor: null, branding: null };
   }
 }
 

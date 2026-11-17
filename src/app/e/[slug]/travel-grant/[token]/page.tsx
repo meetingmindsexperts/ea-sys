@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { sanitizeHtml } from "@/lib/sanitize";
 
 interface LoadedGrant {
@@ -135,16 +136,11 @@ export default function TravelGrantPage() {
 
   if (loadError || !data) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-6">
-        <div className="max-w-md rounded-lg border bg-card p-8 text-center">
-          <AlertCircle className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-          <h1 className="mb-2 text-lg font-semibold">{loadError}</h1>
-          <p className="text-sm text-muted-foreground">
-            If you believe this is a mistake, reply to the email you received and the organising
-            team will help.
-          </p>
-        </div>
-      </div>
+      <PublicEventNotice
+        tone="error"
+        title={loadError || "This link could not be opened"}
+        description="If you believe this is a mistake, reply to the email you received and the organising team will help."
+      />
     );
   }
 

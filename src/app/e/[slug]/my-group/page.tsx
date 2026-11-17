@@ -26,11 +26,12 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { formatPersonName, formatCurrency } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import {
   Calendar, MapPin, Users, Building2, CreditCard, Download, Loader2,
-  CheckCircle2, AlertCircle, LogOut, BadgeCheck, HelpCircle, Plus,
+  CheckCircle2, LogIn, LogOut, BadgeCheck, HelpCircle, Plus,
 } from "lucide-react";
 
 /**
@@ -203,17 +204,16 @@ export default function MyGroupPage() {
 
   if (sessionStatus === "unauthenticated") {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="rounded-xl border bg-white p-8 text-center max-w-md">
-          <h1 className="text-xl font-semibold mb-2">Sign in to view your group</h1>
-          <p className="text-slate-600 mb-5">
-            Use the email address you registered the group with.
-          </p>
-          <Button onClick={() => router.push(`/e/${slug}/login?redirect=${encodeURIComponent(`/e/${slug}/my-group`)}`)}>
-            Sign in
-          </Button>
-        </div>
-      </div>
+      <PublicEventNotice
+        icon={LogIn}
+        tone="info"
+        title="Sign in to view your group"
+        description="Use the email address you registered the group with."
+      >
+        <Button onClick={() => router.push(`/e/${slug}/login?redirect=${encodeURIComponent(`/e/${slug}/my-group`)}`)}>
+          Sign in
+        </Button>
+      </PublicEventNotice>
     );
   }
 
@@ -221,30 +221,22 @@ export default function MyGroupPage() {
   // coordinator would think their whole company's registration vanished.
   if (isError) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-center max-w-md">
-          <AlertCircle className="mx-auto h-10 w-10 text-red-500 mb-3" />
-          <h1 className="text-xl font-semibold mb-2">Couldn&apos;t load your group</h1>
-          <p className="text-slate-600 mb-5">
-            Your group registration is safe. This is a loading problem. Please try again.
-          </p>
-          <Button onClick={() => refetch()}>Try again</Button>
-        </div>
-      </div>
+      <PublicEventNotice
+        tone="error"
+        title="Couldn&apos;t load your group"
+        description="Your group registration is safe. This is a loading problem. Please try again."
+      >
+        <Button onClick={() => refetch()}>Try again</Button>
+      </PublicEventNotice>
     );
   }
 
   if (!group) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="rounded-xl border bg-white p-8 text-center max-w-md">
-          <h1 className="text-xl font-semibold mb-2">No group registration found</h1>
-          <p className="text-slate-600">
-            This account doesn&apos;t coordinate a group for this event. If someone else
-            registered your company, ask them to share the details.
-          </p>
-        </div>
-      </div>
+      <PublicEventNotice
+        title="No group registration found"
+        description="This account doesn&apos;t coordinate a group for this event. If someone else registered your company, ask them to share the details."
+      />
     );
   }
 

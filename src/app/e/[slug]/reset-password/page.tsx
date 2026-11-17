@@ -25,13 +25,13 @@ import { Suspense, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { parseSubmitterReturn, signInPathAfterReset } from "@/lib/submitter-return";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { format } from "date-fns";
 import {
-  AlertCircle,
   Calendar,
   Loader2,
   Lock,
@@ -193,15 +193,15 @@ function EventResetPasswordInner() {
 
   if (eventError || !event) {
     return (
-      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <AlertCircle className="h-10 w-10 text-red-400 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">{eventError || "Event not found"}</h2>
-          <p className="text-slate-500 text-sm">
-            <Link href={signInPath} className="text-primary hover:underline">Back to sign in</Link>
-          </p>
-        </div>
-      </div>
+      <PublicEventNotice
+        tone="error"
+        missingEvent={!eventError || eventError === "Event not found"}
+        title={eventError || "Event not found"}
+      >
+        <Link href={signInPath} className="text-primary text-sm font-medium hover:underline">
+          Back to sign in
+        </Link>
+      </PublicEventNotice>
     );
   }
 

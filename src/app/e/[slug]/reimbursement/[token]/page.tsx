@@ -21,7 +21,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
-  AlertCircle,
   Banknote,
   CalendarDays,
   Check,
@@ -37,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { CountrySelect } from "@/components/ui/country-select";
 import { uploadSizeHint } from "@/lib/utils";
 import {
@@ -438,12 +438,7 @@ export default function ReimbursementFormPage() {
   }
   if (loadError || !data) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="max-w-md text-center">
-          <AlertCircle className="h-10 w-10 mx-auto mb-3 text-destructive" />
-          <p className="font-medium">{loadError || "This reimbursement link is invalid."}</p>
-        </div>
-      </div>
+      <PublicEventNotice tone="error" title={loadError || "This reimbursement link is invalid."} />
     );
   }
 

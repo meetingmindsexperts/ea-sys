@@ -3,6 +3,7 @@ import { buildEventMetadata, getPublicEventShell } from "@/lib/public-event-meta
 import { brandPaletteCss } from "@/lib/org-color";
 import { Suspense } from "react";
 import { PageAnalytics } from "@/analytics/react/page-analytics";
+import { PublicEventBrandingProvider } from "@/components/public/event-notice";
 
 /**
  * Base per-event SEO metadata for the public `/e/[slug]` subtree. Each public
@@ -65,7 +66,14 @@ export default async function PublicEventLayout({
           <PageAnalytics site={slug} />
         </Suspense>
       ) : null}
-      {children}
+      {/*
+        The event's banner, name, dates and footer for every page below, so a
+        page that has only a message to show ("the agenda is not live yet", a
+        closed form, a dead link) keeps the event's frame without asking for it
+        again (src/components/public/event-notice.tsx). Null when the event's
+        branding is not public.
+      */}
+      <PublicEventBrandingProvider branding={shell.branding}>{children}</PublicEventBrandingProvider>
     </>
   );
 }

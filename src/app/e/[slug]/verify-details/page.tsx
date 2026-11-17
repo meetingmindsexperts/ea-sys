@@ -9,8 +9,9 @@
 import { Suspense, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { SupportingDocumentField, type UploadedDocument } from "@/components/public/registration-form-extras";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -155,16 +156,7 @@ function VerifyDetails() {
   }
 
   if (loadError) {
-    return (
-      <Shell details={null}>
-        <Card>
-          <div className="text-center">
-            <AlertCircle className="mx-auto mb-3 h-10 w-10 text-red-500" />
-            <p className="text-base text-slate-700">{loadError}</p>
-          </div>
-        </Card>
-      </Shell>
-    );
+    return <PublicEventNotice tone="error" title={loadError} />;
   }
 
   if (!details) {

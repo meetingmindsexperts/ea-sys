@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { Camera, Check, FileText, Loader2, Upload, UserRound } from "lucide-react";
 import {
   MAX_PROFILE_BIO_LENGTH,
@@ -210,11 +211,7 @@ export default function SpeakerProfileFormPage() {
   }
   if (loadError || !data) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4 [color-scheme:light]">
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 max-w-md text-center">
-          <p className="text-slate-700">{loadError ?? "This link is invalid."}</p>
-        </div>
-      </div>
+      <PublicEventNotice tone="error" title={loadError ?? "This link is invalid."} />
     );
   }
 

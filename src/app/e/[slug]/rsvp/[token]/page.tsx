@@ -17,13 +17,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { AlertCircle, Check, Loader2, CalendarCheck, CalendarDays, MapPin } from "lucide-react";
+import { Check, Loader2, CalendarCheck, CalendarDays, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { resolveTimezone, tzLabel } from "@/lib/event-time";
 import { toast } from "sonner";
 
@@ -228,13 +229,7 @@ export default function RsvpPage() {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="max-w-md text-center">
-          <AlertCircle className="h-10 w-10 text-red-500 mx-auto mb-3" />
-          <h1 className="text-xl font-bold text-slate-900 mb-1">RSVP link problem</h1>
-          <p className="text-slate-500">{error}</p>
-        </div>
-      </div>
+      <PublicEventNotice tone="error" title="RSVP link problem" description={error} />
     );
   }
 

@@ -4,6 +4,7 @@ import { showsField, type FormFieldVisibility } from "@/lib/registration-form-fi
 import { Suspense, useState, useEffect, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -15,7 +16,6 @@ import {
   Calendar,
   MapPin,
   Loader2,
-  AlertCircle,
   Lock,
   CheckCircle,
   ChevronRight,
@@ -442,32 +442,24 @@ function CompleteRegistrationContent() {
 
   if (idledOut) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">This form was closed</h2>
-          <p className="text-slate-500 text-sm">
-            It was left without activity for a few minutes, so it is being closed to keep the details private. Please ask
-            the registration desk to open it again.
-          </p>
-        </div>
-      </div>
+      <PublicEventNotice
+        title="This form was closed"
+        description="It was left without activity for a few minutes, so it is being closed to keep the details private. Please ask the registration desk to open it again."
+      />
     );
   }
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-red-50 flex items-center justify-center">
-            <AlertCircle className="h-7 w-7 text-red-500" />
-          </div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Something went wrong"}</h2>
-          <p className="text-slate-500 text-sm mb-4">Please check the link from your email and try again.</p>
-          <Link href={`/e/${slug}/login`} className="text-primary text-sm font-medium hover:underline">
-            Sign in to your account
-          </Link>
-        </div>
-      </div>
+      <PublicEventNotice
+        tone="error"
+        title={error || "Something went wrong"}
+        description="Please check the link from your email and try again."
+      >
+        <Link href={`/e/${slug}/login`} className="text-primary text-sm font-medium hover:underline">
+          Sign in to your account
+        </Link>
+      </PublicEventNotice>
     );
   }
 

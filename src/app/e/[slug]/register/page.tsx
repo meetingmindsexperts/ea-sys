@@ -1,6 +1,7 @@
 "use client";
 
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -187,13 +188,12 @@ export default function RegisterOverviewPage() {
   // Not logged in or not admin/organizer with no event → show error
   if (!isAuthorized && !event) {
     return (
-      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <AlertCircle className="h-10 w-10 text-red-400 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Event not found"}</h2>
-          <p className="text-slate-500 text-sm">Please check the link and try again.</p>
-        </div>
-      </div>
+      <PublicEventNotice
+        tone="error"
+        missingEvent={!error || error === "Event not found"}
+        title={error || "Event not found"}
+        description="Please check the link and try again."
+      />
     );
   }
 
@@ -215,59 +215,23 @@ export default function RegisterOverviewPage() {
 
     // No active DELEGATE tiers (every tier: early-bird / standard /
     // onsite — closed) → branded "Registration Closed" page.
-    const closedLocation = [event.venue, event.city, event.country].filter(Boolean);
+    const closedTitle = eventFullBlocks && registrationOpen ? "Registration Full" : "Registration Closed";
     return (
-      <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
-        {/* Banner (same as the open page) */}
-        {event.bannerImage ? (
-          <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
-        ) : (
-          <div className="bg-white border-b border-slate-100">
-            <div className="h-1 bg-gradient-primary" />
-          </div>
-        )}
-
-        {/* Event info strip */}
-        <div className="bg-white border-b border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
-              <h2 className="text-base font-semibold text-slate-800 mr-auto">{event.name}</h2>
-              <div className="flex items-center gap-1.5 text-sm text-slate-500">
-                <Calendar className="h-3.5 w-3.5 text-primary/70" />
-                <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
-              </div>
-              {closedLocation.length > 0 && (
-                <div className="flex items-center gap-1.5 text-sm text-slate-500">
-                  <MapPin className="h-3.5 w-3.5 text-primary/70" />
-                  <span>{closedLocation.join(", ")}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Closed card */}
-        <div className="flex-1 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-            <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">
-              <AlertCircle className="h-7 w-7 text-slate-400" />
-            </div>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">
-              {eventFullBlocks && registrationOpen ? "Registration Full" : "Registration Closed"}
-            </h2>
-            <p className="text-slate-500 text-sm mb-6">
-              {eventFullBlocks && registrationOpen
-                ? `${event.name} has reached its maximum number of attendees. Please contact the organizer for more information.`
-                : `Registration is not currently open for ${event.name}. Please contact the organizer for more information.`}
-            </p>
-            {/* Disabled CTA — always reads "Registration Closed" regardless of
-                which tiers (standard / onsite / early-bird) are toggled. */}
-            <Button type="button" disabled aria-disabled className="w-full rounded-lg font-semibold py-3 text-base">
-              {eventFullBlocks && registrationOpen ? "Registration Full" : "Registration Closed"}
-            </Button>
-          </div>
-        </div>
-      </div>
+      <PublicEventNotice
+        event={event}
+        title={closedTitle}
+        description={
+          eventFullBlocks && registrationOpen
+            ? `${event.name} has reached its maximum number of attendees. Please contact the organizer for more information.`
+            : `Registration is not currently open for ${event.name}. Please contact the organizer for more information.`
+        }
+      >
+        {/* Disabled CTA: always reads as closed (or full), whichever tiers
+            (standard / onsite / early-bird) are toggled. */}
+        <Button type="button" disabled aria-disabled className="w-full rounded-lg font-semibold py-3 text-base">
+          {closedTitle}
+        </Button>
+      </PublicEventNotice>
     );
   }
 
@@ -281,13 +245,12 @@ export default function RegisterOverviewPage() {
 
   if (error || !event) {
     return (
-      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <AlertCircle className="h-10 w-10 text-red-400 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Event not found"}</h2>
-          <p className="text-slate-500 text-sm">Please check the link and try again.</p>
-        </div>
-      </div>
+      <PublicEventNotice
+        tone="error"
+        missingEvent={!error || error === "Event not found"}
+        title={error || "Event not found"}
+        description="Please check the link and try again."
+      />
     );
   }
 

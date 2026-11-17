@@ -16,6 +16,7 @@ import { Link2Off, Loader2 } from "lucide-react";
 import { RegistrationsView } from "@/components/public/shared-view/registrations-view";
 import { SubmissionsView } from "@/components/public/shared-view/submissions-view";
 import type { SharedPayload } from "@/components/public/shared-view/types";
+import { PublicEventNotice } from "@/components/public/event-notice";
 
 const REFRESH_MS = 60_000;
 
@@ -50,26 +51,28 @@ export default function SharedSubmissionsPage() {
 
   if (inactive) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-10 w-full max-w-md text-center">
-          <div className="mx-auto mb-5 h-14 w-14 rounded-full bg-slate-100 flex items-center justify-center">
-            <Link2Off className="h-7 w-7 text-slate-400" />
-          </div>
-          <h1 className="text-lg font-bold text-slate-900 mb-2">This link is no longer active</h1>
-          <p className="text-sm text-slate-500">Ask the organiser for a new one.</p>
-        </div>
-      </div>
+      <PublicEventNotice
+        icon={Link2Off}
+        title="This link is no longer active"
+        description="Ask the organiser for a new one."
+      />
+    );
+  }
+
+  if (!data && loadError) {
+    return (
+      <PublicEventNotice
+        tone="error"
+        title="This page could not be loaded"
+        description="It will try again shortly."
+      />
     );
   }
 
   if (!data) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        {loadError ? (
-          <p className="text-sm text-slate-500">This page could not be loaded. It will try again shortly.</p>
-        ) : (
-          <Loader2 className="h-8 w-8 animate-spin text-primary" aria-label="Loading" />
-        )}
+        <Loader2 className="h-8 w-8 animate-spin text-primary" aria-label="Loading" />
       </div>
     );
   }

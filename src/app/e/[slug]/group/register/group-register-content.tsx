@@ -27,6 +27,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { TitleSelect } from "@/components/ui/title-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { RoleSelect } from "@/components/ui/role-select";
@@ -398,12 +399,12 @@ function GroupRegisterContent({ rateSlug }: { rateSlug: string | null }) {
   }
   if (loadState === "error" || !event) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="text-center">
-          <h1 className="text-xl font-semibold mb-2">Event not found</h1>
-          <p className="text-muted-foreground">This event doesn&apos;t exist or is not open.</p>
-        </div>
-      </div>
+      <PublicEventNotice
+        tone="error"
+        missingEvent
+        title="Event not found"
+        description="This event doesn&apos;t exist or is not open."
+      />
     );
   }
 

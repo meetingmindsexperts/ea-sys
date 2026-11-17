@@ -35,6 +35,7 @@ import { WebinarExitScreen } from "@/components/webinar/exit-screen";
 import { ReplayPlayer } from "@/components/webinar/replay-player";
 import { isWebinarOver, webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { cn, formatPersonName } from "@/lib/utils";
 import {
   DEFAULT_EVENT_TIMEZONE,
@@ -575,23 +576,14 @@ export default function PublicSessionPage() {
 
   if (error && !session) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <Card className="max-w-md w-full mx-4 shadow-lg">
-          <CardContent className="flex flex-col items-center gap-4 pt-8 pb-6 text-center">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-              <Video className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <h2 className="text-lg font-semibold">Session Not Available</h2>
-            <p className="text-sm text-muted-foreground">{error}</p>
-            <Link href={`/e/${slug}/agenda`}>
-              <Button variant="outline" className="gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Back to Agenda
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
+      <PublicEventNotice icon={Video} title="Session Not Available" description={error}>
+        <Link href={`/e/${slug}/agenda`}>
+          <Button variant="outline" className="gap-2">
+            <ArrowLeft className="h-4 w-4" />
+            Back to Agenda
+          </Button>
+        </Link>
+      </PublicEventNotice>
     );
   }
 

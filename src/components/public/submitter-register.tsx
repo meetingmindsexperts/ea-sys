@@ -28,6 +28,7 @@ import {
   type PresenterTicketTypeCandidate,
 } from "@/lib/presenter-tiers";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { SupportingDocumentField, type UploadedDocument } from "@/components/public/registration-form-extras";
 import {
   readIdentityEvidencePolicy,
@@ -819,7 +820,12 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
         <div className="flex-1 flex items-center justify-center p-4">{errorCard}</div>
       </BrandedShell>
     ) : (
-      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">{errorCard}</div>
+      <PublicEventNotice
+        tone="error"
+        missingEvent={!error || error === "Event not found"}
+        title={error || "Event not found"}
+        description="Please check the link or contact the event organizer."
+      />
     );
   }
 

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Public pages keep the event's banner and footer when they have only a message to show (November 17)
+
+Owner, on `/e/MEHF2027/agenda`: "if agenda is not live, can we show the event branding header and footer", and the same for the other public pages' empty and not-found states. A page that could not show its content (the agenda not published, a closed form, a link that no longer works) dropped the event's frame and showed a bare card on a blank screen, because each page took its banner and footer from the request that had just failed.
+
+- **Added**: `PublicEventNotice` (`src/components/public/event-notice.tsx`): the banner band, the event's name, dates and place, the message, and the event's footer. The branding comes from the public `[slug]` layout, which reads it in the lookup it already made (no new query, no new request) and hands it to every page below it. Only a PUBLISHED, LIVE or COMPLETED event's branding is handed over (`src/lib/public-event-branding.ts`): a draft's name and banner are not shown to the public.
+- **Changed**: the agenda's "not live yet" page, and the same treatment on 19 more pages and the abstract and proposal sign-up: registration (not found, closed, full, a presenter rate, an unknown form), sign-in, forgot and reset password, complete registration, the speaker and presenter agreements, the survey, a session, RSVP, reimbursement, travel grant, speaker form, verify details, the exhibitor floor plan, shared views, group registration and My group.
+- **Changed**: the agenda tells three cases apart instead of calling all of them "not live yet": not published, no such event, and a failed load (with Try again). The API's two 404s carry a `code` (`AGENDA_NOT_PUBLISHED`, `EVENT_NOT_FOUND`); the status is unchanged. "Contact support" on that page now appears (it read the support address from the response that had failed, so it never showed). The live agenda also shows the event's footer.
+- **Changed**: for an event that has ended, a page that used to say "Event not found" says "This page is not available" under the event's banner, with a link back to the event page.
+- **Added**: a page of one event that crashes keeps the event's frame (`src/app/e/[slug]/error.tsx`); the boundary above the layout stays for a failure of the layout itself.
+- **Tests**: `public-event-notice.test.ts` (the frame, the plain fallback, the footer is sanitised, and a sweep that fails when a public page writes its own full-page card again; two exceptions, each with its reason), `public-event-shell.test.ts` (which statuses hand branding over).
+
 ### Tenancy: per-event routes find their event inside a tenant lane, first sweep (November 16)
 
 Event RLS step 2, first sweep (`docs/SECURITY_AUDIT_ACTION_PLAN.md` §3.1). Preparation for a second organisation; **nothing a person sees changes**, and that was measured, not assumed.

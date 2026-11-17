@@ -24,7 +24,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { AlertCircle, Check, Loader2, Lock, Sparkles } from "lucide-react";
+import { Check, Loader2, Lock, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import type { SurveyConfig } from "@/lib/survey/schema";
 import { getTitleLabel } from "@/lib/utils";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { QuestionCard } from "@/components/survey/survey-question";
 import { sanitizeHtml } from "@/lib/sanitize";
 
@@ -489,20 +490,13 @@ function RespondingAsCard({ attendee }: { attendee: Attendee }) {
 
 function ErrorPanel({ message }: { message: string }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-primary/[0.06] via-background to-muted/30 px-4">
-      <div className="w-full max-w-md rounded-2xl border bg-card p-8 text-center shadow-sm animate-in fade-in zoom-in-95 duration-500">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-          <AlertCircle className="h-6 w-6 text-destructive" />
-        </div>
-        <h1 className="mb-2 text-xl font-semibold">Survey unavailable</h1>
-        <p className="mb-6 text-muted-foreground">{message}</p>
-        <Link href="/">
-          <Button variant="outline" className="rounded-xl">
-            Return to home
-          </Button>
-        </Link>
-      </div>
-    </div>
+    <PublicEventNotice tone="error" title="Survey unavailable" description={message}>
+      <Link href="/">
+        <Button variant="outline" className="rounded-xl">
+          Return to home
+        </Button>
+      </Link>
+    </PublicEventNotice>
   );
 }
 

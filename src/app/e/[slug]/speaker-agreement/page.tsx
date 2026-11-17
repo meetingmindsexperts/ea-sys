@@ -4,12 +4,13 @@ import { formatPersonName } from "@/lib/utils";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle, CheckCircle, Loader2 } from "lucide-react";
+import { CheckCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import { toast } from "sonner";
 
 interface AgreementData {
@@ -107,18 +108,15 @@ function SpeakerAgreementContent() {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-red-50 flex items-center justify-center">
-            <AlertCircle className="h-7 w-7 text-red-500" />
-          </div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Something went wrong"}</h2>
-          <p className="text-slate-500 text-sm mb-4">Please check the link from your email and try again.</p>
-          <Link href={`/e/${slug}`} className="text-primary text-sm font-medium hover:underline">
-            Back to event page
-          </Link>
-        </div>
-      </div>
+      <PublicEventNotice
+        tone="error"
+        title={error || "Something went wrong"}
+        description="Please check the link from your email and try again."
+      >
+        <Link href={`/e/${slug}`} className="text-primary text-sm font-medium hover:underline">
+          Back to event page
+        </Link>
+      </PublicEventNotice>
     );
   }
 

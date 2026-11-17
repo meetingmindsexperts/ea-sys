@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { cn, formatPersonName } from "@/lib/utils";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventFooter, PublicEventNotice, usePublicEventBranding } from "@/components/public/event-notice";
 import {
   formatEventDateRange,
   formatTimeInTz,
@@ -144,6 +145,16 @@ function getDurationMin(start: string, end: string) {
   return Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000);
 }
 
+/**
+ * Which message an agenda that did not load gets. The API answers 404 both for
+ * "no such event" and for "the agenda is not published", and tells them apart
+ * by `code`; a 404 with no code is an older server, read as not published.
+ */
+function unavailableReason(status: number, code: unknown): "not-published" | "no-event" | "failed" {
+  if (status !== 404) return "failed";
+  return code === "EVENT_NOT_FOUND" ? "no-event" : "not-published";
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────
 
 export default function PublicAgendaPage() {
@@ -152,7 +163,11 @@ export default function PublicAgendaPage() {
 
   const [eventData, setEventData] = useState<EventData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Why there is no agenda to show. The three read differently to a visitor:
+  // "not live yet" is a normal state of a real event, the other two are not.
+  const [unavailable, setUnavailable] = useState<"not-published" | "no-event" | "failed" | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const branding = usePublicEventBranding();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<string>("all");
 
@@ -161,20 +176,26 @@ export default function PublicAgendaPage() {
       try {
         const res = await fetch(`/api/public/events/${slug}/agenda`);
         if (!res.ok) {
-          setError(res.status === 404 ? "Event not found or not yet published" : "Failed to load agenda");
+          const body = await res.json().catch(() => null);
+          const reason = unavailableReason(res.status, body?.code);
+          // "Not live yet" is a normal state and the server logs it; only a
+          // real failure is worth a line in the visitor's console.
+          if (reason === "failed") console.error("[agenda] Failed to load agenda:", res.status);
+          setUnavailable(reason);
           return;
         }
         const data: EventData = await res.json();
         setEventData(data);
+        setUnavailable(null);
       } catch (err) {
         console.error("[agenda] Failed to load agenda:", err);
-        setError("Failed to load agenda");
+        setUnavailable("failed");
       } finally {
         setLoading(false);
       }
     }
     if (slug) fetchAgenda();
-  }, [slug]);
+  }, [slug, attempt]);
 
   // Group sessions by date — the EVENT's local date, not the viewer's.
   // Times below render in the event timezone, so the day buckets must use
@@ -208,7 +229,7 @@ export default function PublicAgendaPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
           <p className="text-slate-400 text-sm tracking-wide">Loading agenda…</p>
@@ -217,32 +238,36 @@ export default function PublicAgendaPage() {
     );
   }
 
-  if (error || !eventData) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-lg text-center">
-          <div className="mx-auto mb-5 h-16 w-16 rounded-full bg-slate-100 flex items-center justify-center">
-            <Clock className="h-8 w-8 text-slate-400" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-900 mb-2">
-            Agenda Not Live Yet
-          </h2>
-          <p className="text-slate-500 text-sm leading-relaxed mb-6 max-w-sm mx-auto">
-            The agenda for this event hasn&apos;t been published yet.
-            Please check back later. It will be available here once the organizer publishes it.
-          </p>
+  if (unavailable || !eventData) {
+    const backToEvent = (
+      <Link href={`/e/${slug}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+        <ArrowLeft className="h-3.5 w-3.5" />
+        Back to event
+      </Link>
+    );
+    if (unavailable === "no-event") {
+      return (
+        <PublicEventNotice
+          missingEvent
+          title="Event not found"
+          description="This link may be out of date, or the address may have been mistyped. Please check the link you were given."
+        />
+      );
+    }
+    if (unavailable === "not-published") {
+      return (
+        <PublicEventNotice
+          icon={Clock}
+          title="Agenda not live yet"
+          description="The agenda for this event hasn’t been published yet. Please check back later: it will be available here once the organizer publishes it."
+        >
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link href={`/e/${slug}`}>
-              <button type="button" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
-                <ArrowLeft className="h-3.5 w-3.5" />
-                Back to event
-              </button>
-            </Link>
-            {eventData?.supportEmail && (
+            {backToEvent}
+            {branding?.supportEmail && (
               <>
                 <span className="hidden sm:inline text-slate-300">|</span>
                 <a
-                  href={`mailto:${eventData.supportEmail}`}
+                  href={`mailto:${branding.supportEmail}`}
                   className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
                 >
                   <Mail className="h-3.5 w-3.5" />
@@ -251,8 +276,27 @@ export default function PublicAgendaPage() {
               </>
             )}
           </div>
-        </div>
-      </div>
+        </PublicEventNotice>
+      );
+    }
+    return (
+      <PublicEventNotice
+        tone="error"
+        title="We couldn’t load the agenda"
+        description="This is a loading problem, not a problem with the event. Please try again in a moment."
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setLoading(true);
+            setAttempt((n) => n + 1);
+          }}
+          className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
+        >
+          Try again
+        </button>
+        {backToEvent}
+      </PublicEventNotice>
     );
   }
 
@@ -533,6 +577,10 @@ export default function PublicAgendaPage() {
           </p>
         </div>
       </div>
+
+      {/* The event's own footer, as on the registration forms. Not printed:
+          the print header and the line above already name the event. */}
+      <PublicEventFooter footerHtml={branding?.footerHtml} className="print:hidden" />
     </div>
   );
 }

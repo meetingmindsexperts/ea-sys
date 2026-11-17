@@ -29,6 +29,7 @@ import { Suspense, useState, useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { parseSubmitterReturn, signInPathAfterReset } from "@/lib/submitter-return";
 import { EventBannerBand } from "@/components/public/event-banner";
+import { PublicEventNotice } from "@/components/public/event-notice";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -39,7 +40,6 @@ import {
   MapPin,
   Loader2,
   KeyRound,
-  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -161,13 +161,12 @@ function EventForgotPasswordInner() {
 
   if (error || !event) {
     return (
-      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <AlertCircle className="h-10 w-10 text-red-400 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Event not found"}</h2>
-          <p className="text-slate-500 text-sm">Please check the link and try again.</p>
-        </div>
-      </div>
+      <PublicEventNotice
+        tone="error"
+        missingEvent={!error || error === "Event not found"}
+        title={error || "Event not found"}
+        description="Please check the link and try again."
+      />
     );
   }
 
