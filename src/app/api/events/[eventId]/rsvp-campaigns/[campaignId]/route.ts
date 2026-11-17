@@ -30,7 +30,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "rsvp.manage", { route: "events/[eventId]/rsvp-campaigns/[campaignId]:GET", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await loadRsvpEvent(gate.eventWhere);
+    const event = await loadRsvpEvent(gate);
     if (!event) {
       return apiErrorResponse(404, "Event not found", {
         route: "GET /events/[eventId]/rsvp-campaigns/[campaignId]",
@@ -94,7 +94,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       });
     }
 
-    const event = await loadRsvpEvent(gate.eventWhere);
+    const event = await loadRsvpEvent(gate);
     if (!event) {
       return apiErrorResponse(404, "Event not found", {
         route: "PUT /events/[eventId]/rsvp-campaigns/[campaignId]",
@@ -220,7 +220,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
       });
     }
 
-    const event = await loadRsvpEvent(gate.eventWhere);
+    const event = await loadRsvpEvent(gate);
     if (!event) {
       return apiErrorResponse(404, "Event not found", {
         route: "DELETE /events/[eventId]/rsvp-campaigns/[campaignId]",

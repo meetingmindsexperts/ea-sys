@@ -243,7 +243,7 @@ export async function GET(_req: Request, { params }: RouteParams): Promise<NextR
     const g = await guard(eventId, "GET");
     if (!g.ok) return g.response;
     return await runWithTenant(g.orgId, async () => {
-      const event = await loadEvent(g.gate.eventWhere);
+      const event = await loadEvent(g.gate);
       if (!event) {
         apiLogger.warn({ msg: "desk-qr:event-not-found", eventId, userId: g.session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -296,7 +296,7 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
     const input = parsed.data;
 
     return await runWithTenant(g.orgId, async () => {
-      const event = await loadEvent(g.gate.eventWhere);
+      const event = await loadEvent(g.gate);
       if (!event) {
         apiLogger.warn({ msg: "desk-qr:event-not-found", eventId, userId });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

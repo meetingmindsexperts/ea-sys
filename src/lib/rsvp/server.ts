@@ -10,7 +10,7 @@
  * Docs: docs/RSVP.md.
  */
 import { db } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 
 export interface RsvpEventRef {
   id: string;
@@ -18,12 +18,11 @@ export interface RsvpEventRef {
 }
 
 /**
- * The event, scoped by the caller's `gate.eventWhere`. Returns null (→ 404, never
+ * The event behind the caller's permission gate (read inside the caller's lane: findGatedEvent). Returns null (→ 404, never
  * 403) so a foreign eventId is not an existence oracle.
  */
-export async function loadRsvpEvent(eventWhere: Prisma.EventWhereInput): Promise<RsvpEventRef | null> {
-  const event = await db.event.findFirst({
-    where: eventWhere,
+export async function loadRsvpEvent(gate: EventGate): Promise<RsvpEventRef | null> {
+  const event = await findGatedEvent(gate, {
     select: { id: true, organizationId: true },
   });
   return event as RsvpEventRef | null;

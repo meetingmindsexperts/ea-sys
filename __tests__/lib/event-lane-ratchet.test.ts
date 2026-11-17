@@ -26,8 +26,9 @@
  *     that follow such a read are no longer a debt, but the count of shape 1
  *     cannot tell them apart, so it is unchanged by that sweep.
  *
- *  4. OTHER DIRECT USES of a gate's event filter (a helper that takes it, a
- *     local variable, a combined filter). Counted exactly; see GATE_FILTER_USE.
+ *  4. OTHER DIRECT USES of a gate's event filter, outside the two sound ones
+ *     (a relation filter inside a lane, a gate built for the helpers). Counted
+ *     exactly; see GATE_FILTER_USE. Second sweep, Nov 17, 2026: 117 to 12.
  *
  * ALL FOUR ARE EXACT. Going up fails, with what to do instead. Going down fails
  * too, with the new number to write here: that is what makes it a ratchet
@@ -68,18 +69,36 @@ const LANE_MARKER = /runWithTenant|tenantTransaction|dbOperator|resolveEventTena
 const BARE_GATED_READ = /\b(?:db|tx)\.event\.find\w*\(\s*\{\s*where:\s*gate\.eventWhere\b/g;
 
 /**
- * Shape 4: the gate's filter used any other way (handed to a helper that reads
- * the event, kept in a local variable, combined with another filter, used as a
- * relation filter). Shape 3 catches one spelling only; this counts every
- * direct use left, so the remaining sweep can only shrink and a new route
- * cannot quietly add one (review of 2db57e7f). Not every use is a debt (a
- * relation filter inside a lane is fine): it is a number to bring down by
- * reading each one, not a list of bugs.
+ * Shape 4: a gate's filter used some other way than through `findGatedEvent`.
+ * Shape 3 catches one spelling only; this counts the LINES that still name a
+ * gate's filter and are not one of the two uses known to be sound:
+ *
+ *   - a relation filter on another table (`event: gate.eventWhere`): that
+ *     query is on a policied table and every one of them runs inside a lane
+ *     (checked by hand on Nov 17, 2026; the swept directories are also held to
+ *     a wrap per handler by scripts/check-tenant-als.sh);
+ *   - a gate being built for the helpers in src/lib/tenant/event-tenant.ts
+ *     (`principal:`, `organisationGate(`, `inOwnLane(`, `findGatedEvent(`).
+ *
+ * What is left is a short list to read, not a list of bugs: a filter derived
+ * from two gates and kept in a variable, a list of scopes, the events list.
+ * Exact, so the remaining sweep can only shrink and a new route cannot
+ * quietly add a differently spelled bare read (review of 2db57e7f).
  */
-const GATE_FILTER_USE = /\.eventWhere\b/g;
+const GATE_FILTER_USE = /\.eventWhere\b/;
+const SOUND_GATE_FILTER_USE = /\bevent:\s|principal:|organisationGate\(|inOwnLane\(|findGatedEvent\(/;
 /** Where the filter is built and described, not used. */
 const GATE_FILTER_HOME = /^src\/lib\/permissions\//;
-const GATE_FILTER_USE_BASELINE = 117;
+/**
+ * The 12 left on Nov 17, 2026, each read and found sound: a filter built from
+ * two gates and kept in a variable before it feeds a gate or a relation filter
+ * inside a lane (scheduled emails x2, import-contacts, the abstract
+ * submissions route, email logs), the two sub-theme helper calls made inside
+ * a lane, the walk-in's list of scopes (x2), the two event LISTS (inside
+ * `inOwnLane`, their filter on its own line), and the public catalogue's own
+ * filter, which only shares the name.
+ */
+const GATE_FILTER_USE_BASELINE = 12;
 
 const DISCOVERY_WRAP_BASELINE = 126;
 
@@ -93,8 +112,6 @@ const UNLANED_EVENT_FILES_BASELINE: string[] = [
   "src/app/api/auth/forgot-password/route.ts",
   "src/app/api/events/[eventId]/onsite-staff/route.ts",
   "src/app/api/events/[eventId]/speaker-agreement-template/route.ts",
-  // A helper of the partner-stream routes, called only inside their runWithTenant (Nov 16, 2026).
-  "src/app/api/events/[eventId]/webinar/partner-stream/shared.ts",
   "src/app/api/events/route.ts",
   "src/app/api/import/eventsair/route.ts",
   "src/app/api/organization/catalogue/route.ts",
@@ -129,11 +146,8 @@ const UNLANED_EVENT_FILES_BASELINE: string[] = [
   "src/lib/notifications.ts",
   "src/lib/presenter-agreement.ts",
   "src/lib/registration-seat-db.ts",
-  "src/lib/rsvp/server.ts",
-  "src/lib/share-link-access.ts",
   "src/lib/speaker-agreement.ts",
   "src/lib/webinar-panelist-email.ts",
-  "src/lib/webinar/live-polls-server.ts",
   "src/lib/webinar/viewer-question-access.ts",
   "src/services/event-schedule-shift.ts",
   "src/services/evidence-request-service.ts",
@@ -212,7 +226,7 @@ describe("Event lane ratchet", () => {
   it("does not add direct uses of a gate's event filter (use findGatedEvent)", () => {
     const perFile = files
       .filter((f) => !GATE_FILTER_HOME.test(f))
-      .map((f) => [f, sources.get(f)!.match(GATE_FILTER_USE)?.length ?? 0] as const)
+      .map((f) => [f, sources.get(f)!.split("\n").filter((line) => GATE_FILTER_USE.test(line) && !SOUND_GATE_FILTER_USE.test(line)).length] as const)
       .filter(([, n]) => n > 0);
     const total = perFile.reduce((sum, [, n]) => sum + n, 0);
     if (total > GATE_FILTER_USE_BASELINE) {

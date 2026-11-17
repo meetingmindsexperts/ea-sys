@@ -24,7 +24,7 @@ export async function GET(_req: Request, { params }: RouteParams): Promise<NextR
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const gate = requirePermission(session, "registrations.share", { route: "events/[eventId]/registration-shares:GET", eventId });
     if (!gate.ok) return gate.response;
-    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares:GET", eventId, gate.eventWhere);
+    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares:GET", eventId, gate);
     if (r.error) return r.error;
     return await runWithTenant(r.event.organizationId, async () => {
       const data = await listRegistrationViews(r.event.id, r.event.slug);
@@ -43,7 +43,7 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const gate = requirePermission(session, "registrations.share", { route: "events/[eventId]/registration-shares:POST", eventId });
     if (!gate.ok) return gate.response;
-    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares:POST", eventId, gate.eventWhere);
+    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares:POST", eventId, gate);
     if (r.error) return r.error;
 
     const parsed = registrationViewBodySchema.safeParse(body);

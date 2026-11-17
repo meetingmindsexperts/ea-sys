@@ -29,6 +29,7 @@ import { aggregateSurvey, type SurveyResponseLike } from "@/lib/survey/aggregate
 import { createLivePollDraft } from "@/services/live-poll-service";
 import { createSurvey, listSurveys, parseStoredSurveyConfig, resolveReportSurvey } from "@/services/survey-service";
 import type { AgentContext, ToolExecutor } from "./_shared";
+import { organisationGate } from "@/lib/tenant/event-tenant";
 
 export const AGENT_POLL_CREATES_PER_HOUR = 30;
 export const AGENT_SURVEY_CREATES_PER_HOUR = 5;
@@ -63,7 +64,7 @@ function rateLimited(ctx: AgentContext, tool: string, bucket: string, limit: num
 const listLivePolls: ToolExecutor = async (_input, ctx) => {
   try {
     return await runWithTenant(ctx.organizationId, async () => {
-      const poll = await pollContextFor({ id: ctx.eventId, organizationId: ctx.organizationId });
+      const poll = await pollContextFor(organisationGate(ctx.organizationId, { id: ctx.eventId, organizationId: ctx.organizationId }));
       if (!poll) return { error: "Event not found or access denied" };
       if (!poll.sessionId) return { livePollsEnabled: poll.enabled, polls: [], message: "This event has no webinar session, so it has no live polls." };
       const polls = await listPollsWithTally(poll.eventId, poll.sessionId);
@@ -108,7 +109,7 @@ const createLivePoll: ToolExecutor = async (input, ctx) => {
 
   try {
     return await runWithTenant(ctx.organizationId, async () => {
-      const poll = await pollContextFor({ id: ctx.eventId, organizationId: ctx.organizationId });
+      const poll = await pollContextFor(organisationGate(ctx.organizationId, { id: ctx.eventId, organizationId: ctx.organizationId }));
       if (!poll) return refuse(ctx, TOOL, { error: "Event not found or access denied", code: "EVENT_NOT_FOUND" });
       if (!poll.sessionId) {
         return refuse(ctx, TOOL, { error: "This event has no webinar session, so it cannot hold live polls.", code: "NO_WEBINAR_SESSION" });

@@ -34,7 +34,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const ctx = await pollContextFor(gate.eventWhere);
+      const ctx = await pollContextFor(gate);
       if (!ctx?.sessionId) {
         apiLogger.warn({ eventId, pollId }, "live-polls:event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

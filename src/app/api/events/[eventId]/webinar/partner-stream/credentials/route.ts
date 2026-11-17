@@ -51,7 +51,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const found = await findPartnerWebinar(gate.eventWhere, { eventId, userId: session.user.id, route });
+      const found = await findPartnerWebinar(gate, { eventId, userId: session.user.id, route });
       if (!found.ok) return found.response;
       const result = await revealExternalStreamCredentials({
         organizationId: orgGuard.orgId,

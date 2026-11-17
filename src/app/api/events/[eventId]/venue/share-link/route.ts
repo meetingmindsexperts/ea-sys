@@ -58,7 +58,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const gate = requirePermission(session, "events.update", { route: `${ROUTE}:GET`, eventId });
     if (!gate.ok) return gate.response;
-    const found = await resolveShareEvent(session, `${ROUTE}:GET`, eventId, gate.eventWhere);
+    const found = await resolveShareEvent(session, `${ROUTE}:GET`, eventId, gate);
     if ("error" in found) return found.error;
     const { event } = found;
     return await runWithTenant(event.organizationId, async () => {
@@ -99,7 +99,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const found = await resolveShareEvent(session, `${ROUTE}:POST`, eventId, gate.eventWhere);
+    const found = await resolveShareEvent(session, `${ROUTE}:POST`, eventId, gate);
     if ("error" in found) return found.error;
     const { event } = found;
     const { action } = parsed.data;

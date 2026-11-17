@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -9,6 +8,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { INELIGIBLE_MESSAGES } from "@/lib/dtcm-eticket/eligibility";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 import {
   cancelDtcmRun,
   dtcmRunPreflight,
@@ -59,7 +59,7 @@ const START_STATUS: Record<StartDtcmRunErrorCode, number> = {
 
 type Gate =
   | { response: NextResponse }
-  | { eventId: string; userId: string; organizationId: string; eventWhere: Prisma.EventWhereInput };
+  | { eventId: string; userId: string; organizationId: string; access: EventGate };
 
 async function gate(params: RouteParams["params"], method: "GET" | "POST" | "DELETE"): Promise<Gate> {
   const [{ eventId }, session] = await Promise.all([params, auth()]);
@@ -70,7 +70,7 @@ async function gate(params: RouteParams["params"], method: "GET" | "POST" | "DEL
   }
   const access = requirePermission(session, "dtcm.import", { route: `events/[eventId]/dtcm-eticket/run:${method}`, eventId });
   if (!access.ok) return { response: access.response };
-  return { eventId, userId: session.user.id, organizationId: session.user.organizationId, eventWhere: access.eventWhere };
+  return { eventId, userId: session.user.id, organizationId: session.user.organizationId, access };
 }
 
 async function latestRun(eventId: string) {
@@ -97,7 +97,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const wantPreflight = new URL(req.url).searchParams.get("preflight") === "1";
 
     return await runWithTenantLane(g.organizationId, { route: "events:dtcm-run:GET", userId: g.userId }, async () => {
-      const event = await db.event.findFirst({ where: g.eventWhere, select: { id: true } });
+      const event = await findGatedEvent(g.access, { select: { id: true } });
       if (!event) {
         apiLogger.warn({ msg: "dtcm-run:event-not-found", eventId: g.eventId, userId: g.userId });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -155,7 +155,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenantLane(g.organizationId, { route: "events:dtcm-run:POST", userId: g.userId }, async () => {
-      const event = await db.event.findFirst({ where: g.eventWhere, select: { id: true } });
+      const event = await findGatedEvent(g.access, { select: { id: true } });
       if (!event) {
         apiLogger.warn({ msg: "dtcm-run:event-not-found", eventId: g.eventId, userId: g.userId });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -175,7 +175,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const g = await gate(params, "DELETE");
     if ("response" in g) return g.response;
     return await runWithTenantLane(g.organizationId, { route: "events:dtcm-run:DELETE", userId: g.userId }, async () => {
-      const event = await db.event.findFirst({ where: g.eventWhere, select: { id: true } });
+      const event = await findGatedEvent(g.access, { select: { id: true } });
       if (!event) {
         apiLogger.warn({ msg: "dtcm-run:event-not-found", eventId: g.eventId, userId: g.userId });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

@@ -63,7 +63,7 @@ export async function PATCH(req: Request, { params }: RouteParams): Promise<Next
     }
 
     return await runWithTenant(g.orgId, async () => {
-      const ctx = await pollContextFor(g.gate.eventWhere);
+      const ctx = await pollContextFor(g.gate);
       if (!ctx?.sessionId) {
         apiLogger.warn({ eventId, pollId }, "live-polls:event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -156,7 +156,7 @@ export async function DELETE(_req: Request, { params }: RouteParams): Promise<Ne
     if ("error" in g) return g.error;
 
     return await runWithTenant(g.orgId, async () => {
-      const ctx = await pollContextFor(g.gate.eventWhere);
+      const ctx = await pollContextFor(g.gate);
       if (!ctx?.sessionId) {
         apiLogger.warn({ eventId, pollId }, "live-polls:event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

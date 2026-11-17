@@ -93,7 +93,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return zodErrorResponse(parsed, { route, eventId, campaignId, userId: session.user.id });
     }
 
-    const accessible = await loadRsvpEvent(gate.eventWhere);
+    const accessible = await loadRsvpEvent(gate);
     if (!accessible) {
       return apiErrorResponse(404, "Event not found", { route, eventId, userId: session.user.id });
     }

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { recordExport } from "@/lib/audit-data-transfer";
@@ -15,6 +14,7 @@ import { readWebinarSettings } from "@/lib/webinar";
 import { CHAT_PER_MINUTE, chatBodySchema, readChatSettings, type WebinarChatSettings } from "@/lib/webinar/chat";
 import { invalidateChatSnapshotsForSession } from "@/lib/webinar/chat-server";
 import { readHandouts } from "@/lib/webinar/handouts";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -51,8 +51,8 @@ const actionSchema = z.discriminatedUnion("action", [
  * moderation actions and a producer's own post. Reading needs `webinar.analytics.read`, the CSV
  * `webinar.attendance.export`, everything that changes chat `webinar.manage`, as Q&A and polls.
  */
-async function loadEvent(eventWhere: Prisma.EventWhereInput) {
-  const event = await db.event.findFirst({ where: eventWhere, select: { id: true, settings: true } });
+async function loadEvent(gate: EventGate) {
+  const event = await findGatedEvent(gate, { select: { id: true, settings: true } });
   if (!event) return null;
   const webinar = readWebinarSettings(event.settings);
   return { id: event.id, webinar, sessionId: webinar?.sessionId ?? null, chat: readChatSettings(webinar) };
@@ -92,7 +92,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const ctx = await loadEvent(gate.eventWhere);
+      const ctx = await loadEvent(gate);
       if (!ctx) {
         apiLogger.warn({ eventId, userId: session.user.id }, "webinar-chat:console-event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -232,7 +232,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const ctx = await loadEvent(gate.eventWhere);
+      const ctx = await loadEvent(gate);
       if (!ctx) {
         apiLogger.warn({ eventId, userId: session.user.id }, "webinar-chat:settings-event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -290,7 +290,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const userId = session.user.id;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const ctx = await loadEvent(gate.eventWhere);
+      const ctx = await loadEvent(gate);
       if (!ctx?.sessionId) {
         apiLogger.warn({ eventId, userId }, "webinar-chat:action-event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

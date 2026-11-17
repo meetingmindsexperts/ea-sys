@@ -109,8 +109,6 @@ export async function GET(req: Request, { params }: RouteParams) {
       linkedRoles: "linked",
     });
     if (!gate.ok) return gate.response;
-    const eventWhere = gate.eventWhere;
-
     // An org-null role (SUBMITTER / REVIEWER / REGISTRANT) reaches this list for
     // exactly one reason: the abstract and proposal forms look up the caller's
     // OWN speaker row to bind as the author. The full roster is faculty PII —
@@ -139,8 +137,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // while `Event` carries no RLS policy (the same assumption the Aug 6
     // abstract-themes fix makes). When Event is swept, every site that resolves
     // an event before knowing its tenant has to be revisited together.
-    const event = await db.event.findFirst({
-      where: eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
 

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -12,6 +11,7 @@ import { claimSpareDtcmCode } from "@/lib/dtcm-pool";
 import { isStalePending, issueDtcmTicket, type IssueDtcmTicketErrorCode } from "@/services/dtcm-eticket-service";
 import { getDetCredentials } from "@/lib/dtcm-eticket/credentials";
 import { isMappingCurrent, readDtcmEventSettings } from "@/lib/dtcm-eticket/sections";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 
 /**
  * One registration's DTCM ticket from DET (docs/DTCM_ETICKET_PLAN.md §5.4).
@@ -66,7 +66,7 @@ type Gate =
       eventId: string;
       registrationId: string;
       organizationId: string;
-      eventWhere: Prisma.EventWhereInput;
+      access: EventGate;
     };
 
 async function gate(routeParams: RouteParams, method: "GET" | "POST"): Promise<Gate> {
@@ -84,7 +84,7 @@ async function gate(routeParams: RouteParams, method: "GET" | "POST"): Promise<G
     apiLogger.warn({ msg: "dtcm-eticket:desk-barcode-role-refused", eventId, userId, role: session.user.role });
     return { response: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
-  return { userId, eventId, registrationId, organizationId: session.user.organizationId, eventWhere: access.eventWhere };
+  return { userId, eventId, registrationId, organizationId: session.user.organizationId, access };
 }
 
 export async function GET(_req: Request, routeParams: RouteParams) {
@@ -92,8 +92,7 @@ export async function GET(_req: Request, routeParams: RouteParams) {
     const g = await gate(routeParams, "GET");
     if ("response" in g) return g.response;
     return await runWithTenantLane(g.organizationId, { route: "events:registration-dtcm-eticket:GET", userId: g.userId }, async () => {
-      const event = await db.event.findFirst({
-        where: g.eventWhere,
+      const event = await findGatedEvent(g.access, {
         select: { id: true, requiresDtcmBarcode: true, dtcmPerformanceCode: true, settings: true },
       });
       if (!event) {
@@ -156,7 +155,7 @@ export async function POST(_req: Request, routeParams: RouteParams) {
     if (!limit.allowed) return rateLimited(limit, { route: "events/registrations/dtcm-eticket", userId });
 
     return await runWithTenantLane(organizationId, { route: "events:registration-dtcm-eticket:POST", userId }, async () => {
-      const event = await db.event.findFirst({ where: g.eventWhere, select: { id: true, requiresDtcmBarcode: true } });
+      const event = await findGatedEvent(g.access, { select: { id: true, requiresDtcmBarcode: true } });
       if (!event) {
         apiLogger.warn({ msg: "dtcm-eticket:desk-event-not-found", eventId, userId });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

@@ -189,8 +189,13 @@ describe("GET /api/events/[eventId]/speakers for an org-null role", () => {
 
     await call();
 
-    expect(laneSpy).toHaveBeenCalledWith("org1");
-    expect(laneSpy).not.toHaveBeenCalledWith("orgZ");
+    // Since Event RLS step 2 (Nov 17, 2026) a team member's read of the EVENT
+    // row is made inside their own lane (findGatedEvent), so that a policy on
+    // Event also stands behind the gate's filter: against a real database an
+    // organiser of orgZ finds no event of org1 there at all. This stand-in
+    // returns one anyway, and the point this test pins still holds: the
+    // SPEAKERS are read in the EVENT's lane, never the caller's.
+    expect(laneSpy.mock.calls.map(([org]) => org)).toEqual(["orgZ", "org1"]);
   });
 
   it("authorizes before entering any lane (unresolvable event never opens one)", async () => {

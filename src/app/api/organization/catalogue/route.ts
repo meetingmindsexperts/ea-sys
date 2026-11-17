@@ -8,6 +8,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { resolveActingOrgId } from "@/lib/platform-operator";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings, updateOrganizationSettings } from "@/lib/event-settings";
+import { findGatedEvent, organisationGate } from "@/lib/tenant/event-tenant";
 import {
   CATALOGUE_SECTIONS,
   CATALOGUE_SETTING,
@@ -166,7 +167,11 @@ export async function PATCH(req: Request) {
     // A platform operator may act on another organisation, as on /api/organization.
     const org = { orgId: resolveActingOrgId(req, session.user, guard.orgId, { route: "organization/catalogue:PATCH" }) };
 
-    const event = await db.event.findFirst({ where: { AND: [gate.eventWhere, { id: eventId, organizationId: org.orgId }] }, select: { id: true, status: true } });
+    // Read in the lane of the organisation being acted on (an operator may act on another's).
+    const event = await findGatedEvent(
+      organisationGate(org.orgId, { AND: [gate.eventWhere, { id: eventId, organizationId: org.orgId }] }),
+      { select: { id: true, status: true } },
+    );
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id, msg: "organization/catalogue:PATCH event-not-found" });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

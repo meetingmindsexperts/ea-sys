@@ -69,7 +69,7 @@ export async function resolvePublicEventOrg(
 }
 
 /** What a permission gate hands a route: who is asking, and which events they may reach. */
-interface EventGate {
+export interface EventGate {
   principal: { organizationId: string | null; baseRole: string | null; fromApiKey: boolean };
   eventWhere: Prisma.EventWhereInput;
 }
@@ -93,6 +93,29 @@ function ownLane(principal: EventGate["principal"]): string | null {
  * ignored by the discovery read and could then pick a different one.
  */
 type GatedEventArgs = Pick<Prisma.EventFindFirstArgs, "select" | "include" | "omit">;
+
+/**
+ * A gate for a caller that is not a signed-in person but is already bound to
+ * ONE organisation: the AI agent's tools and services, which hold the
+ * organisation's id and build their own organisation-scoped filter. Read as an
+ * organisation's API key is: inside that organisation's lane.
+ */
+export function organisationGate(organizationId: string, eventWhere: Prisma.EventWhereInput): EventGate {
+  return { principal: { organizationId, baseRole: null, fromApiKey: true }, eventWhere };
+}
+
+/**
+ * Run a query over SEVERAL events behind a gate (a list, a count) inside the
+ * caller's own lane, when their reach is their organisation: a team role or
+ * an API key. For anyone else it runs as it is: a reviewer's, submitter's or
+ * registrant's list can span organisations, which one lane cannot hold. That
+ * list still reads outside a lane and is the open item in
+ * docs/SECURITY_AUDIT_ACTION_PLAN.md §3.1.
+ */
+export function inOwnLane<T>(gate: EventGate, fn: () => Promise<T>): Promise<T> {
+  const organizationId = ownLane(gate.principal);
+  return organizationId ? runWithTenant(organizationId, fn) : fn();
+}
 
 /** The two columns the sanctioned discovery read may return. */
 const DISCOVERY_COLUMNS = new Set(["id", "organizationId"]);

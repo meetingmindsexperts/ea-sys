@@ -69,7 +69,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "rsvp.roster.read", { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites:GET", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await loadRsvpEvent(gate.eventWhere);
+    const event = await loadRsvpEvent(gate);
     if (!event) {
       return apiErrorResponse(404, "Event not found", { route, eventId, userId: session.user.id });
     }
@@ -238,7 +238,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return zodErrorResponse(parsed, { route, eventId, campaignId, userId: session.user.id });
     }
 
-    const event = await loadRsvpEvent(gate.eventWhere);
+    const event = await loadRsvpEvent(gate);
     if (!event) {
       return apiErrorResponse(404, "Event not found", { route, eventId, userId: session.user.id });
     }

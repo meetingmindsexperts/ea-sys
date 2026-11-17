@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 import {
   SPEAKER_AGREEMENT_DOCX_MIME,
   SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE,
@@ -20,9 +21,8 @@ interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
-async function loadEvent(eventWhere: Prisma.EventWhereInput) {
-  return db.event.findFirst({
-    where: eventWhere,
+async function loadEvent(gate: EventGate) {
+  return findGatedEvent(gate, {
     select: { id: true, speakerAgreementTemplate: true },
   });
 }
@@ -40,7 +40,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "speakers.read", { route: "events/[eventId]/speaker-agreement-template:GET", eventId, onMissing: "hide" });
     if (!gate.ok) return gate.response;
 
-    const event = await loadEvent(gate.eventWhere);
+    const event = await loadEvent(gate);
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
@@ -79,7 +79,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const event = await loadEvent(gate.eventWhere);
+    const event = await loadEvent(gate);
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
@@ -152,7 +152,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "speakers.agreements.manage", { route: "events/[eventId]/speaker-agreement-template:DELETE", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await loadEvent(gate.eventWhere);
+    const event = await loadEvent(gate);
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }

@@ -8,7 +8,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
-import type { Prisma } from "@prisma/client";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -31,9 +31,8 @@ const updateSchema = z
  * `gate.eventWhere`: reading needs `webinar.analytics.read`, changing a
  * question `webinar.manage`, like the room toggle.
  */
-async function anchorFor(eventWhere: Prisma.EventWhereInput) {
-  const event = await db.event.findFirst({
-    where: eventWhere,
+async function anchorFor(gate: EventGate) {
+  const event = await findGatedEvent(gate, {
     select: { id: true, settings: true },
   });
   if (!event) return null;
@@ -52,7 +51,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const ctx = await anchorFor(gate.eventWhere);
+      const ctx = await anchorFor(gate);
       if (!ctx) {
         apiLogger.warn({ eventId, userId: session.user.id }, "webinar-questions:event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -116,7 +115,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const ctx = await anchorFor(gate.eventWhere);
+      const ctx = await anchorFor(gate);
       if (!ctx) {
         apiLogger.warn({ eventId, userId: session.user.id }, "webinar-questions:update-event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

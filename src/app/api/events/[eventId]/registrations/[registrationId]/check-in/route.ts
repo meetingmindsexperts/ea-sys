@@ -11,6 +11,7 @@ import { getClientIp } from "@/lib/security";
 import { checkInGate, executeCheckIn, undoCheckIn, CheckInCancelledError } from "@/lib/check-in";
 import { scannedEntryCodeCandidates } from "@/lib/barcode";
 import { runWithTenantLane } from "@/lib/tenant-lane";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -63,11 +64,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!access.ok) return access.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
-    const event = await db.event.findFirst({
+    const event = await findGatedEvent(access, {
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only check in attendees for events they're assigned to. Org-scoped
       // (unchanged) for admin/organizer.
-      where: access.eventWhere,
       select: { id: true },
     });
 
@@ -186,11 +186,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (!access.ok) return access.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
-    const event = await db.event.findFirst({
+    const event = await findGatedEvent(access, {
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only check in attendees for events they're assigned to. Org-scoped
       // (unchanged) for admin/organizer.
-      where: access.eventWhere,
       select: { id: true },
     });
 
@@ -373,10 +372,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!access.ok) return access.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
-    const event = await db.event.findFirst({
+    const event = await findGatedEvent(access, {
       // Assignment-scoped for ONSITE — an ONSITE user may only act on events
       // they're assigned to. Org-scoped (unchanged) for admin/organizer.
-      where: access.eventWhere,
       select: { id: true },
     });
     if (!event) {

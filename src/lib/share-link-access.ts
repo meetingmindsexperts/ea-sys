@@ -1,4 +1,3 @@
-import type { Prisma } from "@prisma/client";
 /**
  * The organiser side of every shared-view route (abstracts, proposals,
  * registrations): after the handler's own auth() + denyReviewer (kept literal
@@ -10,18 +9,18 @@ import type { Session } from "next-auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireOrgId } from "@/lib/require-org";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 
 export async function resolveShareEvent(
   session: Session,
   route: string,
   eventId: string,
-  /** The permission gate's filter (`gate.eventWhere`). Required: there is no role-based default. */
-  where: Prisma.EventWhereInput,
+  /** The permission gate. Required: there is no role-based default. */
+  gate: EventGate,
 ) {
   const org = requireOrgId(session, { route, eventId });
   if ("error" in org) return { error: org.error } as const;
-  const event = await db.event.findFirst({
-    where,
+  const event = await findGatedEvent(gate, {
     select: { id: true, slug: true, organizationId: true },
   });
   if (!event) {

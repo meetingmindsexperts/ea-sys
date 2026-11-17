@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -15,6 +14,7 @@ import {
   removeWebinarPanelist,
 } from "@/lib/zoom";
 import { sendPanelistInvite } from "@/lib/webinar-panelist-email";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -41,13 +41,12 @@ export type ResolvedAnchor =
 
 export async function resolveAnchorZoomMeeting(
   eventId: string,
-  // The caller's `gate.eventWhere` for `webinar.manage`: the event lookup comes
+  // The caller's gate for `webinar.manage`: the event lookup comes
   // from the same grant that let the caller in, so for a webinar-scoped grant
   // it matches ONLY webinar events. Never a hand-rolled org-scoped lookup.
-  eventWhere: Prisma.EventWhereInput,
+  gate: EventGate,
 ): Promise<ResolvedAnchor> {
-  const event = await db.event.findFirst({
-    where: eventWhere,
+  const event = await findGatedEvent(gate, {
     select: { id: true, organizationId: true, settings: true },
   });
   if (!event) {
@@ -113,7 +112,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      gate.eventWhere,
+      gate,
     );
     if (!resolved.ok) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
@@ -181,7 +180,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      gate.eventWhere,
+      gate,
     );
     if (!resolved.ok) {
       apiLogger.warn(
@@ -280,7 +279,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      gate.eventWhere,
+      gate,
     );
     if (!resolved.ok) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });

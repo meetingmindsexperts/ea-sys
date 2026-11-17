@@ -12,6 +12,7 @@ import { principalFromApiKey, refuseOutOfScope, requirePermission } from "@/lib/
 import { validateApiKey } from "@/lib/api-key";
 import { eventOrderBy, parseEventSort } from "@/lib/event-sort";
 import { createEvent } from "@/services/event-service";
+import { inOwnLane } from "@/lib/tenant/event-tenant";
 
 const createEventSchema = z.object({
   name: z.string().min(2).max(255),
@@ -73,14 +74,18 @@ export async function GET(req: Request) {
       // holds none (CRM_USER, HR_USER) gets an empty list, never a 403.
       const gate = requirePermission({ ...session, user }, "events.read", { route: "events:GET", onMissing: "hide" });
       if (!gate.ok) return gate.response;
-      const events = await db.event.findMany({
-        where: { ...gate.eventWhere, ...(slug && { slug }) },
-        orderBy,
-        include: {
-          _count: { select: { registrations: true, speakers: true } },
-          organization: { select: { name: true } },
-        },
-      });
+      // Inside the organisation's own lane (Event RLS step 2): outside one,
+      // a policy on Event would answer with an empty list.
+      const events = await inOwnLane(gate, () =>
+        db.event.findMany({
+          where: { ...gate.eventWhere, ...(slug && { slug }) },
+          orderBy,
+          include: {
+            _count: { select: { registrations: true, speakers: true } },
+            organization: { select: { name: true } },
+          },
+        }),
+      );
       return NextResponse.json(events);
     }
 
@@ -104,13 +109,15 @@ export async function GET(req: Request) {
       onMissing: "hide",
     });
     if (!gate.ok) return gate.response;
-    const events = await db.event.findMany({
-      where: { ...gate.eventWhere, ...(slug && { slug }) },
-      orderBy,
-      include: {
-        _count: { select: { registrations: true, speakers: true } },
-      },
-    });
+    const events = await inOwnLane(gate, () =>
+      db.event.findMany({
+        where: { ...gate.eventWhere, ...(slug && { slug }) },
+        orderBy,
+        include: {
+          _count: { select: { registrations: true, speakers: true } },
+        },
+      }),
+    );
 
     return NextResponse.json(events);
   } catch (error) {

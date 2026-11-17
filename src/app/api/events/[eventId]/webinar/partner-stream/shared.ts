@@ -4,12 +4,11 @@
  * an HTTP answer. Never imported outside these routes.
  */
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { readWebinarSettings } from "@/lib/webinar";
 import { webinarVideoSource } from "@/lib/webinar/video-source";
 import type { ExternalStreamErrorCode, ExternalStreamResult } from "@/services/external-stream-service";
-import type { Prisma } from "@prisma/client";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 
 export const PARTNER_STREAM_STATUS: Record<ExternalStreamErrorCode, number> = {
   SESSION_NOT_FOUND: 404,
@@ -30,10 +29,10 @@ export type PartnerWebinar = { ok: true; sessionId: string } | { ok: false; resp
  * Zoom webinar, and a key beside it would give the session two sources.
  */
 export async function findPartnerWebinar(
-  eventWhere: Prisma.EventWhereInput,
+  gate: EventGate,
   log: { eventId: string; userId: string; route: string },
 ): Promise<PartnerWebinar> {
-  const event = await db.event.findFirst({ where: eventWhere, select: { id: true, eventType: true, settings: true } });
+  const event = await findGatedEvent(gate, { select: { id: true, eventType: true, settings: true } });
   if (!event) {
     apiLogger.warn(log, "webinar-partner-stream:event-not-found");
     return { ok: false, response: NextResponse.json({ error: "Event not found" }, { status: 404 }) };

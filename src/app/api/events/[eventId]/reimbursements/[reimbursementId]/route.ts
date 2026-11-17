@@ -13,13 +13,12 @@
  * see the list route header).
  */
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { deleteStoredFile } from "@/lib/storage";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { findGatedEvent } from "@/lib/tenant/event-tenant";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -29,7 +28,7 @@ type RouteParams = { params: Promise<{ eventId: string; reimbursementId: string 
 const patchSchema = z.object({ action: z.literal("reopen") });
 
 async function loadInEvent(
-  eventWhere: Prisma.EventWhereInput,
+  gate: EventGate,
   eventId: string,
   reimbursementId: string,
 ) {
@@ -37,8 +36,7 @@ async function loadInEvent(
   // reimbursement read runs in the RESOURCE org (the caller's `gate.eventWhere`
   // serves an org-null SUPER_ADMIN, so session-org would fail-close). Callers
   // reuse the returned org for their own swept writes.
-  const event = await db.event.findFirst({
-    where: eventWhere,
+  const event = await findGatedEvent(gate, {
     select: { id: true, organizationId: true },
   });
   if (!event) return null;
@@ -113,7 +111,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const loaded = await loadInEvent(gate.eventWhere, eventId, reimbursementId);
+    const loaded = await loadInEvent(gate, eventId, reimbursementId);
     if (!loaded) {
       apiLogger.warn({ eventId, reimbursementId, userId: session.user.id }, "reimbursement:patch-not-found");
       return NextResponse.json({ error: "Reimbursement not found" }, { status: 404 });
@@ -164,7 +162,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "reimbursements.manage", { route: "events/[eventId]/reimbursements/[reimbursementId]:DELETE", eventId });
     if (!gate.ok) return gate.response;
 
-    const loaded = await loadInEvent(gate.eventWhere, eventId, reimbursementId);
+    const loaded = await loadInEvent(gate, eventId, reimbursementId);
     if (!loaded) {
       apiLogger.warn({ eventId, reimbursementId, userId: session.user.id }, "reimbursement:delete-not-found");
       return NextResponse.json({ error: "Reimbursement not found" }, { status: 404 });

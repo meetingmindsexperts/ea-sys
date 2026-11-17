@@ -1,9 +1,8 @@
-import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { findGatedEvent } from "@/lib/tenant/event-tenant";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
@@ -43,13 +42,12 @@ async function getAuthenticatedUser() {
 // wrap around its swept track ops.
 async function validateEventAccess(
   eventId: string,
-  where: Prisma.EventWhereInput,
+  gate: EventGate,
 ): Promise<
   | { error: NextResponse; organizationId: null }
   | { error: null; organizationId: string }
 > {
-  const event = await db.event.findFirst({
-    where,
+  const event = await findGatedEvent(gate, {
     select: { id: true, organizationId: true },
   });
 
@@ -145,7 +143,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "tracks.write", { route: "events/[eventId]/tracks/[trackId]:PUT", eventId });
     if (!gate.ok) return gate.response;
 
-    const access = await validateEventAccess(eventId, gate.eventWhere);
+    const access = await validateEventAccess(eventId, gate);
     if (access.error) {
       return access.error;
     }
@@ -233,7 +231,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "tracks.write", { route: "events/[eventId]/tracks/[trackId]:DELETE", eventId });
     if (!gate.ok) return gate.response;
 
-    const access = await validateEventAccess(eventId, gate.eventWhere);
+    const access = await validateEventAccess(eventId, gate);
     if (access.error) {
       return access.error;
     }

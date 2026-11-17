@@ -6,10 +6,11 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { readWebinarSettings } from "@/lib/webinar";
 import { livePollsEnabled, readPollOptions, tallyPoll, type LivePollOption, type LivePollStatus, type PollTally } from "./live-polls";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 
-/** The event (through the gate's eventWhere) and its webinar room session. */
-export async function pollContextFor(eventWhere: Prisma.EventWhereInput) {
-  const event = await db.event.findFirst({ where: eventWhere, select: { id: true, organizationId: true, settings: true } });
+/** The event behind the permission gate (findGatedEvent) and its webinar room session. */
+export async function pollContextFor(gate: EventGate) {
+  const event = await findGatedEvent(gate, { select: { id: true, organizationId: true, settings: true } });
   if (!event) return null;
   const webinar = readWebinarSettings(event.settings);
   return {

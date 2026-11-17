@@ -30,7 +30,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "rsvp.manage", { route: "events/[eventId]/rsvp-campaigns/[campaignId]/items:GET", eventId });
     if (!gate.ok) return gate.response;
 
-    const event = await loadRsvpEvent(gate.eventWhere);
+    const event = await loadRsvpEvent(gate);
     if (!event) {
       return apiErrorResponse(404, "Event not found", {
         route: "GET /events/[eventId]/rsvp-campaigns/[campaignId]/items",
@@ -99,7 +99,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
     }
 
-    const event = await loadRsvpEvent(gate.eventWhere);
+    const event = await loadRsvpEvent(gate);
     if (!event) {
       return apiErrorResponse(404, "Event not found", {
         route: "POST /events/[eventId]/rsvp-campaigns/[campaignId]/items",

@@ -16,6 +16,7 @@ import { facultyBadgeType } from "@/lib/faculty-registration";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode } from "@/lib/utils";
 import { claimSeats, incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import {
   eventChargesForRegistration,
   resolveImportFallbackTicketType,
@@ -175,8 +176,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Verify event and fetch contacts — the FULL person shape, so nothing the
     // org already knows about the contact is silently dropped on import.
     const [event, contacts] = await Promise.all([
-      db.event.findFirst({
-        where: eventWhere,
+      findGatedEvent({ principal: gate.principal, eventWhere }, {
         select: { id: true },
       }),
       db.contact.findMany({

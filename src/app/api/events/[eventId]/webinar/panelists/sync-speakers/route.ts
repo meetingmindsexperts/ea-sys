@@ -53,7 +53,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      gate.eventWhere,
+      gate,
     );
     if (!resolved.ok) {
       apiLogger.warn(

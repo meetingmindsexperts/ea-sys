@@ -98,8 +98,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (!surveyGate.ok) return surveyGate.response;
     }
 
-    const event = await db.event.findFirst({
-      where: typeGate ? { AND: [gate.eventWhere, typeGate.eventWhere] } : gate.eventWhere,
+    const event = await findGatedEvent({ principal: gate.principal, eventWhere: typeGate ? { AND: [gate.eventWhere, typeGate.eventWhere] } : gate.eventWhere }, {
       select: { id: true },
     });
     if (!event) {

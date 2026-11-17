@@ -26,6 +26,7 @@ import type { ClaimDtcmOutcome } from "@/lib/dtcm-pool";
 import { MANUAL_PAYMENT_EVENT_SELECT, recordManualPayment } from "@/services/payment-service";
 import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import { walkInPaymentAllowed, walkInPaymentChoices } from "@/lib/desk-walkin-payment";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 
 /**
  * POST /api/events/[eventId]/registrations/walk-in
@@ -166,7 +167,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const event = await db.event.findFirst({ where: { AND: scopes }, select: { ...MANUAL_PAYMENT_EVENT_SELECT, settings: true } });
+      const event = await findGatedEvent({ principal: createGate.principal, eventWhere: { AND: scopes } }, { select: { ...MANUAL_PAYMENT_EVENT_SELECT, settings: true } });
       if (!event) {
         apiLogger.warn({ msg: "walk-in:event-not-found", eventId, userId: session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

@@ -22,7 +22,7 @@ export async function POST(_req: Request, { params }: RouteParams): Promise<Next
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const gate = requirePermission(session, "registrations.share", { route: "events/[eventId]/registration-shares/[viewId]/regenerate:POST", eventId });
     if (!gate.ok) return gate.response;
-    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares/[viewId]/regenerate:POST", eventId, gate.eventWhere);
+    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares/[viewId]/regenerate:POST", eventId, gate);
     if (r.error) return r.error;
     const scope = { eventId: r.event.id, slug: r.event.slug, organizationId: r.event.organizationId, userId: session.user.id };
     return await runWithTenant(r.event.organizationId, async () => {

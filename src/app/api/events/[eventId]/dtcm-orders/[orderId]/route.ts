@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { can } from "@/lib/permissions/can";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import {
   markDtcmOrderReversed,
   resolveDtcmOrder,
@@ -95,7 +95,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const organizationId = session.user.organizationId;
 
     return await runWithTenantLane(organizationId, { route: "events:dtcm-orders:PATCH", userId: session.user.id }, async () => {
-      const event = await db.event.findFirst({ where: access.eventWhere, select: { id: true } });
+      const event = await findGatedEvent(access, { select: { id: true } });
       if (!event) {
         apiLogger.warn({ msg: "dtcm-eticket:resolve-event-not-found", eventId, userId: session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Tenancy: the staff API's remaining event reads, second sweep (November 17)
+
+Event RLS step 2 (`docs/SECURITY_AUDIT_ACTION_PLAN.md` §3.1). Preparation for a second organisation; nothing a person sees changes.
+
+- **Changed**: eleven helpers that took the permission gate's filter and read the event themselves (RSVP, shared links and the export bundle, live polls, partner stream, webinar chat, questions and panelists, speaker documents, tracks, reimbursements, the speaker agreement template) take the gate and read through `findGatedEvent`. So do the routes that held the gate under another name or combined two (DTCM, check-in, sessions, speakers, scheduled and bulk email, import-contacts, the walk-in). The events list for staff and API keys runs inside the organisation's lane (`inOwnLane`).
+- **Added**: `organisationGate` for a caller bound to one organisation that is not a signed-in person (the AI agent's tools, an operator acting on an organisation). The ratchet counts only uses of a gate's filter that are neither a relation filter inside a lane nor a gate built for the helpers: 117 yesterday, 12 now, each listed as sound.
+- **Still open**: a linked role's events list (it can span organisations), four dashboard pages, the public routes and pages, the worker.
+
 ### Public pages keep the event's banner and footer when they have only a message to show (November 17)
 
 Owner, on `/e/MEHF2027/agenda`: "if agenda is not live, can we show the event branding header and footer", and the same for the other public pages' empty and not-found states. A page that could not show its content (the agenda not published, a closed form, a link that no longer works) dropped the event's frame and showed a bare card on a blank screen, because each page took its banner and footer from the request that had just failed.

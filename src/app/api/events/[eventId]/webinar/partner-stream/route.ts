@@ -89,7 +89,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const found = await findPartnerWebinar(gate.eventWhere, { eventId, userId: session.user.id, route });
+      const found = await findPartnerWebinar(gate, { eventId, userId: session.user.id, route });
       if (!found.ok) return found.response;
       const at = { eventId, sessionId: found.sessionId };
       const serverReady = partnerStreamReadiness().ready;
@@ -138,7 +138,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const found = await findPartnerWebinar(gate.eventWhere, { eventId, userId: session.user.id, route });
+      const found = await findPartnerWebinar(gate, { eventId, userId: session.user.id, route });
       if (!found.ok) return found.response;
       const caller = { organizationId: orgGuard.orgId, eventId, sessionId: found.sessionId, userId: session.user.id, source: "rest" as const };
       const input = validated.data;
@@ -184,7 +184,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const found = await findPartnerWebinar(gate.eventWhere, { eventId, userId: session.user.id, route });
+      const found = await findPartnerWebinar(gate, { eventId, userId: session.user.id, route });
       if (!found.ok) return found.response;
       const result = await updateExternalStreamDetails({
         organizationId: orgGuard.orgId,

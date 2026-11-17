@@ -224,8 +224,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org, so
     // an org-null reviewer caller works). submitAbstractReview reads/writes
     // swept tables, so the service call runs INSIDE the wrap.
-    const event = await db.event.findFirst({
-      where: eventWhere,
+    const event = await findGatedEvent({ principal: gate.principal, eventWhere }, {
       select: { id: true, organizationId: true },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });

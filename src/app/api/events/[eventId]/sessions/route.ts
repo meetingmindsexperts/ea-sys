@@ -87,13 +87,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       linkedRoles: "linked",
     });
     if (!gate.ok) return gate.response;
-    const eventWhere = gate.eventWhere;
-
     // Resolve the event FIRST — its org (RESOURCE org, so an org-null caller
     // reaching the event by linkage still resolves) opens the tenant wrap
     // around the swept eventSession read.
-    const event = await db.event.findFirst({
-      where: eventWhere,
+    const event = await findGatedEvent(gate, {
       select: { id: true, organizationId: true },
     });
 

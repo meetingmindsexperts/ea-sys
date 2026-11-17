@@ -1,4 +1,3 @@
-import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { uploadFile, deleteStoredFile } from "@/lib/storage";
@@ -9,6 +8,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
 
 /**
  * Per-speaker uploaded documents (July 16, 2026, owner request):
@@ -66,12 +66,11 @@ const DOCUMENT_SELECT = {
 // The event filter comes from the permission gate, so the lookup can never be
 // wider than the grant that let the caller in.
 async function loadSpeakerInEvent(
-  eventWhere: Prisma.EventWhereInput,
+  gate: EventGate,
   eventId: string,
   speakerId: string,
 ) {
-  const event = await db.event.findFirst({
-    where: eventWhere,
+  const event = await findGatedEvent(gate, {
     select: { id: true },
   });
   if (!event) return null;
@@ -98,7 +97,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = session.user.organizationId;
     return await runWithTenantLane(orgId, { route: "speakers:documents", userId: session.user.id }, async () => {
-    const speaker = await loadSpeakerInEvent(gate.eventWhere, eventId, speakerId);
+    const speaker = await loadSpeakerInEvent(gate, eventId, speakerId);
     if (!speaker) {
       apiLogger.warn({ msg: "speaker-documents:not-found", eventId, speakerId, userId: session.user.id });
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
@@ -143,7 +142,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const speaker = await loadSpeakerInEvent(gate.eventWhere, eventId, speakerId);
+    const speaker = await loadSpeakerInEvent(gate, eventId, speakerId);
     if (!speaker) {
       apiLogger.warn({ msg: "speaker-documents:not-found-on-upload", eventId, speakerId, userId: session.user.id });
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
