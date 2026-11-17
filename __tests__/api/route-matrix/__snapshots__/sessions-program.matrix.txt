@@ -210,3 +210,22 @@ DELETE tracks/[trackId]
   REGISTRANT  403         403         403         403
   API_KEY     401         401         401         401
   NONE        401         401         401         401
+
+GET agenda-preview
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 200 r       200 r       200 r       404
+  OPERATOR    200 r       200 r       200 r       200 r
+  ADMIN       200 r       200 r       200 r       404
+  ORGANIZER   200 r       200 r       200 r       404
+  MEMBER      200 r       200 r       200 r       404
+  ONSITE      404         200 r       404         404
+  WEBINARS    404         404         200 r       404
+  CRM_USER    404         404         404         404
+  HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
+  REVIEWER    404         404         404         404
+  SUBMITTER   404         404         404         404
+  REGISTRANT  404         404         404         404
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401

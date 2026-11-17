@@ -152,9 +152,28 @@ function getDurationMin(start: string, end: string) {
  * "no such event" and for "the agenda is not published", and tells them apart
  * by `code`; a 404 with no code is an older server, read as not published.
  */
+type Unavailable = "not-published" | "no-event" | "failed" | "preview-sign-in" | "preview-denied";
+
 function unavailableReason(status: number, code: unknown): "not-published" | "no-event" | "failed" {
   if (status !== 404) return "failed";
   return code === "EVENT_NOT_FOUND" ? "no-event" : "not-published";
+}
+
+/**
+ * A staff preview (`?preview={eventId}`, from the Preview button on the
+ * event's Agenda page) reads the staff route, which serves the agenda before
+ * it is published. Signed out is its own answer: the person is staff who has
+ * not signed in on this address yet, and needs a way back here after.
+ */
+function previewUnavailableReason(status: number): Unavailable {
+  if (status === 401) return "preview-sign-in";
+  if (status === 403 || status === 404) return "preview-denied";
+  return "failed";
+}
+
+function readPreviewEventId(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("preview");
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────
@@ -167,7 +186,9 @@ export default function PublicAgendaPage() {
   const [loading, setLoading] = useState(true);
   // Why there is no agenda to show. The three read differently to a visitor:
   // "not live yet" is a normal state of a real event, the other two are not.
-  const [unavailable, setUnavailable] = useState<"not-published" | "no-event" | "failed" | null>(null);
+  const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
+  // Set when this is a staff preview: whether the agenda is published yet.
+  const [preview, setPreview] = useState<{ published: boolean } | null>(null);
   const [attempt, setAttempt] = useState(0);
   const branding = usePublicEventBranding();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -175,7 +196,30 @@ export default function PublicAgendaPage() {
 
   useEffect(() => {
     async function fetchAgenda() {
+      const previewEventId = readPreviewEventId();
       try {
+        if (previewEventId) {
+          const res = await fetch(`/api/events/${encodeURIComponent(previewEventId)}/agenda-preview`, {
+            cache: "no-store",
+          });
+          if (!res.ok) {
+            const reason = previewUnavailableReason(res.status);
+            if (reason === "failed") console.error("[agenda] Failed to load the preview:", res.status);
+            setUnavailable(reason);
+            return;
+          }
+          const data: EventData & { published: boolean } = await res.json();
+          // The id in the link names the event; the address must agree, or a
+          // pasted link would show one event's programme under another's name.
+          if (data.slug.toLowerCase() !== slug.toLowerCase()) {
+            setUnavailable("preview-denied");
+            return;
+          }
+          setEventData(data);
+          setPreview({ published: data.published });
+          setUnavailable(null);
+          return;
+        }
         const res = await fetch(`/api/public/events/${slug}/agenda`);
         if (!res.ok) {
           const body = await res.json().catch(() => null);
@@ -247,6 +291,35 @@ export default function PublicAgendaPage() {
         Back to event
       </Link>
     );
+    if (unavailable === "preview-sign-in") {
+      const back = typeof window === "undefined" ? `/e/${slug}/agenda` : `${window.location.pathname}${window.location.search}`;
+      return (
+        <PublicEventNotice
+          icon={Clock}
+          title="Sign in to preview the agenda"
+          description="This preview is for the event team. Sign in with your staff account and you will come straight back here."
+        >
+          <Link
+            href={`/login?callbackUrl=${encodeURIComponent(back)}`}
+            className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
+          >
+            Sign in
+          </Link>
+        </PublicEventNotice>
+      );
+    }
+    if (unavailable === "preview-denied") {
+      return (
+        <PublicEventNotice
+          title="This preview isn’t available to you"
+          description="Previewing an agenda needs an account that can see this event’s programme. Ask an organiser, or open the published agenda instead."
+        >
+          <Link href={`/e/${slug}/agenda`} className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+            Open the published agenda
+          </Link>
+        </PublicEventNotice>
+      );
+    }
     if (unavailable === "no-event") {
       return (
         <PublicEventNotice
@@ -306,6 +379,25 @@ export default function PublicAgendaPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 print:bg-white">
+      {preview && (
+        <>
+          {/* Hoisted into <head> by React: a preview link is never one to index. */}
+          <meta name="robots" content="noindex, nofollow" />
+          <div
+            role="status"
+            className={cn(
+              "sticky top-0 z-30 border-b px-4 py-2 text-center text-sm font-medium print:hidden",
+              preview.published
+                ? "border-slate-200 bg-slate-800 text-white"
+                : "border-amber-300 bg-amber-100 text-amber-900",
+            )}
+          >
+            {preview.published
+              ? "Preview. This agenda is published: attendees see it at this address without “?preview”."
+              : "Preview. This agenda is not published yet: only the event team can see it. Publish it in Settings, Agenda."}
+          </div>
+        </>
+      )}
       {/* ── Event branding banner (same art-directed image as the other
              public pages; hidden in print to save ink) ──────────────────── */}
       <EventBannerBand

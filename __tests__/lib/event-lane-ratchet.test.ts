@@ -168,6 +168,10 @@ const UNLANED_EVENT_FILES_BASELINE: string[] = [
   // routes, MCP tools and import/report/email services) already runs inside the
   // organisation's lane. It replaced the three CRM services that read Event here.
   "src/crm/integrations/events.ts",
+  // The agenda loader (Nov 17, 2026): a library with two callers, the public
+  // agenda route and the staff preview route, and both call it inside
+  // runWithTenant with the organisation they have just resolved.
+  "src/lib/agenda-data.ts",
   "src/lib/agent/event-facts-loader.ts",
   "src/lib/agent/execute-handler.ts",
   "src/lib/agent/system-prompt.ts",

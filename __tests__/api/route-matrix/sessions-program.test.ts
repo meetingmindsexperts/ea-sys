@@ -33,6 +33,7 @@ import { GET as sessionGET, PUT as sessionPUT, DELETE as sessionDELETE } from "@
 import { POST as bulkDeletePOST } from "@/app/api/events/[eventId]/sessions/bulk-delete/route";
 import { GET as tracksGET, POST as tracksPOST } from "@/app/api/events/[eventId]/tracks/route";
 import { GET as trackGET, PUT as trackPUT, DELETE as trackDELETE } from "@/app/api/events/[eventId]/tracks/[trackId]/route";
+import { GET as agendaPreviewGET } from "@/app/api/events/[eventId]/agenda-preview/route";
 
 const session = { sessionId: "s1" };
 const track = { trackId: "t1" };
@@ -54,6 +55,9 @@ const CASES: HandlerCase[] = [
   { name: "GET tracks/[trackId]", handler: trackGET, method: "GET", params: track },
   { name: "PUT tracks/[trackId]", handler: trackPUT, method: "PUT", params: track, body: { name: "Track B" } },
   { name: "DELETE tracks/[trackId]", handler: trackDELETE, method: "DELETE", params: track },
+  // The staff preview of the public agenda (Nov 17, 2026): staff with
+  // sessions.read only; unlike GET tracks, no reviewer, submitter or registrant.
+  { name: "GET agenda-preview", handler: agendaPreviewGET, method: "GET" },
 ];
 
 describe("route status matrix: sessions and tracks", () => {

@@ -4,7 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { readAgendaTrackBorder } from "@/lib/agenda-display";
+import { agendaPayload, isAgendaPublished, loadAgendaEvent } from "@/lib/agenda-data";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -73,76 +73,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!scope) return noPublicEvent(slug);
 
     return await runWithTenant(scope.organizationId, async () => {
-    const event = await db.event.findFirst({
-      where: { id: scope.id },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        startDate: true,
-        endDate: true,
-        timezone: true,
-        supportEmail: true,
-        bannerImage: true,
-        bannerImageMobile: true,
-        settings: true,
-        organization: { select: { name: true, logo: true } },
-        tracks: {
-          select: { id: true, name: true, color: true },
-          orderBy: { sortOrder: "asc" },
-        },
-        eventSessions: {
-          where: {
-            status: { in: ["SCHEDULED", "LIVE", "COMPLETED"] },
-          },
-          select: {
-            id: true,
-            name: true,
-            description: true,
-            startTime: true,
-            endTime: true,
-            location: true,
-            capacity: true,
-            status: true,
-            type: true,
-            track: { select: { id: true, name: true, color: true } },
-            speakers: {
-              select: {
-                role: true,
-                speaker: {
-                  select: {
-                    id: true,
-                    title: true,
-                    firstName: true,
-                    lastName: true,
-                    jobTitle: true,
-                    organization: true,
-                    photo: true,
-                  },
-                },
-              },
-            },
-            topics: {
-              select: {
-                id: true,
-                title: true,
-                duration: true,
-                sortOrder: true,
-                speakers: {
-                  select: {
-                    speaker: {
-                      select: { id: true, title: true, firstName: true, lastName: true },
-                    },
-                  },
-                },
-              },
-              orderBy: { sortOrder: "asc" },
-            },
-          },
-          orderBy: { startTime: "asc" },
-        },
-      },
-    });
+    const event = await loadAgendaEvent(scope.id);
 
     if (!event) {
       apiLogger.warn({ slug }, "public-agenda:event-not-found");
@@ -150,27 +81,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     // Check if the agenda has been published by the organizer
-    const settings = (event.settings ?? {}) as Record<string, unknown>;
-    if (!settings.agendaPublished && !settings.programmePublished) {
+    if (!isAgendaPublished(event.settings)) {
       apiLogger.warn({ slug, eventId: event.id }, "public-agenda:not-published");
       return notAvailable("AGENDA_NOT_PUBLISHED", "Agenda not published yet");
     }
 
-    const response = NextResponse.json({
-      id: event.id,
-      name: event.name,
-      slug: event.slug,
-      startDate: event.startDate,
-      endDate: event.endDate,
-      timezone: event.timezone,
-      supportEmail: event.supportEmail,
-      bannerImage: event.bannerImage,
-      bannerImageMobile: event.bannerImageMobile,
-      organization: event.organization,
-      tracks: event.tracks,
-      trackBorder: readAgendaTrackBorder(settings),
-      sessions: event.eventSessions,
-    });
+    const response = NextResponse.json(agendaPayload(event));
 
     response.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     return response;

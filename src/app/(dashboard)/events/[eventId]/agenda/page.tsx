@@ -67,6 +67,7 @@ import {
   Copy,
   Check,
   RefreshCw,
+  Eye,
   type LucideIcon,
 } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
@@ -1099,6 +1100,14 @@ export default function AgendaPage() {
               ) : (
                 <><Copy className="h-3.5 w-3.5 mr-1" /> Copy</>
               )}
+            </Button>
+            {/* The public page as attendees will see it, published or not
+                (staff route agenda-preview). Opens in a new tab so the
+                organiser can edit here and refresh there. */}
+            <Button asChild variant="outline" size="sm" className="shrink-0 h-7 px-2.5">
+              <a href={`/e/${event.slug}/agenda?preview=${event.id}`} target="_blank" rel="noopener noreferrer">
+                <Eye className="h-3.5 w-3.5 mr-1" /> Preview
+              </a>
             </Button>
           </div>
         )}
