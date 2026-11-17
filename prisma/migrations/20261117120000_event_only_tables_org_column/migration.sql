@@ -8,9 +8,22 @@
 -- from before this migration does not know the column and leaves it NULL on
 -- the rows it writes during a deploy; nothing on master reads it, and a row
 -- with none is simply stamped by the next backfill (re-run the UPDATEs below).
+-- EXPECT a few such rows on master after the deploy that carries this (notices
+-- and templates the old image writes between the migration and the swap): the
+-- column must be backfilled again before anything ever relies on it there.
 -- Writers stamp it from this deploy forward. The row policies
 -- (prisma/rls/eventonly.sql) are applied ONLY by the tenancy harness and the
 -- platform bootstrap, never here: master's database holds no row security.
+
+-- Fail fast rather than queue live traffic behind this migration while it
+-- waits for a table lock (review of 4054ed0e; the same line as
+-- 20261116130000). Each ALTER below takes the table's exclusive lock and the
+-- file runs as one transaction, so every read of EmailTemplate (every email
+-- send) and of Notification (the bell) would queue behind a wait that an
+-- hourly backup or one long transaction can make long. A failed migrate deploy
+-- leaves the old slot serving: mark it rolled back with `prisma migrate
+-- resolve` and run it again.
+SET lock_timeout = '10s';
 
 -- ---- columns ----
 ALTER TABLE "EmailTemplate"       ADD COLUMN IF NOT EXISTS "organizationId" TEXT;

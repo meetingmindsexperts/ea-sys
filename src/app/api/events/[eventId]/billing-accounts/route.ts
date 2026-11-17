@@ -87,7 +87,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Auto-attach to this event (idempotent on the (eventId, billingAccountId) unique).
     await db.eventBillingAccount.upsert({
       where: { eventId_billingAccountId: { eventId, billingAccountId: result.billingAccount.id } },
-      update: {},
+      update: { organizationId: orgId },
       create: { eventId, organizationId: orgId, billingAccountId: result.billingAccount.id, addedByUserId: session.user.id },
     });
 

@@ -122,6 +122,7 @@ const CALLER_LANED: Record<string, [count: number, why: string]> = {
   "src/lib/email.ts": [1, "An email or document builder: every route, the bulk send and the scheduled-email worker call it inside the lane."],
   "src/lib/event-analytics.ts": [1, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
   "src/lib/event-code.ts": [1, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/lib/event-stats.ts": [1, "The stats refresh reads its event's organisation; 39 callers, each inside the event's lane, and it writes nothing when it cannot see the event."],
   "src/lib/event-export/bundle.ts": [1, "One caller, the export route, inside runWithTenant(event.organizationId)."],
   "src/lib/event-export/sheets.ts": [1, "Called by the export bundle only, inside the same lane."],
   "src/lib/event-settings.ts": [6, "The settings merge: a tenant transaction that enters the lane itself when handed the organisation outside one, and otherwise rides its caller's."],
@@ -360,6 +361,32 @@ describe("Event lane rules", () => {
         "whose every caller is already inside a lane belongs in SIX_CALLER_LANED.",
     ).toEqual(counts(SIX_CALLER_LANED));
     expect(withoutAReason(SIX_CALLER_LANED)).toEqual([]);
+  });
+
+  it("stamps the organisation on every create of the six tables", () => {
+    // The column is optional to Prisma, so a create without it compiles, passes every mocked test and
+    // is invisible on master. On the platform the row policy refuses it, and from a fire-and-forget
+    // path the caller still answers 200: that is how the template seed on event creation shipped
+    // unstamped until the browser suite ran under row security (review of 4054ed0e).
+    const WRITE = new RegExp(`\\b(?!dbOperator\\b)\\w+\\s*\\.\\s*(?:${SIX_TABLES.join("|")})\\s*\\.\\s*(?:create|createMany|upsert)\\s*\\(`, "g");
+    let writes = 0;
+    const unstamped: string[] = [];
+    for (const f of files) {
+      const source = sources.get(f)!;
+      for (const w of source.matchAll(WRITE)) {
+        writes++;
+        const open = w.index + w[0].length - 1;
+        if (!/\borganizationId\b/.test(source.slice(open, closingParen(source, open)))) unstamped.push(`${f}: ${w[0].replace(/\s+/g, "")}`);
+      }
+    }
+    expect(writes).toBeGreaterThanOrEqual(13);
+    expect(
+      unstamped,
+      "A create, createMany or upsert on one of the six tables does not name organizationId in its arguments. " +
+        "Stamp the EVENT's organisation (the row policy refuses a row without it). The one entry allowed is " +
+        "createNotification, whose whole `data` is a typed parameter that requires it.",
+    ).toEqual(["src/lib/notifications.ts: db.notification.create("]);
+    expect(code("src/lib/notifications.ts")).toMatch(/organizationId: string;/);
   });
 
   it("never reads Event through Organization outside a lane", () => {

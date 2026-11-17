@@ -14,7 +14,6 @@
 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { getTenantOrgId } from "@/lib/tenant-context";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
 import type { EventStats } from "@prisma/client";
@@ -61,6 +60,7 @@ async function _doRefresh(eventId: string): Promise<void> {
     sessionCount,
     trackCount,
     checkedInCount,
+    event,
   ] = await Promise.all([
     db.registration.groupBy({
       by: ["status"],
@@ -92,7 +92,21 @@ async function _doRefresh(eventId: string): Promise<void> {
     db.registration.count({
       where: { eventId, checkedInAt: { not: null }, ...EXCLUDE_FACULTY_WHERE },
     }),
+    // The organisation the stats row belongs to: the EVENT's, read off the event
+    // (review of 4054ed0e; the first version took the lane's, which is the same
+    // thing only while every caller is inside the right lane).
+    db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } }),
   ]);
+
+  // No event to be seen: it was deleted under us, or (where row security is on)
+  // this refresh was fired outside its organisation's lane, in which case every
+  // count above is zero as well. Writing that would put zeros on the dashboard
+  // under no organisation, or under the wrong one. Skip it and say so.
+  if (!event) {
+    apiLogger.warn({ msg: "event-stats:refresh-skipped-event-not-visible", eventId });
+    return;
+  }
+  const organizationId = event.organizationId;
 
   const registrationsByStatus = Object.fromEntries(
     regByStatus.map((r) => [r.status, r._count]),
@@ -123,17 +137,10 @@ async function _doRefresh(eventId: string): Promise<void> {
     computedAt: new Date(),
   };
 
-  // The organisation is the lane this refresh runs in (Event RLS step 5, Nov
-  // 17 2026). Every caller is inside the event's organisation's lane already:
-  // the counts above are of policied tables, and outside a lane they are all
-  // zero where row security is on. So the lane IS the organisation the row
-  // policy will hold this row to, and 39 call sites need not each pass it.
-  const organizationId = getTenantOrgId() || null;
   await db.eventStats.upsert({
     where: { eventId },
     create: { eventId, organizationId, ...data },
-    // A row from before the column existed is stamped by its next refresh; a
-    // refresh made outside a lane never blanks a stamp that is there.
-    update: { ...data, ...(organizationId && { organizationId }) },
+    // Also on the update: a row from before the column existed is stamped by its next refresh.
+    update: { ...data, organizationId },
   });
 }

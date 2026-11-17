@@ -123,8 +123,10 @@ describe("POST /api/events/[eventId]/billing-accounts/[billingAccountId]", () =>
       billingAccountId: "ba-1",
     });
     expect(upsertArg.create.addedByUserId).toBe("user-1");
-    // Re-attach = no-op update path (the empty {} is the contract).
-    expect(upsertArg.update).toEqual({});
+    // Re-attach changes nothing about the link: who attached it and when are kept. The update only
+    // stamps the organisation, which heals a link from before the column existed (Event RLS step 5).
+    expect(upsertArg.update).toEqual({ organizationId: "org-1" });
+    expect(upsertArg.create.organizationId).toBe("org-1");
     expect(mockDb.auditLog.create).toHaveBeenCalled();
   });
 });

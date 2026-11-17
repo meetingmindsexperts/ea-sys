@@ -28,6 +28,7 @@ Email templates, notifications, event statistics, import logs, invoice counters 
 
 - **A migration reaches production's database**: a new, empty-able `organizationId` column on the six tables, filled from each row's event (a notification with no event takes its recipient's organisation). Nothing on production reads it. Checked on the local copy of production: about 23,000 rows filled, none left empty, and a second run changes nothing.
 - **Every place that writes one of these rows now stamps the organisation** (13 places), and every route that reads them runs inside the organisation's lane: the notification bell, import logs, email templates.
+- **Visible on production, and harmless**: the API answers that return these rows whole (email templates, import logs, attaching a billing account) now carry one more field, `organizationId`, the caller's own organisation.
 - **Six row security policies** for the platform, in the same shape as the rest (`prisma/rls/eventonly.sql`). Production has none, as before.
 
 Rehearsed under real row security:

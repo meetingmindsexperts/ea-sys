@@ -14,7 +14,7 @@ interface CreateNotificationParams {
    * no event the recipient's own. Stamped on the row, which carries a row
    * policy on the platform (Event RLS step 5, Nov 17 2026).
    */
-  organizationId: string | null;
+  organizationId: string;
   eventId?: string;
   type:
     | "REGISTRATION"
@@ -79,7 +79,12 @@ export async function notifyEventAdmins(
       // so gating costs no extra query.
       select: { organizationId: true, settings: true },
     });
-    if (!event) return;
+    if (!event) {
+      // The event is gone, or (where row security is on) this was called outside its
+      // organisation's lane: either way nobody is told, so say that somewhere.
+      apiLogger.warn({ msg: "notify:event-not-found", eventId, title: notification.title });
+      return;
+    }
 
     if (setting && !isNotificationEnabled(event.settings, setting)) {
       apiLogger.debug(

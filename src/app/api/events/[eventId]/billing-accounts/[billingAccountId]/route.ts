@@ -110,7 +110,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           billingAccountId: g.billingAccountId,
           addedByUserId: g.session.user.id,
         },
-        update: {}, // no-op on re-attach
+        update: { organizationId: g.orgId }, // a re-attach changes nothing but stamps a link from before the column existed
       });
 
       db.auditLog

@@ -84,11 +84,19 @@ SWEPT_ROUTE_DIRS=(
   # Comms-log sweep (Domain #18, Aug 3, 2026) — the EmailLog read surface
   # (entity Email History list + stored-body fetch), SESSION-org wraps.
   "src/app/api/email-logs"                                # Comms-log sweep — EmailLog reads (Aug 3, 2026)
+  "src/app/api/notifications"                             # Notification (Event RLS step 5, Nov 17, 2026): the bell, polled, quietly empty outside a lane
 )
 # Specific swept route files whose DIR can't be swept wholesale — e.g. a domain
 # nested under src/app/api/events, where sweeping the dir would wrongly demand a
 # wrap on every unrelated event route.
 SWEPT_ROUTE_FILES=(
+  # The six event-only tables (Event RLS step 5, Nov 17, 2026): the routes that
+  # read or write EmailTemplate and ImportLog. Their lane is not asserted by
+  # any unit test (the wrap is real under a mocked database either way).
+  "src/app/api/events/[eventId]/email-templates/route.ts"                     # EmailTemplate (Nov 17, 2026)
+  "src/app/api/events/[eventId]/email-templates/[templateId]/route.ts"        # EmailTemplate (Nov 17, 2026)
+  "src/app/api/events/[eventId]/email-templates/[templateId]/duplicate/route.ts" # EmailTemplate (Nov 17, 2026)
+  "src/app/api/events/[eventId]/import-logs/route.ts"                         # ImportLog (Nov 17, 2026)
   # Group registration — born-compliant domain (Aug 6, 2026): the public
   # group-register POST wraps its post-event-resolution body in runWithTenant
   # (resource org). The service's tx uses tenantTransaction.

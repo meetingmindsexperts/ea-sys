@@ -696,7 +696,8 @@ export async function createGroupRegistration(
       eventId_billingAccountId: { eventId, billingAccountId: billingAccount.id },
     },
     create: { eventId, organizationId, billingAccountId: billingAccount.id },
-    update: {},
+    // Stamps a link from before the column existed (Event RLS step 5).
+    update: { organizationId },
   });
 
   const payerReference = input.payerReference?.trim() || null;

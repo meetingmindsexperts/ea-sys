@@ -159,9 +159,9 @@ describe("the six event-only tables under row security (prisma/rls/eventonly.sql
 
   it("WITH CHECK refuses a row stamped with another organisation, and a row stamped with none", async () => {
     const log = { eventId: EVENT_B_SHARED_ID, userId: UPLOADER_A_ID, source: "csv", entityType: "registrations", totalProcessed: 0, totalCreated: 0, totalSkipped: 0, totalErrors: 0 };
-    await expect(runWithTenant(ORG_A_ID, () => db.importLog.create({ data: { id: "tenancy-eo-smuggled", organizationId: ORG_B_ID, ...log } }))).rejects.toThrow();
+    await expect(runWithTenant(ORG_A_ID, () => db.importLog.create({ data: { id: "tenancy-eo-smuggled", organizationId: ORG_B_ID, ...log } }))).rejects.toThrow(/row-level security/);
     // What a writer that forgot the column would do: every unit test passes, the database refuses.
-    await expect(runWithTenant(ORG_A_ID, () => db.importLog.create({ data: { id: "tenancy-eo-smuggled", ...log, eventId: EVENT_A_SHARED_ID } }))).rejects.toThrow();
+    await expect(runWithTenant(ORG_A_ID, () => db.importLog.create({ data: { id: "tenancy-eo-smuggled", ...log, eventId: EVENT_A_SHARED_ID } }))).rejects.toThrow(/row-level security/);
     expect(await owner.importLog.count({ where: { id: "tenancy-eo-smuggled" } })).toBe(0);
   });
 });
@@ -197,19 +197,26 @@ describe("the writers stamp the organisation the policy holds the row to", () =>
     expect(await runWithTenant(ORG_B_ID, () => db.notification.count({ where: { title: { startsWith: NOTICE_TITLE }, organizationId: ORG_A_ID } }))).toBe(0);
   });
 
-  it("the stats refresh: inside the event's lane it lands and is stamped; the stamp is the lane", async () => {
+  it("the stats refresh: inside the event's lane it creates the row, stamped with the event's organisation", async () => {
+    await owner.eventStats.deleteMany({ where: { eventId: EVENT_B_ONLY_ID } });
     await runWithTenant(ORG_B_ID, () => refreshEventStatsNow(EVENT_B_ONLY_ID));
     const created = await owner.eventStats.findUnique({ where: { eventId: EVENT_B_ONLY_ID }, select: { organizationId: true } });
     expect(created?.organizationId).toBe(ORG_B_ID);
-    // An existing row is refreshed in place and keeps its organisation.
-    await runWithTenant(ORG_A_ID, () => refreshEventStatsNow(EVENT_A_SHARED_ID));
-    const updated = await owner.eventStats.findUnique({ where: { eventId: EVENT_A_SHARED_ID }, select: { organizationId: true, computedAt: true } });
-    expect(updated?.organizationId).toBe(ORG_A_ID);
   });
 
-  it("the stats refresh outside a lane is refused, never written with zeros and no organisation", async () => {
+  it("the stats refresh updates an existing row in place: recomputed, and still its organisation's", async () => {
+    const before = await owner.eventStats.findUniqueOrThrow({ where: { eventId: EVENT_A_SHARED_ID }, select: { computedAt: true } });
+    await runWithTenant(ORG_A_ID, () => refreshEventStatsNow(EVENT_A_SHARED_ID));
+    const after = await owner.eventStats.findUniqueOrThrow({ where: { eventId: EVENT_A_SHARED_ID }, select: { id: true, organizationId: true, computedAt: true } });
+    expect(after).toMatchObject({ id: A, organizationId: ORG_A_ID });
+    expect(after.computedAt.getTime()).toBeGreaterThan(before.computedAt.getTime());
+  });
+
+  it("the stats refresh outside a lane, or in another tenant's, writes nothing: no zeros, no row under the wrong organisation", async () => {
     await owner.eventStats.deleteMany({ where: { eventId: EVENT_B_ONLY_ID } });
-    await expect(refreshEventStatsNow(EVENT_B_ONLY_ID)).rejects.toThrow();
+    // It cannot see its event, so it skips (and logs); it does not throw at its fire-and-forget callers.
+    await expect(refreshEventStatsNow(EVENT_B_ONLY_ID)).resolves.toBeUndefined();
+    await expect(runWithTenant(ORG_A_ID, () => refreshEventStatsNow(EVENT_B_ONLY_ID))).resolves.toBeUndefined();
     expect(await owner.eventStats.count({ where: { eventId: EVENT_B_ONLY_ID } })).toBe(0);
   });
 
@@ -220,10 +227,22 @@ describe("the writers stamp the organisation the policy holds the row to", () =>
     expect(result.ok).toBe(true);
     const row = await owner.emailTemplate.findFirst({ where: { slug: `${SLUG}-new` }, select: { organizationId: true, eventId: true } });
     expect(row).toEqual({ organizationId: ORG_A_ID, eventId: EVENT_A_SHARED_ID });
-    // The slug both tenants hold (the fixture) is each one's own: taken in A, by A's row only.
+    // A slug already on this event is seen from its own lane, so the create is refused cleanly.
     const taken = await runWithTenant(ORG_A_ID, () =>
       createCustomEmailTemplate({ eventId: EVENT_A_SHARED_ID, organizationId: ORG_A_ID, slug: SLUG, name: "Dup", subject: "s", htmlContent: "<p>h</p>" }),
     );
     expect(taken).toMatchObject({ ok: false, code: "SLUG_TAKEN" });
+  });
+
+  it("a template cannot be created on another tenant's event from this lane, whichever organisation it claims", async () => {
+    // Stamped with the event's real organisation: WITH CHECK refuses it (not this lane's). Stamped with
+    // this lane's: the database takes the row, which is why the ROUTES find the event inside the lane
+    // first. The policy stops reading and moving another tenant's rows; it cannot know whose an event id is.
+    await expect(
+      runWithTenant(ORG_A_ID, () =>
+        createCustomEmailTemplate({ eventId: EVENT_B_SHARED_ID, organizationId: ORG_B_ID, slug: `${SLUG}-cross`, name: "X", subject: "s", htmlContent: "<p>h</p>" }),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    expect(await owner.emailTemplate.count({ where: { slug: `${SLUG}-cross` } })).toBe(0);
   });
 });
