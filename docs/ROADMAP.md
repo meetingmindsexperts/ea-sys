@@ -7,6 +7,40 @@
 
 ---
 
+## Abstracts search: what the Nov 17 review left (recorded Nov 17, 2026): not started
+
+From the review of `0418aac8` (0 BLOCKER, 0 HIGH, 2 MED, 9 LOW). Both MEDs are fixed
+in the follow-up (one number rule shared with Select by IDs; pasted and typeset
+punctuation), with the LOWs about a number found inside other numbers, the
+no-match message under a reviewer filter, a reviewer searching by an email they
+are never shown, letters with no separate accent, status and presentation type,
+a length cap, a clear button, and the test that proved nothing.
+
+**LOW, listed, not fixed:**
+
+- **The search is forgotten when you leave the page.** Open an abstract's edit
+  page and come back, and the box is empty. Keeping it in the address (`?q=`)
+  fixes it; left because the page's other filters (theme, "No reviewer yet", the
+  ticked rows) are forgotten the same way, and it is one decision for all four.
+- **The count is not announced** to a screen reader when a search starts.
+- **Greek letters are not read as words**: "beta" does not find "β-blockers".
+  `src/lib/event-slug.ts` has the map; reuse it if an organiser asks.
+- **Abstracts beyond the newest 500 are not searched** (they are not on the page
+  at all; its notice says they cannot be ticked, not that they cannot be found).
+
+**Older defect the review turned up, for the owner to decide (not touched):**
+
+- **A reviewer is sent every column of the author's speaker record.** The
+  Abstracts list route includes the whole speaker row for each abstract, and a
+  reviewer (who opens this page for the abstracts assigned to them) gets it:
+  email, second email, phone, honorarium amount, reimbursement items, the
+  agreement's IP address and text, tags. None of it is shown to them on screen;
+  it is in the response. The reviewer's own page (`/my-reviews`) sends five
+  fields. Staff without "See amounts" get the honorarium columns the same way.
+  The fix is a `select` of what the page shows, with the email for staff only;
+  it changes an API response, so it wants its own change and a look at what
+  else reads that list (the exports, the agent).
+
 ## Session role picker: what the Nov 17 review left (recorded Nov 17, 2026): not started
 
 From the review of `2d3068a6` (0 BLOCKER, 0 HIGH, 0 MED, 5 LOW). Fixed in the

@@ -56,10 +56,11 @@ import {
   Download,
   Share2,
   Search,
+  X,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
-import { abstractMatchesSearch } from "@/lib/abstract-search";
+import { abstractMatchesSearch, type AbstractSearchOptions } from "@/lib/abstract-search";
 import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
 import { useAbstracts, useSpeakers, useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
@@ -89,6 +90,17 @@ function presentationTypeLabel(type: string): string {
   if (type === "POSTER") return "Poster";
   if (type === "VIDEO") return "Video";
   return "Workshop";
+}
+
+/**
+ * Why the list is empty. With a reviewer filter on as well, the search alone is
+ * not to blame: "No abstracts match A-012" read as "A-012 does not exist" when
+ * the "No reviewer yet" filter was what hid it (review of 0418aac8).
+ */
+function noMatchMessage(search: string, reviewerFiltersOn: boolean): string {
+  if (!search) return "No abstracts match these filters.";
+  if (reviewerFiltersOn) return `No abstracts match "${search}" within the filters above.`;
+  return `No abstracts match "${search}".`;
 }
 
 /** The list's heading and empty text: a reviewer sees only what is assigned to them (Nov 10, 2026). */
@@ -478,9 +490,18 @@ export default function AbstractsPage() {
     ? abstracts.filter((a) => matchesReviewerFilters(a, themeFilter, unassignedOnly))
     : abstracts;
   const searching = searchQuery.trim() !== "";
+  // What the search reads beyond the abstract's own fields: the two labels the
+  // row shows as badges, and the author's email for staff only (a reviewer is
+  // sent it and never shown it, so a search must not confirm a guess).
+  const searchOptionsFor = (a: Abstract): AbstractSearchOptions => ({
+    email: !isSubmitter && !isReviewer,
+    extra: [abstractStatusLabel(a.status), a.presentationType ? presentationTypeLabel(a.presentationType) : null],
+  });
   const shownAbstracts = searching
-    ? filteredAbstracts.filter((a) => abstractMatchesSearch(a, searchQuery))
+    ? filteredAbstracts.filter((a) => abstractMatchesSearch(a, searchQuery, searchOptionsFor(a)))
     : filteredAbstracts;
+  // A reviewer filter can be what hides the abstract someone searched for.
+  const reviewerFiltersOn = canAssignReviewers && filteredAbstracts.length !== abstracts.length;
   const shownIds = shownAbstracts.map((a) => a.id);
   // From the list, not the id set: an abstract deleted since it was ticked drops out.
   const selectedAbstracts = abstracts.filter((a) => selectedIds.has(a.id));
@@ -1093,13 +1114,27 @@ export default function AbstractsPage() {
               <div className="relative w-full sm:w-80">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  type="search"
+                  type="text"
+                  inputMode="search"
                   aria-label="Search abstracts"
-                  placeholder="Search by number, title, author or theme..."
+                  placeholder="Search number, title, author, theme, status..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
+                  maxLength={200}
+                  className="pl-9 pr-9"
                 />
+                {/* Our own clear button: the browser's comes with type="search"
+                    in Chrome and Safari only. */}
+                {searchQuery !== "" && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    aria-label="Clear the search"
+                    className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1150,14 +1185,26 @@ export default function AbstractsPage() {
         {abstracts.length > 0 && shownAbstracts.length === 0 && (
           <Card>
             <CardContent className="pt-6">
-              <p className="text-muted-foreground text-center py-8">
-                {searching ? `No abstracts match "${searchQuery.trim()}".` : "No abstracts match these filters."}
+              <p className="text-muted-foreground text-center py-8 break-words">
+                {noMatchMessage(searching ? searchQuery.trim() : "", reviewerFiltersOn)}
               </p>
               {searching && (
-                <div className="-mt-4 pb-4 text-center">
+                <div className="-mt-4 flex flex-wrap justify-center gap-x-2 pb-4">
                   <Button type="button" variant="link" onClick={() => setSearchQuery("")}>
                     Clear the search
                   </Button>
+                  {reviewerFiltersOn && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      onClick={() => {
+                        setThemeFilter(ALL_THEMES);
+                        setUnassignedOnly(false);
+                      }}
+                    >
+                      Clear the filters
+                    </Button>
+                  )}
                 </div>
               )}
             </CardContent>
