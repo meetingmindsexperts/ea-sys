@@ -23,7 +23,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { publicEventWhereForHost } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { eventIsFull } from "@/lib/public-availability";
 import { isAgendaPublished } from "@/lib/agenda-display";
 import { buildEventMetadata, toPlainText, truncate } from "@/lib/public-event-metadata";
@@ -74,8 +74,7 @@ const PUBLIC_STATUSES = ["PUBLISHED", "LIVE", "COMPLETED"] as const;
 /** Once per request: metadata and the page both ask. */
 const findScope = cache(async (slug: string) => {
   const host = (await headers()).get("host");
-  return db.event.findFirst({
-    where: await publicEventWhereForHost(host, slug, { allowIdFallback: true, statuses: [...PUBLIC_STATUSES] }),
+  return findPublicEvent(host, slug, { allowIdFallback: true, statuses: [...PUBLIC_STATUSES] }, {
     select: { id: true, organizationId: true, slug: true, settings: true },
   });
 });

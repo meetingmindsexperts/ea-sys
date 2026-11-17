@@ -377,6 +377,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ eventId
 }
 ```
 
+- **Every query on Event runs inside a tenant lane** (since Nov 17, 2026; Event carries a row policy on the
+  platform, and outside a lane a read finds nothing and a write changes nothing, silently). Which door, by
+  caller: a per-event staff route, `findGatedEvent(gate, ...)` then `runWithTenant(<its organisation>)` for
+  the rest; a **public** route or page, `findPublicEvent(req, slug, scope, { select })` (the host names the
+  tenant, nothing privileged); a list behind a gate, `inOwnLane(gate, req, ...)`; a public list,
+  `inHostLane` / `inScopeLane`; a dashboard page, `inSessionLane(session, ...)` around everything it loads;
+  a transaction, `tenantTransaction`; a worker job, a `dbOperator` scan then the row's lane. All in
+  `src/lib/tenant/event-tenant.ts`. `event-lane-ratchet.test.ts` refuses an Event query outside a lane
+  unless its file is a listed library whose every caller is inside one.
 - Parallelize with `Promise.all` (`params` + `auth()`, then independent queries).
 - Prisma `select` over `include` — an allow-list can't leak a column added later.
 - Bind **every** lookup to its parent (`{ id, eventId }`, `{ id, organizationId }`). Trusting a nested

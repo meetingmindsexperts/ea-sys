@@ -998,12 +998,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Notify admins on status change
     if (validated.data.status && validated.data.status !== existingEvent.status) {
-      notifyEventAdmins(eventId, {
-        type: "REGISTRATION",
-        title: "Event Status Updated",
-        message: `Event "${event.name}" is now ${validated.data.status}`,
-        link: `/events/${eventId}`,
-      }).catch((err) => apiLogger.error({ err, msg: "Failed to send event status notification" }));
+      // Inside the organisation's lane: the notice reads the event (Event RLS step 2).
+      runWithTenant(orgGuard.orgId, () =>
+        notifyEventAdmins(eventId, {
+          type: "REGISTRATION",
+          title: "Event Status Updated",
+          message: `Event "${event.name}" is now ${validated.data.status}`,
+          link: `/events/${eventId}`,
+        }),
+      ).catch((err) => apiLogger.error({ err, msg: "Failed to send event status notification" }));
     }
 
     return NextResponse.json({

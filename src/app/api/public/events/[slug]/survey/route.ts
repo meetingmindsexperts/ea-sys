@@ -46,7 +46,8 @@ import { z } from "zod";
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import {
@@ -229,8 +230,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           { status: 429, headers: { "Retry-After": String(previewLimit.retryAfterSeconds) } },
         );
       }
-      const event = await db.event.findFirst({
-        where: await publicEventWhere(req, slug),
+      const event = await findPublicEvent(req, slug, {}, {
         select: { id: true, name: true, slug: true, organizationId: true, bannerImage: true, bannerImageMobile: true, surveyConfig: true, surveyIntroHtml: true, surveyThankYouHtml: true },
       });
       if (!event) {

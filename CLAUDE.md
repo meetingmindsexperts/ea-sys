@@ -277,7 +277,7 @@ export async function GET/POST/PUT/DELETE(
 }
 ```
 
-**Important:** Every handler asks `requirePermission()` for its operation's key and looks the event up through `findGatedEvent(gate, ...)` (`src/lib/tenant/event-tenant.ts`, Nov 16, 2026), which is `db.event.findFirst({ where: gate.eventWhere, ... })` made inside the caller's tenant lane. **Never write the bare `db.event.findFirst({ where: gate.eventWhere })`**: outside a lane it returns null once Event has a row policy, and a test (`event-lane-ratchet.test.ts`) refuses it. Never add a role comparison or the deleted `denyReviewer` back to a route: `scripts/check-permission-guards.sh` fails CI on it. Reviewers, submitters and registrants reach their routes through `linkedRoles`.
+**Important:** Every handler asks `requirePermission()` for its operation's key and looks the event up through `findGatedEvent(gate, ...)` (`src/lib/tenant/event-tenant.ts`, Nov 16, 2026), which is `db.event.findFirst({ where: gate.eventWhere, ... })` made inside the caller's tenant lane. **Never write the bare `db.event.findFirst({ where: gate.eventWhere })`**: outside a lane it returns null once Event has a row policy, and a test (`event-lane-ratchet.test.ts`) refuses it. A **public** route or page reads its event with `findPublicEvent(req, slug, scope, { select })` (same file), which enters the lane of the organisation the host names before the read; the other doors (lists, dashboard pages, the worker) are in AGENTS.md, Conventions. Never add a role comparison or the deleted `denyReviewer` back to a route: `scripts/check-permission-guards.sh` fails CI on it. Reviewers, submitters and registrants reach their routes through `linkedRoles`.
 
 ## Styling
 

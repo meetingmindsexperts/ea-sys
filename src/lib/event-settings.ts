@@ -23,6 +23,7 @@
  */
 import { db, tenantTransaction } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { runWithTenant } from "@/lib/tenant-context";
 
 export type SettingsObject = Record<string, unknown>;
 export type SettingsPatch = SettingsObject | ((current: SettingsObject) => SettingsObject);
@@ -75,7 +76,12 @@ async function mergeSettingsLocked(
  * (Event has no row-level policy, so nothing else would stop a mis-scoped id; venue tenancy review, Oct 27).
  */
 export function updateEventSettings(eventId: string, patch: SettingsPatch, opts: { organizationId?: string } = {}): Promise<SettingsObject> {
-  return mergeSettingsLocked("Event", eventId, patch, "EVENT_NOT_FOUND", opts.organizationId);
+  const merge = () => mergeSettingsLocked("Event", eventId, patch, "EVENT_NOT_FOUND", opts.organizationId);
+  // A caller that names the organisation gets its lane here as well (Event RLS
+  // step 2, Nov 17 2026): the merge is a tenant transaction, and a tenant
+  // transaction with no lane around it is a plain one, which finds no row once
+  // Event has a policy. A caller that names none must already be inside a lane.
+  return opts.organizationId ? runWithTenant(opts.organizationId, merge) : merge();
 }
 
 /** Atomically merge a patch into `Organization.settings`. Throws `ORGANIZATION_NOT_FOUND` if gone. */
@@ -102,25 +108,36 @@ export async function removeUserFromEventSettings(
   userId: string,
   organizationId: string | null,
 ): Promise<{ eventsTouched: number }> {
-  const events = await db.event.findMany({
-    where: {
-      ...(organizationId ? { organizationId } : {}),
-      OR: [
-        { settings: { path: ["reviewerUserIds"], array_contains: userId } },
-        { settings: { path: ["onsiteUserIds"], array_contains: userId } },
-      ],
-    },
-    select: { id: true },
-  });
+  // Inside the organisation's lane when the caller names one (Event RLS step
+  // 2, Nov 17 2026). With none, the sweep is meant to span organisations and
+  // has no lane to enter: with row security on it finds nothing, and the stale
+  // ids stay (they grant nothing; see above).
+  const inLane = <T>(fn: () => Promise<T>) => (organizationId ? runWithTenant(organizationId, fn) : fn());
+  const events = await inLane(() =>
+    db.event.findMany({
+      where: {
+        ...(organizationId ? { organizationId } : {}),
+        OR: [
+          { settings: { path: ["reviewerUserIds"], array_contains: userId } },
+          { settings: { path: ["onsiteUserIds"], array_contains: userId } },
+        ],
+      },
+      select: { id: true },
+    }),
+  );
 
   for (const { id } of events) {
-    await updateEventSettings(id, (cur) => {
-      const strip = (key: string) => {
-        const list = cur[key];
-        return Array.isArray(list) ? list.filter((v) => v !== userId) : list;
-      };
-      return { ...cur, reviewerUserIds: strip("reviewerUserIds"), onsiteUserIds: strip("onsiteUserIds") };
-    });
+    await updateEventSettings(
+      id,
+      (cur) => {
+        const strip = (key: string) => {
+          const list = cur[key];
+          return Array.isArray(list) ? list.filter((v) => v !== userId) : list;
+        };
+        return { ...cur, reviewerUserIds: strip("reviewerUserIds"), onsiteUserIds: strip("onsiteUserIds") };
+      },
+      organizationId ? { organizationId } : {},
+    );
   }
 
   return { eventsTouched: events.length };

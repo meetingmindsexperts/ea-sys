@@ -647,7 +647,8 @@ export async function handleStripeEvent(
 
         if (group) {
           const fully = cumulative >= Number(payment.amount);
-          notifyEventAdmins(group.eventId, {
+          // Inside the event's organisation's lane: the notice reads the event (Event RLS step 2).
+          runWithTenant(group.event.organizationId, () => notifyEventAdmins(group.eventId, {
             type: "PAYMENT",
             title: fully
               ? "⚠ Group payment refunded — members still marked paid"
@@ -658,7 +659,7 @@ export async function handleStripeEvent(
               `Their ${group._count.registrations} registrations are STILL marked paid — decide which members are cancelled, ` +
               `then cancel them and issue a credit note. Nothing has been changed automatically.`,
             link: `/events/${group.eventId}/registrations`,
-          }).catch((err) =>
+          })).catch((err) =>
             apiLogger.error({
               err,
               msg: "charge.refunded:group-notify-failed",

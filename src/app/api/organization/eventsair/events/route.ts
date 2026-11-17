@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { decryptSecret, listEvents } from "@/lib/eventsair-client";
 import { requirePermission } from "@/lib/permissions/require-permission";
+import { runWithTenant } from "@/lib/tenant-context";
 
 export async function GET() {
   try {
@@ -37,14 +38,13 @@ export async function GET() {
     const filtered = events;
 
     // Check which events are already imported
-    const importedEvents = await db.event.findMany({
-      where: {
-        organizationId: session.user.organizationId,
-        externalSource: "eventsair",
-        externalId: { not: null },
-      },
-      select: { externalId: true, id: true },
-    });
+    const organizationId = session.user.organizationId;
+    const importedEvents = await runWithTenant(organizationId, () =>
+      db.event.findMany({
+        where: { organizationId, externalSource: "eventsair", externalId: { not: null } },
+        select: { externalId: true, id: true },
+      }),
+    );
     const importedMap = new Map(importedEvents.map((e) => [e.externalId, e.id]));
 
     const annotated = filtered.map((e) => ({

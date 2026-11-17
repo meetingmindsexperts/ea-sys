@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
@@ -57,8 +57,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    const event = await db.event.findFirst({
-      where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
+    const event = await findPublicEvent(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }, {
       select: { id: true, organizationId: true, eventType: true, settings: true },
     });
     if (!event) {

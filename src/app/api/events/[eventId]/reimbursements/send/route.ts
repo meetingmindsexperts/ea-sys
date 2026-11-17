@@ -98,6 +98,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Everything from here runs inside the event's organisation's lane: the template read, each send and
+    // its email log as well as the rows (Event RLS step 2; the inner wraps below are now redundant, kept as is).
+    return await runWithTenant(event.organizationId, async () => {
+
     // Tenancy (Domain #17): the reimbursement rows (+ nested swept Speaker)
     // read in the resource org; the template/sender reads are unswept.
     const [rows, tpl, sender] = await Promise.all([
@@ -279,6 +283,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       "reimbursements-send:done",
     );
     return NextResponse.json({ sent, failed, skippedRecentlySent });
+    });
   } catch (err) {
     apiLogger.error({ err }, "reimbursements-send:failed");
     return NextResponse.json({ error: "Failed to send reimbursement links" }, { status: 500 });

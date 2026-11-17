@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { catalogueBaseWhere, topicHref, topicTitle } from "@/lib/catalogue";
 import { listTopicValues } from "@/lib/catalogue-data";
 import { publicOrgScopeForHost } from "@/lib/public-event";
+import { inScopeLane } from "@/lib/tenant/event-tenant";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { formatEventDateRange } from "@/lib/event-time";
 import { llmsText, siteOrigin } from "@/lib/seo";
@@ -20,15 +21,17 @@ export async function GET(req: Request) {
   try {
     const [scope, tenant] = await Promise.all([publicOrgScopeForHost(host), resolveTenantOrg(normalizeHost(host))]);
     const [events, organization, topics] = await Promise.all([
-      db.event.findMany({
-        where: { ...catalogueBaseWhere(scope), status: { in: ["PUBLISHED", "LIVE"] }, endDate: { gte: new Date() } },
-        orderBy: { startDate: "asc" },
-        take: 100,
-        select: {
-          slug: true, name: true, startDate: true, endDate: true, timezone: true, venue: true, city: true,
-          country: true, eventType: true, specialty: true, bannerImage: true, cmeHours: true,
-        },
-      }),
+      inScopeLane(scope, () =>
+        db.event.findMany({
+          where: { ...catalogueBaseWhere(scope), status: { in: ["PUBLISHED", "LIVE"] }, endDate: { gte: new Date() } },
+          orderBy: { startDate: "asc" },
+          take: 100,
+          select: {
+            slug: true, name: true, startDate: true, endDate: true, timezone: true, venue: true, city: true,
+            country: true, eventType: true, specialty: true, bannerImage: true, cmeHours: true,
+          },
+        }),
+      ),
       tenant.orgId ? loadPublicBrandForOrg(tenant.orgId) : null,
       listTopicValues(scope),
     ]);

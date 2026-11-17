@@ -82,10 +82,17 @@ while IFS= read -r file; do
   # Pattern 1: any direct event find in the public surface must use the
   # helper in its where. Flag db.event.find* calls whose following ~400 chars
   # don't mention publicEventWhere.
+  # A read by the id of an event the helper already found is sanctioned too
+  # (Nov 17, 2026): `findPublicEvent` reads the event inside the host's lane,
+  # and a route may then read more of the SAME event with `where: { id: scope.id }`.
+  # Only where the file does call the helper.
   hits="$(printf '%s' "$src" | perl -0777 -ne '
+    my $found_by_helper = /\b(?:findPublicEvent|resolvePublicEventOrg|resolvePublicEventTenant)\s*\(/;
     while (/db\.event\.find(?:First|Unique|Many)\s*\(.{0,400}/gs) {
       my $m = $&;
-      print "db.event.find… without publicEventWhere\n" unless $m =~ /publicEventWhere/;
+      next if $m =~ /publicEventWhere/;
+      next if $found_by_helper && $m =~ /^db\.event\.find\w+\s*\(\s*\{\s*where:\s*\{\s*id:\s*\w+\.id\s*\}/;
+      print "db.event.find… without publicEventWhere\n";
     }')"
   [ -n "$hits" ] && report "$rel" "direct event lookup" "$hits"
 
@@ -111,11 +118,11 @@ done < <(
 
 if [ "$violations" -gt 0 ]; then
   cat <<'EOF'
-  Fix: build the where through the sanctioned helper —
+  Fix: read the event through the sanctioned helper, which binds the request
+  host's organisation AND reads inside that organisation's lane —
 
-      import { publicEventWhere } from "@/lib/public-event";
-      const event = await db.event.findFirst({
-        where: await publicEventWhere(req, slug, { statuses: [...] }),
+      import { findPublicEvent } from "@/lib/tenant/event-tenant";
+      const event = await findPublicEvent(req, slug, { statuses: [...] }, {
         select: { ... },
       });
 
@@ -128,4 +135,4 @@ EOF
   exit 1
 fi
 
-echo "✓ Tenant scoping: all public event lookups go through publicEventWhere"
+echo "✓ Tenant scoping: all public event lookups go through the host-bound helper"

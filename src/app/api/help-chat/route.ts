@@ -205,7 +205,7 @@ export async function POST(req: NextRequest) {
 
   // Abstract authors, reviewers and attendees get answers worded for someone
   // outside the team, with facts from their own events (Nov 2, 2026).
-  const events = isExternalHelpRole(role) ? await loadExternalHelpEvents({ id: userId, role: role ?? "" }) : undefined;
+  const events = isExternalHelpRole(role) ? await loadExternalHelpEvents({ id: userId, role: role ?? "" }, req) : undefined;
 
   const config = getModelConfig("helpChat", aiConfig.provider);
   const system = buildSystemPrompt({

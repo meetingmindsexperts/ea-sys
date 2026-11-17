@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { inSessionLane } from "@/lib/tenant/page-lane";
 import { Button } from "@/components/ui/button";
 import { Plus, Calendar } from "lucide-react";
 import { eventListWhere } from "@/lib/permissions/page-event-where";
@@ -20,6 +21,8 @@ interface EventsPageProps {
 export default async function EventsPage({ searchParams }: EventsPageProps) {
   const [session, sp] = await Promise.all([auth(), searchParams]);
   if (!session?.user) redirect("/login");
+  // Everything this page loads runs inside the tenant lane (src/lib/tenant/page-lane.ts).
+  return inSessionLane(session, async () => {
 
   const isRestricted =
     session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
@@ -111,4 +114,5 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
       )}
     </div>
   );
+  });
 }

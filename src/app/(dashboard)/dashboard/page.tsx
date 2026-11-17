@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { apiLogger } from "@/lib/logger";
+import { inSessionLane } from "@/lib/tenant/page-lane";
 import { can } from "@/lib/permissions/can";
 import { principalFromSession } from "@/lib/permissions/require-permission";
 import Link from "next/link";
@@ -36,6 +37,8 @@ export default async function DashboardPage() {
   if (session.user.role === "REVIEWER" || session.user.role === "SUBMITTER") {
     redirect("/events");
   }
+  // Everything this page loads runs inside the tenant lane (src/lib/tenant/page-lane.ts).
+  return inSessionLane(session, async () => {
 
   const canCreateEvent = can(principalFromSession(session), "events.create");
 
@@ -223,4 +226,5 @@ export default async function DashboardPage() {
       </div>
     </div>
   );
+  });
 }

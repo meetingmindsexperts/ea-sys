@@ -6,6 +6,7 @@ import { cache } from "react";
 import { ChevronRight } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { inScopeLane } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import {
   CATALOGUE_PAGE_SIZE,
@@ -108,15 +109,18 @@ async function loadTopicEvents(
 ) {
   const where = catalogueWhere(orgScope, query, now, variants);
   const upcomingWhere = catalogueWhere(orgScope, { ...query, when: "upcoming", page: 1 }, now, variants);
-  const [events, total, upcomingCount, upcomingFacts] = await Promise.all([
-    db.event.findMany({ where, orderBy: catalogueOrderBy(query), skip: (query.page - 1) * CATALOGUE_PAGE_SIZE, take: CATALOGUE_PAGE_SIZE, select: CATALOGUE_EVENT_SELECT }),
-    db.event.count({ where }),
-    // The intro speaks about upcoming events, whichever tab is open: counted
-    // exactly, described from a sample.
-    db.event.count({ where: upcomingWhere }),
-    db.event.findMany({ where: upcomingWhere, take: 200, select: { city: true, country: true, specialty: true, cmeHours: true } }),
-  ]);
-  const registration = await loadCardRegistration(events.map((e) => e.id), now);
+  // Inside the lane of the organisation the host names (Event RLS step 2).
+  const [events, total, upcomingCount, upcomingFacts] = await inScopeLane(orgScope, () =>
+    Promise.all([
+      db.event.findMany({ where, orderBy: catalogueOrderBy(query), skip: (query.page - 1) * CATALOGUE_PAGE_SIZE, take: CATALOGUE_PAGE_SIZE, select: CATALOGUE_EVENT_SELECT }),
+      db.event.count({ where }),
+      // The intro speaks about upcoming events, whichever tab is open: counted
+      // exactly, described from a sample.
+      db.event.count({ where: upcomingWhere }),
+      db.event.findMany({ where: upcomingWhere, take: 200, select: { city: true, country: true, specialty: true, cmeHours: true } }),
+    ]),
+  );
+  const registration = await loadCardRegistration(orgScope, events.map((e) => e.id), now);
   return { events, total, upcomingCount, upcomingFacts, registration };
 }
 

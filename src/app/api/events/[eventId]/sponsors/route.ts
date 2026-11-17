@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
@@ -100,7 +101,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const [sponsors, tiers] = await Promise.all([getSponsors(eventId), getSponsorTiers(organizationId)]);
+    // Inside the organisation's lane: Sponsor carries a row policy.
+    const [sponsors, tiers] = await runWithTenant(organizationId, () =>
+      Promise.all([getSponsors(eventId), getSponsorTiers(organizationId)]),
+    );
     return NextResponse.json({ sponsors, tiers });
   } catch (err) {
     apiLogger.error({ err }, "sponsors:list-failed");
@@ -177,14 +181,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // The list is now a TABLE, so replace-all becomes a diff with a refusal:
     // a sponsor the payload drops but a registration or promo code still
     // references stops the whole save (services/sponsor-service.ts §4).
-    const result = await saveSponsors({
-      eventId,
-      organizationId,
-      actorUserId: session.user.id,
-      source: "rest",
-      sponsors: validated.data.sponsors,
-      mode: "replace",
-    });
+    // Inside the organisation's lane (Event RLS step 2, Nov 17 2026): the save reads the event and
+    // runs a tenant transaction, which outside a lane is a plain one.
+    const result = await runWithTenant(organizationId, () =>
+      saveSponsors({
+        eventId,
+        organizationId,
+        actorUserId: session.user.id,
+        source: "rest",
+        sponsors: validated.data.sponsors,
+        mode: "replace",
+      }),
+    );
 
     if (!result.ok) {
       apiLogger.warn({

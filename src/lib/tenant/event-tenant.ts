@@ -1,41 +1,41 @@
 /**
- * Event tenant discovery: the ONE sanctioned read of `Event` made before a
- * tenant lane exists (Event RLS preparation, step 1, Nov 5 2026).
+ * How a query on `Event` gets its tenant lane (Event RLS, Nov 5 to 17 2026).
  *
- * WHY EVENT IS SPECIAL. Every other policied table is read inside a lane. Event
- * is how many requests FIND their lane: a public route knows a slug, a token
- * route knows a slug, and neither knows the organisation until it has read the
- * Event. That is the same job `TenantDomain` does for a host, and it is why
- * Event carries no policy yet (`DELIBERATELY_UNPOLICIED` in
- * __tests__/lib/rls-coverage.test.ts). Switch a policy on while those reads
- * run outside a lane and every one of them returns null, so the route answers
- * 404 with nothing in the logs.
+ * WHY EVENT IS SPECIAL. Every other policied table is read inside a lane the
+ * caller already has. Event is how many requests FIND their lane: a public
+ * route knows a slug, a reviewer knows an event id, and neither knows the
+ * organisation until the Event has been read. With a row policy on Event, a
+ * read made outside a lane returns null, so the route answers 404 with nothing
+ * in the logs. Every read of Event therefore goes through one of the doors in
+ * this file, by who is asking:
  *
- * WHAT THIS FILE IS FOR. Until now each surface carried its own copy of the
- * discovery read (reimbursement, travel grant, speaker profile form, RSVP: four
- * byte-identical functions). Putting it in one place means the day the Event
- * policy is promoted, discovery is ONE line to move onto the privileged lane
- * (`dbOperator`, which already sees every row and is import-gated by
- * scripts/check-tenant-als.sh) instead of a hunt across the tree.
+ *   - a PUBLIC address (a slug on a host): `findPublicEvent`,
+ *     `resolvePublicEventOrg`, `resolvePublicEventTenant`. The host names the
+ *     tenant and `publicEventWhere` puts it in the filter, so the lane is
+ *     entered first, for the organisation the filter names. Nothing privileged.
+ *   - a PUBLIC LIST (the catalogue, the sitemap): `inHostLane`, `inScopeLane`.
+ *   - a PERMISSION GATE on one event: `findGatedEvent`. A team role or an API
+ *     key reads inside its own organisation's lane. A reviewer, submitter or
+ *     registrant reaches an event through their link to it, so the event's
+ *     organisation is discovered first (`resolveEventTenant`, below).
+ *   - a LIST behind a gate: `inOwnLane`.
+ *   - a dashboard PAGE: `inSessionLane` (page-lane.ts, which needs next/headers).
  *
- * WHY `db` AND NOT `dbOperator` TODAY. Event has no policy yet, so `db` reads
- * it fine on every deployment, and on master the two are the same object
- * anyway. Moving to `dbOperator` now would widen the privileged allow-list
- * before anything needed it. Make that switch in the same change that
- * promotes tests/tenancy/policies/10-event-rls.sql into prisma/rls/.
+ * THE ONE READ MADE BEFORE A LANE EXISTS is `resolveEventTenant`: the
+ * sanctioned discovery, for a caller who holds an event's id and no lane. Its
+ * contract is what makes it safe: it returns ONLY the id and the organisation,
+ * never event content, for a filter the caller's gate has already scoped.
+ * Callers then read everything else inside `runWithTenant(organizationId)`,
+ * where row security applies normally. It runs inside `asEventDiscovery`, so
+ * the shadow detector (lane-shadow.ts) does not report it.
  *
- * THE CONTRACT that makes the privileged read safe later: it returns ONLY the
- * id and the organisation, never event content, and the public variant builds
- * its filter through `publicEventWhere`, which already binds the request
- * host's tenant. Callers then enter `runWithTenant(organizationId)` and read
- * everything else inside the lane, where RLS applies normally.
- *
- * The read runs inside `asEventDiscovery`, so the shadow detector
- * (src/lib/tenant/lane-shadow.ts) treats it as sanctioned and does not report it.
+ * It reads through `db` today. Where row security is on it must read through
+ * the privileged client (`dbOperator`), or it finds nothing: that one-line
+ * move is made in the change that promotes the Event policy into prisma/rls/.
  */
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { publicEventWhere, type PublicEventScopeOptions } from "@/lib/public-event";
+import { publicEventWhere, publicEventWhereForHost, publicOrgScopeForHost, type PublicEventScopeOptions } from "@/lib/public-event";
 import { asEventDiscovery } from "@/lib/tenant/lane-shadow";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isTeamRole } from "@/lib/team-roles";
@@ -55,16 +55,42 @@ export async function resolveEventTenant(where: Prisma.EventWhereInput): Promise
 }
 
 /**
+ * Run a read of Event inside the lane of the organisation its filter names.
+ * `publicEventWhere` puts the host's organisation in the filter (or the
+ * sentinel, for a host the deployment refused); a filter with none comes from
+ * a deployment that cannot say whose address this is (a developer's machine),
+ * and there the read runs as it always has.
+ *
+ * A string, or absent: the type also admits a filter object, which the builder
+ * never emits, and if it did there would be no lane, which fails closed.
+ */
+function inFilterLane<T>(where: Prisma.EventWhereInput, read: () => Promise<T>): Promise<T> {
+  const organizationId = typeof where.organizationId === "string" ? where.organizationId : null;
+  return organizationId ? runWithTenant(organizationId, read) : read();
+}
+
+/**
+ * The id and organisation of the event behind a filter `publicEventWhere`
+ * built, read inside the lane that filter names. For a public caller that
+ * keeps the filter (the webinar chat caches by it). Nothing privileged.
+ */
+export function resolvePublicEventTenant(where: Prisma.EventWhereInput): Promise<EventTenant | null> {
+  return inFilterLane(where, () => db.event.findFirst({ where, select: { id: true, organizationId: true } }));
+}
+
+/**
  * The organisation behind a public URL's event slug, on this request's host.
  * Call BEFORE any token or row lookup, then run the rest of the handler inside
  * `runWithTenant(<this org>)`. Null when the slug does not resolve on this host.
+ * Read inside the host's own lane since Nov 17, 2026, never through the
+ * discovery above: a public address already says whose it is.
  */
 export async function resolvePublicEventOrg(
   req: Request,
   slug: string,
   opts?: PublicEventScopeOptions,
 ): Promise<string | null> {
-  const event = await resolveEventTenant(await publicEventWhere(req, slug, opts));
+  const event = await resolvePublicEventTenant(await publicEventWhere(req, slug, opts));
   return event?.organizationId ?? null;
 }
 
@@ -105,16 +131,97 @@ export function organisationGate(organizationId: string, eventWhere: Prisma.Even
 }
 
 /**
- * Run a query over SEVERAL events behind a gate (a list, a count) inside the
- * caller's own lane, when their reach is their organisation: a team role or
- * an API key. For anyone else it runs as it is: a reviewer's, submitter's or
- * registrant's list can span organisations, which one lane cannot hold. That
- * list still reads outside a lane and is the open item in
- * docs/SECURITY_AUDIT_ACTION_PLAN.md §3.1.
+ * Run a query over SEVERAL events behind a gate (a list, a count) inside a
+ * lane: the caller's own organisation's when their reach is that organisation
+ * (a team role, an API key), and for anyone else the lane of the organisation
+ * the request's HOST names.
+ *
+ * WHY THE HOST for a reviewer, submitter or registrant (Nov 17, 2026). Their
+ * account's organisation does not say which events they reach, so it cannot be
+ * their lane. The front door they came through can: sign-in already resolves
+ * the tenant from the host, the registrant portal's routes already take their
+ * lane from it (`resolveRequestOrgId`), and on the platform an account belongs
+ * to one tenant (PLATFORM_DECISIONS §6), so every event a person is linked to
+ * is the host's organisation's. On master the host names the one organisation.
+ * Pass the request, or the Host header a server component read.
  */
-export function inOwnLane<T>(gate: EventGate, fn: () => Promise<T>): Promise<T> {
+export function inOwnLane<T>(gate: Pick<EventGate, "principal">, source: PublicSource, fn: () => Promise<T>): Promise<T> {
   const organizationId = ownLane(gate.principal);
-  return organizationId ? runWithTenant(organizationId, fn) : fn();
+  return organizationId ? runWithTenant(organizationId, fn) : inHostLane(source, fn);
+}
+
+/** A request, or the Host header a server component read from `next/headers`. */
+export type PublicSource = Request | string | null | undefined;
+
+function hostOf(source: PublicSource): string | null {
+  if (source == null) return null;
+  return typeof source === "string" ? source : source.headers.get("host");
+}
+
+/**
+ * Run a PUBLIC read inside the lane of the organisation this request's host
+ * names: a catalogue, a sitemap, any read that lists events and so has no one
+ * event to discover. The filter the caller built (`publicOrgScopeForHost`,
+ * `publicEventWhere`) already names that organisation; the lane makes the
+ * database hold it to that as well.
+ *
+ * With no organisation from the host there are two cases. An enforcing
+ * deployment refused the host: the scope is the sentinel id, and its lane
+ * answers nothing, as the sentinel filter does. A deployment that does not
+ * enforce hosts and has no default organisation (a developer's machine) has
+ * no lane to give: the read runs as it always has.
+ */
+export async function inHostLane<T>(source: PublicSource, fn: () => Promise<T>): Promise<T> {
+  return inScopeLane(await publicOrgScopeForHost(hostOf(source)), fn);
+}
+
+/**
+ * The same, for a caller that has already turned the host into an organisation
+ * scope (`publicOrgScopeForHost`): the catalogue's loaders are handed the
+ * scope, not the request. A refused host's scope is the sentinel id, and a
+ * lane for an organisation that does not exist answers nothing.
+ */
+export function inScopeLane<T>(scope: { organizationId?: string }, fn: () => Promise<T>): Promise<T> {
+  return scope.organizationId ? runWithTenant(scope.organizationId, fn) : fn();
+}
+
+/**
+ * The event behind a PUBLIC address, read the way that survives an Event
+ * policy (Event RLS step 2, third sweep, Nov 17 2026). It is
+ * `db.event.findFirst({ where: await publicEventWhere(req, slug, scope), ...args })`,
+ * and on master it is that query, unchanged.
+ *
+ * WHY A PUBLIC ROUTE CALLS THIS. It used to make that read outside any lane
+ * and only then enter `runWithTenant(event.organizationId)`: under a policy
+ * the first read returns null and every public page of every event answers
+ * "not found". The host already names the tenant, and `publicEventWhere` has
+ * put that organisation in the filter, so the lane is entered FIRST, for the
+ * organisation the filter names, and the event read inside it. Nothing
+ * privileged is involved: a mistake in the filter still cannot reach another
+ * tenant's event.
+ *
+ * Where the host names no organisation (a developer's machine, with no domain
+ * row and no default) the filter carries none and there is no lane to enter:
+ * the read runs as it always has. With row security on that finds nothing,
+ * which is the right answer for a deployment that cannot say whose page this
+ * is; the platform refuses such a host outright.
+ *
+ * `scope` is what `publicEventWhere` takes: the statuses, and whether an id
+ * may stand where the slug belongs. Pass `{}` for neither.
+ */
+export async function findPublicEvent<A extends GatedEventArgs>(
+  source: PublicSource,
+  slug: string,
+  scope: PublicEventScopeOptions,
+  args: Prisma.SelectSubset<A, GatedEventArgs>,
+): Promise<Prisma.EventGetPayload<A> | null> {
+  const where =
+    typeof source === "string" || source == null
+      ? await publicEventWhereForHost(source, slug, scope)
+      : await publicEventWhere(source, slug, scope);
+  const read = () =>
+    db.event.findFirst({ ...(args as GatedEventArgs), where }) as unknown as Promise<Prisma.EventGetPayload<A> | null>;
+  return inFilterLane(where, read);
 }
 
 /** The two columns the sanctioned discovery read may return. */

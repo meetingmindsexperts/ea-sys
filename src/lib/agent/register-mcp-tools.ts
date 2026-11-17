@@ -128,7 +128,11 @@ export function registerAllMcpTools(
     run: () => Promise<string>,
   ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: true }> {
     try {
-      const text = await run();
+      // Every tool runs inside the authenticated organisation's lane (Event RLS
+      // step 2, Nov 17 2026). Each executor entered its own lane, often AFTER
+      // reading the event, and `getOrgIdSecure` read it before any of them:
+      // with a policy on Event every event tool would have answered "not found".
+      const text = await runWithTenant(organizationId, run);
       return { content: [{ type: "text" as const, text }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -146,7 +150,8 @@ export function registerAllMcpTools(
     run: () => Promise<{ contents: Array<{ uri: string; text: string; mimeType?: string }> }>,
   ): Promise<{ contents: Array<{ uri: string; text: string; mimeType?: string }> }> {
     try {
-      return await run();
+      // Inside the organisation's lane, as every tool is (see safeTool).
+      return await runWithTenant(organizationId, run);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       apiLogger.error({ msg: "MCP resource failed", name, organizationId, err: message });

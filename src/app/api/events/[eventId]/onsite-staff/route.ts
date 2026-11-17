@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { assignEventStaff, eventStaffUserIds, unassignEventStaff } from "@/lib/event-staff";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { ONSITE_ACCOUNT_ROLES } from "@/lib/team-roles";
 
 /**
@@ -41,6 +42,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "events.staff.assign", { route: "events/[eventId]/onsite-staff:GET" });
     if (!gate.ok) return gate.response;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
+
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
@@ -60,6 +63,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     return NextResponse.json({
       onsiteStaff: onsiteStaff.map((u) => ({ ...u, active: !!u.emailVerified })),
     });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error listing onsite staff" });
     return NextResponse.json({ error: "Failed to list onsite staff" }, { status: 500 });
@@ -76,6 +80,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if ("error" in orgGuard) return orgGuard.error;
     const gate = requirePermission(session, "events.staff.assign", { route: "events/[eventId]/onsite-staff:POST" });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     const parsed = assignSchema.safeParse(body);
     if (!parsed.success) {
@@ -131,6 +137,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "onsite-staff:assigned", eventId, userId, by: session.user.id });
     return NextResponse.json({ success: true, assigned: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error assigning onsite staff" });
     return NextResponse.json({ error: "Failed to assign onsite staff" }, { status: 500 });
@@ -147,6 +154,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if ("error" in orgGuard) return orgGuard.error;
     const gate = requirePermission(session, "events.staff.assign", { route: "events/[eventId]/onsite-staff:DELETE" });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     const userId = new URL(req.url).searchParams.get("userId");
     if (!userId) {
@@ -178,6 +187,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "onsite-staff:unassigned", eventId, userId, by: session.user.id });
     return NextResponse.json({ success: true, unassigned: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error unassigning onsite staff" });
     return NextResponse.json({ error: "Failed to unassign onsite staff" }, { status: 500 });

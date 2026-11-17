@@ -7,6 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhereForHost } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { toPublicEventBranding, type PublicEventBranding } from "@/lib/public-event-branding";
 
 /**
@@ -28,8 +29,7 @@ const MAX_DESCRIPTION = 160;
 // tenant-scoped (generateMetadata has no Request object — the host comes from
 // next/headers in buildEventMetadata below).
 const getEventForMeta = cache(async (host: string | null, slug: string) =>
-  db.event.findFirst({
-    where: await publicEventWhereForHost(host, slug),
+  findPublicEvent(host, slug, {}, {
     select: {
       name: true,
       description: true,

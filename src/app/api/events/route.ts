@@ -12,7 +12,7 @@ import { principalFromApiKey, refuseOutOfScope, requirePermission } from "@/lib/
 import { validateApiKey } from "@/lib/api-key";
 import { eventOrderBy, parseEventSort } from "@/lib/event-sort";
 import { createEvent } from "@/services/event-service";
-import { inOwnLane } from "@/lib/tenant/event-tenant";
+import { inHostLane, inOwnLane } from "@/lib/tenant/event-tenant";
 
 const createEventSchema = z.object({
   name: z.string().min(2).max(255),
@@ -61,11 +61,15 @@ export async function GET(req: Request) {
       // the Event row's configuration (settings JSON, bank details, tax config,
       // sender address) that a bare `include` would ship to their browser.
       if (!isTeamRole(user.role)) {
-        const events = await db.event.findMany({
-          where: { ...buildEventAccessWhere(user), ...(slug && { slug }) },
-          orderBy,
-          select: EVENT_LIST_SELECT,
-        });
+        // Their account's organisation does not say which events they reach,
+        // so the lane is the one the request's host names (Event RLS step 2).
+        const events = await inHostLane(req, () =>
+          db.event.findMany({
+            where: { ...buildEventAccessWhere(user), ...(slug && { slug }) },
+            orderBy,
+            select: EVENT_LIST_SELECT,
+          }),
+        );
         return NextResponse.json(events);
       }
 
@@ -76,7 +80,7 @@ export async function GET(req: Request) {
       if (!gate.ok) return gate.response;
       // Inside the organisation's own lane (Event RLS step 2): outside one,
       // a policy on Event would answer with an empty list.
-      const events = await inOwnLane(gate, () =>
+      const events = await inOwnLane(gate, req, () =>
         db.event.findMany({
           where: { ...gate.eventWhere, ...(slug && { slug }) },
           orderBy,
@@ -109,7 +113,7 @@ export async function GET(req: Request) {
       onMissing: "hide",
     });
     if (!gate.ok) return gate.response;
-    const events = await inOwnLane(gate, () =>
+    const events = await inOwnLane(gate, req, () =>
       db.event.findMany({
         where: { ...gate.eventWhere, ...(slug && { slug }) },
         orderBy,

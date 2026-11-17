@@ -1,6 +1,7 @@
 import { readPublicBrand } from "@/lib/public-brand";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { inScopeLane } from "@/lib/tenant/event-tenant";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { publicOrgScopeForHost } from "@/lib/public-event";
 import { catalogueBaseWhere, groupTopics, readCatalogueSettings, type CatalogueSettings, type Topic } from "@/lib/catalogue";
@@ -100,12 +101,16 @@ export async function loadSiteStats(orgScope: { organizationId?: string }): Prom
 
 async function countSiteStats(orgScope: { organizationId?: string }): Promise<SiteStats> {
   const eventWhere = { ...orgScope, status: { in: [...RUN_STATUSES] } };
-  const [events, countries, delegates, faculty] = await Promise.all([
-    db.event.count({ where: eventWhere }),
-    db.event.groupBy({ by: ["country"], where: { ...eventWhere, country: { not: null } } }),
-    db.registration.count({ where: { event: eventWhere, status: { notIn: ["CANCELLED", "WAITLISTED"] }, ticketType: { isFaculty: false } } }),
-    db.speaker.groupBy({ by: ["email"], where: { event: eventWhere } }),
-  ]);
+  // Inside the organisation's lane, like every read in this file: the host
+  // named the organisation, and the database holds the counts to it as well.
+  const [events, countries, delegates, faculty] = await inScopeLane(orgScope, () =>
+    Promise.all([
+      db.event.count({ where: eventWhere }),
+      db.event.groupBy({ by: ["country"], where: { ...eventWhere, country: { not: null } } }),
+      db.registration.count({ where: { event: eventWhere, status: { notIn: ["CANCELLED", "WAITLISTED"] }, ticketType: { isFaculty: false } } }),
+      db.speaker.groupBy({ by: ["email"], where: { event: eventWhere } }),
+    ]),
+  );
   const countryCount = new Set(countries.map((c) => c.country?.trim().toLowerCase()).filter(Boolean)).size;
   // One person per address however it was typed ("A@x.com" and "a@x.com").
   const people = new Set(faculty.map((f) => f.email.trim().toLowerCase())).size;
@@ -125,27 +130,33 @@ export interface CardRegistration {
  * (public-availability.ts via event-overview.ts): a card never says "Early
  * bird" or "From $200" when the form would say closed or full.
  */
-export async function loadCardRegistration(eventIds: string[], now: Date): Promise<Map<string, CardRegistration>> {
+export async function loadCardRegistration(
+  orgScope: { organizationId?: string },
+  eventIds: string[],
+  now: Date,
+): Promise<Map<string, CardRegistration>> {
   if (eventIds.length === 0) return new Map();
-  const rows = await db.event.findMany({
-    where: { id: { in: eventIds } },
-    select: {
-      id: true, endDate: true, eventType: true, settings: true, maxAttendees: true, seatCount: true,
-      ticketTypes: {
-        // What the public form sells: active, never the hidden Faculty type.
-        where: { isActive: true, isFaculty: false },
-        orderBy: { sortOrder: "asc" },
-        select: {
-          name: true, quantity: true, soldCount: true,
-          pricingTiers: {
-            where: { isActive: true },
-            orderBy: { sortOrder: "asc" },
-            select: { name: true, sortOrder: true, price: true, currency: true, quantity: true, soldCount: true, salesStart: true, salesEnd: true },
+  const rows = await inScopeLane(orgScope, () =>
+    db.event.findMany({
+      where: { ...orgScope, id: { in: eventIds } },
+      select: {
+        id: true, endDate: true, eventType: true, settings: true, maxAttendees: true, seatCount: true,
+        ticketTypes: {
+          // What the public form sells: active, never the hidden Faculty type.
+          where: { isActive: true, isFaculty: false },
+          orderBy: { sortOrder: "asc" },
+          select: {
+            name: true, quantity: true, soldCount: true,
+            pricingTiers: {
+              where: { isActive: true },
+              orderBy: { sortOrder: "asc" },
+              select: { name: true, sortOrder: true, price: true, currency: true, quantity: true, soldCount: true, salesStart: true, salesEnd: true },
+            },
           },
         },
       },
-    },
-  });
+    }),
+  );
   return new Map(
     rows.map((e) => {
       const settings = (e.settings ?? {}) as Record<string, unknown>;
@@ -169,10 +180,12 @@ export async function loadCardRegistration(eventIds: string[], now: Date): Promi
  */
 export async function listTopicValues(orgScope: { organizationId?: string }): Promise<{ specialties: Topic[]; countries: Topic[] }> {
   const where = catalogueBaseWhere(orgScope);
-  const [specialties, countries] = await Promise.all([
-    db.event.groupBy({ by: ["specialty"], where: { ...where, specialty: { not: null } }, _count: { _all: true } }),
-    db.event.groupBy({ by: ["country"], where: { ...where, country: { not: null } }, _count: { _all: true } }),
-  ]);
+  const [specialties, countries] = await inScopeLane(orgScope, () =>
+    Promise.all([
+      db.event.groupBy({ by: ["specialty"], where: { ...where, specialty: { not: null } }, _count: { _all: true } }),
+      db.event.groupBy({ by: ["country"], where: { ...where, country: { not: null } }, _count: { _all: true } }),
+    ]),
+  );
   return {
     specialties: groupTopics(specialties.map((r) => ({ value: r.specialty, count: r._count._all }))),
     countries: groupTopics(countries.map((r) => ({ value: r.country, count: r._count._all }))),

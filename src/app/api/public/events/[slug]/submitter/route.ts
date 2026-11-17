@@ -7,7 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { sendEmailVerification } from "@/lib/email-verification";
 import { speakerClaimPending } from "@/lib/registrant-access";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { presenterDetailsSchema } from "@/lib/schemas";
@@ -82,11 +82,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { slug } = await params;
 
     // Look up event (tenant-scoped by request host)
-    const event = await db.event.findFirst({
-      where: await publicEventWhere(req, slug, {
+    const event = await findPublicEvent(req, slug, {
         allowIdFallback: true,
         statuses: ["PUBLISHED", "LIVE"],
-      }),
+      }, {
       select: {
         id: true,
         name: true,

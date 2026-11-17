@@ -11,7 +11,7 @@ import type { Session } from "next-auth";
 import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
-import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { can, eventWhereFor } from "@/lib/permissions/can";
 import { principalFromSession } from "@/lib/permissions/require-permission";
 import { getModelConfig } from "@/lib/ai/config";
@@ -100,10 +100,8 @@ export async function executeAgentRequest(
     // one this person may read, since the prompt describes it (name, dates,
     // counts). A role scoped to some events must not read others this way
     // (Phase 6 review, Oct 7, 2026).
-    const event = await db.event.findFirst({
-      where: { AND: [{ id: eventId, organizationId: orgId }, eventWhereFor(principal, "events.read", eventId)] },
-      select: { id: true },
-    });
+    const eventWhere = { AND: [{ id: eventId, organizationId: orgId }, eventWhereFor(principal, "events.read", eventId)] };
+    const event = await findGatedEvent({ principal, eventWhere }, { select: { id: true } });
     if (!event) {
       apiLogger.warn({ msg: "agent:event-not-found", route: opts.route, userId: session.user.id, eventId });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

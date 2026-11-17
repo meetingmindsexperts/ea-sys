@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
@@ -46,11 +46,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { code, ticketTypeId, pricingTierId, email } = parsed.data;
 
-    const event = await db.event.findFirst({
-      // The same events the register route takes (review of 73ef6416): this
-      // answered PUBLISHED only, so on a LIVE event no code could be checked
-      // and a sponsor link could register nobody.
-      where: await publicEventWhere(req, slug, { allowIdFallback: true, statuses: ["PUBLISHED", "LIVE"] }),
+    // The same events the register route takes (review of 73ef6416): this
+    // answered PUBLISHED only, so on a LIVE event no code could be checked
+    // and a sponsor link could register nobody.
+    const event = await findPublicEvent(req, slug, { allowIdFallback: true, statuses: ["PUBLISHED", "LIVE"] }, {
       select: { id: true, organizationId: true },
     });
     if (!event) {

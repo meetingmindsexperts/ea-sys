@@ -28,6 +28,7 @@
  */
 
 import { dbOperator } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import {
   syncWebinarAttendance,
@@ -121,7 +122,8 @@ export async function runWebinarAttendanceTick(): Promise<WebinarAttendanceTickR
     },
     orderBy: [{ lastAttendanceSyncAt: { sort: "asc", nulls: "first" } }],
     take: MAX_PER_TICK,
-    select: { id: true },
+    // The organisation rides along: each row's work runs inside its lane (below).
+    select: { id: true, event: { select: { organizationId: true } } },
   });
 
   if (candidates.length === 0) {
@@ -149,7 +151,10 @@ export async function runWebinarAttendanceTick(): Promise<WebinarAttendanceTickR
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
     try {
-      const result = await syncWebinarAttendance(candidate.id);
+      // Inside the row's organisation's lane (Event RLS step 2, Nov 17 2026): each sync's FIRST
+      // read is of the meeting and its event, before the lane the sync enters for the rest.
+      const organizationId = candidate.event.organizationId;
+      const result = await runWithTenant(organizationId, () => syncWebinarAttendance(candidate.id));
       const resultRow: WebinarAttendanceRowResult = {
         id: candidate.id,
         status: result.status,
@@ -162,7 +167,7 @@ export async function runWebinarAttendanceTick(): Promise<WebinarAttendanceTickR
       // Piggyback engagement sync onto the same tick. Own try/catch so a
       // polls/Q&A failure never masks or overrides the attendance result.
       try {
-        const engagement = await syncWebinarEngagement(candidate.id);
+        const engagement = await runWithTenant(organizationId, () => syncWebinarEngagement(candidate.id));
         resultRow.engagement = {
           status: engagement.status,
           pollsPersisted:

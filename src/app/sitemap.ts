@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { catalogueBaseWhere, topicHref } from "@/lib/catalogue";
 import { listTopicValues } from "@/lib/catalogue-data";
 import { publicOrgScopeForHost } from "@/lib/public-event";
+import { inScopeLane } from "@/lib/tenant/event-tenant";
 import { siteOrigin } from "@/lib/seo";
 
 /**
@@ -20,12 +21,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     const scope = await publicOrgScopeForHost(host);
     const [events, topics] = await Promise.all([
-      db.event.findMany({
-        where: catalogueBaseWhere(scope),
-        select: { slug: true, updatedAt: true },
-        orderBy: { startDate: "desc" },
-        take: 5000,
-      }),
+      inScopeLane(scope, () =>
+        db.event.findMany({
+          where: catalogueBaseWhere(scope),
+          select: { slug: true, updatedAt: true },
+          orderBy: { startDate: "desc" },
+          take: 5000,
+        }),
+      ),
       listTopicValues(scope),
     ]);
     return [

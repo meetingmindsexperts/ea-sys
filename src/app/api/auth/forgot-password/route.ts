@@ -7,7 +7,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { emailTemplates, sendEmail } from "@/lib/email";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { SUBMITTER_RETURN_VALUES } from "@/lib/submitter-return";
@@ -113,8 +113,7 @@ export async function POST(req: Request) {
     let verifiedEventSlug: string | undefined;
     if (eventSlug) {
       try {
-        const event = await db.event.findFirst({
-          where: await publicEventWhere(req, eventSlug),
+        const event = await findPublicEvent(req, eventSlug, {}, {
           select: { slug: true },
         });
         if (event) {

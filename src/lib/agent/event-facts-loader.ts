@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import type { EventFacts } from "@/lib/permissions/can";
 import { eventFactsOf } from "@/lib/permissions/event-facts";
+import { runWithTenant } from "@/lib/tenant-context";
 
 /**
  * The facts the agent's tool gate judges an event-bound key by, for an event
@@ -11,10 +12,14 @@ import { eventFactsOf } from "@/lib/permissions/event-facts";
  */
 export async function loadEventFacts(eventId: string, organizationId: string): Promise<EventFacts | null> {
   try {
-    const event = await db.event.findFirst({
-      where: { id: eventId, organizationId },
-      select: { organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
-    });
+    // Inside the caller's organisation's lane: the tool gate asks this before
+    // any tool has entered one (Event RLS step 2).
+    const event = await runWithTenant(organizationId, () =>
+      db.event.findFirst({
+        where: { id: eventId, organizationId },
+        select: { organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
+      }),
+    );
     if (!event) return null;
     return eventFactsOf({ ...event, staffUserIds: event.staffAssignments.map((a) => a.userId) });
   } catch (err) {

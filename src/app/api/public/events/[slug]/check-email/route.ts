@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -70,8 +70,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const email = parsed.data.email.toLowerCase();
 
-    const event = await db.event.findFirst({
-      where: await publicEventWhere(req, slug, { statuses: ["PUBLISHED", "LIVE"] }),
+    const event = await findPublicEvent(req, slug, { statuses: ["PUBLISHED", "LIVE"] }, {
       select: { id: true, organizationId: true },
     });
     if (!event) {

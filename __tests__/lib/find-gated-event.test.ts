@@ -16,7 +16,7 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { findGatedEvent, inOwnLane, organisationGate } from "@/lib/tenant/event-tenant";
+import { findGatedEvent, organisationGate } from "@/lib/tenant/event-tenant";
 import { getTenantOrgId } from "@/lib/tenant-context";
 import { noteUnlanedEventQuery, resetLaneShadowForTests } from "@/lib/tenant/lane-shadow";
 
@@ -161,34 +161,6 @@ describe("findGatedEvent", () => {
   it("leaves no lane behind it", async () => {
     await findGatedEvent(staff, { select: { id: true } });
     expect(getTenantOrgId()).toBeFalsy();
-  });
-});
-
-describe("inOwnLane: a list of events behind a gate", () => {
-  const lane = () => inOwnLaneProbe;
-  let inOwnLaneProbe: string | undefined;
-  const probe = async () => {
-    inOwnLaneProbe = getTenantOrgId() ?? undefined;
-    return "rows";
-  };
-
-  it("runs a team member's and an API key's list inside their organisation's lane, and returns what the query returned", async () => {
-    expect(await inOwnLane(staff, probe)).toBe("rows");
-    expect(lane()).toBe("org1");
-    await inOwnLane({ principal: { organizationId: "org1", baseRole: null, fromApiKey: true }, eventWhere: WHERE }, probe);
-    expect(lane()).toBe("org1");
-  });
-
-  it("enters no lane for a linked role or an operator with no organisation: their list can span organisations", async () => {
-    for (const principal of [
-      { organizationId: null, baseRole: "SUBMITTER", fromApiKey: false },
-      { organizationId: "org1", baseRole: "REVIEWER", fromApiKey: false },
-      { organizationId: null, baseRole: "SUPER_ADMIN", fromApiKey: false },
-    ]) {
-      inOwnLaneProbe = "unset";
-      expect(await inOwnLane({ principal, eventWhere: LINKED }, probe)).toBe("rows");
-      expect(lane(), JSON.stringify(principal)).toBeUndefined();
-    }
   });
 });
 

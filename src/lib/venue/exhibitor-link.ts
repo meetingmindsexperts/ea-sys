@@ -12,7 +12,8 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { isPlausibleShareToken } from "@/lib/share-token";
 import { isVenueModuleEnabled } from "@/lib/module-flags";
@@ -80,7 +81,7 @@ export async function withFloorPlanLink(
     return inactive();
   }
   // Event carries no RLS policy, so this lookup runs before any lane; any status, as sharing is the team's choice.
-  const event = await db.event.findFirst({ where: await publicEventWhere(req, slug), select: FLOOR_PLAN_EVENT_SELECT });
+  const event = await findPublicEvent(req, slug, {}, { select: FLOOR_PLAN_EVENT_SELECT });
   if (!event?.organizationId) {
     apiLogger.warn({ msg: `${door.route}:event-not-found`, slug });
     return inactive();

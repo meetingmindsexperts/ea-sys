@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { agendaPayload, isAgendaPublished, loadAgendaEvent } from "@/lib/agenda-data";
@@ -63,11 +62,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     // resolved fine and its registration types came back EMPTY — every public
     // event page would have read "Registration Closed" with nothing in the
     // logs. Found in the two-tenant sandbox, Aug 21 2026.
-    const scope = await db.event.findFirst({
-      where: await publicEventWhere(req, slug, {
+    const scope = await findPublicEvent(req, slug, {
         allowIdFallback: true,
         statuses: [...AGENDA_PUBLIC_EVENT_STATUSES],
-      }),
+      }, {
       select: { id: true, organizationId: true },
     });
 

@@ -20,8 +20,8 @@
  * genuinely new event becomes measurable quickly.
  */
 
-import { db } from "@/lib/db";
 import { publicEventWhereForHost } from "@/lib/public-event";
+import { resolvePublicEventTenant } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import type { SiteBinding } from "@/analytics/store/prisma-store";
 
@@ -73,11 +73,10 @@ export async function resolveSite(
   try {
     // Same tenancy resolution as every other public route, so a slug that
     // belongs to another tenant on this host does not resolve here either.
-    const where = await publicEventWhereForHost(host, siteId);
-    const event = await db.event.findFirst({
-      where,
-      select: { id: true, organizationId: true },
-    });
+    // Read inside the lane that host-bound filter names (Event RLS step 2):
+    // outside one, a policy on Event would answer null and every hit on every
+    // site would be dropped, the miss cached.
+    const event = await resolvePublicEventTenant(await publicEventWhereForHost(host, siteId));
 
     const binding =
       event && event.organizationId

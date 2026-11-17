@@ -9,6 +9,7 @@ import { resolveActingOrgId } from "@/lib/platform-operator";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings, updateOrganizationSettings } from "@/lib/event-settings";
 import { findGatedEvent, organisationGate } from "@/lib/tenant/event-tenant";
+import { runWithTenant } from "@/lib/tenant-context";
 import {
   CATALOGUE_SECTIONS,
   CATALOGUE_SETTING,
@@ -79,12 +80,15 @@ export async function GET(req: Request) {
 
     const [row, events] = await Promise.all([
       db.organization.findUnique({ where: { id: org.orgId }, select: { name: true, settings: true, companyEmail: true, companyPhone: true } }),
-      db.event.findMany({
-        where: { organizationId: org.orgId, status: { in: [...LISTABLE] } },
-        orderBy: { startDate: "desc" },
-        take: 200,
-        select: { id: true, name: true, slug: true, status: true, startDate: true, endDate: true, city: true, country: true, settings: true },
-      }),
+      // In the lane of the organisation being acted on (an operator may act on another's).
+      runWithTenant(org.orgId, () =>
+        db.event.findMany({
+          where: { organizationId: org.orgId, status: { in: [...LISTABLE] } },
+          orderBy: { startDate: "desc" },
+          take: 200,
+          select: { id: true, name: true, slug: true, status: true, startDate: true, endDate: true, city: true, country: true, settings: true },
+        }),
+      ),
     ]);
     if (!row) {
       apiLogger.warn({ orgId: org.orgId, msg: "organization/catalogue:GET org-not-found" });

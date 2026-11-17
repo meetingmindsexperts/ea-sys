@@ -16,7 +16,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import {
@@ -102,7 +103,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Event carries no RLS policy, so this lookup runs before any lane; any
     // status, because sharing is an explicit organiser act and abstracts are
     // often reviewed before an event is published.
-    const event = await db.event.findFirst({ where: await publicEventWhere(req, slug), select: EVENT_SELECT });
+    const event = await findPublicEvent(req, slug, {}, { select: EVENT_SELECT });
     if (!event) {
       apiLogger.warn({ msg: "public-shared:event-not-found", slug });
       return gone();

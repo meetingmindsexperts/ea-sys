@@ -29,7 +29,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
@@ -42,8 +42,7 @@ const submitSchema = z.object({ answers: z.record(z.string(), z.unknown()) });
 
 /** The webinar event, if this session is its room and a survey is chosen. */
 async function loadContext(req: Request, slug: string, sessionId: string) {
-  const event = await db.event.findFirst({
-    where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE", "COMPLETED"] }),
+  const event = await findPublicEvent(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE", "COMPLETED"] }, {
     select: {
       id: true,
       organizationId: true,

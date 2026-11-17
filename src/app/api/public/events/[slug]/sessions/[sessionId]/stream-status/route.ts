@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
@@ -81,8 +81,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // DRAFT stays reachable for the organizer test flow — with the URL fields
     // now viewer-gated, an anonymous caller on a DRAFT event learns only a
     // liveness boolean (M5 residual, accepted).
-    const event = await db.event.findFirst({
-      where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
+    const event = await findPublicEvent(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }, {
       select: { id: true, organizationId: true, eventType: true, status: true, settings: true },
     });
 

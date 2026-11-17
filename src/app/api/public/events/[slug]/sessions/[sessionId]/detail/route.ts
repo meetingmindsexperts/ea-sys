@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isBreakSessionType } from "@/lib/session-enums";
@@ -54,8 +54,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // DRAFT is filtered out below unless the caller is org staff; keep it in
     // the query so we can distinguish "no such event" from "not yet published"
     // and log the difference. Tenant-scoped by request host.
-    const event = await db.event.findFirst({
-      where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
+    const event = await findPublicEvent(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }, {
       select: {
         id: true,
         name: true,

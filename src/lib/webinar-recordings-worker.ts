@@ -20,6 +20,7 @@
  */
 
 import { dbOperator } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import {
   syncRecordingForZoomMeeting,
@@ -84,7 +85,8 @@ export async function runWebinarRecordingsTick(): Promise<WebinarRecordingsTickR
     },
     orderBy: { updatedAt: "asc" },
     take: MAX_PER_TICK,
-    select: { id: true },
+    // The organisation rides along: each row's work runs inside its lane (below).
+    select: { id: true, event: { select: { organizationId: true } } },
   });
 
   if (candidates.length === 0) {
@@ -111,7 +113,9 @@ export async function runWebinarRecordingsTick(): Promise<WebinarRecordingsTickR
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
     try {
-      const result = await syncRecordingForZoomMeeting(candidate.id);
+      // Inside the row's organisation's lane (Event RLS step 2, Nov 17 2026): the sync's FIRST
+      // read is of the meeting and its event, before the lane it enters for the rest.
+      const result = await runWithTenant(candidate.event.organizationId, () => syncRecordingForZoomMeeting(candidate.id));
       results.push({
         id: candidate.id,
         status: result.status,

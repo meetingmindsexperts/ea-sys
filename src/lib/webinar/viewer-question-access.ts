@@ -10,7 +10,7 @@
  */
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
 import { viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
@@ -59,8 +59,7 @@ export async function loadQuestionContext(
 ): Promise<{ id: string; organizationId: string; webinar: WebinarSettings | null } | null> {
   const statuses: ("DRAFT" | "PUBLISHED" | "LIVE" | "COMPLETED")[] = ["DRAFT", "PUBLISHED", "LIVE"];
   if (opts.includeCompleted) statuses.push("COMPLETED");
-  const event = await db.event.findFirst({
-    where: await publicEventWhere(req, slug, { statuses }),
+  const event = await findPublicEvent(req, slug, { statuses }, {
     select: { id: true, organizationId: true, eventType: true, settings: true },
   });
   if (!event) return null;

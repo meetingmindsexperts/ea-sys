@@ -1,50 +1,43 @@
 /**
- * EVENT LANE RATCHET: the debt that blocks an RLS policy on Event can only go
- * down (Event RLS preparation, step 4, Nov 5 2026).
+ * EVENT LANE RULES: every query on Event runs inside a tenant lane (Event RLS
+ * step 4, Nov 5 2026; rewritten Nov 17 2026 when the sweep finished).
  *
- * Event has no policy yet (`DELIBERATELY_UNPOLICIED` in rls-coverage.test.ts)
- * because many reads of it run outside a tenant lane, and under a policy those
- * reads return null with nothing logged. Two shapes carry that debt, and this
- * file pins both so new code cannot add to them:
+ * Event carries a row policy (prisma/rls/event.sql): a query made outside a
+ * lane sees no row, so a read answers "not found" and a write changes nothing,
+ * with nothing logged. Until Nov 17 this file COUNTED the reads that would do
+ * that (126 discovery wraps, 46 files that never entered a lane) so the debt
+ * could only shrink. The debt is paid, so the count is gone and the rule is
+ * stated outright:
  *
- *  1. DISCOVERY WRAPS. Read the Event outside a lane, then
- *     `runWithTenant(event.organizationId, ...)`. The first read is the one that
- *     dies under a policy. Staff routes should enter the SESSION's lane first
- *     (`runWithTenantLane(session.user.organizationId, ...)`) and read inside it;
- *     public routes should discover through src/lib/tenant/event-tenant.ts.
- *  2. UNLANED FILES. A file that reads Event and never enters a lane at all.
- *     Many are libraries that inherit their caller's lane, which is fine; the
- *     list is still pinned so a NEW one is a decision, not an accident.
+ *  1. EVERY EVENT QUERY IS INSIDE A LANE. A model operation on Event, raw SQL
+ *     that names the table, or the settings merge, must sit lexically inside
+ *     a call that enters a lane (`runWithTenant`, `tenantTransaction`,
+ *     `inOwnLane`, ...), in its own file. The exceptions are LIBRARIES whose
+ *     callers enter the lane: each is listed in CALLER_LANED with how many
+ *     such queries it holds and why that is sound. Every one was traced to
+ *     every caller on Nov 17, 2026 (three read-only audits, about 110 call
+ *     sites; ten were found outside a lane and fixed). A new query outside a
+ *     lane fails here, in a listed file as much as in a new one.
  *
- *  3. BARE GATED READS (Nov 16, 2026). A per-event route used to open with
- *     `db.event.findFirst({ where: gate.eventWhere, ... })` outside any lane.
- *     All 238 of them now call `findGatedEvent(gate, ...)` in
- *     src/lib/tenant/event-tenant.ts, which makes the same read inside the
- *     caller's lane (or through the sanctioned discovery for a caller whose
- *     reach is not their organisation: a reviewer, submitter or registrant, or
- *     an operator with none). This count is ZERO and stays zero. The wraps of shape 1
- *     that follow such a read are no longer a debt, but the count of shape 1
- *     cannot tell them apart, so it is unchanged by that sweep.
+ *  2. A PER-EVENT ROUTE reads its event through `findGatedEvent`, never the
+ *     bare `db.event.findFirst({ where: gate.eventWhere })`.
  *
- *  4. OTHER DIRECT USES of a gate's event filter, outside the two sound ones
+ *  3. OTHER DIRECT USES of a gate's event filter, outside the two sound ones
  *     (a relation filter inside a lane, a gate built for the helpers). Listed
  *     per file with a reason; see GATE_FILTER_USE_LEFT.
  *
- *  5. A FILTER PARAMETER TYPED LOOSELY (`where: object`). Zero.
+ *  4. A FILTER PARAMETER TYPED LOOSELY (`where: object`). Zero.
  *
- * ALL OF THEM ARE EXACT. Going up fails, with what to do instead. Going down fails
- * too, with the new number to write here: that is what makes it a ratchet
- * rather than a ceiling that quietly drifts back up.
+ * ALL OF THEM ARE EXACT. More than listed fails with what to do instead; fewer
+ * fails too, with the number to write here, so a list never drifts.
  *
- * IT IS A HEURISTIC, and stable rather than exact. The comment stripper also
- * eats a `/*` inside a string literal (e.g. "image/*") up to the next `*\/`;
- * DISCOVERY_WRAP matches any name starting `ev` (an `evidence.organizationId`
- * would count); EVENT_READ sees `db` and `tx` only, not `dbOperator` (which is
- * deliberately outside a lane anyway). Every machine computes the same numbers,
- * so the ratchet holds; just do not read the counts as a precise inventory.
- *
- * The runtime counterpart is the shadow detector (src/lib/tenant/lane-shadow.ts,
- * RLS_SHADOW=1), which sees the library calls this static count cannot.
+ * IT IS LEXICAL, and that is its limit. It cannot follow a call: a library on
+ * the list is sound only while its callers stay inside a lane, which is what
+ * the runtime detector is for (src/lib/tenant/lane-shadow.ts, RLS_SHADOW=1:
+ * it names every Event query made with no lane, and the route or job that
+ * made it). It sees `db`, `tx`, `prisma` and `client`, not `dbOperator`, which
+ * is outside every lane on purpose. And `scripts/` is not scanned: a script run
+ * by hand on a deployment with row security must enter a lane itself.
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
@@ -52,20 +45,83 @@ import path from "node:path";
 
 const ROOT = path.resolve(__dirname, "../..");
 const SCAN_ROOTS = ["src", "worker"];
-/** The sanctioned discovery read. It IS the pre-lane read, by design. */
-const SANCTIONED = "src/lib/tenant/event-tenant.ts";
+/** The helpers themselves: they are what enters the lane. */
+const LANE_HOMES = ["src/lib/tenant/event-tenant.ts", "src/lib/tenant-context.ts", "src/lib/db.ts"];
 
-/** Shape 1: `runWithTenant(<...>event.organizationId`, also ev / evt / invite.event. */
-const DISCOVERY_WRAP = /runWithTenant(?:Lane)?\(\s*(?:\w+\??\.)*(?:event|ev|evt)\w*\??\.organizationId/g;
+/** A call that enters a tenant lane, or marks the one sanctioned read made before one. */
+const LANE_CALL =
+  /\b(?:runWithTenant|runWithTenantLane|tenantTransaction|inOwnLane|inHostLane|inScopeLane|inSessionLane|asEventDiscovery)\s*(?:<[^>]*>)?\(/g;
 /**
- * A query against the Event model through the app client or a transaction, or
- * the settings merge, which locks and writes the Event row (review of
- * 2db57e7f: a route whose only Event text was its gated read dropped off the
- * list below while it still wrote the event's settings outside a lane).
+ * A query on Event: a model operation through the app client or a transaction,
+ * raw SQL that names the table, or the settings merge, which locks and writes
+ * the Event row (review of 2db57e7f: a route whose only Event text was its
+ * gated read dropped off the old list while it still wrote the settings).
  */
-const EVENT_READ = /\b(?:db|tx)\.event\.(?:find\w*|count|aggregate|groupBy|update\w*|create\w*|delete\w*|upsert)\b|\bupdateEventSettings\(/;
-/** Any sign the file runs inside, or deliberately outside, a lane. */
-const LANE_MARKER = /runWithTenant|tenantTransaction|dbOperator|resolveEventTenant|resolvePublicEventOrg/;
+const EVENT_QUERY =
+  /\b(?:db|tx|prisma|client)\.event\.(?:find\w*|count|aggregate|groupBy|update\w*|create\w*|delete\w*|upsert)\b|\bupdateEventSettings\(|(?:FROM|UPDATE|JOIN|INTO)\s+"Event"/g;
+
+/**
+ * Libraries whose Event queries rely on the CALLER's lane: the file, how many
+ * such queries it holds, and why that is sound. Traced caller by caller on
+ * Nov 17, 2026. Adding to this list is a decision: name every caller and where
+ * each enters its lane in the review, or enter the lane in the function.
+ */
+const CALLER_LANED: Record<string, [count: number, why: string]> = {
+  "src/app/api/events/[eventId]/billing-accounts/[billingAccountId]/route.ts": [1, "A helper in a route file, called only from handlers that are already inside runWithTenant."],
+  "src/app/api/events/[eventId]/route.ts": [1, "Not a query: a type (`ReturnType<typeof db.event.update>`). The updates themselves are inside lanes."],
+  "src/app/api/events/[eventId]/webinar/chat/route.ts": [1, "A helper in a route file, called only from handlers that are already inside runWithTenant. It also names the organisation, so the merge enters the lane itself."],
+  "src/app/api/events/[eventId]/webinar/livestream/route.ts": [1, "A helper in a route file, called only from handlers that are already inside runWithTenant."],
+  "src/app/api/organization/catalogue/route.ts": [1, "The settings merge is handed the organisation, and enters that lane itself (event-settings.ts)."],
+  "src/app/e/[slug]/page.tsx": [1, "`loadEvent`, called only inside runWithTenant(scope.organizationId) once findPublicEvent has found the event."],
+  "src/crm/integrations/events.ts": [5, "The CRM's Events port: every CRM route, tool and service calls it inside the organisation's lane."],
+  "src/lib/agenda-data.ts": [1, "Two callers, the public agenda route and the staff preview, both inside runWithTenant."],
+  "src/lib/agent/register-mcp-tools.ts": [5, "An agent / MCP tool: every tool and resource runs inside safeTool / safeResource's lane (register-mcp-tools.ts)."],
+  "src/lib/agent/tools/certificates.ts": [6, "An agent / MCP tool: every tool and resource runs inside safeTool / safeResource's lane (register-mcp-tools.ts)."],
+  "src/lib/agent/tools/dashboard.ts": [1, "An agent / MCP tool: every tool and resource runs inside safeTool / safeResource's lane (register-mcp-tools.ts)."],
+  "src/lib/agent/tools/engagement.ts": [1, "An agent / MCP tool: every tool and resource runs inside safeTool / safeResource's lane (register-mcp-tools.ts)."],
+  "src/lib/agent/tools/webinar.ts": [2, "An agent / MCP tool: every tool and resource runs inside safeTool / safeResource's lane (register-mcp-tools.ts)."],
+  "src/lib/bulk-email.ts": [1, "An email or document builder: every route, the bulk send and the scheduled-email worker call it inside the lane."],
+  "src/lib/certificates/bundle.ts": [1, "An email or document builder: every route, the bulk send and the scheduled-email worker call it inside the lane."],
+  "src/lib/certificates/cert-context.ts": [2, "Reached from a worker job that scans with the privileged client and enters the row's lane, and from routes inside theirs."],
+  "src/lib/certificates/issue-worker.ts": [2, "Reached from a worker job that scans with the privileged client and enters the row's lane, and from routes inside theirs. A run with no organisation gets an empty lane and logs `cert-issue:run-invisible-to-tenant-read`."],
+  "src/lib/contacts-central-sync.ts": [1, "MASTER ONLY and outside a lane on purpose: it mirrors every contact to one marketing table, and refuses to run on a multi-tenant deployment."],
+  "src/lib/email-log.ts": [1, "Reached only for a send that names an event and no organisation; every such sender is inside a lane, and a miss never fails the send."],
+  "src/lib/email-preview-data.ts": [1, "An email or document builder: every route, the bulk send and the scheduled-email worker call it inside the lane."],
+  "src/lib/email.ts": [1, "An email or document builder: every route, the bulk send and the scheduled-email worker call it inside the lane."],
+  "src/lib/event-analytics.ts": [1, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/lib/event-code.ts": [1, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/lib/event-export/bundle.ts": [1, "One caller, the export route, inside runWithTenant(event.organizationId)."],
+  "src/lib/event-export/sheets.ts": [1, "Called by the export bundle only, inside the same lane."],
+  "src/lib/event-settings.ts": [5, "The settings merge: a tenant transaction that enters the lane itself when handed the organisation, and otherwise rides its caller's."],
+  "src/lib/media-references.ts": [2, "Two callers, the two media delete routes, both inside runWithTenant(orgGuard.orgId)."],
+  "src/lib/notifications.ts": [1, "notifyEventAdmins: 42 callers traced; the three outside a lane (event status, a group refund, a refund sweep row) now enter one."],
+  "src/lib/presenter-agreement.ts": [3, "An email or document builder: every route, the bulk send and the scheduled-email worker call it inside the lane."],
+  "src/lib/registrant-details.ts": [1, "Called from the registrant portal's routes, inside the lane their host names."],
+  "src/lib/registration-seat-db.ts": [4, "Runs on a `tx` that every caller takes from tenantTransaction, inside a lane."],
+  "src/lib/speaker-agreement.ts": [10, "An email or document builder: every route, the bulk send and the scheduled-email worker call it inside the lane."],
+  "src/lib/speaker-companion.ts": [2, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/lib/webinar-email-sequence.ts": [3, "Reached from a worker job that scans with the privileged client and enters the row's lane, and from routes inside theirs."],
+  "src/lib/webinar-panelist-email.ts": [1, "Three callers, the panelist routes, all inside runWithTenant(orgGuard.orgId)."],
+  "src/lib/webinar-provisioner.ts": [2, "Called inside createEvent's lane and the webinar route's; the retry in its catch rides the same lanes."],
+  "src/lib/webinar/stream-watchdog.ts": [1, "Reached from a worker job that scans with the privileged client and enters the row's lane, and from routes inside theirs."],
+  "src/procurement/services/budget-revenue-service.ts": [1, "Procurement routes and tools, each inside the organisation's lane."],
+  "src/procurement/services/budget-service.ts": [2, "Procurement routes and tools, each inside the organisation's lane."],
+  "src/services/abstract-service.ts": [5, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/services/accommodation-service.ts": [1, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/services/dtcm-eticket-service.ts": [1, "Reached from a worker job that scans with the privileged client and enters the row's lane, and from routes inside theirs."],
+  "src/services/event-schedule-shift.ts": [2, "Runs on a `tx` that every caller takes from tenantTransaction, inside a lane."],
+  "src/services/event-service.ts": [2, "Inside createEvent's own runWithTenant(input.organizationId), one function up."],
+  "src/services/evidence-request-service.ts": [1, "One caller, the evidence request route, inside its lane."],
+  "src/services/group-registration-service.ts": [2, "The public group register route and the coordinator's members route, each inside its lane."],
+  "src/services/person-field-service.ts": [1, "Runs on a `tx` that every caller takes from tenantTransaction, inside a lane. The plain read is made from the same route, inside its lane."],
+  "src/services/promo-code-service.ts": [1, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/services/registration-form-service.ts": [1, "An email or document builder: every route, the bulk send and the scheduled-email worker call it inside the lane."],
+  "src/services/registration-service.ts": [2, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/services/session-service.ts": [3, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/services/speaker-service.ts": [1, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/services/sponsor-service.ts": [1, "The sponsors route (inside its lane since Nov 17, 2026), the agent tool and the Blueprint seed."],
+  "src/services/survey-service.ts": [2, "Runs on a `tx` that every caller takes from tenantTransaction, inside a lane."],
+};
 
 /**
  * Shape 3: an Event read whose filter is a gate's, or any variable or call
@@ -76,14 +132,13 @@ const LANE_MARKER = /runWithTenant|tenantTransaction|dbOperator|resolveEventTena
  */
 const BARE_GATED_READ = /\b(?:db|tx)\.event\.find\w*\(\s*\{\s*where:\s*[\w.]*[eE]ventWhere\b/g;
 /**
- * The files still doing it, exactly: the dashboard's event pages and the
- * traffic report, which build their filter with `hubEventWhere`. They are the
- * next sweep's (docs/SECURITY_AUDIT_ACTION_PLAN.md §3.1). Nothing else may.
+ * The files that may, exactly: the two dashboard pages of one event, which
+ * build their filter with `hubEventWhere` and read it inside the page's lane
+ * (`inSessionLane`, src/lib/tenant/page-lane.ts). Nothing else may.
  */
 const BARE_GATED_READ_FILES = [
   "src/app/(dashboard)/events/[eventId]/page.tsx",
   "src/app/(dashboard)/events/[eventId]/setup/page.tsx",
-  "src/app/api/analytics/traffic/route.ts",
 ];
 /**
  * A function that takes a filter typed `object`, `unknown` or `any`. The type
@@ -142,63 +197,6 @@ const GATE_FILTER_USE_LEFT: Record<string, number> = {
   "src/lib/catalogue-data.ts": 1,
 };
 
-const DISCOVERY_WRAP_BASELINE = 126;
-
-const UNLANED_EVENT_FILES_BASELINE: string[] = [
-  "src/analytics/store/site-resolver.ts",
-  "src/app/(dashboard)/dashboard/page.tsx",
-  "src/app/(dashboard)/events/[eventId]/page.tsx",
-  "src/app/(dashboard)/events/[eventId]/setup/page.tsx",
-  "src/app/(dashboard)/events/page.tsx",
-  "src/app/api/analytics/traffic/route.ts",
-  "src/app/api/auth/forgot-password/route.ts",
-  "src/app/api/events/[eventId]/onsite-staff/route.ts",
-  "src/app/api/events/route.ts",
-  "src/app/api/import/eventsair/route.ts",
-  "src/app/api/organization/catalogue/route.ts",
-  "src/app/api/organization/eventsair/events/route.ts",
-  "src/app/api/organization/onsite-staff/route.ts",
-  "src/app/api/public/events/[slug]/supporting-document/route.ts",
-  "src/app/api/upload/pdf/route.ts",
-  "src/app/catalogue/[kind]/[topic]/page.tsx",
-  "src/app/catalogue/page.tsx",
-  "src/app/llms.txt/route.ts",
-  "src/app/sitemap.ts",
-  // The CRM's Events port (Nov 6, 2026): a library whose every caller (the CRM
-  // routes, MCP tools and import/report/email services) already runs inside the
-  // organisation's lane. It replaced the three CRM services that read Event here.
-  "src/crm/integrations/events.ts",
-  // The agenda loader (Nov 17, 2026): a library with two callers, the public
-  // agenda route and the staff preview route, and both call it inside
-  // runWithTenant with the organisation they have just resolved.
-  "src/lib/agenda-data.ts",
-  "src/lib/agent/event-facts-loader.ts",
-  "src/lib/agent/execute-handler.ts",
-  "src/lib/agent/system-prompt.ts",
-  "src/lib/bulk-email.ts",
-  "src/lib/catalogue-data.ts",
-  "src/lib/certificates/bundle.ts",
-  "src/lib/certificates/cert-context.ts",
-  "src/lib/contacts-central-sync.ts",
-  "src/lib/email-preview-data.ts",
-  "src/lib/email.ts",
-  "src/lib/event-analytics.ts",
-  "src/lib/event-code.ts",
-  "src/lib/event-export/bundle.ts",
-  "src/lib/event-export/sheets.ts",
-  "src/lib/help-chat/event-facts.ts",
-  "src/lib/media-references.ts",
-  "src/lib/notifications.ts",
-  "src/lib/presenter-agreement.ts",
-  "src/lib/registration-seat-db.ts",
-  "src/lib/speaker-agreement.ts",
-  "src/lib/webinar-panelist-email.ts",
-  "src/lib/webinar/viewer-question-access.ts",
-  "src/services/event-schedule-shift.ts",
-  "src/services/evidence-request-service.ts",
-  "src/services/speaker-service.ts",
-];
-
 function sourceFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
@@ -212,7 +210,7 @@ function sourceFiles(): string[] {
     }
   };
   for (const root of SCAN_ROOTS) walk(path.join(ROOT, root));
-  return out.filter((f) => f !== SANCTIONED);
+  return out.filter((f) => !LANE_HOMES.includes(f));
 }
 
 /** Drop comments so prose that names a pattern does not count as code. */
@@ -223,36 +221,62 @@ function code(file: string): string {
     .replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 }
 
-describe("Event lane ratchet", () => {
+/** The index of the `)` that closes the `(` at `open`, skipping strings and template literals. */
+function closingParen(source: string, open: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = open; i < source.length; i++) {
+    const c = source[i];
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "(") depth++;
+    else if (c === ")" && --depth === 0) return i;
+  }
+  return source.length;
+}
+
+/** How many Event queries in this source sit outside every lane-entering call. */
+function queriesOutsideALane(source: string): number {
+  const lanes = [...source.matchAll(LANE_CALL)].map((m) => {
+    const open = m.index + m[0].length - 1;
+    return [open, closingParen(source, open)] as const;
+  });
+  return [...source.matchAll(EVENT_QUERY)].filter((q) => !lanes.some(([open, close]) => q.index > open && q.index < close)).length;
+}
+
+describe("Event lane rules", () => {
   const files = sourceFiles();
   const sources = new Map(files.map((f) => [f, code(f)]));
 
   it("scans a plausible tree", () => {
     // A scanner that silently matched nothing would pass every check below.
     expect(files.length).toBeGreaterThan(500);
-    const readers = files.filter((f) => EVENT_READ.test(sources.get(f)!));
+    const readers = files.filter((f) => new RegExp(EVENT_QUERY.source).test(sources.get(f)!));
     expect(readers.length).toBeGreaterThan(100);
   });
 
-  it("does not add discovery wraps (read Event outside a lane, then enter its org)", () => {
-    const perFile = files
-      .map((f) => [f, sources.get(f)!.match(DISCOVERY_WRAP)?.length ?? 0] as const)
-      .filter(([, n]) => n > 0);
-    const total = perFile.reduce((sum, [, n]) => sum + n, 0);
-
-    if (total > DISCOVERY_WRAP_BASELINE) {
-      expect.fail(
-        `Discovery wraps went UP: ${total} (baseline ${DISCOVERY_WRAP_BASELINE}). The Event read before ` +
-          "runWithTenant(event.organizationId) returns null once Event has a policy. In a staff route, " +
-          "enter runWithTenantLane(session.user.organizationId, ...) FIRST and read the event inside it; " +
-          "in a public route, get the org from resolvePublicEventOrg (src/lib/tenant/event-tenant.ts). " +
-          "Files: " + perFile.map(([f, n]) => `${f} (${n})`).join(", "),
-      );
-    }
+  it("makes every Event query inside a tenant lane, or in a library whose callers enter one", () => {
+    const now = Object.fromEntries(
+      files
+        .map((f) => [f, queriesOutsideALane(sources.get(f)!)] as const)
+        .filter(([, n]) => n > 0),
+    );
     expect(
-      total,
-      `Discovery wraps went DOWN to ${total}. Good: set DISCOVERY_WRAP_BASELINE to ${total} in this file.`,
-    ).toBe(DISCOVERY_WRAP_BASELINE);
+      now,
+      "The Event queries that are not lexically inside a lane changed. MORE in a file, or a new file: with " +
+        "row security on, that query sees no row, and the route answers 404 (or a write changes nothing) with " +
+        "nothing logged. Enter the lane first: a staff route reads its event with findGatedEvent(gate, ...) and " +
+        "wraps the rest in runWithTenant(<its organisation>); a public route uses findPublicEvent; a list uses " +
+        "inOwnLane / inHostLane; a transaction is tenantTransaction. Only a library whose EVERY caller is " +
+        "already inside a lane belongs in CALLER_LANED, with its count and that reason. FEWER: good, lower or " +
+        "remove the file's entry.",
+    ).toEqual(Object.fromEntries(Object.entries(CALLER_LANED).map(([f, [n]]) => [f, n])));
+    // A reason is part of the entry: an empty one is how a list like this turns into a way to silence the check.
+    expect(Object.entries(CALLER_LANED).filter(([, [, why]]) => why.trim().length < 20).map(([f]) => f)).toEqual([]);
   });
 
   it("reads the event behind a permission gate through findGatedEvent, never bare", () => {
@@ -292,23 +316,5 @@ describe("Event lane ratchet", () => {
         "and pass the EVENT on, not the filter. Fewer: good, lower or remove the file's count in " +
         "GATE_FILTER_USE_LEFT. A new sound line needs its file, its count and a reason there.",
     ).toEqual(GATE_FILTER_USE_LEFT);
-  });
-
-  it("does not add files that read Event and never enter a lane", () => {
-    const now = files.filter((f) => EVENT_READ.test(sources.get(f)!) && !LANE_MARKER.test(sources.get(f)!)).sort();
-    const added = now.filter((f) => !UNLANED_EVENT_FILES_BASELINE.includes(f));
-    const removed = UNLANED_EVENT_FILES_BASELINE.filter((f) => !now.includes(f));
-
-    expect(
-      added,
-      "These files read Event and never enter a tenant lane. Wrap the handler in runWithTenantLane / " +
-        "runWithTenant, or discover through src/lib/tenant/event-tenant.ts. A library that only ever runs " +
-        "inside its caller's lane may be added to UNLANED_EVENT_FILES_BASELINE, with that reason in review.",
-    ).toEqual([]);
-    expect(
-      removed,
-      "These files no longer read Event outside a lane (or no longer exist). Good: remove them from " +
-        "UNLANED_EVENT_FILES_BASELINE so the list stays exact.",
-    ).toEqual([]);
   });
 });

@@ -7,6 +7,7 @@ import { Search } from "lucide-react";
 import { editorialDisplay } from "@/app/fonts";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { inScopeLane } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { CATALOGUE_EVENT_SELECT, listTopicValues, loadCardRegistration, loadSiteContext, loadSiteStats, type CatalogueEvent } from "@/lib/catalogue-data";
@@ -115,22 +116,25 @@ async function loadCatalogue(host: string | null, query: CatalogueQuery, now: Da
     specialty: topicForValue(topics.specialties, query.specialty)?.variants,
   });
   const nextWhere = catalogueWhere(orgScope, { q: "", country: "", type: null, specialty: "", when: "upcoming", page: 1 }, now);
-  const [events, total, facets, next, stats] = await Promise.all([
-    db.event.findMany({
-      where,
-      orderBy: catalogueOrderBy(query),
-      skip: (query.page - 1) * CATALOGUE_PAGE_SIZE,
-      take: CATALOGUE_PAGE_SIZE,
-      select: CATALOGUE_EVENT_SELECT,
-    }),
-    db.event.count({ where }),
-    // The type menu's values; country and specialty come with the topics.
-    db.event.findMany({ where: catalogueBaseWhere(orgScope), distinct: ["eventType"], select: { eventType: true } }),
-    // The hero's fan and the next-event panel: the soonest listed events, whatever the filters.
-    db.event.findMany({ where: nextWhere, orderBy: catalogueOrderBy({ ...query, when: "upcoming" }), take: FAN_SIZE, select: CATALOGUE_EVENT_SELECT }),
-    loadSiteStats(orgScope),
-  ]);
-  const registration = await loadCardRegistration([...new Set([...events, ...next.slice(0, 1)].map((e) => e.id))], now);
+  // Inside the lane of the organisation the host names (Event RLS step 2).
+  const [events, total, facets, next, stats] = await inScopeLane(orgScope, () =>
+    Promise.all([
+      db.event.findMany({
+        where,
+        orderBy: catalogueOrderBy(query),
+        skip: (query.page - 1) * CATALOGUE_PAGE_SIZE,
+        take: CATALOGUE_PAGE_SIZE,
+        select: CATALOGUE_EVENT_SELECT,
+      }),
+      db.event.count({ where }),
+      // The type menu's values; country and specialty come with the topics.
+      db.event.findMany({ where: catalogueBaseWhere(orgScope), distinct: ["eventType"], select: { eventType: true } }),
+      // The hero's fan and the next-event panel: the soonest listed events, whatever the filters.
+      db.event.findMany({ where: nextWhere, orderBy: catalogueOrderBy({ ...query, when: "upcoming" }), take: FAN_SIZE, select: CATALOGUE_EVENT_SELECT }),
+      loadSiteStats(orgScope),
+    ]),
+  );
+  const registration = await loadCardRegistration(orgScope, [...new Set([...events, ...next.slice(0, 1)].map((e) => e.id))], now);
   const types = [...new Set(facets.map((f) => f.eventType).filter((t): t is keyof typeof EVENT_TYPE_LABEL => !!t))].sort();
   return { events, total, types, organization, next, stats, registration, ...topics };
 }

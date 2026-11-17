@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
+import { runWithTenant } from "@/lib/tenant-context";
 import { db } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
@@ -42,6 +43,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const gate = requirePermission(session, "speakers.agreements.manage", { route: "events/[eventId]/agreement-pdf-images:POST", eventId });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
     // The image service binds the event by organisation only; bind it to the
     // grant's events first, so a scoped grant cannot reach the rest.
     const inScope = await findGatedEvent(gate, { select: { id: true } });
@@ -127,6 +130,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       .catch((err) => apiLogger.error({ err, msg: "events/agreement-pdf-images:audit-failed", eventId }));
 
     return NextResponse.json({ scope: scopeParse.data, slot: slotParse.data, url });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error uploading agreement PDF image" });
     return NextResponse.json({ error: "Failed to upload image" }, { status: 500 });
@@ -144,6 +148,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     const gate = requirePermission(session, "speakers.agreements.manage", { route: "events/[eventId]/agreement-pdf-images:DELETE", eventId });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
     // The image service binds the event by organisation only; bind it to the
     // grant's events first, so a scoped grant cannot reach the rest.
     const inScope = await findGatedEvent(gate, { select: { id: true } });
@@ -200,6 +206,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       .catch((err) => apiLogger.error({ err, msg: "events/agreement-pdf-images:audit-failed", eventId }));
 
     return NextResponse.json({ scope: scopeParse.data, slot: slotParse.data, url: null });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting agreement PDF image" });
     return NextResponse.json({ error: "Failed to delete image" }, { status: 500 });

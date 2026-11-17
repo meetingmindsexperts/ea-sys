@@ -32,7 +32,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { uploadCertificatePdf } from "@/lib/storage";
-import { db } from "@/lib/db";
+import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { PDFDocument } from "pdf-lib";
 
 // cuid shape — Prisma's default id generator. Restrict eventId to this
@@ -175,10 +175,8 @@ export async function POST(req: Request) {
     // Through the grant's own event filter (Phase 6 review, Oct 7, 2026): the
     // key is event-bound, so a role scoped to some events must not upload
     // into another event's certificate folder. eventWhereFor carries the org.
-    const event = await db.event.findFirst({
-      where: { AND: [{ id: eventId, organizationId: session.user.organizationId }, eventWhereFor(gate.principal, "certificates.templates.manage", eventId)] },
-      select: { id: true },
-    });
+    const eventWhere = { AND: [{ id: eventId, organizationId: session.user.organizationId }, eventWhereFor(gate.principal, "certificates.templates.manage", eventId)] };
+    const event = await findGatedEvent({ principal: gate.principal, eventWhere }, { select: { id: true } });
     if (!event) {
       apiLogger.warn({
         msg: "cert-upload:event-not-found-or-cross-tenant",

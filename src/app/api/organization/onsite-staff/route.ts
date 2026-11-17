@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { ONSITE_ACCOUNT_ROLES } from "@/lib/team-roles";
+import { runWithTenant } from "@/lib/tenant-context";
 
 /**
  * Org-level view that powers the Settings → Onsite Staff tab: every ONSITE
@@ -35,11 +36,14 @@ export async function GET() {
         select: { id: true, firstName: true, lastName: true, email: true, emailVerified: true, createdAt: true },
         orderBy: { createdAt: "desc" },
       }),
-      db.event.findMany({
-        where: { organizationId: orgId },
-        select: { id: true, name: true, startDate: true, staffAssignments: { select: { userId: true } } },
-        orderBy: { startDate: "desc" },
-      }),
+      // Inside the organisation's lane: the events and the assignments read with them.
+      runWithTenant(orgId, () =>
+        db.event.findMany({
+          where: { organizationId: orgId },
+          select: { id: true, name: true, startDate: true, staffAssignments: { select: { userId: true } } },
+          orderBy: { startDate: "desc" },
+        }),
+      ),
     ]);
     const assigned = (e: (typeof events)[number]) => new Set(e.staffAssignments.map((a) => a.userId));
 

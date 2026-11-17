@@ -14,6 +14,7 @@
  * instance it fail-closes to an empty list, which the prompt handles.
  */
 import { db } from "@/lib/db";
+import { inHostLane } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { isDeadlinePassed, readAbstractDeadline } from "@/lib/submission-deadline";
@@ -31,15 +32,19 @@ interface ExternalAsker {
   role: string;
 }
 
-export async function loadExternalHelpEvents(user: ExternalAsker): Promise<HelpChatEventFacts[]> {
+export async function loadExternalHelpEvents(user: ExternalAsker, req: Request): Promise<HelpChatEventFacts[]> {
   const withAbstracts = user.role === "SUBMITTER" || user.role === "REVIEWER";
   try {
-    const events = await db.event.findMany({
-      where: { AND: [eventsOf(user), { status: { not: "CANCELLED" } }] },
-      orderBy: { startDate: "desc" },
-      take: MAX_EVENTS,
-      select: { name: true, startDate: true, endDate: true, timezone: true, supportEmail: true, settings: true },
-    });
+    // In the lane the request's host names (Event RLS step 2): these askers'
+    // accounts do not say which organisation's events they are linked to.
+    const events = await inHostLane(req, () =>
+      db.event.findMany({
+        where: { AND: [eventsOf(user), { status: { not: "CANCELLED" } }] },
+        orderBy: { startDate: "desc" },
+        take: MAX_EVENTS,
+        select: { name: true, startDate: true, endDate: true, timezone: true, supportEmail: true, settings: true },
+      }),
+    );
     return events.map((e) => ({
       name: oneLine(e.name).slice(0, MAX_NAME_LENGTH),
       dates: formatDateRange(e.startDate, e.endDate, e.timezone),

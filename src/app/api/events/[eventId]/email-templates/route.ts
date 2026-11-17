@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -68,6 +69,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const gate = requirePermission(session, "templates.read", { route: "events/[eventId]/email-templates:GET", eventId, onMissing: "hide" });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     // Scope by role, not org: reviewers + submitters are org-independent
     // (organizationId = null), so an `organizationId!` filter threw a Prisma
@@ -144,6 +147,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
       variables: allTemplateVariables(),
     });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching email templates" });
     return NextResponse.json({ error: "Failed to fetch email templates" }, { status: 500 });
@@ -162,6 +166,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const gate = requirePermission(session, "templates.manage", { route: "email-templates:create", eventId });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     const event = await findGatedEvent(gate, {
       select: { id: true },
@@ -200,6 +206,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(result.template, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating email template" });
     return NextResponse.json({ error: "Failed to create email template" }, { status: 500 });

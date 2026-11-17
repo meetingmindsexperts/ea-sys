@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { buildCapabilitySection } from "./capabilities";
 import { buildDashboardMapSection } from "./dashboard-links";
 import { MAX_WRITES_PER_REQUEST } from "./tool-gate";
@@ -68,22 +69,24 @@ export async function buildSystemPrompt(input: SystemPromptInput): Promise<strin
   const [org, event] = await Promise.all([
     db.organization.findUnique({ where: { id: organizationId }, select: { name: true } }),
     eventId
-      ? db.event.findFirst({
-          where: { id: eventId, organizationId },
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            startDate: true,
-            endDate: true,
-            venue: true,
-            city: true,
-            country: true,
-            specialty: true,
-            eventType: true,
-            _count: { select: { registrations: true, speakers: true, eventSessions: true, tracks: true } },
-          },
-        })
+      ? runWithTenant(organizationId, () =>
+          db.event.findFirst({
+            where: { id: eventId, organizationId },
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              startDate: true,
+              endDate: true,
+              venue: true,
+              city: true,
+              country: true,
+              specialty: true,
+              eventType: true,
+              _count: { select: { registrations: true, speakers: true, eventSessions: true, tracks: true } },
+            },
+          }),
+        )
       : Promise.resolve(null),
   ]);
 

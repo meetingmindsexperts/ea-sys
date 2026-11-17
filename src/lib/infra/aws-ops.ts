@@ -1122,12 +1122,14 @@ async function fetchHeartbeat(scope: InfraScope): Promise<InfraSnapshot["heartbe
           c.abstract.count({ where: { ...orgOrNull, createdAt: { gte: dayAgo } } }),
           c.emailLog.count({ where: { ...orgOrNull, createdAt: { gte: dayAgo }, status: "SENT" } }),
           // An event running RIGHT NOW is the difference between "fix it tomorrow"
-          // and "fix it in the next ten minutes". Event carries no RLS policy, so
-          // the org filter alone scopes it in both views.
-          db.event.count({
+          // and "fix it in the next ten minutes". On the scoped client like the
+          // counts beside it (Event RLS step 2): the platform view is across
+          // tenants and has no lane, so on the plain client a policy on Event
+          // would answer "no live events" for good.
+          c.event.count({
             where: { ...org, startDate: { lte: now }, endDate: { gte: now }, status: "PUBLISHED" },
           }),
-          db.event.findFirst({
+          c.event.findFirst({
             where: { ...org, startDate: { gte: now, lte: weekAhead }, status: "PUBLISHED" },
             orderBy: { startDate: "asc" },
             select: { name: true, startDate: true },

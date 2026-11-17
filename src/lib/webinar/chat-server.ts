@@ -14,7 +14,7 @@ import { db } from "@/lib/db";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
 import { webinarRoomEnded } from "@/lib/webinar-page-layout";
 import { runWithTenant } from "@/lib/tenant-context";
-import { resolveEventTenant } from "@/lib/tenant/event-tenant";
+import { resolvePublicEventTenant } from "@/lib/tenant/event-tenant";
 import { readHandouts } from "@/lib/webinar/handouts";
 import { resolveAsker, type Asker } from "@/lib/webinar/viewer-question-access";
 import {
@@ -136,9 +136,9 @@ export async function getChatSnapshot(
 }
 
 async function buildSnapshot(eventWhere: Prisma.EventWhereInput, sessionId: string, now: number): Promise<ChatSnapshot | null> {
-  // Discover the tenant through the one sanctioned pre-lane read, then read the event's content
-  // inside its lane (Event RLS preparation, Nov 5, 2026: event-lane-ratchet.test.ts).
-  const tenant = await resolveEventTenant(eventWhere);
+  // Find the event inside the lane its host-bound filter names, then read its content there
+  // (Event RLS step 2: a public address already says whose it is, so nothing privileged is used).
+  const tenant = await resolvePublicEventTenant(eventWhere);
   if (!tenant) return null;
 
   return runWithTenant(tenant.organizationId, async () => {

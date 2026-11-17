@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { decryptSecret, fetchEventDetails } from "@/lib/eventsair-client";
 import { eventSlugFromName } from "@/lib/event-slug";
 import { equalsIgnoringCase } from "@/lib/like-escape";
+import { runWithTenant } from "@/lib/tenant-context";
 
 export const maxDuration = 60;
 
@@ -24,8 +25,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const organizationId = session.user.organizationId;
     const gate = requirePermission(session, "imports.eventsair", { route: "import/eventsair:POST" });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(organizationId, async () => {
 
     const validated = importSchema.safeParse(body);
     if (!validated.success) {
@@ -38,7 +42,7 @@ export async function POST(req: Request) {
     // Check if already imported
     const existing = await db.event.findFirst({
       where: {
-        organizationId: session.user.organizationId,
+        organizationId,
         externalSource: "eventsair",
         externalId: validated.data.eventsAirEventId,
       },
@@ -55,7 +59,7 @@ export async function POST(req: Request) {
 
     // Get org credentials
     const org = await db.organization.findUnique({
-      where: { id: session.user.organizationId },
+      where: { id: organizationId },
       select: { settings: true },
     });
     const settings = (org?.settings as Record<string, unknown>) || {};
@@ -82,7 +86,7 @@ export async function POST(req: Request) {
     let suffix = 1;
     while (
       await db.event.findFirst({
-        where: { organizationId: session.user.organizationId, slug: equalsIgnoringCase(slug) },
+        where: { organizationId, slug: equalsIgnoringCase(slug) },
         select: { id: true },
       })
     ) {
@@ -92,7 +96,7 @@ export async function POST(req: Request) {
     // Create the event
     const event = await db.event.create({
       data: {
-        organizationId: session.user.organizationId,
+        organizationId,
         name: eaEvent.name,
         slug,
         startDate: new Date(eaEvent.startDate),
@@ -112,7 +116,7 @@ export async function POST(req: Request) {
     recordImport(req, {
       entityType: "Event",
       eventId: event.id,
-      organizationId: session.user.organizationId,
+      organizationId,
       userId: session.user.id,
       role: session.user.role,
       totalProcessed: 1,
@@ -121,6 +125,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ eventId: event.id, alreadyImported: false }, { status: 201 });
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     apiLogger.error({ err: error, msg: "Error importing EventsAir event" });

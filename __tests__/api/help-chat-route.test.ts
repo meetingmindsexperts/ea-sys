@@ -138,7 +138,8 @@ describe("POST /api/help-chat: external audience (Nov 2, 2026)", () => {
     mockLoadEvents.mockResolvedValue(facts);
     const res = await POST(makeReq([{ role: "user", content: "who do I contact?" }]));
     await drain(res);
-    expect(mockLoadEvents).toHaveBeenCalledWith({ id: "u1", role: "REGISTRANT" });
+    // The request rides along: the facts are read in the lane its host names.
+    expect(mockLoadEvents).toHaveBeenCalledWith({ id: "u1", role: "REGISTRANT" }, expect.anything());
     expect(mockBuildPrompt).toHaveBeenCalledWith(expect.objectContaining({ role: "REGISTRANT", events: facts }));
   });
 

@@ -92,6 +92,8 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         select: {
           eventId: true,
           organizationId: true,
+          // The last resort for a row with no organisation of its own (below).
+          event: { select: { organizationId: true } },
           attendee: { select: { firstName: true, lastName: true } },
         },
       },
@@ -107,7 +109,10 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
       // registration's; a NULL org (pre-backfill row) processes WITHOUT a wrap so
       // flag-off master behavior is unchanged. `continue` became `return` inside
       // the closure (same per-attempt control flow).
-      const attemptOrg = attempt.organizationId ?? attempt.registration.organizationId ?? null;
+      // Last, the registration's EVENT's (Event RLS step 2, Nov 17 2026): the work below notifies
+      // the event's organisers, which reads the event, so no attempt is worked outside a lane.
+      const attemptOrg =
+        attempt.organizationId ?? attempt.registration.organizationId ?? attempt.registration.event?.organizationId ?? null;
       // Every status write is guarded on the attempt being exactly as this tick
       // read it, so the sweep can never settle an attempt the refund service is
       // still working on, nor reopen one already settled.

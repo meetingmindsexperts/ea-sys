@@ -7,7 +7,7 @@ import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { readCodeRequiredTiers, tierNeedsSponsorCode } from "@/lib/code-required-tiers";
 import { claimPromoCodeInTx, recordPromoRedemptionInTx, type PromoClaim } from "@/services/promo-code-service";
@@ -277,11 +277,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Find the event (supports both slug and event ID; tenant-scoped by host)
-    const event = await db.event.findFirst({
-      where: await publicEventWhere(req, slug, {
+    const event = await findPublicEvent(req, slug, {
         allowIdFallback: true,
         statuses: ["PUBLISHED", "LIVE"],
-      }),
+      }, {
       select: {
         id: true,
         // Drives the DTCM spare-code claim after the registration commits.

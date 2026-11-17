@@ -30,9 +30,8 @@
  * above; the `resident-letter-prune` worker job removes unreferenced files.
  */
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { storeSupportingDocument } from "@/lib/supporting-document-upload";
 
@@ -60,8 +59,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Resolve the event BEFORE reading the body — a bad slug should cost us a
     // lookup, not 5MB of buffering.
-    const event = await db.event.findFirst({
-      where: await publicEventWhere(req, slug, { statuses: ["PUBLISHED", "LIVE"] }),
+    const event = await findPublicEvent(req, slug, { statuses: ["PUBLISHED", "LIVE"] }, {
       select: { id: true },
     });
     if (!event) {

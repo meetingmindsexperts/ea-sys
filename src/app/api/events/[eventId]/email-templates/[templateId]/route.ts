@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -74,6 +75,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "templates.read", { route: "events/[eventId]/email-templates/[templateId]:GET", eventId, onMissing: "hide" });
     if (!gate.ok) return gate.response;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
+
     // Tenant isolation: bind the event to the caller's org BEFORE touching
     // the template — both eventId and templateId come from the URL, so
     // without this any authenticated user could read another org's
@@ -108,6 +111,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       // instead (Sep 25, 2026).
       ...(isCustomTemplateSlug(template.slug) && { variableGroups: CUSTOM_TEMPLATE_VARIABLE_GROUPS }),
     });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching email template" });
     return NextResponse.json({ error: "Failed to fetch email template" }, { status: 500 });
@@ -126,6 +130,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:PUT", eventId });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     const event = await findGatedEvent(gate, {
       select: { id: true },
@@ -207,6 +213,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ ...template, unfillableTokens: unfillable });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating email template" });
     return NextResponse.json({ error: "Failed to update email template" }, { status: 500 });
@@ -225,6 +232,8 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
 
     const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:DELETE", eventId });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     const event = await findGatedEvent(gate, {
       select: { id: true },
@@ -255,6 +264,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     await db.emailTemplate.delete({ where: { id: templateId } });
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting email template" });
     return NextResponse.json({ error: "Failed to delete email template" }, { status: 500 });
@@ -274,6 +284,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:POST", eventId });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     const [template, event, previewUser, realOverrides] = await Promise.all([
       db.emailTemplate.findFirst({
@@ -425,6 +437,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       subject: renderedSubject,
       htmlContent: wrappedHtml,
     });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error processing email template action" });
     return NextResponse.json({ error: "Failed to process request" }, { status: 500 });
@@ -444,6 +457,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:PATCH", eventId });
     if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     const event = await findGatedEvent(gate, {
       select: { id: true },
@@ -468,6 +483,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     const template = await db.emailTemplate.findFirst({ where: { id: templateId, eventId } });
     return NextResponse.json(template);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error resetting email template" });
     return NextResponse.json({ error: "Failed to reset email template" }, { status: 500 });

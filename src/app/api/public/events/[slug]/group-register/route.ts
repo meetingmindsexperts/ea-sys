@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
@@ -187,11 +187,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Resolve the event (slug or id; tenant-scoped by host).
-    const event = await db.event.findFirst({
-      where: await publicEventWhere(req, slug, {
+    const event = await findPublicEvent(req, slug, {
         allowIdFallback: true,
         statuses: ["PUBLISHED", "LIVE"],
-      }),
+      }, {
       select: { id: true, name: true, organizationId: true, settings: true, slug: true },
     });
     if (!event) {

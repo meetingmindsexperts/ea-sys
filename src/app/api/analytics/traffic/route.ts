@@ -19,6 +19,7 @@ import { checkRateLimit } from "@/lib/security";
 import { requireOrgId } from "@/lib/require-org";
 import { hubEventWhere } from "@/lib/permissions/page-event-where";
 import { getOrgTraffic } from "@/analytics/store/org-traffic";
+import { runWithTenant } from "@/lib/tenant-context";
 
 /** The windows the page offers; an arbitrary number would let one request scan a year. */
 const ALLOWED_DAYS = [7, 30, 90, 365] as const;
@@ -62,11 +63,12 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } });
     }
 
-    const events = await db.event.findMany({
-      // The events whose analytics this person may read (was the manage scoping).
-      where: hubEventWhere(session, undefined, "analytics:traffic"),
-      select: { id: true, name: true, slug: true, startDate: true, timezone: true },
-    });
+    // The events whose analytics this person may read (was the manage scoping),
+    // read inside the organisation's lane.
+    const where = hubEventWhere(session, undefined, "analytics:traffic");
+    const events = await runWithTenant(orgGuard.orgId, () =>
+      db.event.findMany({ where, select: { id: true, name: true, slug: true, startDate: true, timezone: true } }),
+    );
 
     const to = new Date();
     const from = new Date(to.getTime() - days * 24 * 3600_000);

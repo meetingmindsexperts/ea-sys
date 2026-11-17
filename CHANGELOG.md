@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event row security, step 2 finished: every query on Event runs inside a tenant lane (November 17)
+
+Owner: "lets try and complete event rls completely". Row security on Event is what stops one organisation's code from reading another's events even when a filter is wrong. It could not be switched on while reads of Event ran outside a tenant lane: under the policy such a read finds nothing, so the page answers "not found" with nothing in the logs. Two sweeps had moved the staff API. This one moves everything else. **Nothing changes on production today**: it has one organisation and row security is off there by design, where a lane is a pass-through.
+
+- **Public pages and routes** (the event page, registration, the agenda, the webinar room, shared views, surveys, 22 in all) read their event with one new helper, `findPublicEvent`. The web address already says whose page it is, so the lane is entered first and the event read inside it. Nothing privileged is used.
+- **Lists**: the catalogue, its topic pages, the sitemap and llms.txt read inside the lane of the organisation the host names. So does the events list of a reviewer, submitter or registrant, which had been left as "needs its own design": an account on the platform belongs to one tenant, so the host's lane is the answer.
+- **Dashboard pages**: the home page, the events list, an event's overview and its setup page run everything they load inside the signed-in person's lane.
+- **The AI agent and MCP**: the largest gap found. No tool was inside a lane when it first read the event, so under the policy every event tool would have answered "Event not found". Every tool and resource now runs inside the organisation's lane, at the one place they are dispatched.
+- **The worker**, read job by job (29 jobs): three exceptions fixed (the webinar attendance, engagement and recording syncs; the daily digest's live event count; a refund sweep row with no organisation of its own).
+- **Staff routes**: the seven with a hand-built filter, plus four found with no lane at all (sponsors, agreement PDF images, the two email template routes).
+
+How it was found, and how it is held:
+
+- **Found two ways.** A crawl of every GET route and every page (478 addresses) as each of the five seeded roles and signed out, on a production build with the detector on (`RLS_SHADOW=1`), then the browser suite on the same server; and three read-only audits tracing every library query on Event (about 110) to every caller. The crawl first reported 51 addresses; it and the browser suite now report none.
+- **Held by a test.** `event-lane-ratchet.test.ts` no longer counts a debt that may only shrink. It refuses any query on Event that is not inside a lane, except in a listed library whose callers are, each with its reason.
+- **Outside a lane on purpose**, recorded in the plan: the central contacts sync (master only; it refuses to run on a multi-tenant deployment), rows with no organisation at all, and one-off scripts run by hand.
+
+Still to come in this work: switching the policy on for the platform (step 6) and the organisation column on the six tables that have an event but no organisation (step 5). Plan: docs/SECURITY_AUDIT_ACTION_PLAN.md §3.1.
+
+
 ### Catalogue: phone hours and an address in the footer, and a filter lands on the event list (November 17)
 
 Two requests from the owner on the public catalogue.

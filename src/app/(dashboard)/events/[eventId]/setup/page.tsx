@@ -50,6 +50,7 @@ import {
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { inSessionLane } from "@/lib/tenant/page-lane";
 import { hubEventWhere } from "@/lib/permissions/page-event-where";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -246,6 +247,8 @@ type StatusMap = Record<string, SetupStatus>;
 export default async function SetupPage({ params }: SetupPageProps) {
   const [{ eventId }, session] = await Promise.all([params, auth()]);
   if (!session?.user) notFound();
+  // Everything this page loads runs inside the tenant lane (src/lib/tenant/page-lane.ts).
+  return inSessionLane(session, async () => {
 
   // Single round-trip: event lookup + all status counts in parallel.
   // The event row carries surveyConfig, settings.sponsors, and all
@@ -424,6 +427,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
       </div>
     </div>
   );
+  });
 }
 
 // ── Components ──────────────────────────────────────────────────────
