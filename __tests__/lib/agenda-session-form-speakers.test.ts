@@ -30,4 +30,16 @@ describe("agenda session form without speakers", () => {
     expect(roles).toContain("<NoSpeakersNote");
     expect(src).toMatch(/href=\{`\/events\/\$\{eventId\}\/speakers`\}/);
   });
+
+  // Nov 17, 2026 (owner: "when assigning session roles in agenda, there is no
+  // search"). The speaker of a role was a plain dropdown: on MEHF2027 that is
+  // 202 names to scroll. It is the same searchable picker the forms use.
+  it("lets the organiser search for the speaker of a session role", () => {
+    const roles = block("{/* Session Roles", "{/* Topics (optional)");
+    expect(roles).toContain("<SearchableSelect");
+    expect(roles).toContain('searchPlaceholder="Search speakers..."');
+    expect(roles).toContain("options={speakerOptions}");
+    // The role itself (four choices) stays a plain dropdown; the speaker does not.
+    expect(roles.match(/<Select\b/g)).toHaveLength(1);
+  });
 });

@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Tooltip,
   TooltipContent,
@@ -890,6 +891,13 @@ export default function AgendaPage() {
   const isBreakForm = isBreakSessionType(sessionForm.type);
   // Roles and per-topic speakers need the event's speakers; topics themselves do not.
   const hasSpeakers = (speakers as Speaker[]).length > 0;
+  // The session-role picker's list and its name lookup. One list for every
+  // role row, not rebuilt per row on each keystroke in the form.
+  const speakerOptions = useMemo(
+    () => (speakers as Speaker[]).map((sp) => ({ value: sp.id, label: `${sp.firstName} ${sp.lastName}` })),
+    [speakers],
+  );
+  const speakerNameById = useMemo(() => new Map(speakerOptions.map((o) => [o.value, o.label])), [speakerOptions]);
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
@@ -1536,25 +1544,24 @@ export default function AgendaPage() {
                             ))}
                           </SelectContent>
                         </Select>
-                        <Select
-                          value={sr.speakerId}
-                          onValueChange={(v) => {
-                            const updated = [...sessionForm.sessionRoles];
-                            updated[idx] = { ...updated[idx], speakerId: v };
-                            setSessionForm({ ...sessionForm, sessionRoles: updated });
-                          }}
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue placeholder="Select speaker" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(speakers as Speaker[]).map((sp) => (
-                              <SelectItem key={sp.id} value={sp.id}>
-                                {sp.firstName} {sp.lastName}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        {/* Searchable, like the topic speakers below: a
+                            conference has a few hundred speakers, and a plain
+                            list of them could only be scrolled. */}
+                        <div className="min-w-0 flex-1">
+                          <SearchableSelect
+                            value={sr.speakerId}
+                            displayLabel={speakerNameById.get(sr.speakerId) ?? "Unknown speaker"}
+                            onChange={(v) => {
+                              const updated = [...sessionForm.sessionRoles];
+                              updated[idx] = { ...updated[idx], speakerId: v };
+                              setSessionForm({ ...sessionForm, sessionRoles: updated });
+                            }}
+                            options={speakerOptions}
+                            placeholder="Select speaker"
+                            searchPlaceholder="Search speakers..."
+                            emptyText="No speakers found."
+                          />
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"
