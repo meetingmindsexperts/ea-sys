@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Deleting an abstract: counts refreshed, a limit, refusals logged (November 17)
+
+Owner, on the fourth item the review of the admin delete change left: "do no 4 for now". Three small things on the delete route, nothing else from that list.
+
+- **Fixed**: the event's abstract counts are refreshed after a delete. They are a stored total that create and update refresh and the delete did not, so the dashboard tile and the agent's dashboard read stayed one too high until the next abstract changed.
+- **Added**: a limit of 60 deletes an hour for each person (`RATE_LIMITED`, with `retryAfterSeconds`, as on the other limited routes). Checked after the permission, so someone who may not delete spends none of it. Room for clearing out test and duplicate submissions by hand; a script can no longer empty an event.
+- **Added**: the three refusals that answered without a log line are logged at warn: no such event, no such abstract, an abstract linked to a session.
+- Still open from that list, by the owner's choice: an abstract scheduled as a session topic is not refused; the list offers delete on every status; a reviewer is sent the author's whole speaker record.
+
 ### Rules that are enforced, not remembered: one gate, two git hooks, an agent command guard (November 17)
 
 Owner: "our platform rules are preventing any agent or yourself to make mistakes but still some are getting through, see if we can further strengthen". Nothing here changes what the running system does, except one route that answered 500 and now answers 403 (last bullet).
@@ -27,8 +36,11 @@ Owner: "give delete abstract permission to admins as well as tickable permission
 
 - **Changed**: the Admin role holds `abstracts.delete` on every event of the organisation, so an admin sees the Delete button on the Abstracts page and on an abstract's edit page, and the route accepts it. Production has four admin accounts.
 - **Unchanged**: an Organizer edits and decides abstracts but does not delete them; Member, the desk roles, reviewers and authors cannot; an API key cannot (the route takes a signed-in person only, and the API-key role does not hold the key). An abstract linked to a session is still refused until it is unlinked, and every delete is written to the audit log with a copy of the abstract.
-- **Custom roles**: "Delete abstracts" was already a permission that can be ticked on a custom role (the editor warns before it is ticked), for all events or assigned events. Nothing needed changing; a test now pins that it stays tickable.
+- **Custom roles**: "Delete abstracts" was already a permission that can be ticked on a custom role (the editor warns before it is ticked), for all events, assigned events or webinars. Nothing needed changing; a test now pins that it stays tickable. Only the super admin edits and assigns custom roles.
+- **Who can pass it on**: an admin can invite or promote someone to Admin, so the people who can delete an abstract are whoever the admins make admins, not a fixed four.
 - **Tests and docs**: the frozen grants of the Admin role and the route's status matrix were re-recorded, and the only change in each is this one (Admin's row for the delete now reads as the super admin's); `docs/ROLES_AND_PERMISSIONS.md` has the row, checked against the code by its test.
+
+Review of `35e73eae` (0 BLOCKER, 0 HIGH, 1 MED, 6 LOW; the permission change itself is scoped as claimed: organizers, the other roles and API keys are still refused, and an admin still cannot create or assign a custom role). Fixed: the audit copy of a deleted abstract now holds its reviewer assignments and submitted reviews (scores and notes), which are deleted with it and had no copy anywhere, and the delete and its copy are one transaction, so nothing is deleted unless the copy is written; the confirmation names the abstract, its status and how many reviews and assignments go with it (it was "Delete this abstract?" on an icon beside Reject); the user menu's permission list no longer shows a cross against "Delete abstracts" for an admin; a third test that used this key as "beyond an admin" was corrected, a test that still asserted "super admin only" by comparing a role name to itself was removed, and the refusal is now checked for every role in the enum and for every door an API key has. New: `abstract-delete-route.test.ts`. Left for the owner, in `docs/ROADMAP.md`: an abstract scheduled as a session TOPIC is not refused, the event's abstract counts are not refreshed after a delete, and the route has no rate limit.
 
 ### Abstracts: a search box on the list (November 17)
 

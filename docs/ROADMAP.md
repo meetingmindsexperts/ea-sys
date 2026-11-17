@@ -27,12 +27,10 @@ it is touched.
   the abstract's edit page offers delete on a draft only. Decide which is meant.
   If the list should match the edit page, hide the button unless the abstract is
   a draft (the super admin could keep the wider one).
-- **The event's abstract counts are not refreshed after a delete**, so the
-  dashboard tile and the agent's dashboard read stay one too high until the next
-  abstract is created or changed.
-- **No rate limit on the delete, and its 404 and 400 are not logged.** A signed-in
-  holder can script the deletion of every unlinked abstract of the organisation.
-  Each leaves its audit copy; nothing slows it or reports it.
+- ~~The event's abstract counts are not refreshed after a delete~~ and ~~no rate
+  limit on the delete, its 404 and 400 not logged~~: DONE Nov 17, 2026 (owner:
+  "do no 4 for now, leave rest for later"). Counts refreshed, 60 deletes an hour
+  for each person, the three refusals logged.
 - **The user menu's permission list is hand-written per role** (`header.tsx`,
   `ROLE_META`), which is how it came to show a cross for something the role
   holds. It also says an Organizer cannot "Review & approve abstracts", which an

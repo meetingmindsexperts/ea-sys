@@ -10,10 +10,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, tx } = vi.hoisted(() => {
+const { mockDb, mockAuth, tx, mockRateLimit, mockRefreshStats, mockLogger } = vi.hoisted(() => {
   const tx = { abstract: { delete: vi.fn() }, auditLog: { create: vi.fn() } };
   return {
     tx,
+    mockRateLimit: vi.fn(),
+    mockRefreshStats: vi.fn(),
+    mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     mockDb: {
       event: { findFirst: vi.fn() },
       abstract: { findFirst: vi.fn(), delete: vi.fn() },
@@ -33,7 +36,12 @@ vi.mock("@/lib/db", () => ({
   // a throw inside it propagates as a rolled-back transaction would.
   tenantTransaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
 }));
-vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
+vi.mock("@/lib/security", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/security")>()),
+  checkRateLimit: (args: unknown) => mockRateLimit(args),
+}));
+vi.mock("@/lib/event-stats", () => ({ refreshEventStats: (eventId: string) => mockRefreshStats(eventId) }));
 
 import { DELETE } from "@/app/api/events/[eventId]/abstracts/[abstractId]/route";
 
@@ -61,6 +69,7 @@ beforeEach(() => {
   mockDb.abstract.findFirst.mockResolvedValue(ABSTRACT);
   tx.abstract.delete.mockResolvedValue({});
   tx.auditLog.create.mockResolvedValue({});
+  mockRateLimit.mockReturnValue({ allowed: true, remaining: 59, retryAfterSeconds: 0 });
 });
 
 describe("who may delete an abstract", () => {
@@ -149,5 +158,73 @@ describe("what is refused whoever asks", () => {
     const res = await del();
     expect(res.status).toBe(404);
     expect(mockDb.abstract.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+// Roadmap item 4 of the review of 35e73eae (owner, Nov 17, 2026: "do no 4 for now").
+describe("the event's abstract counts after a delete", () => {
+  beforeEach(() => signedInAs("ADMIN"));
+
+  it("are refreshed, so the dashboard tile does not stay one too high", async () => {
+    await del();
+    expect(mockRefreshStats).toHaveBeenCalledWith("ev1");
+  });
+
+  it("are left alone when nothing was deleted", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({ ...ABSTRACT, eventSession: { id: "ses1", name: "Plenary" } });
+    await del();
+    tx.auditLog.create.mockRejectedValue(new Error("audit insert failed"));
+    mockDb.abstract.findFirst.mockResolvedValue(ABSTRACT);
+    await del();
+    expect(mockRefreshStats).not.toHaveBeenCalled();
+  });
+});
+
+describe("the limit on deleting", () => {
+  it("is 60 an hour for each person", async () => {
+    signedInAs("ADMIN");
+    await del();
+    expect(mockRateLimit).toHaveBeenCalledWith({ key: "abstract-delete:u1", limit: 60, windowMs: 60 * 60 * 1000 });
+  });
+
+  it("answers 429 with when to try again, and deletes nothing", async () => {
+    signedInAs("ADMIN");
+    mockRateLimit.mockReturnValue({ allowed: false, remaining: 0, retryAfterSeconds: 1234 });
+    const res = await del();
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ code: "RATE_LIMITED", retryAfterSeconds: 1234, limit: 60, windowSeconds: 3600 });
+    expect(mockDb.abstract.findFirst).not.toHaveBeenCalled();
+    expect(tx.abstract.delete).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "abstracts:delete-rate-limited", userId: "u1" }));
+  });
+
+  it("is not spent by someone who may not delete at all", async () => {
+    signedInAs("ORGANIZER");
+    await del();
+    expect(mockRateLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe("every refusal is logged", () => {
+  beforeEach(() => signedInAs("ADMIN"));
+
+  it("an abstract that is not there", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue(null);
+    await del();
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "abstracts:delete-abstract-not-found", abstractId: "ab1" }));
+  });
+
+  it("an event that is not the caller's", async () => {
+    mockDb.event.findFirst.mockResolvedValue(null);
+    await del();
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "abstracts:delete-event-not-found", eventId: "ev1" }));
+  });
+
+  it("an abstract linked to a session, with the session named", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({ ...ABSTRACT, eventSession: { id: "ses1", name: "Plenary" } });
+    await del();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "abstracts:delete-refused-linked-to-session", sessionId: "ses1" }),
+    );
   });
 });

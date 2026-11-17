@@ -8,7 +8,7 @@ import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
-import { getClientIp } from "@/lib/security";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { countWords } from "@/lib/abstract-content";
@@ -703,6 +703,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
   }
 }
 
+/** How many abstracts one person may delete in an hour. In CLAUDE.md's rate limit table. */
+const ABSTRACT_DELETE_LIMIT = 60;
+const ABSTRACT_DELETE_WINDOW_SECONDS = 60 * 60;
+
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, abstractId }] = await Promise.all([auth(), params]);
@@ -720,6 +724,29 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
     if (!gate.ok) return gate.response;
 
+    // Per person, after the permission check so a refused caller spends none
+    // of it. A delete is one abstract at a time and permanent; 60 an hour is
+    // room for clearing out test and duplicate submissions by hand, and stops
+    // a script emptying an event (review of 35e73eae).
+    const rl = checkRateLimit({
+      key: `abstract-delete:${session.user.id}`,
+      limit: ABSTRACT_DELETE_LIMIT,
+      windowMs: ABSTRACT_DELETE_WINDOW_SECONDS * 1000,
+    });
+    if (!rl.allowed) {
+      apiLogger.warn({ msg: "abstracts:delete-rate-limited", eventId, abstractId, userId: session.user.id, retryAfterSeconds: rl.retryAfterSeconds });
+      return NextResponse.json(
+        {
+          error: "Too many abstracts deleted in a short time. Try again later.",
+          code: "RATE_LIMITED",
+          retryAfterSeconds: rl.retryAfterSeconds,
+          limit: ABSTRACT_DELETE_LIMIT,
+          windowSeconds: ABSTRACT_DELETE_WINDOW_SECONDS,
+        },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+      );
+    }
+
     // Resolve the event FIRST — its org opens the tenant wrap. The swept
     // abstract read + delete run INSIDE the wrap.
     const event = await findGatedEvent(gate, {
@@ -727,6 +754,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
 
     if (!event) {
+      apiLogger.warn({ msg: "abstracts:delete-event-not-found", eventId, abstractId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -749,11 +777,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
 
     if (!abstract) {
+      apiLogger.warn({ msg: "abstracts:delete-abstract-not-found", eventId, abstractId, userId: session.user.id });
       return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
     }
 
     // Don't allow deletion if linked to a session
     if (abstract.eventSession) {
+      apiLogger.warn({ msg: "abstracts:delete-refused-linked-to-session", eventId, abstractId, sessionId: abstract.eventSession.id, userId: session.user.id });
       return NextResponse.json(
         { error: "Cannot delete abstract that is linked to a session" },
         { status: 400 }
@@ -787,6 +817,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       reviewsDeleted: abstract.submissions.length,
       userId: session.user.id,
     });
+
+    // The event's abstract counts (the dashboard tile, the agent's dashboard
+    // read) are a stored total. Create and update refresh it; the delete did
+    // not, so the tile stayed one too high until the next abstract changed.
+    refreshEventStats(eventId);
 
     return NextResponse.json({ success: true });
     });
