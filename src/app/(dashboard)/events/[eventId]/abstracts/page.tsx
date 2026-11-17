@@ -183,7 +183,8 @@ export default function AbstractsPage() {
 
   const isSubmitter  = session?.user?.role === "SUBMITTER";
   const isReviewer   = session?.user?.role === "REVIEWER";
-  // Delete is its own key (SUPER_ADMIN's alone among the built-in roles).
+  // Delete is its own key: super admin and admin among the built-in roles,
+  // or a custom role that ticks it.
   const canDeleteAbstracts = useCan("abstracts.delete", eventId) === "allowed";
   // Managers edit, approve/reject, change presentation type, assign
   // reviewers and force a status: the backend PUT's abstracts.update.

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Abstracts: admins can delete an abstract (November 17)
+
+Owner: "give delete abstract permission to admins as well as tickable permission". Until now only the super admin could delete an abstract (one account in production).
+
+- **Changed**: the Admin role holds `abstracts.delete` on every event of the organisation, so an admin sees the Delete button on the Abstracts page and on an abstract's edit page, and the route accepts it. Production has four admin accounts.
+- **Unchanged**: an Organizer edits and decides abstracts but does not delete them; Member, the desk roles, reviewers and authors cannot; an API key cannot (the route takes a signed-in person only, and the API-key role does not hold the key). An abstract linked to a session is still refused until it is unlinked, and every delete is written to the audit log with a copy of the abstract.
+- **Custom roles**: "Delete abstracts" was already a permission that can be ticked on a custom role (the editor warns before it is ticked), for all events or assigned events. Nothing needed changing; a test now pins that it stays tickable.
+- **Tests and docs**: the frozen grants of the Admin role and the route's status matrix were re-recorded, and the only change in each is this one (Admin's row for the delete now reads as the super admin's); `docs/ROLES_AND_PERMISSIONS.md` has the row, checked against the code by its test.
+
 ### Abstracts: a search box on the list (November 17)
 
 Owner: "add search abstracts option". The Abstracts page listed every abstract of the event with no way to find one: on MEHF2027 that is 169 cards to scroll. A search box beside the list heading now filters the list as you type, for everyone who sees the page (staff, a reviewer, an author).

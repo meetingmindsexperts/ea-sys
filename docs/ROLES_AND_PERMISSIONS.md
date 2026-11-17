@@ -122,6 +122,7 @@ built-in roles only.
 | Supporting documents (resident letters and the like) | `supportingDocs.view` | SUPER_ADMIN · ADMIN · ORGANIZER | no |
 | Zoom host credentials (start URL, passcode, stream key) | `zoomHost.view` | SUPER_ADMIN · ADMIN · ORGANIZER · WEBINARS | yes |
 | Speaker reimbursements (passports, bank details) | `reimbursements.manage` | SUPER_ADMIN · ADMIN · ORGANIZER | no |
+| Delete an abstract, with its reviews (ADMIN since Nov 17, 2026; an ORGANIZER edits and decides but does not delete) | `abstracts.delete` | SUPER_ADMIN · ADMIN | no |
 | CRM, read the board | `crm.read` | SUPER_ADMIN · ADMIN · CRM_USER | yes |
 | CRM, own deals and write | `crm.write` | SUPER_ADMIN · ADMIN · CRM_USER | yes |
 | CRM, see deal values | `crm.dealValues.view` | SUPER_ADMIN · ADMIN · CRM_USER | yes |

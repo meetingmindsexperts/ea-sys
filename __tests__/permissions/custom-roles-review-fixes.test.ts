@@ -5,7 +5,7 @@
  *  - M6: a custom grant must fit the base role's areas.
  */
 import { describe, it, expect } from "vitest";
-import { ADMIN_ONLY_KEYS, isGrantableKey } from "@/lib/permissions/catalogue";
+import { ADMIN_ONLY_KEYS, PERMISSION_CATALOGUE, isGrantableKey } from "@/lib/permissions/catalogue";
 import { canEverywhere, principalFromUser, type Principal } from "@/lib/permissions/can";
 import { grantsOutsideAreas, keyArea } from "@/lib/permissions/key-areas";
 import { gateToolCall } from "@/lib/agent/tool-gate";
@@ -18,6 +18,23 @@ describe("admin-only keys", () => {
       expect(isGrantableKey(key, false)).toBe(false);
     }
     expect(isGrantableKey("events.update", true)).toBe(true);
+  });
+});
+
+// Nov 17, 2026 (owner: "give delete abstract permission to admins as well as
+// tickable permission"). Admins hold it by role; anyone else gets it only from
+// a custom role that ticks it, and the editor warns before it is ticked.
+describe("abstract delete", () => {
+  it("can be ticked on a custom role, with the editor's warning", () => {
+    expect(isGrantableKey("abstracts.delete", true)).toBe(true);
+    expect(ADMIN_ONLY_KEYS.has("abstracts.delete")).toBe(false);
+    const entry = PERMISSION_CATALOGUE.find((p) => p.key === "abstracts.delete");
+    expect(entry?.sensitive).toBe(true);
+    expect(entry?.eventBound).toBe(true);
+  });
+
+  it("is not offered while custom roles are switched off", () => {
+    expect(isGrantableKey("abstracts.delete", false)).toBe(false);
   });
 });
 

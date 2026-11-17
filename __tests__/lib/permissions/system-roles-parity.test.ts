@@ -166,8 +166,15 @@ describe("the matrix itself", () => {
   it("the plan's recorded differences from the docs hold in the data (§7.6)", () => {
     // ORGANIZER is org-wide (never "assigned events only").
     expect(SYSTEM_ROLES.ORGANIZER.grants.every((g) => g.scope === undefined || g.scope === "ALL")).toBe(true);
-    // abstracts.delete is SUPER_ADMIN's alone; registrations.delete is never a desk power (L-4).
-    expect(can(principal("ADMIN"), "abstracts.delete")).toBe(false);
+    // abstracts.delete: SUPER_ADMIN and, since Nov 17, 2026 (owner), ADMIN. Never
+    // an organizer, a member, a desk role or an API key. registrations.delete is
+    // never a desk power (L-4).
+    expect(can(principal("SUPER_ADMIN"), "abstracts.delete")).toBe(true);
+    expect(can(principal("ADMIN"), "abstracts.delete")).toBe(true);
+    for (const role of ["ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "BASE", "REVIEWER", "SUBMITTER", "REGISTRANT"] as const) {
+      expect(can(principal(role), "abstracts.delete"), role).toBe(false);
+    }
+    expect(SYSTEM_ROLES.API_KEY.grants.some((g) => g.permission === "abstracts.delete")).toBe(false);
     expect(can(principal("WEBINARS"), "registrations.delete")).toBe(false);
     // MEMBER reads money but never codes, exports or supporting documents.
     expect(can(principal("MEMBER"), "finance.view")).toBe(true);

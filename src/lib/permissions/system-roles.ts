@@ -133,7 +133,8 @@ const DESK_WITH_CODES: PermissionKey[] = ["registrations.export", "dtcm.assign"]
 /**
  * Every event-domain key an ORGANIZER holds (`WRITE_ROLES` with no allow-list
  * plus everything above), which is the same set an ADMIN holds. Only
- * `abstracts.delete` is missing: it is SUPER_ADMIN's alone.
+ * `abstracts.delete` is missing: SUPER_ADMIN and ADMIN hold it on their own
+ * rows (ADMIN since Nov 17, 2026), never an ORGANIZER and never an API key.
  */
 const ORGANIZER_EVENT: PermissionKey[] = [
   ...EVENT_READ,
@@ -377,9 +378,9 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     baseRole: "SUPER_ADMIN",
     grants: [
       ...ADMIN_GRANTS,
-      // SUPER_ADMIN alone: abstract delete (route check), CRM purge, the roles
-      // editor (`denyNonRoleAdmin`), INTERNAL-tier API keys and OAuth clients,
-      // and deciding suppliers by role
+      // Abstract delete, shared with ADMIN (below). SUPER_ADMIN alone: CRM
+      // purge, the roles editor (`denyNonRoleAdmin`), INTERNAL-tier API keys
+      // and OAuth clients, and deciding suppliers by role
       // (`canDecideSuppliers`). HR without a tick on the person.
       ...at("ALL", "abstracts.delete"),
       ...org("crm.purge", "roles.manage", "apiKeys.internalTier", "procurement.approvalChain.manage", "procurement.suppliers.decide", "hr.read", "hr.write"),
@@ -394,7 +395,14 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     baseRole: "ADMIN",
     // HR only with the per-person tick: `hr.read` / `hr.write` are held, and
     // `can()` refuses them until `hrAccess` is set (plan §3.4).
-    grants: [...ADMIN_GRANTS, ...org("hr.read", "hr.write"), ...org(...BLUEPRINT_ADMIN)],
+    //
+    // Abstract delete since Nov 17, 2026 (owner: "give delete abstract
+    // permission to admins"). Named on this row and the super admin's, as the
+    // one event key an organizer does not share. The API-key row has its own
+    // list and no abstract delete: a key (n8n, a script, an AI assistant) must
+    // not be able to delete an abstract, and the route takes a signed-in
+    // person only.
+    grants: [...ADMIN_GRANTS, ...at("ALL", "abstracts.delete"), ...org("hr.read", "hr.write"), ...org(...BLUEPRINT_ADMIN)],
     impliedPersonGrants: [],
     areas: STAFF_AREAS,
   },

@@ -16,6 +16,7 @@ exports[`built-in role grants > ADMIN 1`] = `
   "grants": [
     "abstracts.criteria.manage@ALL",
     "abstracts.decide@ALL",
+    "abstracts.delete@ALL",
     "abstracts.email@ALL",
     "abstracts.export@ALL",
     "abstracts.import@ALL",

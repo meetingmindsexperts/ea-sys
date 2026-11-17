@@ -42,6 +42,7 @@ const PREDICATES: Record<string, { roles: RolePredicate; apiKey?: ApiKeyPredicat
   "supportingDocs.view": key("supportingDocs.view"),
   "zoomHost.view": key("zoomHost.view"),
   "reimbursements.manage": key("reimbursements.manage"),
+  "abstracts.delete": key("abstracts.delete"),
   "crm.read": key("crm.read"),
   "crm.write": key("crm.write"),
   "crm.dealValues.view": key("crm.dealValues.view"),

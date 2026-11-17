@@ -101,7 +101,7 @@ DELETE abstracts/[abstractId]
   caller      conf        assigned    webinar     foreign
   SUPER_ADMIN 500 r w     500 r w     500 r w     404
   OPERATOR    500 r w     500 r w     500 r w     500 r w
-  ADMIN       403         403         403         403
+  ADMIN       500 r w     500 r w     500 r w     404
   ORGANIZER   403         403         403         403
   MEMBER      403         403         403         403
   ONSITE      403         403         403         403

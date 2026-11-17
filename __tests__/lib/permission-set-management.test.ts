@@ -490,7 +490,9 @@ describe("review fixes: areas, restore, removal", () => {
 
   it("judges a removal like a grant (L3): an admin cannot strip a role wider than theirs", async () => {
     // Nothing wanted, so the only role lookup is the removed one.
-    mockDb.permissionSet.findMany.mockResolvedValueOnce([{ id: "wide", name: "Abstract purge", permissions: [{ permission: "abstracts.delete", scope: "ALL" }] }]);
+    // A key the super admin holds and an admin does not. It was `abstracts.delete`
+    // until Nov 17, 2026, when admins were given that one.
+    mockDb.permissionSet.findMany.mockResolvedValueOnce([{ id: "wide", name: "Unthrottled keys", permissions: [{ permission: "apiKeys.internalTier", scope: null }] }]);
     mockDb.userPermissionSet.findMany.mockResolvedValue([{ permissionSetId: "wide" }]);
     mockDb.user.findFirst.mockResolvedValue({ role: "ORGANIZER", firstName: "O", lastName: "", email: "o@x", procurementApproveUnlimited: false, procurementRequest: false, procurementSettle: false });
     const result = await setUserPermissionSets({ ...admin, userId: "u1", permissionSetIds: [] });
@@ -513,7 +515,8 @@ describe("review fixes: areas, restore, removal", () => {
       name: "Purger",
       isSystem: false,
       archivedAt: new Date(),
-      permissions: [{ permission: "abstracts.delete", scope: "ALL" }],
+      // Beyond an admin's own access (see the removal test above for why not `abstracts.delete`).
+      permissions: [{ permission: "apiKeys.internalTier", scope: null }],
       _count: { holders: 1 },
     };
     mockDb.permissionSet.findFirst.mockResolvedValue(archivedRole);

@@ -711,7 +711,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // `abstracts.delete` is held by the super admin alone among the system roles.
+    // `abstracts.delete`: the super admin and admins among the built-in roles
+    // (admins since Nov 17, 2026), plus any custom role that ticks it. Never an
+    // organizer, never an API key.
     const gate = requirePermission(session, "abstracts.delete", {
       route: "events/[eventId]/abstracts/[abstractId]:DELETE",
       eventId,
