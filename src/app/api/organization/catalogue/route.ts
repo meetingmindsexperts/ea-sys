@@ -49,6 +49,8 @@ const catalogueSchema = z
       .nullable()
       .optional(),
     contactPhone: text(L.contactPhone),
+    contactHours: text(L.contactHours),
+    contactAddress: text(L.contactAddress),
     termsUrl: linkUrl,
     privacyUrl: linkUrl,
     showStats: z.boolean().optional(),

@@ -26,6 +26,8 @@ export const CATALOGUE_TEXT_LIMITS = {
   footerAbout: 300,
   contactEmail: 254,
   contactPhone: 40,
+  contactHours: 80,
+  contactAddress: 200,
   linkUrl: 500,
 } as const;
 
@@ -48,6 +50,15 @@ export interface CatalogueSettings {
   /** The footer's contact; null uses the company email and phone (Billing). */
   contactEmail: string | null;
   contactPhone: string | null;
+  /**
+   * When the phone is answered ("Mon to Fri, 9 am to 5 pm Dubai time"), shown
+   * in brackets after the number. Its own field, not part of the phone: the
+   * number is a tap-to-call link built from its digits, and "9" and "5" typed
+   * into it would be dialled.
+   */
+  contactHours: string | null;
+  /** The office address, on one line under the phone and email. */
+  contactAddress: string | null;
   /** The organisation's terms of use and privacy policy, linked from the
    * account sign-up form (Nov 5, 2026); https only. Terms are otherwise per event. */
   termsUrl: string | null;
@@ -110,6 +121,8 @@ export function readCatalogueSettings(orgSettings: unknown): CatalogueSettings {
     footerAbout: text(s.footerAbout, L.footerAbout),
     contactEmail: email && /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(email) ? email : null,
     contactPhone: text(s.contactPhone, L.contactPhone),
+    contactHours: text(s.contactHours, L.contactHours),
+    contactAddress: text(s.contactAddress, L.contactAddress),
     termsUrl: link(s.termsUrl),
     privacyUrl: link(s.privacyUrl),
     ...(Object.fromEntries(CATALOGUE_SECTIONS.map((k) => [k, s[k] !== false])) as Record<(typeof CATALOGUE_SECTIONS)[number], boolean>),
@@ -206,6 +219,21 @@ export function catalogueHref(query: CatalogueQuery, change: Partial<CatalogueQu
   if (next.page > 1) params.set("page", String(next.page));
   const s = params.toString();
   return s ? `/catalogue?${s}` : "/catalogue";
+}
+
+/** The id of the section that holds the event list, on the catalogue and on a topic page. */
+export const CATALOGUE_LIST_ANCHOR = "events";
+
+/**
+ * An address that changes what the list SHOWS (a specialty, the Past tab, the
+ * next page, a search) lands ON the list. Without the anchor the browser
+ * opens the new page at the top: a person who picked "Hematology" was looking
+ * at the hero again and had to scroll back down to see what they asked for
+ * (owner, Nov 17, 2026). Not for a canonical link or a redirect: an anchor is
+ * not part of a page's address to a search engine.
+ */
+export function onList(href: string): string {
+  return `${href}#${CATALOGUE_LIST_ANCHOR}`;
 }
 
 // ── Topic pages (catalogue phase 3) ────────────────────────────────────────

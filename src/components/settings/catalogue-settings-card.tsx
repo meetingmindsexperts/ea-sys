@@ -26,7 +26,7 @@ import { CATALOGUE_TEXT_LIMITS as L, isHttpsLinkUrl, type CatalogueSettings } fr
 /** The route returns at most this many events, newest first. */
 const EVENT_LIST_CAP = 200;
 
-type TextKey = "eyebrow" | "headline" | "intro" | "footerAbout" | "contactEmail" | "contactPhone" | "termsUrl" | "privacyUrl";
+type TextKey = "eyebrow" | "headline" | "intro" | "footerAbout" | "contactEmail" | "contactPhone" | "contactHours" | "contactAddress" | "termsUrl" | "privacyUrl";
 type SectionKey = "showStats" | "showBannerFan" | "showNextUp" | "showHowItWorks" | "showTopics";
 type Form = Record<TextKey, string> & Record<SectionKey, boolean> & { heroImage: string | null };
 
@@ -47,6 +47,8 @@ function toForm(s: CatalogueSettings): Form {
     footerAbout: s.footerAbout ?? "",
     contactEmail: s.contactEmail ?? "",
     contactPhone: s.contactPhone ?? "",
+    contactHours: s.contactHours ?? "",
+    contactAddress: s.contactAddress ?? "",
     termsUrl: s.termsUrl ?? "",
     privacyUrl: s.privacyUrl ?? "",
     showStats: s.showStats,
@@ -193,6 +195,26 @@ function CatalogueForm({ data, readOnly }: { data: CatalogueSettingsResponse; re
                 placeholder={defaults.companyPhone ?? "+971 4 000 0000"}
                 disabled={readOnly}
                 onChange={(v) => set({ contactPhone: v })}
+              />
+              <TextField
+                id="catalogue-contact-hours"
+                label="Phone hours"
+                hint="Shown in brackets after the phone number. Keep it out of the phone field: the number is a tap-to-call link."
+                value={form.contactHours}
+                max={L.contactHours}
+                placeholder="Mon to Fri, 9 am to 5 pm Dubai time"
+                disabled={readOnly}
+                onChange={(v) => set({ contactHours: v })}
+              />
+              <TextField
+                id="catalogue-contact-address"
+                label="Address"
+                hint="Shown under the phone and email. Empty shows none."
+                value={form.contactAddress}
+                max={L.contactAddress}
+                placeholder="Tower, office, area, city, PO Box"
+                disabled={readOnly}
+                onChange={(v) => set({ contactAddress: v })}
               />
             </div>
           </section>

@@ -4,7 +4,7 @@
  * keep or reset the right parts.
  */
 import { describe, it, expect } from "vitest";
-import { catalogueBaseWhere, catalogueHref, catalogueOrderBy, catalogueWhere, findTopic, groupTopics, parseCatalogueQuery, readCatalogueSettings, topicForValue, topicHref, topicIntro, topicSlug, topicTitle } from "@/lib/catalogue";
+import { CATALOGUE_LIST_ANCHOR, catalogueBaseWhere, catalogueHref, onList, catalogueOrderBy, catalogueWhere, findTopic, groupTopics, parseCatalogueQuery, readCatalogueSettings, topicForValue, topicHref, topicIntro, topicSlug, topicTitle } from "@/lib/catalogue";
 
 const NOW = new Date("2026-11-04T10:00:00Z");
 const ORG = { organizationId: "org1" };
@@ -63,6 +63,15 @@ describe("order and links", () => {
     expect(catalogueHref(q, { when: "past" })).toBe("/catalogue?q=heart&country=Oman&when=past");
     expect(catalogueHref(q, { page: 4 })).toBe("/catalogue?q=heart&country=Oman&page=4");
     expect(catalogueHref(parseCatalogueQuery({}), {})).toBe("/catalogue");
+  });
+
+  it("a link that changes what the list shows lands on the list, not at the top of the page", () => {
+    const q = parseCatalogueQuery({});
+    expect(onList(catalogueHref(q, { specialty: "Hematology" }))).toBe("/catalogue?specialty=Hematology#events");
+    expect(onList(catalogueHref(q, { when: "past" }))).toBe("/catalogue?when=past#events");
+    expect(onList("/catalogue")).toBe(`/catalogue#${CATALOGUE_LIST_ANCHOR}`);
+    // The address itself is unchanged: a canonical link and a redirect carry no anchor.
+    expect(catalogueHref(q, { specialty: "Hematology" })).not.toContain("#");
   });
 });
 
@@ -126,7 +135,7 @@ describe("readCatalogueSettings (Settings, Catalogue tab)", () => {
   it("fills every default when nothing is set: the page's own words, every section shown", () => {
     expect(readCatalogueSettings(null)).toEqual({
       heroImage: null, eyebrow: null, headline: null, intro: null, footerAbout: null, contactEmail: null, contactPhone: null,
-      termsUrl: null, privacyUrl: null,
+      contactHours: null, contactAddress: null, termsUrl: null, privacyUrl: null,
       showStats: true, showBannerFan: true, showNextUp: true, showHowItWorks: true, showTopics: true,
     });
     expect(read("not an object").showStats).toBe(true);
@@ -160,6 +169,15 @@ describe("readCatalogueSettings (Settings, Catalogue tab)", () => {
   it("drops a contact email that is not an address", () => {
     expect(read({ contactEmail: "events@meetingmindsgroup.com" }).contactEmail).toBe("events@meetingmindsgroup.com");
     expect(read({ contactEmail: "call us" }).contactEmail).toBeNull();
+  });
+
+  it("reads the phone hours and the address as plain one-line text, cut at their limits", () => {
+    const set = read({ contactHours: "  Mon to Fri,\n 9 am to 5 pm  Dubai time ", contactAddress: "DSC Tower, Office 508 & 509, Dubai Studio City, Dubai, PO Box 502464" });
+    expect(set.contactHours).toBe("Mon to Fri, 9 am to 5 pm Dubai time");
+    expect(set.contactAddress).toBe("DSC Tower, Office 508 & 509, Dubai Studio City, Dubai, PO Box 502464");
+    expect(read({ contactHours: "x".repeat(200) }).contactHours).toHaveLength(80);
+    expect(read({ contactAddress: "x".repeat(400) }).contactAddress).toHaveLength(200);
+    expect(read({ contactHours: 9, contactAddress: "   " })).toMatchObject({ contactHours: null, contactAddress: null });
   });
 
   it("accepts a media-library upload or an https address as the photo", () => {

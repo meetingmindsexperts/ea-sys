@@ -522,7 +522,9 @@ export function BrowseTopics({ specialties, countries, current }: { specialties:
 
 export function CatalogueFooter({ organization, specialties }: { organization: SiteOrganization | null; specialties: Topic[] }) {
   const name = organization?.name ?? "Events";
-  const contact = [organization?.email, organization?.phone].filter((v): v is string => !!v);
+  const hours = organization?.catalogue.contactHours ?? null;
+  const address = organization?.catalogue.contactAddress ?? null;
+  const contact = [organization?.email, organization?.phone, hours, address].filter((v): v is string => !!v);
   const heading = "mb-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-[#7fd8f3]";
   return (
     <footer className="mt-16 bg-[#0a1c2e] text-sm text-white/75">
@@ -555,11 +557,19 @@ export function CatalogueFooter({ organization, specialties }: { organization: S
           </ul>
         </div>
         {contact.length > 0 && (
-          <div>
+          // The full width on a phone: in half a row an email address broke mid-word and an address ran to five lines.
+          <div className="col-span-2 md:col-span-1">
             <h2 className={heading}>Contact</h2>
             <ul className="grid gap-1.5">
+              {/* Phone first, with when it is answered; the hours are text beside the link, never part of the number dialled. */}
+              {(organization?.phone || hours) && (
+                <li>
+                  {organization?.phone && <a href={`tel:${organization.phone.replace(/[^\d+]/g, "")}`} className="whitespace-nowrap hover:text-white">{organization.phone}</a>}
+                  {hours && <span className="text-white/60">{organization?.phone ? " " : ""}({hours})</span>}
+                </li>
+              )}
               {organization?.email && <li><a href={`mailto:${organization.email}`} className="break-all hover:text-white">{organization.email}</a></li>}
-              {organization?.phone && <li><a href={`tel:${organization.phone.replace(/[^\d+]/g, "")}`} className="hover:text-white">{organization.phone}</a></li>}
+              {address && <li>{address}</li>}
             </ul>
           </div>
         )}

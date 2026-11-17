@@ -52,7 +52,7 @@ is already set on the event. Fill these in and the pages fill themselves.
 | Hero numbers | Counted from the database: events hosted (published, live or completed, listed or not), delegates registered (not cancelled or waitlisted, Faculty type excluded), faculty (one per email), countries. Hidden for an organisation with fewer than three events |
 | Next up, rates per type | The soonest listed event: each registration type's price at the rate the Register link lands on ("Early Bird rates"), by the same rule as the form |
 | Card status and price | "Early Bird" (the rate's name), "Sold out" or "Registration closed", and "From $X": the same rule as the form |
-| Footer about line and contact | Settings, **Catalogue** tab, Footer. Empty contact uses the company email and phone (Settings, Billing) |
+| Footer about line and contact | Settings, **Catalogue** tab, Footer: contact phone, phone hours (shown in brackets after the number), contact email, address. Empty email or phone uses the company's (Settings, Billing); empty hours or address shows none. Keep the hours out of the phone field: the number is a tap-to-call link |
 | Which events are listed | Settings, **Catalogue** tab, Listed events: one switch per published event, the same switch as the event's own Settings, Registration tab |
 
 ## What search engines and AI assistants receive

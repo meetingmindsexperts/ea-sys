@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Catalogue: phone hours and an address in the footer, and a filter lands on the event list (November 17)
+
+Two requests from the owner on the public catalogue.
+
+**The contact.** "Change the contact in catalogue to: +971 4 276 1444 (mon to fri 9 am to 5 pm dubai time), support@meetingmindsexperts.com, DSC Tower, Office 508 & 509, Dubai Studio City, Dubai, PO Box 502464". The footer could show an email and a phone, both already set in Settings, Catalogue. It could not show hours or an address, and the hours could not go in the phone field: the number is a tap-to-call link built from its digits, so "9" and "5" would have been dialled.
+
+- **Two new fields** in Settings, Catalogue, Footer: **Phone hours** and **Address**. Empty shows none.
+- **The footer's Contact** now reads: the phone with its hours in brackets, the email, the address. On a phone the block takes the full width (in half a row the email broke mid-word).
+- **To put the new details on the live page**: Settings, Catalogue, Footer, fill the four fields, Save catalogue settings. The values are the organisation's settings, not text in the code, so the next organisation has its own.
+
+**A filter lands on the list.** "When I choose a specialty it goes to the top of the page instead of the events section." Picking a specialty, the Past or Upcoming tab, Clear filters, the next page, or a search opened the result at the top of the page, on the hero. Each now lands on the event list. The same on the specialty and country pages' tabs and pager.
+
+- Checked in a browser at desktop and phone width: the list's heading sits at the top of the window after each of those; a link opened cold lands there too.
+
 ### Catalogue: the brand logo is twice the height in the header and the footer (November 17)
 
 Owner: "increase height of meetingminds experts logo in the catalogue header and footer". The logo was held to 32px high in both places. The Meeting Minds Experts logo is stacked (the mark above the words), so at that height it drew 52px wide and its words were about 10px tall.

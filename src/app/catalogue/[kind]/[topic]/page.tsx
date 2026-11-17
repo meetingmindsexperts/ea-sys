@@ -15,6 +15,8 @@ import {
   findTopic,
   parseCatalogueQuery,
   topicHref,
+  CATALOGUE_LIST_ANCHOR,
+  onList,
   topicIntro,
   topicTitle,
   type CatalogueQuery,
@@ -185,13 +187,13 @@ export default async function CatalogueTopicPage({ params, searchParams }: Props
       </CatalogueHero>
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6">
-        <section aria-labelledby="events-title" className="pt-10 sm:pt-12">
+        <section id={CATALOGUE_LIST_ANCHOR} aria-labelledby="events-title" className="scroll-mt-6 pt-10 sm:pt-12">
           <SectionHead id="events-title" title={query.when === "upcoming" ? `Upcoming ${resolved.value} events` : `Past ${resolved.value} events`}>
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-[#5a6b7b]">
                 {total} {total === 1 ? "event" : "events"}
               </p>
-              <WhenTabs when={query.when} hrefFor={(when) => topicHref(resolved.kind, resolved.value, { when, page: 1 })} />
+              <WhenTabs when={query.when} hrefFor={(when) => onList(topicHref(resolved.kind, resolved.value, { when, page: 1 }))} />
             </div>
           </SectionHead>
           {events.length === 0 ? (
@@ -202,7 +204,7 @@ export default async function CatalogueTopicPage({ params, searchParams }: Props
           ) : (
             <EventGrid events={events} registration={registration} upcoming={query.when === "upcoming"} />
           )}
-          <Pager page={query.page} pages={pages} hrefFor={(page) => topicHref(resolved.kind, resolved.value, { when: query.when, page })} />
+          <Pager page={query.page} pages={pages} hrefFor={(page) => onList(topicHref(resolved.kind, resolved.value, { when: query.when, page }))} />
         </section>
 
         <section aria-labelledby="topics-title" className="pt-12">

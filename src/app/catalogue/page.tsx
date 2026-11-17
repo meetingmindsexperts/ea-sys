@@ -27,14 +27,17 @@ import {
   WhenTabs,
 } from "@/components/catalogue/catalogue-parts";
 import { BannerFan, type FanItem } from "@/components/catalogue/banner-fan";
+import { LandOnList } from "@/components/catalogue/land-on-list";
 import { absoluteUrl, catalogueJsonLd, jsonLdText, siteOrigin } from "@/lib/seo";
 import {
+  CATALOGUE_LIST_ANCHOR,
   CATALOGUE_PAGE_SIZE,
   EVENT_TYPE_LABEL,
   catalogueBaseWhere,
   catalogueHref,
   catalogueOrderBy,
   catalogueWhere,
+  onList,
   parseCatalogueQuery,
   readCatalogueSettings,
   topicForValue,
@@ -212,7 +215,8 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6">
         {/* A plain GET form: works before any script loads, and the URL is shareable. */}
         <form
-          action="/catalogue"
+          // A search lands on the list it filtered, as the chips below do (`onList`).
+          action={onList("/catalogue")}
           method="get"
           role="search"
           className="relative z-[4] -mt-16 grid gap-3 rounded-2xl bg-white p-3.5 shadow-[0_18px_40px_-22px_rgb(10_28_46/0.45)] ring-1 ring-[#dbe4eb] sm:p-4"
@@ -239,13 +243,13 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
           </div>
           {specialties.length > 0 && (
             <nav aria-label="Specialties" className="-m-1 flex gap-2 overflow-x-auto p-1 [scrollbar-width:none]">
-              <Link href={catalogueHref({ ...query, specialty: "" }, { page: 1 })} aria-current={!query.specialty ? "true" : undefined} className={chip(!query.specialty)}>
+              <Link href={onList(catalogueHref({ ...query, specialty: "" }, { page: 1 }))} aria-current={!query.specialty ? "true" : undefined} className={chip(!query.specialty)}>
                 All specialties
               </Link>
               {specialties.map((s) => {
                 const active = topicForValue(specialties, query.specialty)?.slug === s.slug;
                 return (
-                  <Link key={s.slug} href={catalogueHref({ ...query, specialty: s.label }, { page: 1 })} aria-current={active ? "true" : undefined} className={chip(active)}>
+                  <Link key={s.slug} href={onList(catalogueHref({ ...query, specialty: s.label }, { page: 1 }))} aria-current={active ? "true" : undefined} className={chip(active)}>
                     {s.label}
                   </Link>
                 );
@@ -261,7 +265,9 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
           </section>
         )}
 
-        <section id="events" aria-labelledby="events-title" className="scroll-mt-6 pt-10 sm:pt-12">
+        {/* A search is a form submit, and the browser does not scroll to an anchor that came from a form. */}
+        <LandOnList anchor={CATALOGUE_LIST_ANCHOR} />
+        <section id={CATALOGUE_LIST_ANCHOR} aria-labelledby="events-title" className="scroll-mt-6 pt-10 sm:pt-12">
           <SectionHead id="events-title" title={listingTitle(query, filtered)}>
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-[#5a6b7b]">
@@ -269,13 +275,13 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
                 {filtered && (
                   <>
                     {" · "}
-                    <Link href={catalogueHref({ ...query, q: "", country: "", type: null, specialty: "" }, {})} className="font-medium text-[#0083ad] hover:underline">
+                    <Link href={onList(catalogueHref({ ...query, q: "", country: "", type: null, specialty: "" }, {}))} className="font-medium text-[#0083ad] hover:underline">
                       Clear filters
                     </Link>
                   </>
                 )}
               </p>
-              <WhenTabs when={query.when} hrefFor={(when) => catalogueHref(query, { when })} />
+              <WhenTabs when={query.when} hrefFor={(when) => onList(catalogueHref(query, { when }))} />
             </div>
           </SectionHead>
           {events.length === 0 ? (
@@ -286,7 +292,7 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
           ) : (
             <EventGrid events={events} registration={registration} upcoming={query.when === "upcoming"} />
           )}
-          <Pager page={query.page} pages={pages} hrefFor={(page) => catalogueHref(query, { page })} />
+          <Pager page={query.page} pages={pages} hrefFor={(page) => onList(catalogueHref(query, { page }))} />
         </section>
 
         {show.showHowItWorks && (

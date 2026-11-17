@@ -74,7 +74,20 @@ describe("PUT /api/organization/catalogue", () => {
     expect((await mockOrgMerge.mock.results[0].value).catalogue.contactEmail).toBeNull();
   });
 
+  it("saves the phone hours and the address, and an emptied one is stored as none", async () => {
+    const res = await put({ contactHours: "Mon to Fri, 9 am to 5 pm Dubai time", contactAddress: "DSC Tower, Office 508 & 509, Dubai Studio City, Dubai, PO Box 502464" });
+    expect(res.status).toBe(200);
+    expect((await mockOrgMerge.mock.results[0].value).catalogue).toMatchObject({
+      contactHours: "Mon to Fri, 9 am to 5 pm Dubai time",
+      contactAddress: "DSC Tower, Office 508 & 509, Dubai Studio City, Dubai, PO Box 502464",
+    });
+    await put({ contactHours: "", contactAddress: "" });
+    expect((await mockOrgMerge.mock.results[1].value).catalogue).toMatchObject({ contactHours: null, contactAddress: null });
+  });
+
   it.each([
+    ["phone hours over the limit", { contactHours: "x".repeat(81) }],
+    ["an address over the limit", { contactAddress: "x".repeat(201) }],
     ["a photo outside the media library", { heroImage: "/uploads/../api/x" }],
     ["a javascript: photo", { heroImage: "javascript:alert(1)" }],
     ["a headline over the limit", { headline: "x".repeat(121) }],
