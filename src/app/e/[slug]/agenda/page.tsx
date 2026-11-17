@@ -118,6 +118,8 @@ interface EventData {
   bannerImageMobile: string | null;
   organization: { name: string; logo: string | null };
   tracks: Track[];
+  /** The organiser's "Coloured border on sessions" switch (agenda-display.ts). Absent from an older server: on. */
+  trackBorder?: boolean;
   sessions: Session[];
 }
 
@@ -299,6 +301,8 @@ export default function PublicAgendaPage() {
       </PublicEventNotice>
     );
   }
+
+  const trackBorder = eventData.trackBorder !== false;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 print:bg-white">
@@ -540,9 +544,9 @@ export default function PublicAgendaPage() {
                     <div className="space-y-4 print:space-y-2">
                       {buildAgendaRows(dayFiltered).map((row) =>
                         row.kind === "parallel" ? (
-                          <ParallelBlock key={row.key} row={row} timezone={eventData.timezone} />
+                          <ParallelBlock key={row.key} row={row} timezone={eventData.timezone} trackBorder={trackBorder} />
                         ) : (
-                          <SessionRow key={row.key} session={row.session} timezone={eventData.timezone} />
+                          <SessionRow key={row.key} session={row.session} timezone={eventData.timezone} trackBorder={trackBorder} />
                         )
                       )}
                     </div>
@@ -598,9 +602,11 @@ export default function PublicAgendaPage() {
 function ParallelBlock({
   row,
   timezone,
+  trackBorder,
 }: {
   row: Extract<AgendaRow<Session>, { kind: "parallel" }>;
   timezone: string;
+  trackBorder: boolean;
 }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-100/60 p-3 sm:p-4 print:border-slate-300 print:bg-white">
@@ -639,6 +645,7 @@ function ParallelBlock({
                 session={session}
                 timezone={timezone}
                 variant="column"
+                trackBorder={trackBorder}
               />
             ))}
           </div>
@@ -674,11 +681,19 @@ function renderTopicSpeakers(topic: Topic, session: Session) {
  * dispatcher so a non-parallel day renders byte-for-byte as it did before the
  * parallel-block work.
  */
-function SessionRow({ session, timezone }: { session: Session; timezone: string }) {
+function SessionRow({
+  session,
+  timezone,
+  trackBorder,
+}: {
+  session: Session;
+  timezone: string;
+  trackBorder: boolean;
+}) {
   if (isBreakSessionType(session.type)) {
     return <BreakBand session={session} timezone={timezone} />;
   }
-  return <SessionCard session={session} timezone={timezone} variant="full" />;
+  return <SessionCard session={session} timezone={timezone} variant="full" trackBorder={trackBorder} />;
 }
 
 // Break items — a slim, non-interactive band. They carry no speakers/topics
@@ -718,7 +733,7 @@ function BreakBand({ session, timezone }: { session: Session; timezone: string }
             <BreakIcon className={cn("h-[18px] w-[18px]", accent.icon)} />
           </span>
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <span className="text-base font-semibold text-slate-700 truncate">{session.name}</span>
+            <span className="text-base font-semibold text-slate-700 break-words min-w-0">{session.name}</span>
             {session.location && (
               <span className="flex items-center gap-1 text-sm text-slate-400 shrink-0">
                 <MapPin className="h-3.5 w-3.5" />
@@ -745,10 +760,12 @@ function SessionCard({
   session,
   timezone,
   variant,
+  trackBorder,
 }: {
   session: Session;
   timezone: string;
   variant: "full" | "column";
+  trackBorder: boolean;
 }) {
   const duration = getDurationMin(session.startTime, session.endTime);
   const color = session.track?.color || "#6B7280";
@@ -761,7 +778,10 @@ function SessionCard({
   return (
     <div
       className="print-session-card bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden transition-shadow hover:shadow-md print:shadow-none print:rounded-none print:border-l-0 print:border-r-0 print:border-t-0 print:border-b print:border-slate-200"
-      style={{ borderLeft: `4px solid ${color}` }}
+      // The coloured left border is the organiser's choice (Settings, Agenda).
+      // Off, the card keeps its plain outline and the track colour shows only
+      // in the dot beside the hall name.
+      style={trackBorder ? { borderLeft: `4px solid ${color}` } : undefined}
     >
       {/* Was a <button> whose only job was toggling the description open.
           The description is always visible now, so the card has nothing to
@@ -808,7 +828,7 @@ function SessionCard({
                   {/* Workshop/Symposium: program types beyond plain SESSION get
                       a small format chip so attendees can tell them apart. */}
                   {(session.type === "WORKSHOP" || session.type === "SYMPOSIUM") && (
-                    <span className="ml-2 inline-block align-middle rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                    <span className="ml-2 inline-block align-middle rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
                       {formatSessionType(session.type)}
                     </span>
                   )}
@@ -827,10 +847,10 @@ function SessionCard({
                     header, so repeating it on every card is noise. */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
                   {session.track && !inColumn && (
-                    <span
-                      className="flex items-center gap-1.5 text-sm font-medium"
-                      style={{ color: session.track.color }}
-                    >
+                    // The hall name in grey, its colour only in the dot: in the
+                    // track colour every card's meta line competed with the
+                    // title (and with one colour for every hall it said nothing).
+                    <span className="flex items-center gap-1.5 text-sm font-medium text-slate-600">
                       <span
                         className="w-2 h-2 rounded-full"
                         style={{ backgroundColor: session.track.color }}
@@ -886,7 +906,10 @@ function SessionCard({
                         <span className="text-sm text-slate-800 font-medium">
                           {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                         </span>
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-primary bg-primary/10 rounded-full px-2 py-0.5">
+                        {/* Grey, not the primary cyan: 11px cyan on pale cyan was about
+                            2.9:1, under AA, and put a second accent colour
+                            beside the event's own on every speaker. */}
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 bg-slate-100 rounded-full px-2 py-0.5">
                           {formatSessionRole(role || "SPEAKER")}
                         </span>
                       </div>

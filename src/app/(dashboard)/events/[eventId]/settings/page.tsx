@@ -1,6 +1,7 @@
 "use client";
 
 import { useCan } from "@/hooks/use-can";
+import { AGENDA_TRACK_BORDER_SETTING, readAgendaTrackBorder } from "@/lib/agenda-display";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CORE_TEMPLATE_SLUGS } from "@/lib/email-template-registry";
@@ -176,6 +177,7 @@ interface Event {
     notifyOnRegistration?: boolean;
     notifyOnAbstractSubmission?: boolean;
     agendaPublished?: boolean;
+    agendaTrackBorder?: boolean;
     programmePublished?: boolean; // backward compat
     groupRegistration?: { enabled?: boolean; minMembers?: number; maxMembers?: number };
   };
@@ -347,6 +349,7 @@ export default function EventSettingsPage() {
 
   const [agendaSettings, setAgendaSettings] = useState({
     agendaPublished: false,
+    [AGENDA_TRACK_BORDER_SETTING]: true,
   });
 
   // Whether the Resident/Trainee official letter BLOCKS a registration. The
@@ -519,6 +522,7 @@ export default function EventSettingsPage() {
 
         setAgendaSettings({
           agendaPublished: settings.agendaPublished ?? settings.programmePublished ?? false,
+          [AGENDA_TRACK_BORDER_SETTING]: readAgendaTrackBorder(settings),
         });
 
         const gr = settings.groupRegistration ?? {};
@@ -1796,6 +1800,26 @@ export default function EventSettingsPage() {
                     setAgendaSettings({
                       ...agendaSettings,
                       agendaPublished: checked,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="agendaTrackBorder">Coloured border on sessions</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Each session card on the public agenda gets a border in its track&apos;s colour.
+                    Off, the colour shows only as a dot beside the track name.
+                  </p>
+                </div>
+                <Switch
+                  id="agendaTrackBorder"
+                  checked={agendaSettings[AGENDA_TRACK_BORDER_SETTING]}
+                  onCheckedChange={(checked) =>
+                    setAgendaSettings({
+                      ...agendaSettings,
+                      [AGENDA_TRACK_BORDER_SETTING]: checked,
                     })
                   }
                 />

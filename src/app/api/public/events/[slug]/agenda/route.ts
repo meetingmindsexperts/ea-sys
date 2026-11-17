@@ -4,6 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { readAgendaTrackBorder } from "@/lib/agenda-display";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -167,6 +168,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       bannerImageMobile: event.bannerImageMobile,
       organization: event.organization,
       tracks: event.tracks,
+      trackBorder: readAgendaTrackBorder(settings),
       sessions: event.eventSessions,
     });
 

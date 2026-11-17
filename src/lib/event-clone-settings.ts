@@ -53,6 +53,8 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
   // which the clone resets to DRAFT anyway).
   "agendaPublished",
   "programmePublished",
+  // How the public agenda looks (agenda-display.ts): config, so it copies.
+  "agendaTrackBorder",
   // Notifications
   "notifyOnRegistration",
   "notifyOnAbstractSubmission",
