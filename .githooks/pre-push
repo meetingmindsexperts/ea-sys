@@ -47,6 +47,7 @@ deploy_running() {
   wait "$pid" 2>/dev/null
   rc=$?
   kill "$killer" 2>/dev/null
+  wait "$killer" 2>/dev/null # reaped here, quietly: otherwise bash prints "Terminated: 15" into the push output
   active=$(cat "$out" 2>/dev/null)
   rm -f "$out"
   [ "$rc" = "0" ] && [ -n "$active" ] && [ "$active" != "0" ]
