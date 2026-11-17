@@ -1,0 +1,86 @@
+#!/bin/bash
+# What is being committed must lint and pass the guard scripts (about 10
+# seconds). The full gate runs before a push; this is the quick half, at the
+# moment a mistake is cheapest to fix.
+#
+# WHY: several sessions commit to this checkout. On Nov 17, 2026 one committed
+# with a lint error and a failing guard, and the next session's commit sat on
+# top of it: neither could be pushed until the first was repaired.
+#
+# It checks the INDEX, not the working tree. The staged content is exported to
+# a temp folder and checked there, so another session's unfinished file can
+# neither fail your commit nor hide a problem in it.
+#
+# Owner bypass: git commit --no-verify. Agents may not use it
+# (scripts/agent-command-guard.mjs refuses the command).
+set -u
+
+REPO=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$REPO" || exit 0
+[ -n "$(git diff --cached --name-only)" ] || exit 0
+if [ ! -d node_modules ]; then
+  echo "pre-commit: no node_modules in this checkout, so nothing was checked (run npm ci)."
+  exit 0
+fi
+
+BEGAN=$(date +%s)
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/ea-sys-precommit.XXXXXX") || exit 0
+trap 'rm -rf "$TMP"' EXIT
+
+# The staged tree. `git commit <paths>` works on a temporary index, which git
+# names in GIT_INDEX_FILE: made absolute, because the checks run from $TMP.
+case "${GIT_INDEX_FILE:-}" in
+  "" | /*) ;;
+  *) export GIT_INDEX_FILE="$REPO/$GIT_INDEX_FILE" ;;
+esac
+git checkout-index -a --prefix="$TMP/" || { echo "pre-commit: could not export the index"; exit 1; }
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+GIT_DIR=$(git rev-parse --absolute-git-dir)
+export GIT_DIR
+export GIT_WORK_TREE="$TMP"
+ln -s "$REPO/node_modules" "$TMP/node_modules"
+cd "$TMP" || exit 1
+
+# The guards, side by side (they are greps and small parsers).
+mkdir "$TMP/.precommit"
+for guard in scripts/check-*.sh scripts/check-*.mjs; do
+  [ -f "$guard" ] || continue
+  name=$(basename "$guard")
+  case "$guard" in
+    *.sh) (bash "$guard" > ".precommit/$name.out" 2>&1; echo $? > ".precommit/$name.rc") & ;;
+    *) (node "$guard" > ".precommit/$name.out" 2>&1; echo $? > ".precommit/$name.rc") & ;;
+  esac
+done
+
+# Lint, on the staged files only.
+LINT_RC=0
+LINTABLE=$(printf '%s\n' "$STAGED" | grep -E '\.(ts|tsx|js|jsx|mjs)$' | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done)
+if [ -n "$LINTABLE" ]; then
+  printf '%s\n' "$LINTABLE" | tr '\n' '\0' | xargs -0 npx eslint --no-warn-ignored > .precommit/eslint.out 2>&1 || LINT_RC=$?
+fi
+wait
+
+FAILED=0
+for rc in .precommit/*.rc; do
+  [ -f "$rc" ] || continue
+  if [ "$(cat "$rc")" != "0" ]; then
+    name=$(basename "$rc" .rc)
+    echo ""
+    echo "COMMIT REFUSED by guard scripts/$name:"
+    sed 's/^/  /' ".precommit/$name.out" | tail -40
+    FAILED=1
+  fi
+done
+if [ "$LINT_RC" != "0" ]; then
+  echo ""
+  echo "COMMIT REFUSED by lint, on the staged files:"
+  sed -e "s|$TMP/||g" -e 's/^/  /' .precommit/eslint.out | tail -60
+  FAILED=1
+fi
+
+if [ "$FAILED" = "1" ]; then
+  echo ""
+  echo "Checked what is STAGED, not the working tree. Fix it, stage the fix, commit again."
+  exit 1
+fi
+echo "pre-commit: lint and $(ls .precommit/*.rc 2>/dev/null | wc -l | tr -d ' ') guards passed on the staged files ($(( $(date +%s) - BEGAN ))s)"

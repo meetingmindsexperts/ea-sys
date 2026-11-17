@@ -1,0 +1,75 @@
+#!/bin/bash
+# A push to main is a production deploy. This hook refuses one whose tip has not
+# passed the gate (`npm run gate`), or while a deploy is already running.
+#
+# It binds everyone who pushes from this checkout: every agent session and the
+# owner. Before it, "the gate ran" was a sentence in a chat; on Nov 17, 2026 a
+# tip was pushed that no session had gated, on top of a commit that failed two
+# CI checks.
+#
+# OWNER OVERRIDE, recorded in <git dir>/gate/overrides.log:
+#   GATE_OVERRIDE=1 git push origin <sha>:main
+# Agents may not set it: scripts/agent-command-guard.mjs refuses the command.
+#
+# Git feeds one line per ref on stdin: <local ref> <local sha> <remote ref> <remote sha>.
+set -u
+
+REPO=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# shellcheck source=scripts/gate-stamp.sh
+. "$REPO/scripts/gate-stamp.sh" 2>/dev/null || { echo "pre-push: scripts/gate-stamp.sh is missing; the gate check is skipped"; exit 0; }
+
+ZERO=0000000000000000000000000000000000000000
+DIR=$(gate_stamp_dir)
+REFUSED=0
+
+override() {
+  mkdir -p "$DIR"
+  printf '%s override %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >> "$DIR/overrides.log"
+  echo "pre-push: GATE_OVERRIDE is set: $2 skipped for $(printf '%s' "$1" | cut -c1-8). Recorded."
+}
+
+# A deploy already running for main? Fails OPEN when gh cannot answer: the gate
+# record below is the check that matters, this one only avoids overlapping deploys.
+deploy_running() {
+  [ "${GATE_NO_CI_CHECK:-}" = "1" ] && return 1
+  command -v gh >/dev/null 2>&1 || return 1
+  local active
+  active=$(perl -e 'alarm 10; exec @ARGV' gh run list --workflow deploy.yml --branch main --limit 5 \
+    --json status --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length' 2>/dev/null) || return 1
+  [ -n "$active" ] && [ "$active" != "0" ]
+}
+
+while read -r local_ref local_sha remote_ref _remote_sha; do
+  [ "$remote_ref" = "refs/heads/main" ] || continue
+  [ "$local_sha" = "$ZERO" ] && continue
+  short=$(printf '%s' "$local_sha" | cut -c1-8)
+
+  if [ ! -f "$(gate_stamp_file "$local_sha")" ]; then
+    if [ "${GATE_OVERRIDE:-}" = "1" ]; then
+      override "$local_sha" "the gate"
+    else
+      echo ""
+      echo "PUSH REFUSED: $short ($local_ref) has not passed the gate."
+      echo "  Run:    npm run gate -- $short     (about 5 minutes; it gates exactly that commit)"
+      echo "  Owner:  GATE_OVERRIDE=1 git push ...   pushes without it, and CI is then the only check."
+      echo ""
+      REFUSED=1
+      continue
+    fi
+  fi
+
+  if deploy_running; then
+    if [ "${GATE_OVERRIDE:-}" = "1" ]; then
+      override "$local_sha" "the running-deploy check"
+    else
+      echo ""
+      echo "PUSH REFUSED: a deploy of main is running or queued on GitHub."
+      echo "  Wait for it (gh run list --workflow deploy.yml), then push again."
+      echo "  Owner:  GATE_OVERRIDE=1 git push ...   pushes anyway."
+      echo ""
+      REFUSED=1
+    fi
+  fi
+done
+
+exit $REFUSED

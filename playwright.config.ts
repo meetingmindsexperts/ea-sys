@@ -70,6 +70,19 @@ export default defineConfig({
           PORT,
           NEXTAUTH_URL: baseURL,
           NEXT_PUBLIC_APP_URL: baseURL,
+          // The test server must never reach AWS (Nov 17, 2026). A laptop with
+          // ~/.aws/credentials gave it real SES, so a spec that registers
+          // someone could send real email. Bogus keys and a dead endpoint:
+          // every send fails fast and is logged, as it would with no network.
+          AWS_ACCESS_KEY_ID: "not-a-real-key",
+          AWS_SECRET_ACCESS_KEY: "fake",
+          AWS_SESSION_TOKEN: "",
+          AWS_PROFILE: "",
+          AWS_ENDPOINT_URL: "http://127.0.0.1:9",
+          // Set, so the legacy cron shims refuse an unsigned caller with 401 as
+          // they do in production. Unset, they answer 500 "Server misconfigured",
+          // which the route smoke test would have to excuse.
+          CRON_SECRET: "e2e-cron-secret-never-sent",
           ...(testDbUrl ? { DATABASE_URL_TEST: testDbUrl } : {}),
         },
       },

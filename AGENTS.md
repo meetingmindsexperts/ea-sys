@@ -128,10 +128,33 @@ because the editor extension fills only one side. Anything that reads the schema
 
 ### 5. Verify before you push
 ```bash
-npx tsc --noEmit && npm run lint && npm run test && npm run build
+npm run gate            # the commit at HEAD; `npm run gate -- <sha>` for another
 ```
-All four, green, every time. `npm run test:e2e` when the change touches a user flow (stop the dev
-server first — Playwright's port collides with 3113).
+One command, about five minutes, on exactly that commit in a clean worktree beside the checkout:
+Prisma client, type check, lint, every `scripts/check-*` guard, the unit tests, the build, and the
+browser suite with the **route smoke test** (`e2e/route-smoke.spec.ts`: every GET route, found on
+disk, asked on a real database as every role; none may answer 500). It is the list CI gates on
+(`gate-parity.test.ts` fails when the two differ) less the three checks that need containers (the
+tenancy and integration database suites, the migration replay), which still block the deploy in CI.
+One gate runs at a time: they share port 3199 and the e2e database.
+
+**Three things enforce it, so none of it rests on memory** (Nov 17, 2026; before that, a month of
+pushes had five red CI runs, and the agent permission file pre-approved `prisma migrate dev`).
+Install the first two once per clone with `npm run hooks:install`.
+
+- **`pre-commit`** lints the staged files and runs the guards on the staged tree (about 10 seconds).
+  It checks the INDEX, not the working tree: another session's unfinished file can neither fail
+  your commit nor hide a problem in it.
+- **`pre-push`** refuses a push to main whose tip has no green gate record, or while a deploy is
+  running. A commit on top of a gated one is a new tip and needs its own run.
+- **`scripts/agent-command-guard.mjs`** (a Claude Code hook, wired in `.claude/settings.example.json`)
+  refuses outright `prisma migrate dev|reset`, `--shadow-database-url`, docker, `git add -A` /
+  `git commit -a` and a forced push, and puts to the owner every push, every `aws` command that is
+  not a read, and anything that discards the working tree. It reads the command typed, not the
+  scripts it runs: a seatbelt, not a sandbox.
+
+The owner's bypasses are `git commit --no-verify` and `GATE_OVERRIDE=1 git push` (recorded in
+`.git/gate/overrides.log`). An agent may not use either: the guard refuses the command.
 
 **Then review the commit, ranked.** A reviewer gets the code and the commit message, not the
 author's conclusions, and reports each finding with a `file:line`, a severity and a concrete failure
@@ -375,7 +398,9 @@ npm run build          # prisma generate + next build
 npm run lint           # eslint
 npm run type-check     # tsc --noEmit
 npm run test           # vitest
-npm run test:e2e       # playwright (stop the dev server first)
+npm run test:e2e       # playwright, on :3199 beside the dev server, on the ea_sys_test database
+npm run gate           # everything CI gates on + the browser suite, on one commit (rule 5)
+npm run hooks:install  # once per clone: the pre-commit and pre-push hooks
 npm run worker:dev     # the background worker tier
 
 npx prisma studio      # DB browser

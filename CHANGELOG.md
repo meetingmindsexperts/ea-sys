@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Rules that are enforced, not remembered: one gate, two git hooks, an agent command guard (November 17)
+
+Owner: "our platform rules are preventing any agent or yourself to make mistakes but still some are getting through, see if we can further strengthen". Nothing here changes what the running system does, except one route that answered 500 and now answers 403 (last bullet).
+
+What the evidence said. In 30 days: 648 commits, 197 reviews, and those reviews caught 2 blockers and 46 highs before a push. Of 58 "never" rules written in AGENTS.md and CLAUDE.md, 15 had a check that fails when the rule is broken, 14 a partial one, 29 none. The agent permission file pre-approved `npx prisma migrate dev`, `docker compose` and `git push`. Rule 5 named four commands while CI ran about twenty, and five of the last eighty pushes went red on GitHub.
+
+- **One gate**: `npm run gate` runs what CI gates on (Prisma client, type check, lint, all 15 guard scripts, the unit tests, the build) plus the browser suite, on exactly one commit in a clean worktree, and records a pass. `gate-parity.test.ts` fails when CI gains a step the gate neither runs nor names as left to CI. About five minutes.
+- **Two git hooks** (`npm run hooks:install`, once per clone). `pre-commit` lints the staged files and runs the guards on the staged tree, about 10 seconds; it checks the index, so another session's unfinished file cannot fail or hide a commit. `pre-push` refuses a push to main whose tip has no gate record, or while a deploy is running. Owner bypass: `git commit --no-verify`, `GATE_OVERRIDE=1 git push` (recorded).
+- **Agent command guard** (`scripts/agent-command-guard.mjs`, a Claude Code hook): refuses `prisma migrate dev` and `reset`, `--shadow-database-url`, docker, `git add -A`, `git commit -a` and a forced push; asks the owner before every push, every `aws` command that is not a read, and anything that discards the working tree. The pre-approvals that contradicted the rules were removed from the permission file. It judges commands, not text: a commit message that names a forbidden command is not refused.
+- **Route smoke test** (`e2e/route-smoke.spec.ts`, part of the gate): every GET route, found on disk, is asked on a real database as each of the five seeded roles and signed out; none may answer with a server error. This is the check that would have caught the desk Walk-in QR blocker of the same morning, which compiled and passed every mocked test.
+- **The test server can no longer reach AWS**: the browser suite's server runs with bogus keys and a dead endpoint, so a spec that registers someone cannot send real email from a laptop that holds credentials.
+- **Found on its first run**: `GET /api/organization` answered 500 to an account with no organisation (a reviewer, submitter or registrant), because a null id reached the database. Nothing a person can reach from a screen, and production's log holds no such error; it now answers 403 like the event routes (`6330419e`). The legacy cron shims answered 500 only because the test server had no cron secret; it has one now, so they answer 401 as in production.
+
+Limits, stated plainly. The guard reads the command an agent types, not the scripts it runs. The gate record is a file an agent could write by hand; the hook stops the accident, and CI still stops the deploy. The tenancy and integration database suites and the migration replay stay in CI only (they need containers agents do not start). About half the highs of the month were races, retries or text that disagreed with behaviour: no check here sees those, and the review after every commit stays.
+
 ### Abstracts: admins can delete an abstract (November 17)
 
 Owner: "give delete abstract permission to admins as well as tickable permission". Until now only the super admin could delete an abstract (one account in production).

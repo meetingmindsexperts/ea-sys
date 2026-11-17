@@ -313,6 +313,7 @@ ANTHROPIC_API_KEY="..."               # Required for AI Agent feature
 npm run dev          # Start dev server (localhost:3113, on the LOCAL test DB)
 npm run build        # Build for production
 npm run lint         # Run ESLint
+npm run gate         # THE pre-push gate: everything CI runs + the browser suite, on one commit (AGENTS.md rule 5)
 npx prisma generate  # Generate Prisma client
 npm run db:refresh   # Reset the local test DB from the latest live DR dump
 npm run uploads:refresh  # Pull the uploaded FILES those rows point at (photos/banners/certs)

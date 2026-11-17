@@ -16,6 +16,8 @@
     "start": "next start -p 3113",
     "lint": "node scripts/preflight-dev.mjs lint && eslint",
     "type-check": "node scripts/preflight-dev.mjs type-check && tsc --noEmit",
+    "gate": "bash scripts/gate.sh",
+    "hooks:install": "bash scripts/install-git-hooks.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
