@@ -488,6 +488,8 @@ export async function importSpeakersFromContacts(
     const ip = input.requestIp ?? null;
 
     // Fire-and-forget audit: the bulk create, and who ran an import.
+    // `changes.source` is the caller, as everywhere in the services (README);
+    // before Nov 18, 2026 this row said "contacts-import" there, now `kind`.
     db.auditLog
       .create({
         data: {
@@ -496,7 +498,7 @@ export async function importSpeakersFromContacts(
           action: "CREATE",
           entityType: "Speaker",
           entityId: `bulk:${created}`,
-          changes: { bulk: true, source: "contacts-import", caller: source, created, skipped, ...(ip ? { ip } : {}) },
+          changes: { bulk: true, source, kind: "contacts-import", created, skipped, ...(ip ? { ip } : {}) },
           ...(ip ? { ipAddress: ip } : {}),
         },
       })

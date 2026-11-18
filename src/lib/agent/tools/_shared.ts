@@ -2,7 +2,7 @@
 // Leaf module — must not import from any sibling tool file.
 // (Importing the generated Prisma enum is fine — it's not a sibling tool.)
 
-import { PaymentStatus } from "@prisma/client";
+import { PaymentStatus, type Prisma } from "@prisma/client";
 import type { Principal } from "@/lib/permissions/can";
 
 /**
@@ -121,6 +121,19 @@ export function personSearchTokens(query: string): string[] {
   const kept = words.filter((w) => !PERSON_HONORIFICS.has(w.toLowerCase()));
   const tokens = (kept.length > 0 ? kept : words).slice(0, 6);
   return tokens.length > 0 ? tokens : [query.trim()];
+}
+
+/**
+ * A contact matches a person search when every word matches its first name,
+ * last name, email or organisation. One builder for `search_event` and
+ * `list_contacts` (Nov 18, 2026): list_contacts had matched the whole text
+ * against each field, so "Mahmoud Marashi" found no one.
+ */
+export function contactSearchClauses(query: string): Prisma.ContactWhereInput[] {
+  const ci = (t: string) => ({ contains: t, mode: "insensitive" as const });
+  return personSearchTokens(query).map((t) => ({
+    OR: [{ firstName: ci(t) }, { lastName: ci(t) }, { email: ci(t) }, { organization: ci(t) }],
+  }));
 }
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

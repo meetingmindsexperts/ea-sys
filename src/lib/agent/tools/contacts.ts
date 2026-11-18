@@ -3,32 +3,11 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
-import { EMAIL_RE, TITLE_VALUES, type ToolExecutor } from "./_shared";
+import { contactSearchClauses, EMAIL_RE, TITLE_VALUES, type ToolExecutor } from "./_shared";
 
 /** Above this many results a bio is cut to a preview, so a broad search stays readable. */
 const FULL_BIO_UP_TO = 10;
 const BIO_PREVIEW = 200;
-
-/**
- * Each word of the search must match the first name, last name, email or
- * organisation (Nov 18, 2026). The whole text against each column found no
- * one for "Mahmoud Marashi", which is neither a first nor a last name, and the
- * agent told the organiser the person was not in the contacts.
- */
-function contactSearchWhere(search: string): Prisma.ContactWhereInput[] {
-  return search
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 6)
-    .map((word) => ({
-      OR: [
-        { firstName: { contains: word, mode: "insensitive" as const } },
-        { lastName: { contains: word, mode: "insensitive" as const } },
-        { email: { contains: word, mode: "insensitive" as const } },
-        { organization: { contains: word, mode: "insensitive" as const } },
-      ],
-    }));
-}
 
 /**
  * Every person field a contact holds, with its id (Nov 18, 2026): the
@@ -44,27 +23,31 @@ const listContacts: ToolExecutor = async (input, ctx) => {
     const search = input.search ? String(input.search).trim().slice(0, 200) : undefined;
     const tag = input.tag ? String(input.tag).trim() : undefined;
 
-    const contacts = await db.contact.findMany({
+    // One more than asked, to say whether there are more (there is no paging).
+    const rows = await db.contact.findMany({
       where: {
         organizationId: ctx.organizationId,
         ...(tag ? { tags: { has: tag } } : {}),
-        ...(search ? { AND: contactSearchWhere(search) } : {}),
+        ...(search ? { AND: contactSearchClauses(search) } : {}),
       },
       select: {
         id: true, title: true, email: true, additionalEmail: true, firstName: true, lastName: true,
         organization: true, jobTitle: true, role: true, specialty: true, customSpecialty: true,
         phone: true, photo: true, city: true, state: true, zipCode: true, country: true, bio: true, tags: true,
       },
-      take: limit,
+      take: limit + 1,
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     });
+    const more = rows.length > limit;
+    const contacts = more ? rows.slice(0, limit) : rows;
     const fullBio = contacts.length <= FULL_BIO_UP_TO;
     return {
       contacts: contacts.map((c) => {
         if (fullBio || !c.bio || c.bio.length <= BIO_PREVIEW) return c;
         return { ...c, bio: `${c.bio.slice(0, BIO_PREVIEW)}…`, bioTruncated: true };
       }),
-      total: contacts.length,
+      returned: contacts.length,
+      ...(more ? { more: true, moreNote: `More contacts match than the ${limit} returned; search more narrowly (a name, an email, a tag).` } : {}),
       ...(fullBio ? {} : { note: `Bios are cut to ${BIO_PREVIEW} characters above ${FULL_BIO_UP_TO} results; search more narrowly for the full text.` }),
     };
     });

@@ -6,7 +6,7 @@ import { getEventStatsRow, refreshEventStats } from "@/lib/event-stats";
 import { computeEventAnalytics } from "@/lib/event-analytics";
 import { runWithTenant } from "@/lib/tenant-context";
 import type { Prisma } from "@prisma/client";
-import { personSearchTokens, type ToolExecutor } from "./_shared";
+import { contactSearchClauses, personSearchTokens, type ToolExecutor } from "./_shared";
 
 const getEventDashboard: ToolExecutor = async (_input, ctx) => {
   try {
@@ -212,9 +212,7 @@ const searchEvent: ToolExecutor = async (input, ctx) => {
     const abstractClauses: Prisma.AbstractWhereInput[] = tokens.map((t) => ({
       OR: [{ title: ci(t) }, { speaker: { firstName: ci(t) } }, { speaker: { lastName: ci(t) } }],
     }));
-    const contactClauses: Prisma.ContactWhereInput[] = tokens.map((t) => ({
-      OR: [{ firstName: ci(t) }, { lastName: ci(t) }, { email: ci(t) }, { organization: ci(t) }],
-    }));
+    const contactClauses = contactSearchClauses(query);
 
     const [registrations, speakers, abstracts, contacts] = await Promise.all([
       domains.has("registrations")

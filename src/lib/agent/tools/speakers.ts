@@ -265,6 +265,19 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
       else if (TITLE_VALUES.has(t)) fields.title = t as SpeakerTitle;
       else return { error: `Invalid title. Must be one of: ${[...TITLE_VALUES].join(", ")}` };
     }
+    // Role: one of the organisation's answers, by key or label; "" clears it
+    // (Nov 18, 2026: published so a speaker can be filled from their contact).
+    if (input.role !== undefined && input.role !== null) {
+      if (String(input.role).trim() === "") fields.role = null;
+      else {
+        const roleRead = await resolveWrittenRole(ctx.organizationId, input.role);
+        if (!roleRead.ok) {
+          if (roleRead.offered.length === 0) return { error: "The organisation's roles could not be read just now; try again." };
+          return { error: `Invalid role "${String(input.role)}". Must be one of: ${roleRead.offered.join(", ")}`, code: "INVALID_ROLE" };
+        }
+        fields.role = roleRead.key;
+      }
+    }
     if (input.firstName != null) fields.firstName = String(input.firstName).slice(0, 100);
     if (input.lastName != null) fields.lastName = String(input.lastName).slice(0, 100);
     // Secondary CC inbox — empty string clears it.
@@ -691,6 +704,8 @@ const importSpeakersFromContactsTool: ToolExecutor = async (input, ctx) => {
       userId: ctx.userId,
       contactIds,
       source: ctx.source,
+      // Who ran it, for the import record: the person's role, or none on an API key.
+      role: ctx.principal?.baseRole ?? null,
     });
     if (!result.ok) return { error: result.message, code: result.code };
 
@@ -701,7 +716,7 @@ const importSpeakersFromContactsTool: ToolExecutor = async (input, ctx) => {
       createdEmails: result.createdEmails,
       skipped: result.skipped,
       ...(result.skipped > 0
-        ? { skippedEmails: result.skippedEmails, skippedNote: "Already speakers on this event, left unchanged. To fill their details from the contact, use update_speaker." }
+        ? { skippedEmails: result.skippedEmails, skippedNote: "Already speakers on this event, left unchanged. To fill their details from the contact, read it with list_contacts and pass the fields to update_speaker (it takes every person field but customSpecialty)." }
         : {}),
       ...(result.missingContactIds.length > 0 ? { notFoundContactIds: result.missingContactIds } : {}),
       facultyRegistrations: registrations.created,

@@ -9,9 +9,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * the contacts held no job title or country, which they did.
  */
 
-const { mockDb, mockImport } = vi.hoisted(() => ({
-  mockDb: { contact: { findMany: vi.fn() } },
+const { mockDb, mockImport, mockUpdate, mockResolveRole } = vi.hoisted(() => ({
+  mockDb: { contact: { findMany: vi.fn() }, speaker: { findFirst: vi.fn() } },
   mockImport: vi.fn(),
+  mockUpdate: vi.fn(),
+  mockResolveRole: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: {} }));
@@ -19,6 +21,11 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), warn: vi.fn(), inf
 vi.mock("@/services/speaker-service", async (orig) => ({
   ...(await orig<typeof import("@/services/speaker-service")>()),
   importSpeakersFromContacts: (...a: unknown[]) => mockImport(...a),
+  updateSpeaker: (...a: unknown[]) => mockUpdate(...a),
+}));
+vi.mock("@/lib/person-field-rules", async (orig) => ({
+  ...(await orig<typeof import("@/lib/person-field-rules")>()),
+  resolveWrittenRole: (...a: unknown[]) => mockResolveRole(...a),
 }));
 
 import { CONTACT_EXECUTORS } from "@/lib/agent/tools/contacts";
@@ -64,6 +71,23 @@ describe("list_contacts", () => {
     expect(where.AND[1].OR[1]).toEqual({ lastName: { contains: "Wali", mode: "insensitive" } });
   });
 
+  it("drops honorifics and commas, through the builder search_event uses", async () => {
+    await CONTACT_EXECUTORS.list_contacts({ search: "Prof. Yasser Wali" }, ctx);
+    await CONTACT_EXECUTORS.list_contacts({ search: "Wali, Yasser" }, ctx);
+    const words = (call: number) =>
+      mockDb.contact.findMany.mock.calls[call][0].where.AND.map((c: { OR: { firstName: { contains: string } }[] }) => c.OR[0].firstName.contains);
+    expect(words(0)).toEqual(["Yasser", "Wali"]);
+    expect(words(1)).toEqual(["Wali", "Yasser"]);
+  });
+
+  it("says when more contacts match than it returned", async () => {
+    mockDb.contact.findMany.mockResolvedValue(Array.from({ length: 3 }, (_, i) => contact({ id: `c${i}` })));
+    const res = (await CONTACT_EXECUTORS.list_contacts({ limit: 2 }, ctx)) as { contacts: unknown[]; returned: number; more?: boolean };
+    expect(mockDb.contact.findMany.mock.calls[0][0].take).toBe(3);
+    expect(res).toMatchObject({ returned: 2, more: true });
+    expect(res.contacts).toHaveLength(2);
+  });
+
   it("returns the id and every person field, the full bio for a narrow search", async () => {
     const res = (await CONTACT_EXECUTORS.list_contacts({ search: "yawal@squ.edu.om" }, ctx)) as { contacts: Record<string, unknown>[] };
     expect(res.contacts[0]).toMatchObject({ id: "c1", title: "PROF", jobTitle: "Head, Pediatric Hematology", country: "Oman", city: "Muscat", specialty: "Hematology", phone: "+968" });
@@ -88,7 +112,7 @@ describe("import_speakers_from_contacts", () => {
       missingContactIds: ["nope"], registrations: { created: 1, linked: 0, failed: 0 },
     });
     const res = (await SPEAKER_EXECUTORS.import_speakers_from_contacts({ contactIds: ["c1", "c1", " c2 ", "nope"] }, ctx)) as Record<string, unknown>;
-    expect(mockImport).toHaveBeenCalledWith({ eventId: "ev1", organizationId: "org1", userId: "u1", contactIds: ["c1", "c2", "nope"], source: "agent" });
+    expect(mockImport).toHaveBeenCalledWith({ eventId: "ev1", organizationId: "org1", userId: "u1", contactIds: ["c1", "c2", "nope"], source: "agent", role: null });
     expect(res).toMatchObject({ success: true, created: 1, skipped: 1, skippedEmails: ["dr_mors@msn.com"], notFoundContactIds: ["nope"], facultyRegistrations: 1 });
     expect(String(res.skippedNote)).toContain("update_speaker");
   });
@@ -104,16 +128,39 @@ describe("import_speakers_from_contacts", () => {
   });
 });
 
+describe("update_speaker fills a speaker from the contact, role included", () => {
+  beforeEach(() => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "s1", eventId: "ev1" });
+    mockUpdate.mockResolvedValue({ ok: false, code: "SPEAKER_NOT_FOUND", message: "stop here" });
+  });
+
+  it("writes the organisation's key for a role given by label, and clears it on an empty string", async () => {
+    mockResolveRole.mockResolvedValue({ ok: true, key: "PHYSICIAN" });
+    await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", role: "Physician", state: "Muscat", zipCode: "123" }, ctx);
+    expect(mockResolveRole).toHaveBeenCalledWith("org1", "Physician");
+    expect(mockUpdate.mock.calls[0][0].fields).toMatchObject({ role: "PHYSICIAN", state: "Muscat", zipCode: "123" });
+    await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", role: "" }, ctx);
+    expect(mockUpdate.mock.calls[1][0].fields.role).toBeNull();
+  });
+
+  it("refuses a role the organisation does not offer, naming the ones it does", async () => {
+    mockResolveRole.mockResolvedValue({ ok: false, offered: ["Physician", "Nurse"] });
+    const res = (await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", role: "Wizard" }, ctx)) as { code?: string; error: string };
+    expect(res.code).toBe("INVALID_ROLE");
+    expect(res.error).toContain("Physician");
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
+
 describe("what the agent is offered", () => {
   it("create_speaker takes every field its executor writes", async () => {
     const shape = (await registered()).get("create_speaker")!.shape;
     for (const f of ["role", "phone", "photo", "city", "state", "zipCode", "country", "specialty", "customSpecialty"]) expect(shape).toHaveProperty(f);
   });
 
-  it("update_speaker takes state and zip code", async () => {
+  it("update_speaker takes role, state and zip code, so an existing speaker can be filled from the contact", async () => {
     const shape = (await registered()).get("update_speaker")!.shape;
-    expect(shape).toHaveProperty("state");
-    expect(shape).toHaveProperty("zipCode");
+    for (const f of ["role", "state", "zipCode"]) expect(shape).toHaveProperty(f);
   });
 
   it("list_contacts points at the import, so a contact is never retyped", async () => {
