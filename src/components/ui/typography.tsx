@@ -126,6 +126,7 @@ export function SettingsCard({
   className,
   titleClassName,
   contentClassName,
+  sectionClassName,
 }: {
   title: React.ReactNode;
   description?: React.ReactNode;
@@ -133,6 +134,8 @@ export function SettingsCard({
   className?: string;
   titleClassName?: string;
   contentClassName?: string;
+  /** The title-and-content grid inside, e.g. to stack it when two cards share a row. */
+  sectionClassName?: string;
 }) {
   return (
     <Card className={className}>
@@ -140,6 +143,7 @@ export function SettingsCard({
         <FormSection
           title={<span className={titleClassName}>{title}</span>}
           description={description}
+          className={sectionClassName}
           contentClassName={contentClassName}
         >
           {children}
