@@ -2,7 +2,12 @@
 
 **Status:** the owner accepted the six recommendations in section 6 on Nov 18,
 2026 ("proceed building"). Step 1 built Nov 18 (`src/lib/session-roles.ts`,
-pinned by `session-roles-ratchet.test.ts`).
+pinned by `session-roles-ratchet.test.ts`). Step 2 built Nov 18, with one change
+from section 3: the list is kept in `Organization.settings.sessionRoles` and an
+assignment stores an added role's key in `SessionSpeaker.customRoleKey`, the way
+sponsor tiers and person fields are kept, instead of a new table (no new row
+policy, same deploy safety; `src/services/session-role-service.ts`,
+`/api/organization/session-roles`).
 
 **Ask (owner, Nov 18, 2026):** the agenda's session roles are fixed at Moderator,
 Chairperson, Panelist and Speaker. An organiser should be able to add, rename and

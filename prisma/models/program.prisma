@@ -542,6 +542,10 @@ model SessionSpeaker {
   // Event; 2-hop backfill via sessionId. Composite-PK join table (no own id).
   organizationId String?
   role           SessionRole @default(SPEAKER)
+  /// A role the organisation added (Organization.settings.sessionRoles): its key.
+  /// NULL for a built-in. `role` then holds the built-in of the added role's
+  /// duty (MODERATOR runs, SPEAKER presents). See src/lib/session-roles.ts.
+  customRoleKey  String?
 
   session EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   speaker Speaker      @relation(fields: [speakerId], references: [id], onDelete: Cascade)

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { capturePartnerStreamsBeforeDelete } from "@/services/external-stream-service";
 import { z } from "zod";
-import { SessionRole, SessionStatus, SessionType } from "@prisma/client";
+import { SessionStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
@@ -10,7 +10,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { readWebinarSettings } from "@/lib/webinar";
 import { deleteRemoteZoomMeeting } from "@/lib/zoom/cleanup";
 import { updateSession, SESSION_SELECT } from "@/services/session-service";
-import { HTTP_STATUS_FOR_SESSION_ERROR } from "@/lib/session-http";
+import { HTTP_STATUS_FOR_SESSION_ERROR, sessionRoleKeySchema } from "@/lib/session-http";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
@@ -30,7 +30,7 @@ const topicSchema = z.object({
 
 const sessionSpeakerSchema = z.object({
   speakerId: z.string().max(100),
-  role: z.nativeEnum(SessionRole),
+  role: sessionRoleKeySchema,
 });
 
 const updateSessionSchema = z.object({

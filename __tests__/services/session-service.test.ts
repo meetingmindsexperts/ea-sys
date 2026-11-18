@@ -29,6 +29,7 @@ const {
     mockDb: {
       $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(mockTx)),
       event: { findUnique: vi.fn() },
+      organization: { findUnique: vi.fn() },
       eventSession: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
       track: { findFirst: vi.fn() },
       abstract: { findFirst: vi.fn() },
@@ -162,7 +163,7 @@ describe("createSession — H4: side effects the MCP path used to skip", () => {
       sessionRoles: [{ speakerId: "sp1", role: "MODERATOR" }],
     });
     const speakers = mockDb.eventSession.create.mock.calls[0][0].data.speakers.create;
-    expect(speakers).toEqual([{ speakerId: "sp1", role: "MODERATOR", organizationId: "org1" }]);
+    expect(speakers).toEqual([{ speakerId: "sp1", role: "MODERATOR", customRoleKey: null, organizationId: "org1" }]);
   });
 });
 
@@ -552,8 +553,8 @@ describe("duplicate speaker in the roster payload (July 21, 2026 prod alert — 
     expect(res.ok).toBe(true);
     expect(mockTx.sessionSpeaker.createMany).toHaveBeenCalledWith({
       data: [
-        { sessionId: "s1", organizationId: "org1", speakerId: "sp1", role: "SPEAKER" },
-        { sessionId: "s1", organizationId: "org1", speakerId: "sp2", role: "MODERATOR" },
+        { sessionId: "s1", organizationId: "org1", speakerId: "sp1", role: "SPEAKER", customRoleKey: null },
+        { sessionId: "s1", organizationId: "org1", speakerId: "sp2", role: "MODERATOR", customRoleKey: null },
       ],
     });
   });
@@ -852,5 +853,32 @@ describe("updateSession — Panel Discussion / Q&A presets (Nov 18, 2026)", () =
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.code).toBe("INVALID_PRESET_TOPIC");
     expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateSession — roles the organisation added (Nov 18, 2026)", () => {
+  it("stores an added role as its duty's built-in plus its key", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: { sessionRoles: [{ key: "host", label: "Host", duty: "RUNS" }] } });
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }]);
+    const res = await updateSession({ ...BASE_UPDATE, sessionRoles: [{ speakerId: "sp1", role: "host" }] });
+    expect(res.ok).toBe(true);
+    const created = mockTx.sessionSpeaker.createMany.mock.calls[0][0].data;
+    expect(created).toEqual([expect.objectContaining({ speakerId: "sp1", role: "MODERATOR", customRoleKey: "host" })]);
+  });
+
+  it("refuses a role key that is not on the organisation's list, before anything is written", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
+    const res = await updateSession({ ...BASE_UPDATE, sessionRoles: [{ speakerId: "sp1", role: "mc" }] });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("UNKNOWN_SESSION_ROLE");
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("reads no list when every role is a built-in", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }]);
+    const res = await updateSession({ ...BASE_UPDATE, sessionRoles: [{ speakerId: "sp1", role: "CHAIRPERSON" }] });
+    expect(res.ok).toBe(true);
+    expect(mockDb.organization.findUnique).not.toHaveBeenCalled();
+    expect(mockTx.sessionSpeaker.createMany.mock.calls[0][0].data[0]).toMatchObject({ role: "CHAIRPERSON", customRoleKey: null });
   });
 });

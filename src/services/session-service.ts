@@ -41,6 +41,8 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { isBreakSessionType } from "@/lib/session-enums";
 import { isTopicPresenterLabel, presenterLabelText, TOPIC_PRESENTER_LABEL_KEYS } from "@/lib/session-topic-presets";
+import { resolveSessionRoleKey } from "@/lib/session-roles";
+import { getSessionRoles } from "@/services/session-role-service";
 import { readWebinarSettings } from "@/lib/webinar";
 import { updateZoomMeeting, updateZoomWebinar } from "@/lib/zoom";
 import {
@@ -84,7 +86,14 @@ export interface SessionTopicInput {
 
 export interface SessionSpeakerInput {
   speakerId: string;
-  role: SessionRole;
+  /**
+   * A role key: a built-in (SPEAKER, MODERATOR, CHAIRPERSON, PANELIST) or a
+   * role the organisation added (its key, src/lib/session-roles.ts). Resolved
+   * on the way in to the enum plus `customRoleKey`.
+   */
+  role: string;
+  /** Set by the service when it resolves an added role; callers leave it out. */
+  customRoleKey?: string | null;
 }
 
 interface SessionFieldsInput {
@@ -154,6 +163,7 @@ export type SessionServiceErrorCode =
   | "DUPLICATE_SPEAKER_ID"
   | "BREAK_ITEM_HAS_PROGRAM"
   | "INVALID_PRESET_TOPIC"
+  | "UNKNOWN_SESSION_ROLE"
   | "WEBINAR_ANCHOR_SESSION"
   | "STALE_WRITE"
   | "UNKNOWN";
@@ -207,6 +217,7 @@ export const SESSION_SELECT = {
   speakers: {
     select: {
       role: true,
+      customRoleKey: true,
       speaker: {
         select: { id: true, title: true, firstName: true, lastName: true, status: true },
       },
@@ -312,25 +323,53 @@ function collectSpeakerIds(input: SessionFieldsInput): Set<string> {
  * caller must reject (`conflictingSpeakerId`) — before this, the atomic swap's
  * createMany threw P2002 and the save 500'd.
  */
+type SessionSpeakerRow = { speakerId: string; role: SessionRole; customRoleKey: string | null };
+
 function buildSessionSpeakerRows(
   input: SessionFieldsInput,
-): { rows: { speakerId: string; role: SessionRole }[]; conflictingSpeakerId: string | null } {
-  const source: { speakerId: string; role: SessionRole }[] =
+): { rows: SessionSpeakerRow[]; conflictingSpeakerId: string | null } {
+  // `sessionRoles` arrive resolved (resolveSessionRoleInputs): role is an enum value.
+  const source: SessionSpeakerRow[] =
     input.sessionRoles && input.sessionRoles.length > 0
-      ? input.sessionRoles.map((r) => ({ speakerId: r.speakerId, role: r.role }))
-      : (input.speakerIds ?? []).map((speakerId) => ({ speakerId, role: "SPEAKER" as const }));
-  const byId = new Map<string, SessionRole>();
+      ? input.sessionRoles.map((r) => ({
+          speakerId: r.speakerId,
+          role: r.role as SessionRole,
+          customRoleKey: r.customRoleKey ?? null,
+        }))
+      : (input.speakerIds ?? []).map((speakerId) => ({ speakerId, role: "SPEAKER" as const, customRoleKey: null }));
+  const byId = new Map<string, SessionSpeakerRow>();
   for (const r of source) {
     const prev = byId.get(r.speakerId);
-    if (prev !== undefined && prev !== r.role) {
+    if (prev !== undefined && (prev.role !== r.role || prev.customRoleKey !== r.customRoleKey)) {
       return { rows: [], conflictingSpeakerId: r.speakerId };
     }
-    byId.set(r.speakerId, r.role);
+    byId.set(r.speakerId, r);
   }
-  return {
-    rows: [...byId.entries()].map(([speakerId, role]) => ({ speakerId, role })),
-    conflictingSpeakerId: null,
-  };
+  return { rows: [...byId.values()], conflictingSpeakerId: null };
+}
+
+/**
+ * Turns each role key in `sessionRoles` into what is stored: the enum, plus
+ * the key when it is a role the organisation added. The organisation's list is
+ * read only when a key is not a built-in. A key that is not on the list is
+ * refused, never stored as something else.
+ */
+async function resolveSessionRoleInputs<T extends SessionFieldsInput & { organizationId: string }>(
+  input: T,
+): Promise<{ ok: true; input: T } | { ok: false; code: SessionServiceErrorCode; message: string; meta?: Record<string, unknown> }> {
+  if (!input.sessionRoles || input.sessionRoles.length === 0) return { ok: true, input };
+  const needsList = input.sessionRoles.some((r) => !resolveSessionRoleKey(r.role, []));
+  const roles = needsList ? await getSessionRoles(input.organizationId) : [];
+  const resolved: SessionSpeakerInput[] = [];
+  for (const r of input.sessionRoles) {
+    const hit = resolveSessionRoleKey(r.role, roles);
+    if (!hit) {
+      apiLogger.warn({ msg: "session-service:unknown-session-role", organizationId: input.organizationId, role: r.role });
+      return fail("UNKNOWN_SESSION_ROLE", `"${r.role}" is not one of this organisation's session roles. Reload and try again.`, { role: r.role });
+    }
+    resolved.push({ speakerId: r.speakerId, role: hit.role, customRoleKey: hit.customRoleKey });
+  }
+  return { ok: true, input: { ...input, sessionRoles: resolved } };
 }
 
 /**
@@ -499,7 +538,10 @@ async function validate(
 
 // ── Create ───────────────────────────────────────────────────────────────────
 
-export async function createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
+export async function createSession(rawInput: CreateSessionInput): Promise<CreateSessionResult> {
+  const roles = await resolveSessionRoleInputs(rawInput);
+  if (!roles.ok) return roles;
+  const input = roles.input;
   const { eventId, userId, source, requestIp } = input;
 
   const valid = await validate(eventId, input, input.startTime, input.endTime);
@@ -634,7 +676,10 @@ export function isRunningNow(status: string, start: Date, end: Date, now = Date.
   return now >= start.getTime() - RUNNING_EARLY_MS && now <= end.getTime() + RUNNING_OVERRUN_MS;
 }
 
-export async function updateSession(input: UpdateSessionInput): Promise<UpdateSessionResult> {
+export async function updateSession(rawInput: UpdateSessionInput): Promise<UpdateSessionResult> {
+  const roles = await resolveSessionRoleInputs(rawInput);
+  if (!roles.ok) return roles;
+  const input = roles.input;
   const { eventId, sessionId, userId, source, requestIp, expectedUpdatedAt } = input;
 
   const existing = await db.eventSession.findFirst({
@@ -1060,7 +1105,7 @@ export async function setSessionSpeakersTx(
   tx: Prisma.TransactionClient,
   sessionId: string,
   organizationId: string,
-  rows: { speakerId: string; role: SessionRole }[],
+  rows: { speakerId: string; role: SessionRole; customRoleKey?: string | null }[],
   opts: { cleanTopicSpeakers?: boolean } = {},
 ): Promise<{ topicRowsRemoved: number }> {
   await tx.sessionSpeaker.deleteMany({ where: { sessionId } });
@@ -1138,15 +1183,17 @@ export async function addSessionSpeaker(
 
     const existing = await db.sessionSpeaker.findUnique({
       where: { sessionId_speakerId: { sessionId, speakerId } },
-      select: { role: true },
+      select: { role: true, customRoleKey: true },
     });
-    if (existing && existing.role === role) {
+    // An added role (a Host) is stored as its duty's built-in; asking for that
+    // built-in by name is a change of role, not a no-op.
+    if (existing && existing.role === role && !existing.customRoleKey) {
       return { ok: true, sessionSpeaker: { sessionId, speakerId, role }, alreadyAssigned: true, roleChanged: false };
     }
     const result = await db.sessionSpeaker.upsert({
       where: { sessionId_speakerId: { sessionId, speakerId } },
       create: { sessionId, speakerId, role, organizationId: input.organizationId },
-      update: { role },
+      update: { role, customRoleKey: null },
       select: { sessionId: true, speakerId: true, role: true },
     });
 

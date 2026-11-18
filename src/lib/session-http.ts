@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { SessionServiceErrorCode } from "@/services/session-service";
 
 /**
@@ -23,7 +24,17 @@ export const HTTP_STATUS_FOR_SESSION_ERROR: Record<SessionServiceErrorCode, numb
   DUPLICATE_SPEAKER_ID: 400,
   BREAK_ITEM_HAS_PROGRAM: 400,
   INVALID_PRESET_TOPIC: 400,
+  UNKNOWN_SESSION_ROLE: 400,
   WEBINAR_ANCHOR_SESSION: 409,
   STALE_WRITE: 409,
   UNKNOWN: 500,
 };
+
+/**
+ * A session role as a REST body names it: a built-in (SPEAKER, MODERATOR,
+ * CHAIRPERSON, PANELIST) or a role the organisation added. The session
+ * service checks it is on the organisation's list (src/lib/session-roles.ts).
+ * Not a person's Role (person-field-doors.test.ts): one shared schema so the
+ * two session routes cannot drift.
+ */
+export const sessionRoleKeySchema = z.string().min(1).max(60);

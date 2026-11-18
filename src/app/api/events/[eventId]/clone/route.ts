@@ -457,6 +457,8 @@ export async function POST(
                   organizationId: event.organizationId, // multi-tenancy: Sessions sweep
                   speakerId: newSpeakerId,
                   role: ss.role,
+                  // An added role's key: same organisation, so the list still holds it.
+                  customRoleKey: ss.customRoleKey,
                 },
               });
             }
