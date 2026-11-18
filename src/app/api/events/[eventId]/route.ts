@@ -1070,7 +1070,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Counted INSIDE the lane. These tables carry a row policy: outside a lane
     // both counts read 0 under row security, the guard let the delete through,
     // and the invoices and payments went with the event (review of 2b8a7b08,
-    // Nov 18, 2026; pinned by e2e/event-delete-guard.spec.ts).
+    // Nov 18, 2026). Pinned in the gate by event-delete-financial-guard.test.ts
+    // (each read is asked which lane it ran in) and, against a real policy, by
+    // e2e/event-delete-guard.spec.ts under `npm run e2e:rls`.
     const [invoiceCount, paymentCount] = await runWithTenant(orgGuard.orgId, () => Promise.all([
       db.invoice.count({ where: { eventId } }),
       db.payment.count({ where: { registration: { eventId } } }),

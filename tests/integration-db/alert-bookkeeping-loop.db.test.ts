@@ -62,8 +62,12 @@ describe("a failure of the alert system's own bookkeeping", () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await restoreAlertState();
-    await allowAlertStateWrites();
+    // Each undone whatever happens to the other.
+    try {
+      await restoreAlertState();
+    } finally {
+      await allowAlertStateWrites();
+    }
   });
 
   it("is logged below the alerting level, and the alert still goes out", async () => {
@@ -91,7 +95,13 @@ describe("a failure of the alert system's own bookkeeping", () => {
 
     expect(claim).toEqual({ send: true, suppressed: 0 });
     expect(messages(error)).toEqual([]);
-    expect(messages(warn)).toContain("admin-alert:state-unavailable");
+    // It was the raw write that failed, not the read: the read would have been
+    // caught by the table's name, and this test would then prove nothing.
+    const targets = (warn.mock.calls as unknown[][])
+      .map((call) => call[0] as { msg?: string; target?: string } | undefined)
+      .filter((entry) => entry?.msg === "admin-alert:state-unavailable")
+      .map((entry) => entry?.target);
+    expect(targets).toEqual(["$queryRaw"]);
   });
 
   it("covers the raw statements, which reach the handler without naming the table", async () => {
