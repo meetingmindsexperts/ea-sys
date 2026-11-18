@@ -76,6 +76,7 @@ export function loadAgendaEvent(eventId: string) {
               title: true,
               duration: true,
               sortOrder: true,
+              presenterLabel: true,
               speakers: {
                 select: {
                   speaker: {

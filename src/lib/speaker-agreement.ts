@@ -1,3 +1,4 @@
+import { presenterLabelText } from "@/lib/session-topic-presets";
 import { uploadFile, readStoredFile, deleteStoredFile } from "@/lib/storage";
 import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { sanitizePdfText } from "@/lib/pdf/pdf-text";
@@ -215,6 +216,7 @@ interface SpeakerEmailContextRow {
         topics: Array<{
           title: string;
           duration: number | null;
+          presenterLabel?: string | null;
           speakers: Array<{
             speaker: { title: string | null; firstName: string; lastName: string };
           }>;
@@ -285,6 +287,7 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
                   select: {
                     title: true,
                     duration: true,
+                    presenterLabel: true,
                     speakers: {
                       select: {
                         speaker: { select: { title: true, firstName: true, lastName: true } },
@@ -449,9 +452,11 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
       // An unassigned topic reads TBA rather than a bare dash. This document is
       // handed to someone running a room, where a blank cell looks like a
       // mistake in the run-sheet instead of a slot still being filled.
-      const presentedBy = speakers ? escapeHtmlForAgreement(speakers) : TBA_LABEL;
+      // A Panel Discussion / Q&A preset says who presents it ("All Faculty").
+      const preset = presenterLabelText(topic.presenterLabel);
+      const presentedBy = preset ?? (speakers ? escapeHtmlForAgreement(speakers) : TBA_LABEL);
       bodyRows += `        <tr><td style="${MOD_CELL_STYLE}">${escapeHtmlForAgreement(topic.title)}</td><td style="${MOD_CELL_STYLE}">${presentedBy}</td></tr>\n`;
-      topicTextLines.push(`  ${topic.title} — ${speakers || TBA_LABEL}`);
+      topicTextLines.push(`  ${topic.title} — ${preset ?? (speakers || TBA_LABEL)}`);
     }
 
     const topicsTable = session.topics.length

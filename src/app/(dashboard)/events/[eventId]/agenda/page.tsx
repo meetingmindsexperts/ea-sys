@@ -32,7 +32,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { SESSION_TOPIC_PRESETS } from "@/lib/session-topic-presets";
+import {
+  DEFAULT_TOPIC_PRESENTER_LABEL,
+  isTopicPresenterLabel,
+  presenterLabelText,
+  SESSION_TOPIC_PRESETS,
+  type TopicPresenterLabel,
+} from "@/lib/session-topic-presets";
+import { PresenterLabelSelect } from "@/components/sessions/presenter-label-select";
 import {
   Select,
   SelectContent,
@@ -131,6 +138,7 @@ interface TopicEntry {
   title: string;
   sortOrder: number;
   duration: number | null;
+  presenterLabel: string | null;
   abstract: { id: string; title: string } | null;
   speakers: Array<{ speaker: Speaker }>;
 }
@@ -175,6 +183,8 @@ interface TopicForm {
   title: string;
   speakerIds: string[];
   duration: string;
+  /** Set on a Panel Discussion / Q&A preset: "Presented by" in place of speakers. */
+  presenterLabel: TopicPresenterLabel | null;
 }
 
 interface SessionRoleForm {
@@ -277,6 +287,7 @@ function sessionToForm(s: Session, eventTz: string): typeof DEFAULT_SESSION_FORM
       title: t.title,
       speakerIds: t.speakers.map((ts) => ts.speaker.id),
       duration: t.duration?.toString() || "",
+      presenterLabel: isTopicPresenterLabel(t.presenterLabel) ? t.presenterLabel : null,
     })),
   };
 }
@@ -638,7 +649,9 @@ export default function AgendaPage() {
               title: t.title,
               duration: t.duration ? parseInt(t.duration) : undefined,
               sortOrder: i,
-              speakerIds: t.speakerIds,
+              // A preset names no speakers: its "Presented by" stands in for them.
+              speakerIds: t.presenterLabel ? [] : t.speakerIds,
+              presenterLabel: t.presenterLabel,
             }))
           : [],
       },
@@ -1614,7 +1627,7 @@ export default function AgendaPage() {
                             ...sessionForm,
                             topics: [
                               ...sessionForm.topics,
-                              { title: "", speakerIds: [], duration: "" },
+                              { title: "", speakerIds: [], duration: "", presenterLabel: null },
                             ],
                           })
                         }
@@ -1634,7 +1647,7 @@ export default function AgendaPage() {
                               ...sessionForm,
                               topics: [
                                 ...sessionForm.topics,
-                                { title: preset, speakerIds: [], duration: "" },
+                                { title: preset, speakerIds: [], duration: "", presenterLabel: DEFAULT_TOPIC_PRESENTER_LABEL },
                               ],
                             })
                           }
@@ -1687,12 +1700,24 @@ export default function AgendaPage() {
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
-                        {!hasSpeakers && (
+                        {topic.presenterLabel && (
+                          <div className="pl-5">
+                            <PresenterLabelSelect
+                              value={topic.presenterLabel}
+                              onChange={(value) => {
+                                const updated = [...sessionForm.topics];
+                                updated[idx] = { ...updated[idx], presenterLabel: value };
+                                setSessionForm({ ...sessionForm, topics: updated });
+                              }}
+                            />
+                          </div>
+                        )}
+                        {!topic.presenterLabel && !hasSpeakers && (
                           <div className="pl-5">
                             <NoSpeakersNote eventId={eventId} what="choose who presents this topic" />
                           </div>
                         )}
-                        {hasSpeakers && (
+                        {!topic.presenterLabel && hasSpeakers && (
                         <div className="pl-5">
                           <MultiSelect
                             options={(speakers as Speaker[]).map((sp) => ({
@@ -2265,6 +2290,7 @@ function SessionCard({
                 {session.topics.map((t) => (
                   <div key={t.id} className="text-xs">
                     <span className="font-medium text-foreground/80">{t.title}</span>
+                    {presenterLabelText(t.presenterLabel) && <span> — {presenterLabelText(t.presenterLabel)}</span>}
                     {t.speakers.length > 0 && (
                       <span> — {t.speakers.map((ts) => formatPersonName(ts.speaker.title, ts.speaker.firstName, ts.speaker.lastName)).join(", ")}</span>
                     )}

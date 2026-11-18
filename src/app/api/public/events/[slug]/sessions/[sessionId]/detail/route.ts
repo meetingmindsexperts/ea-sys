@@ -166,6 +166,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             title: true,
             sortOrder: true,
             duration: true,
+            presenterLabel: true,
             speakers: {
               select: {
                 speaker: {
@@ -278,6 +279,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           title: t.title,
           sortOrder: t.sortOrder,
           duration: t.duration,
+          presenterLabel: t.presenterLabel,
           speakers: t.speakers.map((ts) => ts.speaker),
         })),
       },

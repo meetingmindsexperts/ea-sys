@@ -37,6 +37,7 @@ import {
   topicNeedsTba,
   TBA_LABEL,
 } from "@/lib/session-enums";
+import { presenterLabelText } from "@/lib/session-topic-presets";
 import { buildAgendaRows, type AgendaRow } from "@/lib/agenda-layout";
 import { computeTopicTimes } from "@/lib/topic-times";
 
@@ -70,6 +71,8 @@ interface Topic {
   title: string;
   duration: number | null;
   sortOrder: number;
+  /** Panel Discussion / Q&A presets: who presents it, in place of speakers. */
+  presenterLabel?: string | null;
   speakers: Array<{ speaker: TopicSpeaker }>;
 }
 
@@ -811,6 +814,9 @@ function ParallelBlock({
 // ── Session Row Component ─────────────────────────────────────────────────
 
 function renderTopicSpeakers(topic: Topic, session: Session) {
+  // A preset (Panel Discussion, Q&A) says who presents it: never TBA.
+  const presenter = presenterLabelText(topic.presenterLabel);
+  if (presenter) return <p className="text-sm text-slate-500 mt-1">{presenter}</p>;
   if (topic.speakers.length > 0) {
     return (
       <p className="text-sm text-slate-500 mt-1">

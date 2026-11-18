@@ -13,6 +13,7 @@ import { redactZoomHostFieldsFromSessions } from "@/lib/zoom-visibility";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { TOPIC_PRESENTER_LABEL_KEYS } from "@/lib/session-topic-presets";
 
 const topicSchema = z.object({
   title: z.string().min(1).max(255),
@@ -20,6 +21,8 @@ const topicSchema = z.object({
   duration: z.number().min(1).optional(),
   sortOrder: z.number().int().optional(),
   speakerIds: z.array(z.string().max(100)).optional(),
+  // Panel Discussion / Q&A presets: "Presented by" in place of speakers.
+  presenterLabel: z.enum(TOPIC_PRESENTER_LABEL_KEYS).nullable().optional(),
 });
 
 const sessionSpeakerSchema = z.object({

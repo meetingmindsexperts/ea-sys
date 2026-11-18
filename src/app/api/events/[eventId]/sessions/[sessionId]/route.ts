@@ -15,6 +15,7 @@ import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { runWithTenant } from "@/lib/tenant-context";
+import { TOPIC_PRESENTER_LABEL_KEYS } from "@/lib/session-topic-presets";
 
 const topicSchema = z.object({
   id: z.string().max(100).optional(), // existing topic ID (for updates)
@@ -23,6 +24,8 @@ const topicSchema = z.object({
   duration: z.number().min(1).nullable().optional(),
   sortOrder: z.number().int().optional(),
   speakerIds: z.array(z.string().max(100)).optional(),
+  // Panel Discussion / Q&A presets: "Presented by" in place of speakers.
+  presenterLabel: z.enum(TOPIC_PRESENTER_LABEL_KEYS).nullable().optional(),
 });
 
 const sessionSpeakerSchema = z.object({

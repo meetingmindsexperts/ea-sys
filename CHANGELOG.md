@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Agenda: Panel Discussion and Q&A topics, numbered sessions in speaker emails (November 18)
+
+- **One-click topics**: beside Add Topic, in the session dialog and on the session detail panel, "Panel Discussion" and "Q&A" add a topic with that title. The title stays editable ("Discussion with the Panel"), the organiser sets its minutes and the agenda gives it its time slot like any topic. Nothing is added unless the organiser clicks.
+- **"Presented by" instead of speakers**: a preset names no speakers. It says All (the default), All Faculty or All the above, picked by the organiser, on the public agenda, the public session page, the moderator email's run-sheet (instead of TBA), the agenda export, the dashboard and the agent's session list; a clone copies it. Stored as a code on the new `SessionTopic.presenterLabel` (migration `20261118120000`, one nullable column), turned into words only in `src/lib/session-topic-presets.ts`. A topic with a label is a preset whatever its title. A save that leaves the field out keeps the stored label, unless it names speakers; a preset with speakers is refused (`INVALID_PRESET_TOPIC`). The agent can read the label but not yet set it (that changes the MCP tool list).
+- **Speaker emails number their sessions**: with two or more sessions, each table in `{{presentationDetails}}` and `{{moderatorDetails}}` opens with "SESSION 1 OF 2" beside a short cerulean bar, and sessions are 24px apart; one session stays unlabelled. From feedback that two sessions' tables read as one.
+
 ### Event row security: checked with two tenants (November 18)
 
 No change to the product. The rehearsal of November 17 had one organisation; this one ran the sandbox's two (Acme and Globex) under every policy, on the final commit.

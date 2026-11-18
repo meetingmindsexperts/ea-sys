@@ -105,6 +105,15 @@ test("the Panel Discussion and Q&A presets add editable topics that take their s
     await expect(titles.nth(0)).toHaveValue("Panel Discussion");
     await expect(titles.nth(1)).toHaveValue("Q&A");
 
+    // A preset names no speakers: "Presented by" starts at All instead.
+    const presentedBy = dialog.getByRole("combobox", { name: "Presented by" });
+    await expect(presentedBy).toHaveCount(2);
+    await expect(presentedBy.nth(0)).toHaveText("All");
+    await expect(dialog.getByText("Select speakers...")).toHaveCount(0);
+    await presentedBy.nth(0).click();
+    await page.getByRole("option", { name: "All Faculty" }).click();
+    await expect(presentedBy.nth(0)).toHaveText("All Faculty");
+
     // Editable like any topic: rename one, give both their minutes.
     await titles.nth(1).fill("Q&A with the panel");
     const minutes = dialog.getByPlaceholder("Min");
@@ -116,6 +125,9 @@ test("the Panel Discussion and Q&A presets add editable topics that take their s
     await page.goto(`/e/${EVENT_SLUG}/agenda?preview=${EVENT_ID}`);
     await expect(page.getByText("Panel Discussion")).toBeVisible();
     await expect(page.getByText("Q&A with the panel")).toBeVisible();
+    // Who presents each, in the organiser's words, never TBA under a preset.
+    await expect(page.getByText("All Faculty", { exact: true })).toBeVisible();
+    await expect(page.getByText("All", { exact: true })).toBeVisible();
     // The slots follow the minutes: 40 then 20, back to back from the start.
     const times = page.locator(".print-topic-time");
     await expect(times).toHaveCount(2);
@@ -141,13 +153,18 @@ test("the presets are on the session detail panel's topic editor too", async ({ 
     await sheet.getByRole("button", { name: "Edit Topics" }).click();
     await sheet.getByRole("button", { name: "Q&A" }).click();
     await expect(sheet.locator('input[value="Q&A"]')).toHaveCount(1);
+    await expect(sheet.getByRole("combobox", { name: "Presented by" })).toHaveText("All");
     await sheet.getByRole("button", { name: "Save" }).click();
     await expect(sheet.getByRole("button", { name: "Edit Topics" })).toBeVisible();
 
     const res = await page.request.get(`/api/events/${EVENT_ID}/agenda-preview`);
     const body = await res.json();
     const session = body.sessions.find((s: { id: string }) => s.id === sessionId);
-    expect(session.topics.map((t: { title: string }) => t.title)).toEqual(["Q&A"]);
+    expect(session.topics.map((t: { title: string; presenterLabel: string | null }) => [t.title, t.presenterLabel])).toEqual([
+      ["Q&A", "ALL"],
+    ]);
+    // Saved and shown on the panel, which a preset keeps after a rename.
+    await expect(sheet.getByText("Presented by: All")).toBeVisible();
   } finally {
     await removeSession(page, sessionId);
   }

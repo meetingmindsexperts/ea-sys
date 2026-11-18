@@ -52,6 +52,7 @@ import {
   topicNeedsTba,
   TBA_LABEL,
 } from "@/lib/session-enums";
+import { presenterLabelText } from "@/lib/session-topic-presets";
 
 /**
  * "9:00 AM GST on Jun 15" — join-availability timestamps must render in the
@@ -145,6 +146,8 @@ interface TopicInfo {
   title: string;
   sortOrder: number;
   duration: number | null;
+  /** Panel Discussion / Q&A presets: who presents it, in place of speakers. */
+  presenterLabel?: string | null;
   speakers: Array<{
     id: string;
     title?: string | null;
@@ -1204,7 +1207,14 @@ export default function PublicSessionPage() {
                           ) : null}
                         </div>
                       </div>
-                      {topic.speakers.length === 0 &&
+                      {/* A preset (Panel Discussion, Q&A) says who presents it: never TBA. */}
+                      {presenterLabelText(topic.presenterLabel) && (
+                        <p className="text-xs text-muted-foreground mt-3">
+                          {presenterLabelText(topic.presenterLabel)}
+                        </p>
+                      )}
+                      {!presenterLabelText(topic.presenterLabel) &&
+                        topic.speakers.length === 0 &&
                         topicNeedsTba({
                           topicSpeakerCount: 0,
                           sessionShowsTba: !!session && sessionNeedsTba(session),

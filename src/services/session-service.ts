@@ -40,6 +40,7 @@ import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { isBreakSessionType } from "@/lib/session-enums";
+import { isTopicPresenterLabel, presenterLabelText, TOPIC_PRESENTER_LABEL_KEYS } from "@/lib/session-topic-presets";
 import { readWebinarSettings } from "@/lib/webinar";
 import { updateZoomMeeting, updateZoomWebinar } from "@/lib/zoom";
 import {
@@ -73,6 +74,12 @@ export interface SessionTopicInput {
   duration?: number | null;
   sortOrder?: number;
   speakerIds?: string[];
+  /**
+   * Panel Discussion / Q&A presets: who presents it, as a code (ALL,
+   * ALL_FACULTY, ALL_ABOVE) in place of speakers. Null or absent is an
+   * ordinary topic. See src/lib/session-topic-presets.ts.
+   */
+  presenterLabel?: string | null;
 }
 
 export interface SessionSpeakerInput {
@@ -146,6 +153,7 @@ export type SessionServiceErrorCode =
   | "INVALID_CAPACITY"
   | "DUPLICATE_SPEAKER_ID"
   | "BREAK_ITEM_HAS_PROGRAM"
+  | "INVALID_PRESET_TOPIC"
   | "WEBINAR_ANCHOR_SESSION"
   | "STALE_WRITE"
   | "UNKNOWN";
@@ -210,6 +218,7 @@ export const SESSION_SELECT = {
       title: true,
       sortOrder: true,
       duration: true,
+      presenterLabel: true,
       abstract: { select: { id: true, title: true } },
       speakers: {
         select: {
@@ -248,6 +257,38 @@ function isAbstractUniqueViolation(err: unknown): boolean {
   const target = err.meta?.target;
   const fields = Array.isArray(target) ? target.join(",") : String(target ?? "");
   return fields.includes("abstractId");
+}
+
+/**
+ * A preset topic (Panel Discussion, Q&A) says "All", "All Faculty" or "All the
+ * above" in place of speakers, so it may name none, and only those three
+ * codes are stored. Refused rather than cleaned: dropping speakers a caller
+ * sent would lose them without a word. Returns the message, or null.
+ */
+export function presetTopicProblem(topics: SessionTopicInput[] | undefined): string | null {
+  for (const t of topics ?? []) {
+    if (t.presenterLabel == null) continue;
+    if (!isTopicPresenterLabel(t.presenterLabel)) {
+      return `"${t.title}": Presented by must be one of ${TOPIC_PRESENTER_LABEL_KEYS.join(", ")}.`;
+    }
+    if (t.speakerIds && t.speakerIds.length > 0) {
+      return `"${t.title}" says who presents it ("${presenterLabelText(t.presenterLabel)}"), so it cannot also name speakers. Remove the speakers, or make it an ordinary topic.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The `presenterLabel` write for a topic saved over a stored one. A caller
+ * that does not know the field (an older agent prompt resending the topic
+ * list) leaves it out, and that must not turn a Panel Discussion back into an
+ * ordinary topic, so an omitted label keeps the stored one. Omitted WITH
+ * speakers means the caller named people for it: it is an ordinary topic now.
+ * A new topic simply stores the label or null.
+ */
+export function presenterLabelUpdate(t: SessionTopicInput): { presenterLabel?: string | null } {
+  if (t.presenterLabel !== undefined) return { presenterLabel: t.presenterLabel };
+  return t.speakerIds && t.speakerIds.length > 0 ? { presenterLabel: null } : {};
 }
 
 /** Collect every speaker id referenced by the payload (session-level + per-topic). */
@@ -339,6 +380,9 @@ async function validate(
       );
     }
   }
+
+  const presetProblem = presetTopicProblem(input.topics);
+  if (presetProblem) return fail("INVALID_PRESET_TOPIC", presetProblem);
 
   // A break item (registration desk / coffee / lunch / networking) is a plain
   // agenda time block — it may never END UP with speakers, topics, or an
@@ -503,6 +547,7 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
                   organizationId: orgId,
                   abstractId: t.abstractId || null,
                   duration: t.duration || null,
+                  presenterLabel: t.presenterLabel ?? null,
                   // MCP used to drop client-supplied sortOrder.
                   sortOrder: t.sortOrder ?? i,
                   // Set-dedupe: a duplicated id in one topic's list used to
@@ -711,6 +756,7 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
             abstractId: t.abstractId || null,
             duration: t.duration || null,
             sortOrder: t.sortOrder ?? i,
+            ...presenterLabelUpdate(t),
           };
           if (existingId) {
             await tx.sessionTopic.update({ where: { id: existingId }, data: fields });

@@ -24,7 +24,14 @@ import {
   Save,
 } from "lucide-react";
 import { formatDateInTz, formatTimeInTz, resolveTimezone, tzLabel } from "@/lib/event-time";
-import { SESSION_TOPIC_PRESETS } from "@/lib/session-topic-presets";
+import {
+  DEFAULT_TOPIC_PRESENTER_LABEL,
+  isTopicPresenterLabel,
+  presenterLabelText,
+  SESSION_TOPIC_PRESETS,
+  type TopicPresenterLabel,
+} from "@/lib/session-topic-presets";
+import { PresenterLabelSelect } from "./presenter-label-select";
 import {
   SESSION_ROLE_COLORS,
   formatSessionRole,
@@ -60,6 +67,7 @@ interface SessionTopic {
   title: string;
   sortOrder: number;
   duration: number | null;
+  presenterLabel: string | null;
   abstract: { id: string; title: string } | null;
   speakers: TopicSpeaker[];
 }
@@ -93,6 +101,19 @@ interface TopicForm {
   title: string;
   speakerIds: string[];
   duration: string;
+  /** Set on a Panel Discussion / Q&A preset: "Presented by" in place of speakers. */
+  presenterLabel: TopicPresenterLabel | null;
+}
+
+/** The stored topic as the editor holds it. */
+function toTopicForm(t: SessionTopic): TopicForm {
+  return {
+    id: t.id,
+    title: t.title,
+    speakerIds: t.speakers.map((ts) => ts.speaker.id),
+    duration: t.duration?.toString() || "",
+    presenterLabel: isTopicPresenterLabel(t.presenterLabel) ? t.presenterLabel : null,
+  };
 }
 
 interface SessionDetailSheetProps {
@@ -148,12 +169,7 @@ export function SessionDetailSheet({
       const sessionData: SessionData = await sessionRes.json();
       setSession(sessionData);
       setTopicForms(
-        sessionData.topics.map((t) => ({
-          id: t.id,
-          title: t.title,
-          speakerIds: t.speakers.map((ts) => ts.speaker.id),
-          duration: t.duration?.toString() || "",
-        }))
+        sessionData.topics.map(toTopicForm)
       );
       if (speakersRes.ok) {
         const data = await speakersRes.json();
@@ -200,7 +216,9 @@ export function SessionDetailSheet({
             title: t.title,
             duration: t.duration ? parseInt(t.duration) : undefined,
             sortOrder: i,
-            speakerIds: t.speakerIds,
+            // A preset names no speakers: its "Presented by" stands in for them.
+            speakerIds: t.presenterLabel ? [] : t.speakerIds,
+            presenterLabel: t.presenterLabel,
           })),
         }),
       });
@@ -219,12 +237,7 @@ export function SessionDetailSheet({
       const updated: SessionData = await res.json();
       setSession(updated);
       setTopicForms(
-        updated.topics.map((t) => ({
-          id: t.id,
-          title: t.title,
-          speakerIds: t.speakers.map((ts) => ts.speaker.id),
-          duration: t.duration?.toString() || "",
-        }))
+        updated.topics.map(toTopicForm)
       );
       setIsEditing(false);
       toast.success("Topics updated");
@@ -237,9 +250,18 @@ export function SessionDetailSheet({
     }
   };
 
-  // A preset ("Panel Discussion", "Q&A") fills only the title; the topic stays editable.
-  const addTopic = (title = "") => {
-    setTopicForms([...topicForms, { title, speakerIds: [], duration: "" }]);
+  // A preset ("Panel Discussion", "Q&A") fills the title, which stays
+  // editable, and says "Presented by: All" until the organiser changes it.
+  const addTopic = (preset?: string) => {
+    setTopicForms([
+      ...topicForms,
+      {
+        title: preset ?? "",
+        speakerIds: [],
+        duration: "",
+        presenterLabel: preset ? DEFAULT_TOPIC_PRESENTER_LABEL : null,
+      },
+    ]);
   };
 
   const removeTopic = (idx: number) => {
@@ -372,14 +394,7 @@ export function SessionDetailSheet({
                       onClick={() => {
                         setIsEditing(false);
                         // Reset to original
-                        setTopicForms(
-                          session.topics.map((t) => ({
-                            id: t.id,
-                            title: t.title,
-                            speakerIds: t.speakers.map((ts) => ts.speaker.id),
-                            duration: t.duration?.toString() || "",
-                          }))
-                        );
+                        setTopicForms(session.topics.map(toTopicForm));
                       }}
                     >
                       Cancel
@@ -437,6 +452,12 @@ export function SessionDetailSheet({
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
+                      {topic.presenterLabel ? (
+                        <PresenterLabelSelect
+                          value={topic.presenterLabel}
+                          onChange={(value) => updateTopic(idx, "presenterLabel", value)}
+                        />
+                      ) : (
                       <div>
                         <Label className="text-xs">Speakers</Label>
                         <MultiSelect
@@ -457,6 +478,7 @@ export function SessionDetailSheet({
                           emptyMessage="No speakers found."
                         />
                       </div>
+                      )}
                     </div>
                   ))}
                   <div className="flex flex-wrap gap-2">
@@ -502,6 +524,11 @@ export function SessionDetailSheet({
                           </span>
                         )}
                       </div>
+                      {presenterLabelText(topic.presenterLabel) && (
+                        <p className="text-xs text-muted-foreground mt-1.5">
+                          Presented by: {presenterLabelText(topic.presenterLabel)}
+                        </p>
+                      )}
                       {topic.speakers.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1.5">
                           {topic.speakers.map((ts) => (

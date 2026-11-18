@@ -560,6 +560,10 @@ model SessionTopic {
   title          String
   sortOrder      Int      @default(0)
   duration       Int?
+  /// Panel Discussion / Q&A presets only: ALL | ALL_FACULTY | ALL_ABOVE, shown
+  /// as "Presented by" instead of speakers (src/lib/session-topic-presets.ts).
+  /// NULL is an ordinary topic.
+  presenterLabel String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

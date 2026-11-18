@@ -477,6 +477,7 @@ export async function POST(
                 title: topic.title,
                 sortOrder: topic.sortOrder,
                 duration: topic.duration,
+                presenterLabel: topic.presenterLabel,
                 speakers:
                   remappedTopicSpeakers.length > 0
                     ? { create: remappedTopicSpeakers }

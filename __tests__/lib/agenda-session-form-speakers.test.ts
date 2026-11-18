@@ -19,8 +19,9 @@ describe("agenda session form without speakers", () => {
     const topics = block("{/* Topics (optional)", "{/* Zoom Integration");
     expect(topics).toContain("{!isBreakForm && (");
     expect(topics.split("\n").slice(0, 3).join("\n")).not.toMatch(/hasSpeakers|speakers as Speaker\[\]\)\.length/);
-    // only the per-topic speaker picker waits for speakers, with the note in its place
-    expect(topics).toContain('{!hasSpeakers && (');
+    // only the per-topic speaker picker waits for speakers, with the note in its
+    // place; a Panel Discussion / Q&A preset has its "Presented by" instead of both
+    expect(topics).toContain('{!topic.presenterLabel && !hasSpeakers && (');
     expect(topics).toContain('<NoSpeakersNote eventId={eventId} what="choose who presents this topic" />');
   });
 

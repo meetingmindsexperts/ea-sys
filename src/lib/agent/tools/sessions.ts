@@ -84,6 +84,8 @@ const listSessions: ToolExecutor = async (input, ctx) => {
             title: true,
             duration: true,
             sortOrder: true,
+            // Panel Discussion / Q&A presets: ALL | ALL_FACULTY | ALL_ABOVE in place of speakers.
+            presenterLabel: true,
             speakers: {
               select: {
                 speaker: { select: { id: true, title: true, firstName: true, lastName: true } },

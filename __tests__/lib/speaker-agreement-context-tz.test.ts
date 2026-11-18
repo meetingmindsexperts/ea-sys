@@ -567,6 +567,19 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     expect(ctx?.moderatorDetailsText).toContain("TAVR Outcomes");
   });
 
+  it("a Panel Discussion / Q&A preset reads its 'Presented by' phrase, never TBA", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue(
+      moderatorRow([
+        ...TOPICS,
+        { title: "Discussion with the Panel", duration: 15, presenterLabel: "ALL_FACULTY", speakers: [] },
+      ]),
+    );
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    expect(ctx?.moderatorDetails).toMatch(/Discussion with the Panel<\/td><td[^>]*>All Faculty</);
+    expect(ctx?.moderatorDetailsText).toContain("Discussion with the Panel — All Faculty");
+    expect(ctx?.moderatorDetailsText).not.toContain("Discussion with the Panel — TBA");
+  });
+
   it("renders TBA in 'Presented by' for a topic with no speaker, in both HTML and text", async () => {
     // This document is handed to someone running a room, so an unassigned slot
     // has to read as unassigned rather than as a blank cell they mistake for a

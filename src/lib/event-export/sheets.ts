@@ -15,6 +15,7 @@ import { toCsvRow } from "@/lib/csv-escape";
 import { formatPersonName } from "@/lib/utils";
 import { can, type Principal } from "@/lib/permissions/can";
 import { speakerRegistrationTypeName } from "@/lib/speaker-registration-type";
+import { presenterLabelText } from "@/lib/session-topic-presets";
 
 export interface Sheet {
   /** Path inside the ZIP. */
@@ -158,6 +159,7 @@ export async function sessionSheets(eventId: string): Promise<Sheet[]> {
           title: true,
           duration: true,
           sortOrder: true,
+          presenterLabel: true,
           speakers: { select: { speaker: { select: { title: true, firstName: true, lastName: true } } } },
         },
       },
@@ -169,7 +171,9 @@ export async function sessionSheets(eventId: string): Promise<Sheet[]> {
     s.topics.length, s.abstract ? `A-${String(s.abstract.serialId ?? "").padStart(3, "0")} ${s.abstract.title}` : "", s.description,
   ]);
   const topicRows = sessions.flatMap((s) =>
-    s.topics.map((t) => [s.id, s.name, t.sortOrder + 1, t.title, t.duration ?? "", t.speakers.map((x) => person(x.speaker)).join("; ")]),
+    // A Panel Discussion / Q&A preset names its presenters in words ("All
+    // Faculty") in the same column, so the sheet keeps its columns.
+    s.topics.map((t) => [s.id, s.name, t.sortOrder + 1, t.title, t.duration ?? "", presenterLabelText(t.presenterLabel) ?? t.speakers.map((x) => person(x.speaker)).join("; ")]),
   );
   return [
     sheet("sessions.csv", ["Session ID", "Name", "Type", "Status", "Start", "End", "Location", "Track", "Capacity", "Speakers (role)", "Topics", "Linked Abstract", "Description"], sessionRows),
