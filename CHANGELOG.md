@@ -12,6 +12,10 @@ The Contacts page showed 20, 50 or 100 at a time. It now shows 100, 500 or 1,000
 
 The list was sorted by creation time alone, and an import gives hundreds of contacts the same time: production holds 58,065 contacts on 5,511 distinct times, 949 on one of them. With nothing to break the tie the database may order those rows differently on each request, so a contact could show on two pages or on none. The sort is now creation time, then id.
 
+With pages this long, four things on the page changed (review of the change): the pager is shown above the table as well as under it; a row redraws only when it changes, so typing in the search box and ticking a row no longer redraw all 1,000 (a tick fell from about 170 ms to 65 ms in a dev build); the edit link of a row is no longer prefetched; and a tag change on more than 1,000 selected contacts is refused in words, where the server answered "Invalid input". The tag limit and the largest page are one number (`CONTACT_BULK_TAG_MAX`).
+
+An older fault found on the way: the tag dialog lists every tag of the organisation for quick selection, and with 130 tags it was taller than a laptop screen, with **Apply** below the bottom edge. The list now scrolls inside the dialog.
+
 Still page numbers, not a cursor: the last of 58,065 takes 61 ms in production, and a page of 1,000 is 317 KB and draws in about half a second. Worth an index on organisation and creation time before the table is several times larger. Selecting a whole page of 1,000 and changing tags sends exactly the bulk tag route's limit of 1,000.
 
 ### The "Joined" badge on a webinar's registrations is hidden (November 18)

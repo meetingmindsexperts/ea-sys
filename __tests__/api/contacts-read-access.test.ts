@@ -72,7 +72,9 @@ import { GET as exportContacts } from "@/app/api/contacts/export/route";
 import { GET as listTags } from "@/app/api/contacts/tags/route";
 import { GET as getContact, PUT as updateContact } from "@/app/api/contacts/[contactId]/route";
 import { canExportContacts, canViewContacts } from "../helpers/role-can";
-import { CONTACT_DEFAULT_PAGE_SIZE, CONTACT_PAGE_SIZES, CONTACTS_MAX_PAGE_SIZE } from "@/lib/contact-page-sizes";
+import { CONTACT_BULK_TAG_MAX, CONTACT_DEFAULT_PAGE_SIZE, CONTACT_PAGE_SIZES, CONTACTS_MAX_PAGE_SIZE } from "@/lib/contact-page-sizes";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const ORG = "org_1";
 
@@ -138,6 +140,12 @@ describe("the contacts list: page size and order (Nov 18, 2026)", () => {
   it("keeps 50 for a caller that names no size (the API's documented default)", async () => {
     await listContacts(req());
     expect(listArgs().take).toBe(50);
+  });
+
+  it("one tag change takes a whole page of the largest size, so select all never overflows it", async () => {
+    expect(CONTACT_BULK_TAG_MAX).toBeGreaterThanOrEqual(CONTACTS_MAX_PAGE_SIZE);
+    const source = readFileSync(join(process.cwd(), "src/app/api/contacts/bulk-tags/route.ts"), "utf8");
+    expect(source).toMatch(/contactIds:\s*z\.array\(z\.string\(\)\)\.min\(1\)\.max\(CONTACT_BULK_TAG_MAX\)/);
   });
 
   it("breaks a tie on creation time by id, so paging neither repeats nor skips a contact", async () => {

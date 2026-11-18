@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { memo, useState, useCallback, useRef, useMemo } from "react";
 import {
   useContacts,
   useDeleteContact,
@@ -11,7 +11,7 @@ import {
   queryKeys,
 } from "@/hooks/use-api";
 import { useQueryClient } from "@tanstack/react-query";
-import { CONTACT_DEFAULT_PAGE_SIZE, CONTACT_PAGE_SIZES } from "@/lib/contact-page-sizes";
+import { CONTACT_BULK_TAG_MAX, CONTACT_DEFAULT_PAGE_SIZE, CONTACT_PAGE_SIZES } from "@/lib/contact-page-sizes";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ import { TagInput } from "@/components/ui/tag-input";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -113,6 +114,149 @@ function emptyContactsHint(filtered: boolean, canAdd: boolean): string {
   if (filtered) return "Try adjusting your search or filters";
   return canAdd ? "Import a CSV or add contacts manually" : "Contacts added by your team appear here";
 }
+
+/**
+ * One contact's row, on its own and memoised (Nov 18, 2026): the page shows up
+ * to 1,000 at a time, and while the rows lived inside the page every letter
+ * typed in the search box and every tick redrew all of them (about 200 ms a
+ * keystroke in a dev build). A row now redraws only when its own contact, its
+ * own tick or the viewer's permissions change, so everything it is handed must
+ * keep its identity between renders: the three handlers are stable callbacks.
+ */
+const ContactRow = memo(function ContactRow({
+  contact,
+  selected,
+  roleLabel,
+  canWrite,
+  canDelete,
+  onToggle,
+  onView,
+  onDelete,
+}: {
+  contact: Contact;
+  selected: boolean;
+  roleLabel: string | null;
+  canWrite: boolean;
+  canDelete: boolean;
+  onToggle: (id: string) => void;
+  onView: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const initials = `${contact.firstName[0] ?? ""}${contact.lastName[0] ?? ""}`.toUpperCase();
+  const avatarBg = getAvatarBg(`${contact.firstName}${contact.lastName}`);
+  return (
+    <tr
+      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/70 transition-colors group ${
+        selected ? "bg-primary/[0.03]" : ""
+      }`}
+    >
+      <td className="px-4 py-3.5">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggle(contact.id)}
+          className="cursor-pointer rounded"
+        />
+      </td>
+      <td className="px-4 py-3.5">
+        <div className="flex items-center gap-3">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${avatarBg}`}>
+            {initials}
+          </div>
+          <div className="min-w-0">
+            <button
+              type="button"
+              onClick={() => onView(contact.id)}
+              className="font-medium text-gray-900 hover:text-primary transition-colors truncate block leading-snug text-left cursor-pointer"
+            >
+              {formatPersonName(contact.title, contact.firstName, contact.lastName)}
+            </button>
+            <span className="text-xs text-gray-400 truncate block">{contact.email}</span>
+          </div>
+        </div>
+      </td>
+      <td className="px-4 py-3.5 hidden md:table-cell max-w-[200px]">
+        <div className="min-w-0">
+          <span className="text-sm text-gray-700 truncate block">
+            {contact.organization || <span className="text-gray-300">—</span>}
+          </span>
+          {contact.jobTitle && (
+            <span className="text-xs text-gray-400 truncate block">{contact.jobTitle}</span>
+          )}
+        </div>
+      </td>
+      <td className="px-4 py-3.5 hidden lg:table-cell max-w-[160px]">
+        <span className="text-sm text-gray-700 truncate block">
+          {roleLabel ?? <span className="text-gray-300">—</span>}
+        </span>
+      </td>
+      <td className="px-4 py-3.5 hidden md:table-cell max-w-[200px]">
+        <div className="min-w-0">
+          {contact.specialty && (
+            <span className="text-xs text-gray-400 truncate block">{contact.specialty}</span>
+          )}
+        </div>
+      </td>
+      <td className="px-4 py-3.5 hidden lg:table-cell max-w-[200px]">
+        <div className="flex flex-wrap gap-1">
+          {(contact.tags || []).slice(0, 3).map((tag: string) => (
+            <span
+              key={tag}
+              className={`text-xs px-2 py-0.5 rounded-full font-medium border ${getTagColor(tag)}`}
+            >
+              {tag}
+            </span>
+          ))}
+          {(contact.tags?.length ?? 0) > 3 && (
+            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
+              +{(contact.tags?.length ?? 0) - 3}
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-4 py-3.5 text-xs text-gray-400 hidden xl:table-cell">
+        {formatDate(contact.createdAt)}
+      </td>
+      <td className="px-4 py-3.5">
+        <div className="flex gap-1 justify-end">
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 text-gray-600"
+            title="View contact"
+            onClick={() => onView(contact.id)}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          {canWrite && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 text-gray-600"
+              title="Edit contact"
+              asChild
+            >
+              <Link href={`/contacts/${contact.id}/edit`} prefetch={false}>
+                <Pencil className="h-4 w-4" />
+              </Link>
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 text-gray-400 hover:text-rose-500 hover:border-rose-200"
+              title="Delete contact"
+              onClick={() => onDelete(contact.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+});
 
 export default function ContactsPage() {
   // The EventsAir import reads the organisation's EventsAir credentials: offered only to who may use them.
@@ -221,6 +365,12 @@ export default function ContactsPage() {
       toast.error("Enter at least one tag");
       return;
     }
+    // A selection survives a change of page, so it can pass what one tag change
+    // accepts; say so here instead of the route's "Invalid input".
+    if (!tagDialogContactId && selectedIds.size > CONTACT_BULK_TAG_MAX) {
+      toast.error(`Tags can be changed for at most ${CONTACT_BULK_TAG_MAX.toLocaleString()} contacts at a time. You have ${selectedIds.size.toLocaleString()} selected.`);
+      return;
+    }
     try {
       if (tagDialogContactId) {
         const contact = contacts.find((c) => c.id === tagDialogContactId);
@@ -281,13 +431,18 @@ export default function ContactsPage() {
     setPage(1);
   };
 
-  const toggleSelect = (id: string) => {
+  // Stable, so a memoised row is not redrawn for them (see ContactRow).
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return next;
     });
-  };
+  }, []);
+  const viewContact = useCallback((id: string) => {
+    setSheetContactId(id);
+    setSheetOpen(true);
+  }, []);
 
   const toggleSelectAll = () => {
     if (selectedIds.size === contacts.length) {
@@ -303,6 +458,62 @@ export default function ContactsPage() {
   }, [refetchContacts, refetchTags]);
 
   const isBusy = updateContactTags.isPending || bulkTagContacts.isPending;
+
+  // One pager, shown above the table and again under it: a page of 1,000 rows
+  // is tens of thousands of pixels tall, and the only way back to a smaller
+  // page or on to the next one was at the very bottom (Nov 18, 2026).
+  const pager = total > 0 && (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400">
+                {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total.toLocaleString()} contacts
+                {isFetching && <span className="ml-2 text-primary">Refreshing…</span>}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-400">Show</span>
+                <select
+                  title="Contacts per page"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="h-7 text-xs border border-gray-200 rounded-md px-1.5 bg-white text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/30"
+                >
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </select>
+                <span className="text-xs text-gray-400">per page</span>
+              </div>
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 border-gray-200"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="px-3 text-xs text-gray-600 font-medium tabular-nums">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 border-gray-200"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+          </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50/40">
@@ -463,7 +674,7 @@ export default function ContactsPage() {
         {canWriteContacts && selectedIds.size > 0 && (
           <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/5 rounded-xl border border-primary/20">
             <div className="flex items-center gap-2 shrink-0">
-              <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+              <div className="min-w-5 h-5 px-1.5 rounded-full bg-primary flex items-center justify-center">
                 <span className="text-[10px] font-bold text-white leading-none">{selectedIds.size}</span>
               </div>
               <span className="text-sm font-medium text-gray-700">selected</span>
@@ -506,8 +717,10 @@ export default function ContactsPage() {
           </div>
         )}
 
+        {pager && <div className="mt-6">{pager}</div>}
+
         {/* Contacts table */}
-        <div className="mt-9 bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
+        <div className="mt-3 bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
@@ -572,181 +785,26 @@ export default function ContactsPage() {
                 </tr>
               )}
               {!isLoading && contacts.length > 0 && (
-                contacts.map((contact) => {
-                  const initials = `${contact.firstName[0] ?? ""}${contact.lastName[0] ?? ""}`.toUpperCase();
-                  const avatarBg = getAvatarBg(`${contact.firstName}${contact.lastName}`);
-                  return (
-                    <tr
-                      key={contact.id}
-                      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/70 transition-colors group ${
-                        selectedIds.has(contact.id) ? "bg-primary/[0.03]" : ""
-                      }`}
-                    >
-                      <td className="px-4 py-3.5">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(contact.id)}
-                          onChange={() => toggleSelect(contact.id)}
-                          className="cursor-pointer rounded"
-                        />
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${avatarBg}`}>
-                            {initials}
-                          </div>
-                          <div className="min-w-0">
-                            <button
-                              type="button"
-                              onClick={() => { setSheetContactId(contact.id); setSheetOpen(true); }}
-                              className="font-medium text-gray-900 hover:text-primary transition-colors truncate block leading-snug text-left cursor-pointer"
-                            >
-                              {formatPersonName(contact.title, contact.firstName, contact.lastName)}
-                            </button>
-                            <span className="text-xs text-gray-400 truncate block">{contact.email}</span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 hidden md:table-cell max-w-[200px]">
-                        <div className="min-w-0">
-                          <span className="text-sm text-gray-700 truncate block">
-                            {contact.organization || <span className="text-gray-300">—</span>}
-                          </span>
-                          {contact.jobTitle && (
-                            <span className="text-xs text-gray-400 truncate block">{contact.jobTitle}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 hidden lg:table-cell max-w-[160px]">
-                        <span className="text-sm text-gray-700 truncate block">
-                          {contact.role ? roleField.of(contact.role) : <span className="text-gray-300">—</span>}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3.5 hidden md:table-cell max-w-[200px]">
-                        <div className="min-w-0">
-                          {contact.specialty && (
-                            <span className="text-xs text-gray-400 truncate block">{contact.specialty}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 hidden lg:table-cell max-w-[200px]">
-                        <div className="flex flex-wrap gap-1">
-                          {(contact.tags || []).slice(0, 3).map((tag: string) => (
-                            <span
-                              key={tag}
-                              className={`text-xs px-2 py-0.5 rounded-full font-medium border ${getTagColor(tag)}`}
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                          {(contact.tags?.length ?? 0) > 3 && (
-                            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
-                              +{(contact.tags?.length ?? 0) - 3}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 text-xs text-gray-400 hidden xl:table-cell">
-                        {formatDate(contact.createdAt)}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex gap-1 justify-end">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-8 w-8 text-gray-600"
-                            title="View contact"
-                            onClick={() => { setSheetContactId(contact.id); setSheetOpen(true); }}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          {canWriteContacts && (
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-8 w-8 text-gray-600"
-                              title="Edit contact"
-                              asChild
-                            >
-                              <Link href={`/contacts/${contact.id}/edit`}>
-                                <Pencil className="h-4 w-4" />
-                              </Link>
-                            </Button>
-                          )}
-                          {canDeleteContacts && (
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-8 w-8 text-gray-400 hover:text-rose-500 hover:border-rose-200"
-                              title="Delete contact"
-                              onClick={() => setDeleteId(contact.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                contacts.map((contact) => (
+                  <ContactRow
+                    key={contact.id}
+                    contact={contact}
+                    selected={selectedIds.has(contact.id)}
+                    roleLabel={contact.role ? roleField.of(contact.role) : null}
+                    canWrite={canWriteContacts}
+                    canDelete={canDeleteContacts}
+                    onToggle={toggleSelect}
+                    onView={viewContact}
+                    onDelete={setDeleteId}
+                  />
+                ))
               )}
             </tbody>
           </table>
         </div>
 
-        {/* Pagination */}
-        {total > 0 && (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-400">
-                {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total.toLocaleString()} contacts
-                {isFetching && <span className="ml-2 text-primary">Refreshing…</span>}
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-gray-400">Show</span>
-                <select
-                  title="Contacts per page"
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setPage(1);
-                  }}
-                  className="h-7 text-xs border border-gray-200 rounded-md px-1.5 bg-white text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  {PAGE_SIZE_OPTIONS.map((size) => (
-                    <option key={size} value={size}>{size}</option>
-                  ))}
-                </select>
-                <span className="text-xs text-gray-400">per page</span>
-              </div>
-            </div>
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8 border-gray-200"
-                  disabled={page === 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="px-3 text-xs text-gray-600 font-medium tabular-nums">
-                  {page} / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8 border-gray-200"
-                  disabled={page === totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Pagination, again under the table */}
+        {pager}
       </div>
 
       {/* Tag Assignment Dialog */}
@@ -758,6 +816,9 @@ export default function ContactsPage() {
                 ? "Manage Tags"
                 : `Tag ${selectedIds.size} Contact${selectedIds.size !== 1 ? "s" : ""}`}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Add tags, remove tags or replace all tags on the chosen contacts.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-1">
             <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
@@ -813,7 +874,9 @@ export default function ContactsPage() {
             {allTags.length > 0 && (
               <div className="space-y-1.5">
                 <p className="text-xs text-gray-400 font-medium">Quick select from existing</p>
-                <div className="flex flex-wrap gap-1">
+                {/* Its own scroll: with the organisation's 130 tags the list was taller than
+                    a laptop screen and pushed Apply off it (found Nov 18, 2026). */}
+                <div className="flex flex-wrap gap-1 max-h-40 overflow-y-auto pr-1">
                   {allTags.map((tag) => (
                     <button
                       type="button"

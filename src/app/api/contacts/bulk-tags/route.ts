@@ -1,3 +1,4 @@
+import { CONTACT_BULK_TAG_MAX } from "@/lib/contact-page-sizes";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, tenantTransaction } from "@/lib/db";
@@ -11,9 +12,9 @@ import { normalizeTag } from "@/lib/utils";
 const bulkTagsSchema = z.object({
   // Cap keeps the sequential in-tx update loop bounded well under the 30s
   // transaction timeout (review LOW-1). Since Nov 18, 2026 the Contacts page
-  // shows up to 1,000 a page (`CONTACTS_MAX_PAGE_SIZE`), so "select all" on a
-  // full page sends exactly this many: keep the two numbers in step.
-  contactIds: z.array(z.string()).min(1).max(1000),
+  // shows up to 1,000 a page, so "select all" on a full page sends exactly
+  // this many; the limit is the largest page by definition (`CONTACT_BULK_TAG_MAX`).
+  contactIds: z.array(z.string()).min(1).max(CONTACT_BULK_TAG_MAX),
   tags: z.array(z.string().transform(normalizeTag)),
   // add: union new tags with existing (deduped)
   // remove: filter out specified tags from existing

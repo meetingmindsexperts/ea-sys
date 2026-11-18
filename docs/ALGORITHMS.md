@@ -324,7 +324,7 @@ if (tokenRecord.expires < new Date()) → token expired
 
 ```typescript
 page  = Math.max(1, parseInt(pageParam || "1"))
-limit = Math.min(100, Math.max(1, parseInt(limitParam || "50")))
+limit = Math.min(1000, Math.max(1, parseInt(limitParam || "50")))   // CONTACTS_MAX_PAGE_SIZE, since Nov 18, 2026
 skip  = (page - 1) * limit
 totalPages = Math.ceil(total / limit)
 ```
