@@ -1,5 +1,5 @@
 import { loadRoleFieldForWrite, resolveWrittenRole, writtenRoleOnOffer, writtenRoleRefusal } from "@/lib/person-field-rules";
-import { answerKeyFor } from "@/lib/person-fields";
+import { answerKeyFor, looseForm } from "@/lib/person-fields";
 import { registrationSettleNotice } from "@/lib/speaker-registration-messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -254,7 +254,9 @@ async function updatedSpeakerRole(
   if (!roleField) return { ok: false, refusal: writtenRoleRefusal(text, { offered: [], unreadable: true }) };
   const read = writtenRoleOnOffer(roleField, text);
   if (read.ok) return read;
-  if (stored && answerKeyFor(roleField, text) === stored) return { ok: true, key: stored };
+  // The stored answer written loosely ("others" for a stored "Others" once
+  // Others is switched off: it is in no option list), or by its label.
+  if (stored && (looseForm(text) === looseForm(stored) || answerKeyFor(roleField, text) === stored)) return { ok: true, key: stored };
   return { ok: false, refusal: writtenRoleRefusal(text, read) };
 }
 

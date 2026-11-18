@@ -169,6 +169,13 @@ describe("update_speaker fills a speaker from the contact, role included", () =>
     expect(mockLoadRoleField).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a stored Others written in another case once Others is switched off", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "s1", eventId: "ev1", role: "Others" });
+    mockLoadRoleField.mockResolvedValue(RETIRED_LIST);
+    await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", role: "others" }, ctx);
+    expect(mockUpdate.mock.calls[0][0].fields.role).toBe("Others");
+  });
+
   it("still refuses someone else's retired role, and takes an answer on offer by label", async () => {
     mockDb.speaker.findFirst.mockResolvedValue({ id: "s1", eventId: "ev1", role: "PHYSICIAN" });
     mockLoadRoleField.mockResolvedValue(RETIRED_LIST);
