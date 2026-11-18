@@ -1034,6 +1034,10 @@ export function useContacts(filters?: Record<string, string | string[]>) {
   return useQuery({
     queryKey: filters ? [...queryKeys.contacts, filters] : queryKeys.contacts,
     queryFn: () => fetchApi<any>(`/api/contacts${queryString}`),
+    // The page in hand stays on screen while the next page, size or filter
+    // loads (Nov 18, 2026): without it the list emptied on every change, and
+    // the pager above the table vanished under the cursor and the table jumped.
+    placeholderData: (previous) => previous,
   });
 }
 

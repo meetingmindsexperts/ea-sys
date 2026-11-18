@@ -16,7 +16,12 @@ export const CONTACTS_MAX_PAGE_SIZE: number = Math.max(...CONTACT_PAGE_SIZES);
 
 /**
  * The most contacts one tag change takes (`PATCH /api/contacts/bulk-tags`).
- * "Select all" on a full page sends the whole page, so this is never below
- * the largest page; the route and the page's own refusal both read it.
+ *
+ * This is a SAFETY bound, not a display choice: the route updates the contacts
+ * one at a time inside a single transaction with a 30 second limit, so the
+ * number is what that loop can finish, and raising it means measuring the loop
+ * first. It must never be below the largest page, because "select all" on a
+ * full page sends the whole page; a test holds the two together, so adding a
+ * larger page size fails until this is raised on purpose.
  */
-export const CONTACT_BULK_TAG_MAX: number = CONTACTS_MAX_PAGE_SIZE;
+export const CONTACT_BULK_TAG_MAX: number = 1000;

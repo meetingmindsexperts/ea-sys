@@ -115,6 +115,11 @@ function emptyContactsHint(filtered: boolean, canAdd: boolean): string {
   return canAdd ? "Import a CSV or add contacts manually" : "Contacts added by your team appear here";
 }
 
+/** What the page says when more contacts are selected than one tag change takes. */
+function bulkTagRefusal(selected: number): string {
+  return `Tags can be changed for at most ${CONTACT_BULK_TAG_MAX.toLocaleString()} contacts at a time. You have ${selected.toLocaleString()} selected. Deselect some, or filter and tag in parts.`;
+}
+
 /**
  * One contact's row, on its own and memoised (Nov 18, 2026): the page shows up
  * to 1,000 at a time, and while the rows lived inside the page every letter
@@ -347,6 +352,12 @@ export default function ContactsPage() {
 
   const openTagDialog = useCallback(
     (contactId: string | null, defaultMode: TagMode) => {
+      // Refused before the dialog opens, so nobody chooses tags for a change
+      // that cannot be made (the same check sits on Apply as a backstop).
+      if (!contactId && selectedIds.size > CONTACT_BULK_TAG_MAX) {
+        toast.error(bulkTagRefusal(selectedIds.size));
+        return;
+      }
       setTagDialogContactId(contactId);
       setTagDialogMode(defaultMode);
       if (contactId && defaultMode === "replace") {
@@ -357,7 +368,7 @@ export default function ContactsPage() {
       }
       setTagDialogOpen(true);
     },
-    [contacts]
+    [contacts, selectedIds]
   );
 
   const handleTagDialogSubmit = async () => {
@@ -368,7 +379,7 @@ export default function ContactsPage() {
     // A selection survives a change of page, so it can pass what one tag change
     // accepts; say so here instead of the route's "Invalid input".
     if (!tagDialogContactId && selectedIds.size > CONTACT_BULK_TAG_MAX) {
-      toast.error(`Tags can be changed for at most ${CONTACT_BULK_TAG_MAX.toLocaleString()} contacts at a time. You have ${selectedIds.size.toLocaleString()} selected.`);
+      toast.error(bulkTagRefusal(selectedIds.size));
       return;
     }
     try {

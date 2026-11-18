@@ -70,6 +70,7 @@ vi.mock("@/lib/security", () => ({
 import { GET as listContacts, POST as createContact } from "@/app/api/contacts/route";
 import { GET as exportContacts } from "@/app/api/contacts/export/route";
 import { GET as listTags } from "@/app/api/contacts/tags/route";
+import { PATCH as bulkTagContacts } from "@/app/api/contacts/bulk-tags/route";
 import { GET as getContact, PUT as updateContact } from "@/app/api/contacts/[contactId]/route";
 import { canExportContacts, canViewContacts } from "../helpers/role-can";
 import { CONTACT_BULK_TAG_MAX, CONTACT_DEFAULT_PAGE_SIZE, CONTACT_PAGE_SIZES, CONTACTS_MAX_PAGE_SIZE } from "@/lib/contact-page-sizes";
@@ -142,10 +143,37 @@ describe("the contacts list: page size and order (Nov 18, 2026)", () => {
     expect(listArgs().take).toBe(50);
   });
 
-  it("one tag change takes a whole page of the largest size, so select all never overflows it", async () => {
+  it("one tag change takes a whole page of the largest size, and no more than its transaction can finish", async () => {
+    // Two separate numbers held together: a larger page size fails here until the tag limit is raised on purpose.
     expect(CONTACT_BULK_TAG_MAX).toBeGreaterThanOrEqual(CONTACTS_MAX_PAGE_SIZE);
-    const source = readFileSync(join(process.cwd(), "src/app/api/contacts/bulk-tags/route.ts"), "utf8");
-    expect(source).toMatch(/contactIds:\s*z\.array\(z\.string\(\)\)\.min\(1\)\.max\(CONTACT_BULK_TAG_MAX\)/);
+    expect(CONTACT_BULK_TAG_MAX).toBe(1000);
+
+    const send = (count: number) =>
+      bulkTagContacts(
+        new Request("http://x/api/contacts/bulk-tags", {
+          method: "PATCH",
+          body: JSON.stringify({ contactIds: Array.from({ length: count }, (_, i) => `c${i}`), tags: ["x"], mode: "add" }),
+        }),
+      ) as Promise<{ status: number; json: () => Promise<{ error: string }> }>;
+
+    // A full page passes the check on its size (no such contacts here, so the route answers 404, not 400).
+    const full = await send(CONTACT_BULK_TAG_MAX);
+    expect(full.status).toBe(404);
+    expect((mockDb.contact.findMany.mock.calls[0][0] as { where: { id: { in: string[] } } }).where.id.in).toHaveLength(CONTACT_BULK_TAG_MAX);
+
+    // One more is refused before anything is read.
+    mockDb.contact.findMany.mockClear();
+    const over = await send(CONTACT_BULK_TAG_MAX + 1);
+    expect(over.status).toBe(400);
+    expect(mockDb.contact.findMany).not.toHaveBeenCalled();
+  });
+
+  it("the Contacts page refuses an over-large selection itself, on opening the dialog and on Apply", () => {
+    const page = readFileSync(join(process.cwd(), "src/app/(dashboard)/contacts/page.tsx"), "utf8");
+    expect(page.match(/selectedIds\.size > CONTACT_BULK_TAG_MAX/g)).toHaveLength(2);
+    expect(page).not.toMatch(/const CONTACT_BULK_TAG_MAX\b/);
+    const route = readFileSync(join(process.cwd(), "src/app/api/contacts/bulk-tags/route.ts"), "utf8");
+    expect(route).not.toMatch(/const CONTACT_BULK_TAG_MAX\b/);
   });
 
   it("breaks a tie on creation time by id, so paging neither repeats nor skips a contact", async () => {
