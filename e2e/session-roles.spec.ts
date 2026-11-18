@@ -15,6 +15,17 @@ test.use({ extraHTTPHeaders: async ({ baseURL }, provide) => provide({ Origin: n
 
 type Role = { key: string; label: string; duty: "RUNS" | "PRESENTS"; hidden: boolean };
 
+/**
+ * The Agenda opens on the event's first day, and the seeded event starts 24
+ * hours from now, so a session a few hours after the start falls on the next
+ * day in the evening (Dubai): open the Agenda on the session's own day.
+ */
+async function openAgendaOn(page: Page, start: Date) {
+  await page.goto(`/events/${EVENT_ID}/agenda`);
+  const day = start.toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
+  await page.locator('input[type="date"]').first().fill(day);
+}
+
 async function putRoles(page: Page, roles: Array<Omit<Role, "key"> & { key?: string }>) {
   const res = await page.request.put("/api/organization/session-roles", { data: { roles } });
   expect(res.status(), await res.text()).toBe(200);
@@ -60,7 +71,7 @@ test("an admin adds a Host, and the agenda offers and shows it", async ({ page }
     sessionId = (await created.json()).id;
 
     // The session dialog: the row reads Host; the picker offers Host and not Panelist.
-    await page.goto(`/events/${EVENT_ID}/agenda`);
+    await openAgendaOn(page, start);
     await page.getByRole("button", { name: new RegExp(name) }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("heading", { name: "Edit Session" })).toBeVisible();
@@ -137,7 +148,7 @@ test("an event turns a role off: the server and new rows refuse it, the person w
     expect(refused.status()).toBe(400);
     expect((await refused.json()).code).toBe("SESSION_ROLE_NOT_OFFERED");
 
-    await page.goto(`/events/${EVENT_ID}/agenda`);
+    await openAgendaOn(page, start);
     await page.getByRole("button", { name: new RegExp(name) }).click();
     const dialog = page.getByRole("dialog");
     // The holder's row still reads Host and offers it.
