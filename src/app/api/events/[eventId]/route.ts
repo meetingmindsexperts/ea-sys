@@ -983,6 +983,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // unless the lane names the same one. Outside a lane this awaited write
     // threw AFTER the event was saved, so every settings save answered
     // "Failed to update event" (found by `npm run e2e:rls`, Nov 18, 2026).
+    // Still awaited, so the record is written before the answer, but a failure
+    // is logged (at error, which alerts) and does not fail the save: the event
+    // is already saved, and the status notice below must still go out.
     await runWithTenant(orgGuard.orgId, () => db.auditLog.create({
       data: {
         eventId,
@@ -998,7 +1001,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(nextSlug && nextSlug !== existingEvent.slug && { slugFrom: existingEvent.slug, slugTo: nextSlug }),
         },
       },
-    }));
+    })).catch((err) => apiLogger.error({ err, msg: "event:update-audit-failed", eventId, userId: session.user.id }));
 
     // Notify admins on status change
     if (validated.data.status && validated.data.status !== existingEvent.status) {
@@ -1064,18 +1067,22 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // with the event. Block + write a DELETE_BLOCKED audit snapshot (bounded —
     // an event can hold many invoices) so nothing financial is destroyed by a
     // single event delete. Export first, then remove if truly needed.
-    const [invoiceCount, paymentCount] = await Promise.all([
+    // Counted INSIDE the lane. These tables carry a row policy: outside a lane
+    // both counts read 0 under row security, the guard let the delete through,
+    // and the invoices and payments went with the event (review of 2b8a7b08,
+    // Nov 18, 2026; pinned by e2e/event-delete-guard.spec.ts).
+    const [invoiceCount, paymentCount] = await runWithTenant(orgGuard.orgId, () => Promise.all([
       db.invoice.count({ where: { eventId } }),
       db.payment.count({ where: { registration: { eventId } } }),
-    ]);
+    ]));
     if (invoiceCount > 0 || paymentCount > 0) {
       const invoiceNumbers = (
-        await db.invoice.findMany({
+        await runWithTenant(orgGuard.orgId, () => db.invoice.findMany({
           where: { eventId },
           select: { invoiceNumber: true },
           orderBy: { createdAt: "desc" },
           take: 200,
-        })
+        }))
       ).map((i) => i.invoiceNumber);
       runWithTenant(orgGuard.orgId, () => db.auditLog
         .create({
@@ -1116,9 +1123,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // steps 0 to 5, LOW 8). PENDING and UNCERTAIN may have sold, so they count.
     // Production only: sandbox tickets hold no real permit seat, and a test
     // event must stay deletable (review of 0214f336, LOW 4).
-    const liveDtcmTickets = await db.dtcmOrder.count({
+    // In the lane, as the financial guard above: a count of 0 here loses the
+    // only record of tickets that still exist at DET.
+    const liveDtcmTickets = await runWithTenant(orgGuard.orgId, () => db.dtcmOrder.count({
       where: { eventId, environment: "production", status: { in: ["PURCHASED", "UNCERTAIN", "PENDING"] } },
-    });
+    }));
     if (liveDtcmTickets > 0) {
       apiLogger.warn({ msg: "event:delete-blocked-dtcm-tickets", eventId, liveDtcmTickets, userId: session.user.id });
       runWithTenant(orgGuard.orgId, () => db.auditLog
@@ -1194,7 +1203,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // A partner's stream into this event is ended once its key is gone with
     // the event (external-stream-service.ts): read before the delete, cut after it.
-    const endPartnerStreams = await capturePartnerStreamsBeforeDelete({ eventId });
+    // In the lane: read outside one, the partner's stream is not found and is never cut.
+    const endPartnerStreams = await runWithTenant(orgGuard.orgId, async () => await capturePartnerStreamsBeforeDelete({ eventId }));
     // Inside the organisation's lane: outside one, a policy on Event would match no row.
     await runWithTenant(orgGuard.orgId, () =>
       db.event.delete({
