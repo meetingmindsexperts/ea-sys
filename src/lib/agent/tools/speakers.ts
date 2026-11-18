@@ -1,4 +1,5 @@
-import { loadRoleFieldForWrite, resolveWrittenRole, writtenRoleOnOffer } from "@/lib/person-field-rules";
+import { loadRoleFieldForWrite, resolveWrittenRole, writtenRoleOnOffer, writtenRoleRefusal } from "@/lib/person-field-rules";
+import { answerKeyFor } from "@/lib/person-fields";
 import { registrationSettleNotice } from "@/lib/speaker-registration-messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -111,10 +112,7 @@ const createSpeakerTool: ToolExecutor = async (input, ctx) => {
     }
     // Role: one of the organisation's answers, by key or label (step 1c).
     const roleRead = await resolveWrittenRole(ctx.organizationId, input.role);
-    if (!roleRead.ok) {
-      if (roleRead.offered.length === 0) return { error: "The organisation's roles could not be read just now; try again." };
-      return { error: `Invalid role "${String(input.role)}". Must be one of: ${roleRead.offered.join(", ")}` };
-    }
+    if (!roleRead.ok) return writtenRoleRefusal(input.role, roleRead);
     const rawRole = roleRead.key ?? undefined;
     const rawAdditionalEmail = input.additionalEmail
       ? String(input.additionalEmail).trim().toLowerCase()
@@ -234,6 +232,31 @@ function companionCascadeNote(companion: string): string | undefined {
   return undefined;
 }
 
+/**
+ * The Role `update_speaker` writes: "" clears it; the speaker's own stored
+ * answer, by key or by label, is kept even once the organisation has retired
+ * it (the service's keep rule, as the REST PUT does: refusing it here would
+ * refuse the whole update and push the model to change the person's role);
+ * anything else must be an answer on offer now, matched before the retired
+ * ones (review of f2c00da9).
+ */
+async function updatedSpeakerRole(
+  organizationId: string,
+  written: unknown,
+  stored: string | null,
+): Promise<{ ok: true; key: string | null } | { ok: false; refusal: ReturnType<typeof writtenRoleRefusal> }> {
+  const text = String(written).trim();
+  if (text === "") return { ok: true, key: null };
+  if (stored && text === stored) return { ok: true, key: stored };
+  const read = await resolveWrittenRole(organizationId, text);
+  if (read.ok) return read;
+  if (stored && !read.unreadable) {
+    const roleField = await loadRoleFieldForWrite(organizationId);
+    if (roleField && answerKeyFor(roleField, text) === stored) return { ok: true, key: stored };
+  }
+  return { ok: false, refusal: writtenRoleRefusal(text, read) };
+}
+
 const updateSpeaker: ToolExecutor = async (input, ctx) => {
   try {
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
@@ -246,7 +269,7 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
     // eventId) pair to the service (which takes organizationId on trust).
     const existing = await db.speaker.findFirst({
       where: { id: speakerId, eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
-      select: { id: true, eventId: true },
+      select: { id: true, eventId: true, role: true },
     });
     if (!existing) return { error: `Speaker ${speakerId} not found or access denied` };
 
@@ -265,18 +288,11 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
       else if (TITLE_VALUES.has(t)) fields.title = t as SpeakerTitle;
       else return { error: `Invalid title. Must be one of: ${[...TITLE_VALUES].join(", ")}` };
     }
-    // Role: one of the organisation's answers, by key or label; "" clears it
-    // (Nov 18, 2026: published so a speaker can be filled from their contact).
+    // Role (Nov 18, 2026: published so a speaker can be filled from their contact).
     if (input.role !== undefined && input.role !== null) {
-      if (String(input.role).trim() === "") fields.role = null;
-      else {
-        const roleRead = await resolveWrittenRole(ctx.organizationId, input.role);
-        if (!roleRead.ok) {
-          if (roleRead.offered.length === 0) return { error: "The organisation's roles could not be read just now; try again." };
-          return { error: `Invalid role "${String(input.role)}". Must be one of: ${roleRead.offered.join(", ")}`, code: "INVALID_ROLE" };
-        }
-        fields.role = roleRead.key;
-      }
+      const role = await updatedSpeakerRole(ctx.organizationId, input.role, existing.role);
+      if (!role.ok) return role.refusal;
+      fields.role = role.key;
     }
     if (input.firstName != null) fields.firstName = String(input.firstName).slice(0, 100);
     if (input.lastName != null) fields.lastName = String(input.lastName).slice(0, 100);
@@ -291,6 +307,7 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
     if (input.zipCode != null) fields.zipCode = String(input.zipCode).slice(0, 20);
     if (input.country != null) fields.country = String(input.country).slice(0, 255);
     if (input.specialty != null) fields.specialty = String(input.specialty).slice(0, 255);
+    if (input.customSpecialty != null) fields.customSpecialty = String(input.customSpecialty).slice(0, 255);
     if (input.website != null) fields.website = String(input.website).slice(0, 500);
     // Coerced, not blind-cast: a non-string photo used to reach Prisma raw.
     if (input.photo !== undefined) {
@@ -716,7 +733,7 @@ const importSpeakersFromContactsTool: ToolExecutor = async (input, ctx) => {
       createdEmails: result.createdEmails,
       skipped: result.skipped,
       ...(result.skipped > 0
-        ? { skippedEmails: result.skippedEmails, skippedNote: "Already speakers on this event, left unchanged. To fill their details from the contact, read it with list_contacts and pass the fields to update_speaker (it takes every person field but customSpecialty)." }
+        ? { skippedEmails: result.skippedEmails, skippedNote: "Already speakers on this event, left unchanged. To fill their details from the contact, read it with list_contacts and pass the fields to update_speaker." }
         : {}),
       ...(result.missingContactIds.length > 0 ? { notFoundContactIds: result.missingContactIds } : {}),
       facultyRegistrations: registrations.created,

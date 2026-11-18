@@ -1,4 +1,4 @@
-import { resolveWrittenRole } from "@/lib/person-field-rules";
+import { resolveWrittenRole, writtenRoleRefusal } from "@/lib/person-field-rules";
 import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { lockRegistrationEmails } from "@/lib/registration-email-lock";
@@ -253,10 +253,7 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
     }
     // Role: one of the organisation's answers, by key or label (step 1c).
     const roleRead = await resolveWrittenRole(ctx.organizationId, input.role);
-    if (!roleRead.ok) {
-      if (roleRead.offered.length === 0) return { error: "The organisation's roles could not be read just now; try again." };
-      return { error: `Invalid role "${String(input.role)}". Must be one of: ${roleRead.offered.join(", ")}` };
-    }
+    if (!roleRead.ok) return writtenRoleRefusal(input.role, roleRead);
     const rawRole = roleRead.key ?? undefined;
     const rawAdditionalEmail = input.additionalEmail
       ? String(input.additionalEmail).trim().toLowerCase()

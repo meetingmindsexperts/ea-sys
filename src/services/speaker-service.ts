@@ -735,6 +735,8 @@ export interface UpdateSpeakerFields {
   zipCode?: string | null;
   country?: string | null;
   specialty?: string | null;
+  /** Free text when `specialty === "Others"` (Nov 18, 2026: the agent fills a speaker from their contact). */
+  customSpecialty?: string | null;
   registrationType?: string | null;
   tags?: string[];
   socialLinks?: { twitter?: string; linkedin?: string; github?: string };
@@ -858,6 +860,7 @@ export async function updateSpeaker(
       ...(fields.zipCode !== undefined && { zipCode: fields.zipCode || null }),
       ...(fields.country !== undefined && { country: fields.country || null }),
       ...(fields.specialty !== undefined && { specialty: fields.specialty || null }),
+      ...(fields.customSpecialty !== undefined && { customSpecialty: fields.customSpecialty || null }),
       ...(fields.registrationType !== undefined && !typeBelongsToRegistration && {
         registrationType: fields.registrationType || null,
       }),

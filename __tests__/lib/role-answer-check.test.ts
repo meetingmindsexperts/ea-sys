@@ -123,6 +123,6 @@ describe("review of f2c00da9", () => {
 
   it("the agent's tools refuse while the list cannot be read", async () => {
     mockDb.organization.findUnique.mockRejectedValue(new Error("pool timeout"));
-    expect(await resolveWrittenRole("org1", "Engineer")).toEqual({ ok: false, offered: [] });
+    expect(await resolveWrittenRole("org1", "Engineer")).toEqual({ ok: false, offered: [], unreadable: true });
   });
 });

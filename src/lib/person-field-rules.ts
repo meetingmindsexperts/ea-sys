@@ -198,12 +198,27 @@ export async function roleAnswerRefusal(organizationId: string | null | undefine
 export async function resolveWrittenRole(
   organizationId: string | null | undefined,
   written: unknown,
-): Promise<{ ok: true; key: string | null } | { ok: false; offered: string[] }> {
+): Promise<{ ok: true; key: string | null } | { ok: false; offered: string[]; unreadable?: true }> {
   if (typeof written !== "string" || written.trim() === "") return { ok: true, key: null };
   const roleField = await loadRoleFieldForWrite(organizationId);
-  // Unreadable list: refuse (offered is empty; the tool says to try again).
-  if (!roleField) return { ok: false, offered: [] };
+  // Unreadable list: refuse, and say so (an empty `offered` alone could also
+  // be an organisation that offers no answers at all, where retrying is no use).
+  if (!roleField) return { ok: false, offered: [], unreadable: true };
   return writtenRoleOnOffer(roleField, written);
+}
+
+/**
+ * What a tool says back when `resolveWrittenRole` refuses (Nov 18, 2026): one
+ * code and one wording for every agent tool, the code the services use for
+ * the same refusal.
+ */
+export function writtenRoleRefusal(
+  written: unknown,
+  read: { offered: string[]; unreadable?: true },
+): { error: string; code: "ROLE_NOT_OFFERED" | "ROLES_UNREADABLE" } {
+  if (read.unreadable) return { error: "The organisation's roles could not be read just now; try again.", code: "ROLES_UNREADABLE" };
+  const offered = read.offered.length > 0 ? `Must be one of: ${read.offered.join(", ")}` : "The organisation offers no Role answers right now; leave role out";
+  return { error: `Invalid role "${String(written)}". ${offered}`, code: "ROLE_NOT_OFFERED" };
 }
 
 /**

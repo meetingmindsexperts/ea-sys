@@ -9,11 +9,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * the contacts held no job title or country, which they did.
  */
 
-const { mockDb, mockImport, mockUpdate, mockResolveRole } = vi.hoisted(() => ({
+const { mockDb, mockImport, mockUpdate, mockResolveRole, mockLoadRoleField } = vi.hoisted(() => ({
   mockDb: { contact: { findMany: vi.fn() }, speaker: { findFirst: vi.fn() } },
   mockImport: vi.fn(),
   mockUpdate: vi.fn(),
   mockResolveRole: vi.fn(),
+  mockLoadRoleField: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: {} }));
@@ -26,6 +27,7 @@ vi.mock("@/services/speaker-service", async (orig) => ({
 vi.mock("@/lib/person-field-rules", async (orig) => ({
   ...(await orig<typeof import("@/lib/person-field-rules")>()),
   resolveWrittenRole: (...a: unknown[]) => mockResolveRole(...a),
+  loadRoleFieldForWrite: (...a: unknown[]) => mockLoadRoleField(...a),
 }));
 
 import { CONTACT_EXECUTORS } from "@/lib/agent/tools/contacts";
@@ -143,12 +145,49 @@ describe("update_speaker fills a speaker from the contact, role included", () =>
     expect(mockUpdate.mock.calls[1][0].fields.role).toBeNull();
   });
 
-  it("refuses a role the organisation does not offer, naming the ones it does", async () => {
+  it("refuses a role the organisation does not offer, naming the ones it does, with the services' code", async () => {
     mockResolveRole.mockResolvedValue({ ok: false, offered: ["Physician", "Nurse"] });
     const res = (await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", role: "Wizard" }, ctx)) as { code?: string; error: string };
-    expect(res.code).toBe("INVALID_ROLE");
+    expect(res.code).toBe("ROLE_NOT_OFFERED");
     expect(res.error).toContain("Physician");
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  // Review of 5bbb3dfc: a retired answer the speaker already holds was refused
+  // here, and with it the whole update, while the REST PUT keeps it.
+  it("keeps the speaker's own retired role, by key or by label, and lets the service apply its keep rule", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "s1", eventId: "ev1", role: "PHARMACIST" });
+    mockResolveRole.mockResolvedValue({ ok: false, offered: ["Physician"] });
+    mockLoadRoleField.mockResolvedValue({ options: [{ key: "PHYSICIAN", label: "Physician" }, { key: "PHARMACIST", label: "Pharmacist", retired: true }] });
+    await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", role: "PHARMACIST", city: "Muscat" }, ctx);
+    expect(mockResolveRole).not.toHaveBeenCalled();
+    expect(mockUpdate.mock.calls[0][0].fields).toMatchObject({ role: "PHARMACIST", city: "Muscat" });
+    await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", role: "Pharmacist" }, ctx);
+    expect(mockUpdate.mock.calls[1][0].fields.role).toBe("PHARMACIST");
+  });
+
+  it("still refuses someone else's retired role", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "s1", eventId: "ev1", role: "PHYSICIAN" });
+    mockResolveRole.mockResolvedValue({ ok: false, offered: ["Physician"] });
+    mockLoadRoleField.mockResolvedValue({ options: [{ key: "PHYSICIAN", label: "Physician" }, { key: "PHARMACIST", label: "Pharmacist", retired: true }] });
+    const res = (await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", role: "Pharmacist" }, ctx)) as { code?: string };
+    expect(res.code).toBe("ROLE_NOT_OFFERED");
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("says the list could not be read only when it could not", async () => {
+    mockResolveRole.mockResolvedValue({ ok: false, offered: [], unreadable: true });
+    const unreadable = (await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", role: "Physician" }, ctx)) as { code?: string; error: string };
+    expect(unreadable).toMatchObject({ code: "ROLES_UNREADABLE" });
+    mockResolveRole.mockResolvedValue({ ok: false, offered: [] });
+    const none = (await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", role: "Physician" }, ctx)) as { code?: string; error: string };
+    expect(none.code).toBe("ROLE_NOT_OFFERED");
+    expect(none.error).not.toContain("try again");
+  });
+
+  it("writes customSpecialty", async () => {
+    await SPEAKER_EXECUTORS.update_speaker({ speakerId: "s1", specialty: "Others", customSpecialty: "Transfusion medicine" }, ctx);
+    expect(mockUpdate.mock.calls[0][0].fields).toMatchObject({ specialty: "Others", customSpecialty: "Transfusion medicine" });
   });
 });
 
@@ -160,7 +199,7 @@ describe("what the agent is offered", () => {
 
   it("update_speaker takes role, state and zip code, so an existing speaker can be filled from the contact", async () => {
     const shape = (await registered()).get("update_speaker")!.shape;
-    for (const f of ["role", "state", "zipCode"]) expect(shape).toHaveProperty(f);
+    for (const f of ["role", "state", "zipCode", "customSpecialty"]) expect(shape).toHaveProperty(f);
   });
 
   it("list_contacts points at the import, so a contact is never retyped", async () => {
