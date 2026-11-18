@@ -388,6 +388,29 @@ ${rows
 }
 
 /**
+ * Space between two sessions' blocks. An explicit spacer, because Outlook
+ * desktop ignores margins on <table>. 24px since Nov 18, 2026 (was 16px).
+ */
+const SESSION_GAP = '<div style="height:24px; font-size:0; line-height:0;">&nbsp;</div>';
+
+/**
+ * "SESSION 1 OF 2" above each session's table, with a short cerulean bar
+ * beside the label (Nov 18, 2026, from attendee feedback: two sessions'
+ * tables read as one, since every table and every row looks alike). The
+ * bar is a table cell, not a CSS border, so Outlook desktop draws it too.
+ * Empty when the person has only one session: "1 of 1" is noise.
+ */
+function sessionNumberLabel(index: number, total: number): string {
+  if (total < 2) return "";
+  return `<table style="border-collapse:collapse; margin:12px 0 8px 0;"><tr><td style="width:4px; height:20px; background:#00aade; padding:0; font-size:0; line-height:0;">&nbsp;</td><td style="padding:0 0 0 8px; color:#374151; font-size:14px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; line-height:20px;">Session ${index} of ${total}</td></tr></table>`;
+}
+
+/** The plain-text twin of `sessionNumberLabel`. */
+function sessionNumberText(index: number, total: number): string[] {
+  return total < 2 ? [] : [`Session ${index} of ${total}`];
+}
+
+/**
  * {{moderatorDetails}} — for each session the speaker MODERATES or CHAIRS
  * (July 30, 2026 owner request: chairpersons run sessions too and need the
  * same run-sheet): a "Your Moderation Details:" heading, the labeled
@@ -410,7 +433,7 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
   const htmlParts: string[] = [];
   const textParts: string[] = [];
 
-  for (const { session } of moderated) {
+  for (const [i, { session }] of moderated.entries()) {
     // Date / time as separate lines (owner request).
     const windowLines = sessionWindowLines(session.startTime, session.endTime ?? null, eventTz);
 
@@ -450,15 +473,19 @@ ${bodyRows}      </table>`
       ["Date &amp; Time", windowLines.join("<br/>")],
     ];
 
+    // With a label, the label carries the spacing above, so the wrapper drops
+    // its margin and sessions sit as far apart as in the presentation block.
+    const label = sessionNumberLabel(i + 1, moderated.length);
     htmlParts.push(
-      `<div style="margin:16px 0;">
-      ${labeledInfoTable(infoRows, "0 0 8px 0")}
+      `<div style="margin:${label ? "0" : "16px 0"};">
+      ${label}${labeledInfoTable(infoRows, "0 0 8px 0")}
       ${topicsTable}
     </div>`,
     );
 
     textParts.push(
       [
+        ...sessionNumberText(i + 1, moderated.length),
         `Session: ${session.name}${session.location ? ` · ${session.location}` : ""}`,
         `Date & Time: ${windowLines.join(", ")}`,
         ...topicTextLines,
@@ -475,9 +502,8 @@ ${bodyRows}      </table>`
     '<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Moderation Details:</p>';
   // Same explicit spacer between sessions as the presentation block —
   // email clients that drop CSS margins otherwise glue them together.
-  const gap = '<div style="height:16px; font-size:0; line-height:0;">&nbsp;</div>';
   return {
-    html: `${heading}\n${htmlParts.join(`\n${gap}\n`)}`,
+    html: `${heading}\n${htmlParts.join(`\n${SESSION_GAP}\n`)}`,
     text: `Your Moderation Details:\n${textParts.join("\n\n")}`,
   };
 }
@@ -639,7 +665,7 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   // stays as a {role} docx merge token.
   const htmlBlocks: string[] = [];
   const textBlocks: string[] = [];
-  for (const g of sortedGroups) {
+  for (const [i, g] of sortedGroups.entries()) {
     const windowLines = sessionWindowLines(g.startTime, g.endTime, eventTz);
     const rows: Array<[string, string]> = [
       [
@@ -652,10 +678,14 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     // removed both from the email blocks, July 30 2026 — {trackNames} stays
     // available as its own merge token).
     rows.push(["Date &amp; Time", windowLines.join("<br/>")]);
-    htmlBlocks.push(labeledInfoTable(rows));
+    // With a label, the label carries the spacing above, so the table drops
+    // its own margins rather than open a gap between label and table.
+    const label = sessionNumberLabel(i + 1, sortedGroups.length);
+    htmlBlocks.push(label ? `${label}${labeledInfoTable(rows, "0")}` : labeledInfoTable(rows));
 
     textBlocks.push(
       [
+        ...sessionNumberText(i + 1, sortedGroups.length),
         `Session: ${g.name}${g.location ? ` · ${g.location}` : ""}`,
         ...(g.topicsText.length ? [`Topic: ${g.topicsText.join("; ")}`] : []),
         `Date & Time: ${windowLines.join(", ")}`,
@@ -674,7 +704,6 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   // 2026): the tables' own CSS margins are dropped by some email clients
   // (Outlook desktop ignores margins on <table>), so back-to-back sessions
   // rendered glued together. A fixed-height spacer div survives every client.
-  const SESSION_GAP = '<div style="height:16px; font-size:0; line-height:0;">&nbsp;</div>';
   const html = htmlBlocks.length
     ? `${presentationHeading}\n${htmlBlocks.join(`\n${SESSION_GAP}\n`)}`
     : "";

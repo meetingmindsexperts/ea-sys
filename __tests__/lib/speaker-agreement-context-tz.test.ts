@@ -80,6 +80,11 @@ function eventRow(timezone: string | null) {
   };
 }
 
+/** One chunk per session: sessions are divided by the 24px spacer div. */
+function splitSessions(html: string): string[] {
+  return html.split('<div style="height:24px');
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.speaker.findFirst.mockResolvedValue(speakerRow());
@@ -148,12 +153,16 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
     const html = ctx?.presentationDetails ?? "";
 
-    // Two separate tables — one per session, with an explicit spacer div
-    // between them (email clients that drop table margins glued them).
-    expect(html.match(/<table/g)?.length).toBe(2);
-    expect(html).toContain('<div style="height:16px; font-size:0; line-height:0;">&nbsp;</div>');
-    // Each session's table carries ITS OWN track, never the joined list.
-    const [first, second] = html.split("</table>");
+    // Two separate session tables, each under its own "Session N of 2" label
+    // (a small table: the bar beside it is a cell), with an explicit 24px
+    // spacer div between sessions (email clients that drop table margins
+    // glued them; Nov 18, 2026 feedback: the two read as one).
+    expect(html.match(/<table/g)?.length).toBe(4);
+    expect(html).toContain('<div style="height:24px; font-size:0; line-height:0;">&nbsp;</div>');
+    const [first, second] = html.split('<div style="height:24px');
+    expect(first).toContain("Session 1 of 2");
+    expect(second).toContain("Session 2 of 2");
+    expect(first).toContain("background:#00aade");
     expect(first).toContain("Opening Keynote"); // earlier session first
     expect(first).toContain("9:00 AM – 10:00 AM (EST)");
     expect(second).toContain("Valve Workshop");
@@ -166,10 +175,35 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     expect(ctx?.trackNames).toContain("Track A");
     expect(ctx?.trackNames).toContain("Track B");
 
-    // Text mirror: per-session blocks separated by a blank line.
-    expect(ctx?.presentationDetailsText).toContain("Session: Opening Keynote");
-    expect(ctx?.presentationDetailsText).toContain("Session: Valve Workshop");
+    // Text mirror: per-session blocks separated by a blank line, numbered.
+    expect(ctx?.presentationDetailsText).toContain("Session 1 of 2\nSession: Opening Keynote");
+    expect(ctx?.presentationDetailsText).toContain("Session 2 of 2\nSession: Valve Workshop");
     expect(ctx?.presentationDetailsText).toContain("\n\n");
+  });
+
+  it("a single session carries no number: \"1 of 1\" is noise", async () => {
+    mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    expect(ctx?.presentationDetails).toContain("Opening Keynote");
+    expect(ctx?.presentationDetails).not.toMatch(/Session \d of/);
+    expect(ctx?.presentationDetails?.match(/<table/g)?.length).toBe(1);
+    expect(ctx?.presentationDetailsText).not.toMatch(/Session \d of/);
+  });
+
+  it("numbers moderated sessions within the moderator block, on their own count", async () => {
+    const row = speakerRow();
+    const second = moderatedSession([], "CHAIRPERSON");
+    second.session = { ...second.session, id: "s-panel-2", name: "Imaging Panel" };
+    row.sessions.push(moderatedSession(), second);
+    mockDb.speaker.findFirst.mockResolvedValue(row);
+    mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    // One speaking session: unnumbered. Two moderated: "1 of 2", "2 of 2".
+    expect(ctx?.presentationDetails).not.toMatch(/Session \d of/);
+    expect(ctx?.moderatorDetails).toContain("Session 1 of 2");
+    expect(ctx?.moderatorDetails).toContain("Session 2 of 2");
+    expect(ctx?.moderatorDetailsText).toContain("Session 1 of 2\nSession: Structural Heart Panel");
+    expect(ctx?.moderatorDetailsText).toContain("Session 2 of 2\nSession: Imaging Panel");
   });
 
   it("keeps the {sessionDateTime} docx token format-stable (start time only)", async () => {
@@ -308,8 +342,8 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
       mockDb.speaker.findFirst.mockResolvedValue(row);
       const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
       const html = ctx?.presentationDetails ?? "";
-      expect(html.match(/<table/g)?.length).toBe(2);
-      const [first, second] = html.split("</table>");
+      expect(html.match(/<table/g)?.length).toBe(4);
+      const [first, second] = splitSessions(html);
       expect(first).toContain("Opening Keynote");
       expect(second).toContain("Structural Heart Panel");
       expect(second).toContain("TAVR Outcomes");
@@ -336,7 +370,7 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
       });
       mockDb.speaker.findFirst.mockResolvedValue(row);
       const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
-      const [first, second] = (ctx?.presentationDetails ?? "").split("</table>");
+      const [first, second] = splitSessions(ctx?.presentationDetails ?? "");
       expect(first).toContain("Structural Heart Panel · Hall B");
       expect(first).not.toContain("Hall Z");
       expect(second).toContain("Closing Plenary · Hall Z");
@@ -435,8 +469,8 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
         mockDb.speaker.findFirst.mockResolvedValue(row);
         const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
         const html = ctx?.presentationDetails ?? "";
-        expect(html.match(/<table/g)?.length).toBe(2);
-        const [first, second] = html.split("</table>");
+        expect(html.match(/<table/g)?.length).toBe(4);
+        const [first, second] = splitSessions(html);
         expect(first).toContain("Workshop · Hall A");
         expect(first).toContain("10:00 AM – 10:30 AM (EST)");
         expect(first).not.toContain("My B-topic");
@@ -476,7 +510,7 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
       });
       mockDb.speaker.findFirst.mockResolvedValue(row);
       const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
-      const [first, second] = (ctx?.presentationDetails ?? "").split("</table>");
+      const [first, second] = splitSessions(ctx?.presentationDetails ?? "");
       expect(first).toContain("Structural Heart Panel");
       expect(first).toContain("TAVR Outcomes");
       expect(second).toContain("Closing Plenary");
