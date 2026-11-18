@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { SESSION_TOPIC_PRESETS } from "@/lib/session-topic-presets";
 import {
   Select,
   SelectContent,
@@ -1600,25 +1601,48 @@ export default function AgendaPage() {
               {/* Topics (optional): a topic needs no speakers; its speaker picker waits for the event's. */}
               {!isBreakForm && (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <Label>Topics</Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() =>
-                        setSessionForm({
-                          ...sessionForm,
-                          topics: [
-                            ...sessionForm.topics,
-                            { title: "", speakerIds: [], duration: "" },
-                          ],
-                        })
-                      }
-                    >
-                      <Plus className="mr-1 h-3 w-3" /> Add Topic
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() =>
+                          setSessionForm({
+                            ...sessionForm,
+                            topics: [
+                              ...sessionForm.topics,
+                              { title: "", speakerIds: [], duration: "" },
+                            ],
+                          })
+                        }
+                      >
+                        <Plus className="mr-1 h-3 w-3" /> Add Topic
+                      </Button>
+                      {/* A preset fills only the title of an ordinary topic, which stays editable. */}
+                      {SESSION_TOPIC_PRESETS.map((preset) => (
+                        <Button
+                          key={preset}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() =>
+                            setSessionForm({
+                              ...sessionForm,
+                              topics: [
+                                ...sessionForm.topics,
+                                { title: preset, speakerIds: [], duration: "" },
+                              ],
+                            })
+                          }
+                        >
+                          <Plus className="mr-1 h-3 w-3" /> {preset}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
                   {sessionForm.topics.length === 0 && (
                     <p className="text-xs text-muted-foreground">No topics. Add the presentations in this session, with speakers for each once the event has them.</p>

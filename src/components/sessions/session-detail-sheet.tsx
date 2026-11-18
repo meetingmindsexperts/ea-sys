@@ -24,6 +24,7 @@ import {
   Save,
 } from "lucide-react";
 import { formatDateInTz, formatTimeInTz, resolveTimezone, tzLabel } from "@/lib/event-time";
+import { SESSION_TOPIC_PRESETS } from "@/lib/session-topic-presets";
 import {
   SESSION_ROLE_COLORS,
   formatSessionRole,
@@ -236,8 +237,9 @@ export function SessionDetailSheet({
     }
   };
 
-  const addTopic = () => {
-    setTopicForms([...topicForms, { title: "", speakerIds: [], duration: "" }]);
+  // A preset ("Panel Discussion", "Q&A") fills only the title; the topic stays editable.
+  const addTopic = (title = "") => {
+    setTopicForms([...topicForms, { title, speakerIds: [], duration: "" }]);
   };
 
   const removeTopic = (idx: number) => {
@@ -457,16 +459,30 @@ export function SessionDetailSheet({
                       </div>
                     </div>
                   ))}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={addTopic}
-                    className="w-full"
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1" />
-                    Add Topic
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addTopic()}
+                      className="flex-1"
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      Add Topic
+                    </Button>
+                    {SESSION_TOPIC_PRESETS.map((preset) => (
+                      <Button
+                        key={preset}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => addTopic(preset)}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" />
+                        {preset}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               )}
               {!isEditing && (session.topics.length > 0 ? (

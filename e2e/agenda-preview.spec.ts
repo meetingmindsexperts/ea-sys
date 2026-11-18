@@ -84,3 +84,71 @@ test("a reviewer cannot preview the agenda", async ({ page }) => {
   await page.goto(`/e/${EVENT_SLUG}/agenda?preview=${EVENT_ID}`);
   await expect(page.getByText("This preview isn’t available to you")).toBeVisible();
 });
+
+test("the Panel Discussion and Q&A presets add editable topics that take their slot on the agenda", async ({ page }) => {
+  await loginAs(page, "ADMIN");
+  const name = `Presets check ${Date.now()}`;
+  const sessionId = await addSession(page, name);
+  try {
+    await page.goto(`/events/${EVENT_ID}/agenda`);
+    // The session card on the calendar (the "needs a speaker" banner names it too).
+    await page.getByRole("button", { name: new RegExp(name) }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Edit Session" })).toBeVisible();
+
+    // The organiser chooses: nothing is there until a preset is clicked.
+    await expect(dialog.getByPlaceholder("Topic title")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Panel Discussion" }).click();
+    await dialog.getByRole("button", { name: "Q&A" }).click();
+    const titles = dialog.getByPlaceholder("Topic title");
+    await expect(titles).toHaveCount(2);
+    await expect(titles.nth(0)).toHaveValue("Panel Discussion");
+    await expect(titles.nth(1)).toHaveValue("Q&A");
+
+    // Editable like any topic: rename one, give both their minutes.
+    await titles.nth(1).fill("Q&A with the panel");
+    const minutes = dialog.getByPlaceholder("Min");
+    await minutes.nth(0).fill("40");
+    await minutes.nth(1).fill("20");
+    await dialog.getByRole("button", { name: "Save Changes" }).click();
+    await expect(dialog).toBeHidden();
+
+    await page.goto(`/e/${EVENT_SLUG}/agenda?preview=${EVENT_ID}`);
+    await expect(page.getByText("Panel Discussion")).toBeVisible();
+    await expect(page.getByText("Q&A with the panel")).toBeVisible();
+    // The slots follow the minutes: 40 then 20, back to back from the start.
+    const times = page.locator(".print-topic-time");
+    await expect(times).toHaveCount(2);
+    const [first, second] = await times.allInnerTexts();
+    const end = (t: string) => t.split("–")[1]?.trim().split(" ")[0];
+    const start = (t: string) => t.split("–")[0]?.trim().split(" ")[0];
+    expect(start(second)).toBe(end(first));
+  } finally {
+    await removeSession(page, sessionId);
+  }
+});
+
+test("the presets are on the session detail panel's topic editor too", async ({ page }) => {
+  await loginAs(page, "ADMIN");
+  const name = `Presets panel ${Date.now()}`;
+  const sessionId = await addSession(page, name);
+  try {
+    await page.goto(`/events/${EVENT_ID}/agenda`);
+    await page.getByRole("button", { name: new RegExp(name) }).hover();
+    // Radix renders the tooltip twice (the second copy is for screen readers).
+    await page.getByRole("button", { name: "View Details" }).first().click();
+    const sheet = page.getByRole("dialog");
+    await sheet.getByRole("button", { name: "Edit Topics" }).click();
+    await sheet.getByRole("button", { name: "Q&A" }).click();
+    await expect(sheet.locator('input[value="Q&A"]')).toHaveCount(1);
+    await sheet.getByRole("button", { name: "Save" }).click();
+    await expect(sheet.getByRole("button", { name: "Edit Topics" })).toBeVisible();
+
+    const res = await page.request.get(`/api/events/${EVENT_ID}/agenda-preview`);
+    const body = await res.json();
+    const session = body.sessions.find((s: { id: string }) => s.id === sessionId);
+    expect(session.topics.map((t: { title: string }) => t.title)).toEqual(["Q&A"]);
+  } finally {
+    await removeSession(page, sessionId);
+  }
+});
