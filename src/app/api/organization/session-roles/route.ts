@@ -6,7 +6,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { MAX_SESSION_ROLE_LABEL, MAX_SESSION_ROLES } from "@/lib/session-roles";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getSessionRoles, saveSessionRoles, type SaveSessionRolesErrorCode } from "@/services/session-role-service";
+import { getSessionRolesWithCounts, saveSessionRoles, type SaveSessionRolesErrorCode } from "@/services/session-role-service";
 
 /**
  * The organisation's session roles (Nov 18, 2026; docs/SESSION_ROLES_PLAN.md):
@@ -53,7 +53,9 @@ export async function GET() {
       apiLogger.warn({ userId: session.user.id, role: session.user.role }, "session-roles:list-no-org");
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    return NextResponse.json({ roles: await getSessionRoles(organizationId) });
+    // The counts read SessionSpeaker, which is policied: inside the lane.
+    const roles = await runWithTenant(organizationId, () => getSessionRolesWithCounts(organizationId));
+    return NextResponse.json({ roles });
   } catch (err) {
     apiLogger.error({ err }, "session-roles:list-failed");
     return NextResponse.json({ error: "Failed to load session roles" }, { status: 500 });
@@ -102,7 +104,8 @@ export async function PUT(req: Request) {
         { status: HTTP_STATUS[result.code] },
       );
     }
-    return NextResponse.json({ roles: result.roles });
+    const roles = await runWithTenant(organizationId, () => getSessionRolesWithCounts(organizationId));
+    return NextResponse.json({ roles });
   } catch (err) {
     apiLogger.error({ err }, "session-roles:update-failed");
     return NextResponse.json({ error: "Failed to save session roles" }, { status: 500 });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   newSessionRoleKey,
+  offeredSessionRoles,
+  readEventHiddenSessionRoles,
   readSessionRoles,
   resolveSessionRoleKey,
   runsSession,
@@ -141,5 +143,30 @@ describe("planSessionRoles", () => {
   it("never hands a new role the key of one somebody still holds", () => {
     const plan = planSessionRoles(current, asInput([{ label: "Keynote", duty: "PRESENTS" }]), new Map([["keynote", 1]]));
     expect(plan.ok && plan.next.find((r) => r.label === "Keynote")?.key).toBe("keynote-2");
+  });
+});
+
+describe("an event's choice of roles", () => {
+  const roles = readSessionRoles({
+    sessionRoles: [
+      { key: "host", label: "Host", duty: "RUNS" },
+      { key: "PANELIST", label: "Panelist", hidden: true },
+    ],
+  });
+
+  it("offers the organisation's roles that are not hidden, less the ones the event turned off", () => {
+    expect(keys(offeredSessionRoles(roles, []))).toEqual(["host", "MODERATOR", "CHAIRPERSON", "SPEAKER"]);
+    expect(keys(offeredSessionRoles(roles, ["CHAIRPERSON", "host"]))).toEqual(["MODERATOR", "SPEAKER"]);
+  });
+
+  it("keeps the role a person already holds choosable, hidden or turned off", () => {
+    expect(keys(offeredSessionRoles(roles, ["host"], "host"))).toContain("host");
+    expect(keys(offeredSessionRoles(roles, [], "PANELIST"))).toContain("PANELIST");
+  });
+
+  it("reads only a list of keys", () => {
+    expect(readEventHiddenSessionRoles({ hiddenSessionRoles: ["host", 3, "", "SPEAKER"] })).toEqual(["host", "SPEAKER"]);
+    expect(readEventHiddenSessionRoles({ hiddenSessionRoles: "host" })).toEqual([]);
+    expect(readEventHiddenSessionRoles(null)).toEqual([]);
   });
 });

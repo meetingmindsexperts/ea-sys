@@ -180,3 +180,36 @@ export function newSessionRoleKey(label: string, taken: Iterable<string>): strin
   while (used.has(`${base}-${n}`)) n += 1;
   return `${base}-${n}`;
 }
+
+// ── An event's choice (plan step 3, decision D1) ─────────────────────────────
+//
+// The organisation's list is the ceiling; an event turns roles off for itself
+// in `Event.settings.hiddenSessionRoles` (the keys it does not offer). Kept as
+// the roles turned OFF, so a role the organisation adds later is offered on
+// existing events too, instead of silently missing from them.
+
+export const EVENT_HIDDEN_SESSION_ROLES_SETTING = "hiddenSessionRoles";
+
+/** The role keys an event has turned off for itself. */
+export function readEventHiddenSessionRoles(eventSettings: unknown): string[] {
+  const raw =
+    eventSettings && typeof eventSettings === "object"
+      ? (eventSettings as Record<string, unknown>)[EVENT_HIDDEN_SESSION_ROLES_SETTING]
+      : undefined;
+  return Array.isArray(raw) ? raw.filter((k): k is string => typeof k === "string" && k.length > 0) : [];
+}
+
+/**
+ * The roles a picker on this event offers: on the organisation's list, not
+ * hidden there, not turned off by the event. `keep` is the role a row already
+ * holds: it stays choosable even when hidden since, so saving the session
+ * never takes it from the person.
+ */
+export function offeredSessionRoles(
+  roles: readonly SessionRoleDef[],
+  eventHidden: readonly string[],
+  keep?: string | null,
+): SessionRoleDef[] {
+  const off = new Set(eventHidden);
+  return roles.filter((r) => r.key === keep || (!r.hidden && !off.has(r.key)));
+}

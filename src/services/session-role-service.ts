@@ -74,6 +74,27 @@ export async function getSessionRoles(organizationId: string): Promise<SessionRo
   return readSessionRoles(org?.settings);
 }
 
+/**
+ * The list with how many session assignments hold each role, for Settings: a
+ * held role can be hidden, not deleted, and keeps its duty. Built-ins are
+ * counted by their enum among assignments that hold no added role. The caller
+ * runs this inside the organisation's tenant lane (SessionSpeaker is policied).
+ */
+export async function getSessionRolesWithCounts(
+  organizationId: string,
+): Promise<(SessionRoleDef & { assignments: number })[]> {
+  const where = { session: { event: { organizationId } } };
+  const [roles, builtIn, added] = await Promise.all([
+    getSessionRoles(organizationId),
+    db.sessionSpeaker.groupBy({ by: ["role"], where: { ...where, customRoleKey: null }, _count: { _all: true } }),
+    db.sessionSpeaker.groupBy({ by: ["customRoleKey"], where: { ...where, customRoleKey: { not: null } }, _count: { _all: true } }),
+  ]);
+  const counts = new Map<string, number>();
+  for (const row of builtIn) counts.set(row.role, row._count._all);
+  for (const row of added) if (row.customRoleKey) counts.set(row.customRoleKey, row._count._all);
+  return roles.map((r) => ({ ...r, assignments: counts.get(r.key) ?? 0 }));
+}
+
 type Plan = { ok: true; next: SessionRoleDef[] } | { ok: false; result: SaveSessionRolesResult };
 
 /** The next list, or why the input cannot become one. Pure; exported for tests. */

@@ -92,6 +92,7 @@ import {
 } from "@/hooks/use-api";
 import { BillingSettingsCard } from "@/components/settings/billing-settings-card";
 import { NewEventDefaultsCard } from "@/components/settings/new-event-defaults-card";
+import { SessionRolesCard } from "@/components/settings/session-roles-card";
 import { BillingAccountsCard } from "@/components/settings/billing-accounts-card";
 import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
 import { FieldSwitchesCard, FormFieldsCard } from "@/components/settings/form-fields-card";
@@ -1085,6 +1086,8 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
           <NewEventDefaultsCard readOnly={!canEditOrg} />
+          {/* The roles the agenda offers, and what each does in the speaker emails (Nov 18, 2026). */}
+          <SessionRolesCard readOnly={!canEditOrg} />
         </TabsContent>
 
         {/* Team Members */}

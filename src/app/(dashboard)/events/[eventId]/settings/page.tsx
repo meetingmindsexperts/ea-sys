@@ -121,6 +121,8 @@ import { BadgeFieldSwitches, enabledBadgeFieldKeys } from "@/components/settings
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useEmailTemplates, useCreateEmailTemplate } from "@/hooks/use-api";
+import { useSessionRoles } from "@/hooks/use-session-roles";
+import { EVENT_HIDDEN_SESSION_ROLES_SETTING, readEventHiddenSessionRoles } from "@/lib/session-roles";
 import { isAllowedSenderAddress } from "@/lib/sender-domain";
 import { toast } from "sonner";
 import { Loader2, Pencil, Plus, X } from "lucide-react";
@@ -355,6 +357,11 @@ export default function EventSettingsPage() {
     agendaPublished: false,
     [AGENDA_TRACK_BORDER_SETTING]: true,
   });
+  // The session roles this event turns off for itself (organisation's list is
+  // the ceiling). Sent only when changed here, like showInCatalogue.
+  const [hiddenSessionRoles, setHiddenSessionRoles] = useState<string[]>([]);
+  const loadedHiddenSessionRoles = useRef<string[] | null>(null);
+  const { data: orgSessionRoles } = useSessionRoles();
 
   // Whether the Resident/Trainee official letter BLOCKS a registration. The
   // upload always shows on a resident rate; this is only about enforcement.
@@ -525,6 +532,8 @@ export default function EventSettingsPage() {
         setPersonFieldChoices(loadedPersonFieldChoices.current);
 
         loadedAgendaTrackBorder.current = readAgendaTrackBorder(settings);
+        loadedHiddenSessionRoles.current = readEventHiddenSessionRoles(settings);
+        setHiddenSessionRoles(loadedHiddenSessionRoles.current);
         setAgendaSettings({
           agendaPublished: settings.agendaPublished ?? settings.programmePublished ?? false,
           [AGENDA_TRACK_BORDER_SETTING]: loadedAgendaTrackBorder.current,
@@ -876,6 +885,9 @@ export default function EventSettingsPage() {
             ...agendaSettingsJson,
             ...(agendaTrackBorder !== loadedAgendaTrackBorder.current && {
               [AGENDA_TRACK_BORDER_SETTING]: agendaTrackBorder,
+            }),
+            ...(JSON.stringify([...hiddenSessionRoles].sort()) !== JSON.stringify([...(loadedHiddenSessionRoles.current ?? [])].sort()) && {
+              [EVENT_HIDDEN_SESSION_ROLES_SETTING]: hiddenSessionRoles,
             }),
             ...abstractSettings,
             ...notificationSettings,
@@ -1833,6 +1845,40 @@ export default function EventSettingsPage() {
                   }
                 />
               </div>
+
+              {/* Which of the organisation's session roles this event offers (Nov 18, 2026). */}
+              {orgSessionRoles && (
+                <div className="space-y-2">
+                  <div className="space-y-0.5">
+                    <Label>Session roles on this event</Label>
+                    <p className="text-sm text-muted-foreground">
+                      The roles offered when you put someone on a session. The list is the organisation&apos;s, in
+                      Settings. Someone who already holds a role keeps it.
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {orgSessionRoles
+                      .filter((r) => !r.hidden)
+                      .map((r) => (
+                        <label key={r.key} className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={!hiddenSessionRoles.includes(r.key)}
+                            onCheckedChange={(checked) =>
+                              setHiddenSessionRoles((prev) =>
+                                checked === true ? prev.filter((k) => k !== r.key) : [...prev, r.key],
+                              )
+                            }
+                            aria-label={`Offer ${r.label} on this event`}
+                          />
+                          {r.label}
+                          <span className="text-xs text-muted-foreground">
+                            {r.duty === "RUNS" ? "runs the session" : "presents"}
+                          </span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+              )}
           </SettingsCard>
 
           {/* Webinars print no badges (no entry barcode, see entry-barcode-policy). */}

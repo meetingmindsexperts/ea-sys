@@ -55,6 +55,7 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
   "programmePublished",
   // How the public agenda looks (agenda-display.ts): config, so it copies.
   "agendaTrackBorder",
+  "hiddenSessionRoles",
   // Notifications
   "notifyOnRegistration",
   "notifyOnAbstractSubmission",
