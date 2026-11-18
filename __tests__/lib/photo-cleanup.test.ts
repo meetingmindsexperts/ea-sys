@@ -20,6 +20,7 @@ vi.mock("@/lib/storage", () => ({ deletePhoto: (u: string) => mockDeletePhoto(u)
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 
 import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const URL = "/uploads/photos/2026/07/b017b5f4.png";
 
@@ -80,5 +81,39 @@ describe("deletePhotoIfUnreferenced", () => {
     mockDeletePhoto.mockRejectedValue(new Error("EACCES"));
     await expect(deletePhotoIfUnreferenced(URL)).resolves.toBeUndefined();
     expect(mockLogger.warn).toHaveBeenCalled();
+  });
+});
+
+
+describe("a count made outside a tenant lane is never trusted (Nov 18, 2026)", () => {
+  // The three tables carry a row policy. With row security on and no lane the
+  // counts read 0 whatever the truth is, so "nothing references it" would mean
+  // nothing, and the file would be deleted from under the rows that use it.
+  it("row security on and no lane: the file is left alone, nothing is counted, the skip is logged", async () => {
+    vi.stubEnv("RLS_SET_LOCAL", "1");
+    try {
+      await deletePhotoIfUnreferenced(URL);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(mockDeletePhoto).not.toHaveBeenCalled();
+    expect(mockDb.attendee.count).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "photo-cleanup:skipped-no-lane", photo: URL }));
+  });
+
+  it("row security on and IN a lane: counted and unlinked as before", async () => {
+    vi.stubEnv("RLS_SET_LOCAL", "1");
+    try {
+      await runWithTenant("org-1", () => deletePhotoIfUnreferenced(URL));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(mockDb.attendee.count).toHaveBeenCalled();
+    expect(mockDeletePhoto).toHaveBeenCalledWith(URL);
+  });
+
+  it("row security off (production today): unchanged, lane or no lane", async () => {
+    await deletePhotoIfUnreferenced(URL);
+    expect(mockDeletePhoto).toHaveBeenCalledWith(URL);
   });
 });

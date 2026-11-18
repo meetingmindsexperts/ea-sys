@@ -17,7 +17,8 @@
  * silently adopted by a later one.
  */
 import type { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import {
   BUILT_IN_SPONSOR_TIERS,
@@ -100,7 +101,12 @@ export async function saveSponsorTiers(input: {
   tiers: { key?: string | null; label: string }[];
 }): Promise<SaveSponsorTiersResult> {
   try {
-    const outcome = await db.$transaction(async (tx): Promise<TierSaveOutcome> => {
+    // In the organisation's lane, and a TENANT transaction (Nov 18, 2026). The
+    // route calls this with no lane, and a plain `db.$transaction` names no
+    // tenant even inside one. Sponsor carries a row policy, so under row
+    // security the count of sponsors holding a tier read 0 and a tier still in
+    // use was removed. Pinned on a real policy in tests/tenancy/guard-reads-rls.test.ts.
+    const outcome = await runWithTenant(input.organizationId, () => tenantTransaction(async (tx): Promise<TierSaveOutcome> => {
       // The same row lock the settings writer takes, so this serialises with
       // every other organisation-settings change.
       const rows = await tx.$queryRaw<{ settings: Prisma.JsonValue | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${input.organizationId} FOR UPDATE`;
@@ -136,10 +142,10 @@ export async function saveSponsorTiers(input: {
         data: { settings: { ...settings, [SPONSOR_TIERS_SETTING]: plan.next } as unknown as Prisma.InputJsonValue },
       });
       return { saved: true, before: current, after: plan.next, removed };
-    });
+    }));
 
     if (!outcome.saved) return outcome.result;
-    db.auditLog
+    runWithTenant(input.organizationId, () => db.auditLog
       .create({
         data: {
           userId: input.actorUserId,
@@ -148,7 +154,7 @@ export async function saveSponsorTiers(input: {
           entityId: input.organizationId,
           changes: { sponsorTiers: { before: outcome.before, after: outcome.after } } as unknown as Prisma.InputJsonValue,
         },
-      })
+      }))
       .catch((err) => apiLogger.warn({ err, organizationId: input.organizationId }, "sponsor-tiers:audit-failed"));
     apiLogger.info(
       {

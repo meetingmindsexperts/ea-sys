@@ -28,7 +28,8 @@ const { mockDb, det, mockGetCreds, logger } = vi.hoisted(() => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// The reversal is recorded in a tenant transaction; here that is the mock's own.
+vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/dtcm-eticket/credentials", () => ({ getDetCredentials: mockGetCreds }));

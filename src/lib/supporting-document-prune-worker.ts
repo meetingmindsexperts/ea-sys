@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { listStoredFiles, deleteStoredFile } from "@/lib/storage";
 import { UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
@@ -48,6 +48,25 @@ export interface ResidentLetterPruneResult {
   errors: number;
 }
 
+/**
+ * Does ANY registration, of any organisation, name this file?
+ *
+ * Asked on the privileged client, never the tenant one (Nov 18, 2026). This
+ * job runs with no tenant lane: it walks one folder that every organisation
+ * uploads into. Registration carries a row policy, so on the tenant client
+ * with no lane the answer is always "no" under row security, and every
+ * document older than the grace period would have been deleted, up to the
+ * nightly cap. The claim is a fact about the whole table, so it is read as
+ * the whole table. Pinned on a real policy in tests/tenancy/guard-reads-rls.test.ts.
+ */
+export async function supportingDocumentIsClaimed(storedPath: string): Promise<boolean> {
+  const claimed = await dbOperator.registration.findFirst({
+    where: { supportingDocumentUrl: storedPath },
+    select: { id: true },
+  });
+  return claimed !== null;
+}
+
 export async function runSupportingDocumentPruneTick(
   now: Date = new Date(),
 ): Promise<ResidentLetterPruneResult> {
@@ -91,11 +110,7 @@ export async function runSupportingDocumentPruneTick(
 
       // The claim check. Deliberately AFTER the age check so a busy event
       // does not cost one query per recent file every night.
-      const claimed = await db.registration.findFirst({
-        where: { supportingDocumentUrl: file.storedPath },
-        select: { id: true },
-      });
-      if (claimed) continue;
+      if (await supportingDocumentIsClaimed(file.storedPath)) continue;
 
       await deleteStoredFile(file.storedPath, SUPPORTING_DOCUMENT_PATH_PREFIX);
       result.deleted++;

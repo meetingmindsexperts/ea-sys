@@ -14,7 +14,8 @@ const { listStoredFiles, deleteStoredFile, findMany } = vi.hoisted(() => ({
   findMany: vi.fn(),
 }));
 vi.mock("@/lib/storage", () => ({ listStoredFiles, deleteStoredFile }));
-vi.mock("@/lib/db", () => ({ db: { scheduledEmail: { findMany } } }));
+// The reference set is read on the privileged client (the job has no tenant lane).
+vi.mock("@/lib/db", () => ({ db: { scheduledEmail: { findMany } }, dbOperator: { scheduledEmail: { findMany } } }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { runEmailAttachmentPruneTick, EMAIL_ATTACHMENT_GRACE_DAYS } from "@/lib/email-attachment-prune-worker";

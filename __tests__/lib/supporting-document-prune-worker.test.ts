@@ -19,7 +19,8 @@ const { mockDb, mockList, mockDelete } = vi.hoisted(() => ({
   mockDelete: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// The claim is read on the privileged client (the job has no tenant lane).
+vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));

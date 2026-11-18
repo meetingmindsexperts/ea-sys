@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Row security sweep: the checks that decide whether something may be deleted (November 18)
+
+No change on production today (row security is off there). Each of these would have destroyed or lost something on the day it is switched on.
+
+- **What was swept:** every place that deletes a file or a row and first asks "is anything still using this?". Asked outside a tenant lane, under row security that question is always answered "no".
+- **Supporting documents.** The nightly cleanup of unclaimed uploads asked whether a registration claims each file, with no lane. Every document past the grace period would have been deleted. It now asks across all organisations, on the privileged client.
+- **Email attachments.** The cleanup of attachment files built its list of "files a queued send still needs" the same way, so the files of scheduled sends would have been deleted before the send ran. Fixed the same way.
+- **Sponsor tiers.** Removing a tier is refused while a sponsor holds it. The count ran in a plain transaction with no lane and read 0, so a tier in use could be removed. It now runs in the organisation's lane.
+- **DTCM tickets.** When DET reversed a ticket, recording that here ran in a plain transaction and matched no row: the ticket stayed "purchased" in EA-SYS. Now a tenant transaction.
+- **Photos.** The photo cleanup's three callers are in a lane already. It now refuses to delete, and logs, if it is ever called outside one with row security on.
+- **Kept from coming back:** a real row security test for the first three (`tests/tenancy/guard-reads-rls.test.ts`, which fails with the fixes removed), and a test that refuses any new plain interactive transaction (`plain-transaction-ratchet.test.ts`).
+- **Found and not fixed yet** (ROADMAP "Row security rehearsal", items 25 and 26): inviting a user, accepting an invitation and resetting a password would FAIL under row security (an audit record inside a plain transaction); three retention jobs would silently stop collecting; and the service layer (budgets, CRM, sessions, HR and others) relies on its callers for the lane and is not yet proven call by call.
+
 ### Invoices: the event filter can be searched (November 18)
 
 - **What you will notice:** on Invoices, the "All events" filter now opens with a search box. Type part of an event's name and pick it; "All events" is the first choice. The year, month and type filters are short fixed lists and are unchanged.

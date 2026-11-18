@@ -24,7 +24,8 @@ const { mockDb, tx } = vi.hoisted(() => {
   };
 });
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// The save runs in a tenant transaction; here that is the mock's own.
+vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { saveSponsorTiers } from "@/services/sponsor-tier-service";

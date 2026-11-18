@@ -26,7 +26,7 @@
  *      taken from a caller's list: a bulk run's list can be a tick old.
  */
 import { Prisma, type DtcmOrder } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import {
@@ -651,7 +651,11 @@ async function recordReversal(
   userId: string,
   how: "DTCM_ORDER_REVERSED" | "DTCM_ORDER_MARKED_REVERSED",
 ): Promise<{ ok: true; order: DtcmOrder; clearedRegistrationCode: boolean; codeStillInUse: boolean } | { ok: false }> {
-  return db.$transaction(async (tx) => {
+  // A TENANT transaction (Nov 18, 2026): a plain `db.$transaction` names no
+  // tenant even when the caller is in a lane, so under row security the update
+  // below matched no row and a ticket DET had already reversed was never
+  // recorded as reversed here.
+  return tenantTransaction(async (tx) => {
     const done = await tx.dtcmOrder.updateMany({ where: { id: order.id, status: "PURCHASED" }, data: { status: "REVERSED", activeKey: null } });
     if (done.count === 0) return { ok: false as const };
     const cleared =

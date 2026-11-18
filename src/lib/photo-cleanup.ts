@@ -25,9 +25,20 @@
 import { db } from "@/lib/db";
 import { deletePhoto } from "@/lib/storage";
 import { apiLogger } from "@/lib/logger";
+import { getTenantOrgId } from "@/lib/tenant-context";
 
 export async function deletePhotoIfUnreferenced(url: string): Promise<void> {
   try {
+    // The three counts below are read through the caller's tenant lane, and
+    // all three tables carry a row policy. With row security on and NO lane
+    // they read 0 whatever the truth is, and the file would be deleted from
+    // under the rows that still use it (INC-004 again). The three callers are
+    // in a lane today; this keeps a fourth, or a moved line, from destroying a
+    // file: with no lane the photo is left where it is and the skip is logged.
+    if (process.env.RLS_SET_LOCAL === "1" && !getTenantOrgId()) {
+      apiLogger.warn({ msg: "photo-cleanup:skipped-no-lane", photo: url });
+      return;
+    }
     const [attendees, speakers, contacts] = await Promise.all([
       db.attendee.count({ where: { photo: url } }),
       db.speaker.count({ where: { photo: url } }),

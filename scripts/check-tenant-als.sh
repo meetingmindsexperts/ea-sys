@@ -450,6 +450,8 @@ SWEPT_MODULES=(
 # is swept, its prune job joins this list.
 OPERATOR_LANE_ALLOWLIST=(
   "src/lib/email-log-prune-worker.ts"        # privileged end to end (null-org pool's only reaper)
+  "src/lib/supporting-document-prune-worker.ts" # "does ANY registration claim this file" before a delete: the whole table, never a lane (Nov 18, 2026)
+  "src/lib/email-attachment-prune-worker.ts"    # "does ANY queued send need this file" before a delete (Nov 18, 2026)
   "src/lib/unconfirmed-account-prune-worker.ts" # cross-tenant sweep; "owns no registration" must see every tenant (Nov 9, 2026)
   "src/lib/scheduled-emails-worker.ts"       # due-row scan + stuck sweep
   "src/lib/invoice-reconciliation-worker.ts" # PAID-without-invoice candidate sweep

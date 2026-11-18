@@ -15,7 +15,7 @@
  * reference check, a per-tick ceiling, and a summary line only when something
  * happened.
  */
-import { db } from "@/lib/db";
+import { dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { listStoredFiles, deleteStoredFile } from "@/lib/storage";
 import { UPLOAD_PREFIX, UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
@@ -38,9 +38,17 @@ export interface EmailAttachmentPruneResult {
   errors: number;
 }
 
-/** Every storedPath a still-runnable queued send references. */
+/**
+ * Every storedPath a still-runnable queued send references, in ANY organisation.
+ *
+ * Read on the privileged client (Nov 18, 2026): this job has no tenant lane,
+ * ScheduledEmail carries a row policy, and on the tenant client with no lane
+ * the set is empty under row security, so the files of every queued send past
+ * the grace period would have been deleted before the send ran. Pinned on a
+ * real policy in tests/tenancy/guard-reads-rls.test.ts.
+ */
 export async function referencedAttachmentPaths(): Promise<Set<string>> {
-  const rows = await db.scheduledEmail.findMany({
+  const rows = await dbOperator.scheduledEmail.findMany({
     where: { status: { in: ["PENDING", "PROCESSING", "FAILED"] } },
     select: { attachments: true },
   });
