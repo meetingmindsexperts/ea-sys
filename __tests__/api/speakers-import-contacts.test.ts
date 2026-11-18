@@ -35,6 +35,7 @@ vi.mock("@/lib/speaker-companion", () => ({ ensureCompanionsForSpeakerEmails: mo
 
 import { POST } from "@/app/api/events/[eventId]/speakers/import-contacts/route";
 import { speakerContactImportNotice as notice } from "@/lib/speaker-registration-messages";
+import { importSpeakersFromContacts } from "@/services/speaker-service";
 
 const params = Promise.resolve({ eventId: "ev1" });
 const session = { user: { id: "u1", role: "ORGANIZER", organizationId: "org1" } };
@@ -147,6 +148,26 @@ describe("POST speakers/import-contacts", () => {
     mockAuth.mockResolvedValue(session);
     mockDb.event.findFirst.mockResolvedValue(null);
     expect((await POST(req({ contactIds: ["c1"] }), { params })).status).toBe(404);
+    expect(mockDb.speaker.createMany).not.toHaveBeenCalled();
+  });
+});
+
+// The agent's import_speakers_from_contacts calls the same service (Nov 18, 2026).
+describe("importSpeakersFromContacts, as the agent calls it", () => {
+  const input = { eventId: "ev1", organizationId: "org1", userId: "u1", source: "agent" as const };
+
+  it("names who was made, who was skipped and which ids are not contacts here", async () => {
+    mockDb.contact.findMany.mockResolvedValue([contact(), contact({ id: "c2", email: "b@x.com" })]);
+    mockDb.speaker.findMany.mockResolvedValue([{ email: "B@x.com" }]);
+    const res = await importSpeakersFromContacts({ ...input, contactIds: ["c1", "c2", "elsewhere"] });
+    expect(res).toMatchObject({ ok: true, created: 1, skipped: 1, createdEmails: ["fatima@x.com"], skippedEmails: ["b@x.com"], missingContactIds: ["elsewhere"] });
+  });
+
+  it("makes nothing on an event outside the organisation", async () => {
+    mockDb.event.findFirst.mockResolvedValue(null);
+    const res = await importSpeakersFromContacts({ ...input, contactIds: ["c1"] });
+    expect(res).toEqual({ ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" });
+    expect(mockDb.event.findFirst.mock.calls[0][0].where).toEqual({ id: "ev1", organizationId: "org1" });
     expect(mockDb.speaker.createMany).not.toHaveBeenCalled();
   });
 });

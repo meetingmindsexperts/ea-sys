@@ -14,6 +14,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { checkRateLimit } from "@/lib/security";
 import {
   createSpeaker,
+  importSpeakersFromContacts,
   // Aliased: the local ToolExecutor is also called `updateSpeaker`.
   updateSpeaker as updateSpeakerSvc,
   type SpeakerStatus,
@@ -273,6 +274,8 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
     if (input.jobTitle != null) fields.jobTitle = String(input.jobTitle).slice(0, 255);
     if (input.phone != null) fields.phone = String(input.phone).slice(0, 50);
     if (input.city != null) fields.city = String(input.city).slice(0, 255);
+    if (input.state != null) fields.state = String(input.state).slice(0, 255);
+    if (input.zipCode != null) fields.zipCode = String(input.zipCode).slice(0, 20);
     if (input.country != null) fields.country = String(input.country).slice(0, 255);
     if (input.specialty != null) fields.specialty = String(input.specialty).slice(0, 255);
     if (input.website != null) fields.website = String(input.website).slice(0, 500);
@@ -665,7 +668,58 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
   }
 };
 
+const IMPORT_CONTACTS_MAX = 200;
+
+/**
+ * Contacts in, speakers out, with every detail the contact holds: the
+ * Speakers page's Import from Contacts, through the same service (Nov 18,
+ * 2026). The agent used to retype a contact into create_speaker, whose
+ * parameters dropped the job title, country, city, specialty and phone.
+ */
+const importSpeakersFromContactsTool: ToolExecutor = async (input, ctx) => {
+  try {
+    const raw = Array.isArray(input.contactIds) ? (input.contactIds as unknown[]) : [];
+    const contactIds = [...new Set(raw.map((v) => String(v ?? "").trim()).filter(Boolean))];
+    if (contactIds.length === 0) return { error: "contactIds is required: the ids list_contacts returns", code: "MISSING_CONTACT_IDS" };
+    if (contactIds.length > IMPORT_CONTACTS_MAX) {
+      return { error: `At most ${IMPORT_CONTACTS_MAX} contacts in one call`, code: "TOO_MANY_CONTACTS" };
+    }
+
+    const result = await importSpeakersFromContacts({
+      eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      contactIds,
+      source: ctx.source,
+    });
+    if (!result.ok) return { error: result.message, code: result.code };
+
+    const { registrations } = result;
+    return {
+      success: true,
+      created: result.created,
+      createdEmails: result.createdEmails,
+      skipped: result.skipped,
+      ...(result.skipped > 0
+        ? { skippedEmails: result.skippedEmails, skippedNote: "Already speakers on this event, left unchanged. To fill their details from the contact, use update_speaker." }
+        : {}),
+      ...(result.missingContactIds.length > 0 ? { notFoundContactIds: result.missingContactIds } : {}),
+      facultyRegistrations: registrations.created,
+      ...(registrations.linked > 0
+        ? { linkedRegistrations: registrations.linked, linkedNote: "Already registered: linked to the registration they had; check its type and payment." }
+        : {}),
+      ...(registrations.failed > 0
+        ? { failedRegistrations: registrations.failed, failedNote: "No registration yet: open the speaker and use Grant Registration." }
+        : {}),
+    };
+  } catch (err) {
+    apiLogger.error({ err, eventId: ctx.eventId }, "agent:import_speakers_from_contacts failed");
+    return { error: "Failed to import contacts as speakers" };
+  }
+};
+
 export const SPEAKER_EXECUTORS: Record<string, ToolExecutor> = {
+  import_speakers_from_contacts: importSpeakersFromContactsTool,
   list_speakers: listSpeakers,
   create_speaker: createSpeakerTool,
   update_speaker: updateSpeaker,

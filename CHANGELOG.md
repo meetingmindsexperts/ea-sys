@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The agent makes contacts speakers with all their details (November 18)
+
+An organiser asked the agent to add three faculty "from the master contact". It made three speakers with a name and an address, set a professor's title to Dr, and then said the contacts held no job title or country. They did; the agent could not see them. Three gaps, all closed:
+
+- **Contact search finds a full name.** Each word must match a first name, last name, email or organisation; "Mahmoud Marashi" used to match no one.
+- **The agent sees the whole contact.** `list_contacts` returns the contact's id and every person field (title, job title, role, specialty, phone, photo, city, state, zip, country, bio, tags), not just a name, an address and the organisation.
+- **New tool `import_speakers_from_contacts`.** It is the Speakers page's Import from Contacts, through one shared service (`importSpeakersFromContacts`): every detail copied, a Faculty registration for each new speaker, an existing speaker skipped and left unchanged. `create_speaker` now accepts all the fields it writes, and `update_speaker` takes state and zip code.
+
+MCP package 0.4.65 → 0.4.66: connected claude.ai and Claude Desktop clients reconnect to see the new tool.
+
 ### Row security sweep: the checks that decide whether something may be deleted (November 18)
 
 On production today (row security off) one small thing changes: saving sponsor tiers is now recorded with its organisation, so it appears in the Activity feed (it was stored with none and the feed did not show it). Everything else here would have destroyed or lost something on the day row security is switched on.

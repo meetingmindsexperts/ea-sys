@@ -5,34 +5,68 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { EMAIL_RE, TITLE_VALUES, type ToolExecutor } from "./_shared";
 
+/** Above this many results a bio is cut to a preview, so a broad search stays readable. */
+const FULL_BIO_UP_TO = 10;
+const BIO_PREVIEW = 200;
+
+/**
+ * Each word of the search must match the first name, last name, email or
+ * organisation (Nov 18, 2026). The whole text against each column found no
+ * one for "Mahmoud Marashi", which is neither a first nor a last name, and the
+ * agent told the organiser the person was not in the contacts.
+ */
+function contactSearchWhere(search: string): Prisma.ContactWhereInput[] {
+  return search
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 6)
+    .map((word) => ({
+      OR: [
+        { firstName: { contains: word, mode: "insensitive" as const } },
+        { lastName: { contains: word, mode: "insensitive" as const } },
+        { email: { contains: word, mode: "insensitive" as const } },
+        { organization: { contains: word, mode: "insensitive" as const } },
+      ],
+    }));
+}
+
+/**
+ * Every person field a contact holds, with its id (Nov 18, 2026): the
+ * agent's list used to show a name, an address and the organisation, so it
+ * could neither import a contact nor copy its job title, country or specialty,
+ * and it reported those as missing from the contact.
+ */
 const listContacts: ToolExecutor = async (input, ctx) => {
   try {
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     return await runWithTenant(ctx.organizationId, async () => {
-    const limit = Math.min(Number(input.limit ?? 50), 200);
-    const search = input.search ? String(input.search).trim() : undefined;
+    const limit = Math.min(Math.max(Number(input.limit ?? 50) || 50, 1), 200);
+    const search = input.search ? String(input.search).trim().slice(0, 200) : undefined;
     const tag = input.tag ? String(input.tag).trim() : undefined;
 
     const contacts = await db.contact.findMany({
       where: {
         organizationId: ctx.organizationId,
         ...(tag ? { tags: { has: tag } } : {}),
-        ...(search ? {
-          OR: [
-            { firstName: { contains: search, mode: "insensitive" as const } },
-            { lastName: { contains: search, mode: "insensitive" as const } },
-            { email: { contains: search, mode: "insensitive" as const } },
-          ],
-        } : {}),
+        ...(search ? { AND: contactSearchWhere(search) } : {}),
       },
       select: {
-        id: true, email: true, firstName: true, lastName: true, organization: true,
-        jobTitle: true, city: true, country: true, tags: true,
+        id: true, title: true, email: true, additionalEmail: true, firstName: true, lastName: true,
+        organization: true, jobTitle: true, role: true, specialty: true, customSpecialty: true,
+        phone: true, photo: true, city: true, state: true, zipCode: true, country: true, bio: true, tags: true,
       },
       take: limit,
-      orderBy: { lastName: "asc" },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     });
-    return { contacts, total: contacts.length };
+    const fullBio = contacts.length <= FULL_BIO_UP_TO;
+    return {
+      contacts: contacts.map((c) => {
+        if (fullBio || !c.bio || c.bio.length <= BIO_PREVIEW) return c;
+        return { ...c, bio: `${c.bio.slice(0, BIO_PREVIEW)}…`, bioTruncated: true };
+      }),
+      total: contacts.length,
+      ...(fullBio ? {} : { note: `Bios are cut to ${BIO_PREVIEW} characters above ${FULL_BIO_UP_TO} results; search more narrowly for the full text.` }),
+    };
     });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_contacts failed");

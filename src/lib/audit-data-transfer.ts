@@ -54,7 +54,7 @@ export type TransferDetailValue = string | number | boolean | string[] | null;
 type TransferChanges = Record<string, TransferDetailValue | Record<string, TransferDetailValue>>;
 
 /** Where the call came from — mirrors the services-layer `source` convention. */
-export type TransferSource = "rest" | "api" | "mcp" | "cron";
+export type TransferSource = "rest" | "api" | "mcp" | "agent" | "cron";
 
 interface TransferScope {
   /** Org-scoped callers (contacts, invoices, CRM). At least one of these must be set. */
@@ -90,6 +90,8 @@ interface ImportArgs extends TransferScope {
   format?: string;
   /** File headers the importer did not map. Names only, never cell values. */
   unrecognizedColumns?: string[];
+  /** The caller's address, for a caller with no Request (a service); a Request's wins. */
+  ip?: string | null;
 }
 
 function scopeEntityId(scope: TransferScope): string {
@@ -166,7 +168,7 @@ export function recordImport(req: Request | null, args: ImportArgs): Promise<voi
     totalProcessed: args.totalProcessed,
     role: args.role ?? null,
     organizationId: args.organizationId ?? null,
-    ip: req ? getClientIp(req) : null,
+    ip: req ? getClientIp(req) : (args.ip ?? null),
   };
   if (args.created !== undefined) changes.created = args.created;
   if (args.updated !== undefined) changes.updated = args.updated;

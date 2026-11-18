@@ -4,6 +4,8 @@
  *   createSpeaker()        — single-create. REST POST + MCP `create_speaker`.
  *   updateSpeaker()        — single-update. REST PUT + MCP `update_speaker`.
  *   cascadeSpeakerDecline()— the companion-registration side of a decline.
+ *   importSpeakersFromContacts() — Speakers page Import from Contacts + MCP
+ *                            `import_speakers_from_contacts` (Nov 18, 2026).
  *
  * Shared by the REST admin routes and the MCP agent tools. Phase 0 previously
  * patched drift in the MCP tools in-place (audit log, contact sync, admin
@@ -30,8 +32,10 @@ import { syncToContact } from "@/lib/contact-sync";
 import { contactSyncFromSpeaker } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { ensureSpeakerCompanionRegistration, settleFacultyRegistration, type FacultyRegistrationSettleResult } from "@/lib/speaker-companion";
-import { contactCategoryOf } from "@/lib/faculty-filter";
+import { ensureCompanionsForSpeakerEmails, ensureSpeakerCompanionRegistration, settleFacultyRegistration, type FacultyRegistrationSettleResult } from "@/lib/speaker-companion";
+import { contactCategoryOf, SPEAKER_API_REGISTRATION_TYPE } from "@/lib/faculty-filter";
+import { runWithTenant } from "@/lib/tenant-context";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { isLiveTypedRegistration } from "@/lib/speaker-registration-type";
 import { runOptimisticUpdate } from "@/lib/optimistic-lock";
 import { syncSpeakerTagsToRegistrations, computeTagDelta } from "@/lib/person-tag-sync";
@@ -334,6 +338,194 @@ export async function createSpeaker(
   }).catch((err) => apiLogger.error({ err }, "speaker-service:notify-admins-failed"));
 
   return { ok: true, speaker };
+}
+
+// ── Import contacts as speakers ──────────────────────────────────────────────
+
+export interface ImportSpeakersFromContactsInput {
+  eventId: string;
+  organizationId: string;
+  userId: string;
+  contactIds: string[];
+  source: "rest" | "mcp" | "agent" | "api";
+  /** The caller's role, for the import record (an ADMIN import and a MEMBER one are different facts). */
+  role?: string | null;
+  requestIp?: string | null;
+}
+
+export type ImportSpeakersFromContactsResult =
+  | {
+      ok: true;
+      created: number;
+      skipped: number;
+      /** Addresses of the speakers made. */
+      createdEmails: string[];
+      /** Contacts already speakers on the event (or twice in the request): left as they are. */
+      skippedEmails: string[];
+      /** Ids that are not a contact of this organisation. */
+      missingContactIds: string[];
+      registrations: { created: number; linked: number; failed: number };
+    }
+  | { ok: false; code: "EVENT_NOT_FOUND"; message: string };
+
+/**
+ * Speakers, Import from Contacts: ONE implementation for the Speakers page
+ * and the agent's `import_speakers_from_contacts` (Nov 18, 2026). Before it
+ * the agent had only `create_speaker`, whose published parameters dropped the
+ * contact's job title, country, city, specialty, phone and photo, so an
+ * organiser who asked it to "take it from the master contact" got a speaker
+ * with a name and an address.
+ *
+ * Copies every person column a Speaker also has, makes the Faculty
+ * registration behind each new speaker, and stamps the event on each contact.
+ * A contact who is already a speaker on the event is skipped, never changed.
+ */
+export async function importSpeakersFromContacts(
+  input: ImportSpeakersFromContactsInput,
+): Promise<ImportSpeakersFromContactsResult> {
+  const { eventId, organizationId, userId, contactIds, source } = input;
+  return runWithTenant(organizationId, async () => {
+    const [event, contacts, existingSpeakers] = await Promise.all([
+      db.event.findFirst({ where: { id: eventId, organizationId }, select: { id: true } }),
+      db.contact.findMany({
+        where: { id: { in: contactIds }, organizationId },
+        // Every person column a Speaker also has: the same set Import from
+        // Registrations copies, so a speaker brought in here is not thinner
+        // than one brought in through a registration (tags and role were
+        // dropped before Nov 12, 2026).
+        select: {
+          id: true, title: true, role: true, email: true, additionalEmail: true, firstName: true, lastName: true,
+          organization: true, jobTitle: true, phone: true, photo: true, city: true, state: true, zipCode: true,
+          country: true, bio: true, specialty: true, customSpecialty: true, registrationType: true, tags: true,
+        },
+      }),
+      db.speaker.findMany({ where: { eventId }, select: { email: true } }),
+    ]);
+
+    if (!event) return { ok: false as const, code: "EVENT_NOT_FOUND" as const, message: "Event not found" };
+
+    const found = new Set(contacts.map((c) => c.id));
+    const missingContactIds = [...new Set(contactIds)].filter((id) => !found.has(id));
+
+    // Ignoring case, and once per address within the batch: the Speaker
+    // unique is on the address as stored, so "A@x.com" beside "a@x.com" would
+    // otherwise become a second speaker for one person.
+    const seen = new Set(existingSpeakers.map((s) => s.email.toLowerCase()));
+    const toCreate: typeof contacts = [];
+    const skippedEmails: string[] = [];
+    for (const c of contacts) {
+      const key = c.email.toLowerCase();
+      if (seen.has(key)) {
+        skippedEmails.push(c.email);
+        continue;
+      }
+      seen.add(key);
+      toCreate.push(c);
+    }
+
+    // The summary is the answer, not a detail (review of efb00d74): "linked"
+    // is someone who was already registered and keeps that registration, on
+    // whatever type and payment it stands, and "failed" is a speaker with no
+    // registration. Neither heals on a second import, because the person is a
+    // speaker by then and is skipped, so both go back to the organiser.
+    let registrations = { created: 0, linked: 0, failed: 0 };
+    if (toCreate.length > 0) {
+      await db.speaker.createMany({
+        data: toCreate.map((c) => ({
+          eventId,
+          organizationId, // multi-tenancy: Speaker sweep
+          title: c.title ?? undefined,
+          role: c.role ?? undefined,
+          email: c.email,
+          additionalEmail: c.additionalEmail ?? undefined,
+          firstName: c.firstName,
+          lastName: c.lastName,
+          organization: c.organization ?? undefined,
+          jobTitle: c.jobTitle ?? undefined,
+          phone: c.phone ?? undefined,
+          photo: c.photo ?? undefined,
+          city: c.city ?? undefined,
+          state: c.state ?? undefined,
+          zipCode: c.zipCode ?? undefined,
+          country: c.country ?? undefined,
+          bio: c.bio ?? undefined,
+          specialty: c.specialty ?? undefined,
+          customSpecialty: c.customSpecialty ?? undefined,
+          // Not the contact's own category: this column is what the speakers
+          // API serves and the website sync shows, and a speaker made here
+          // is Faculty (SPEAKER_API_REGISTRATION_TYPE). The profession is
+          // carried by `role` above.
+          registrationType: SPEAKER_API_REGISTRATION_TYPE,
+          tags: c.tags.length > 0 ? c.tags : undefined,
+        })),
+        skipDuplicates: true,
+      });
+
+      // Each imported speaker gets a companion registration (badge / barcode
+      // / DTCM / check-in / survey). Awaited; per-item failure-isolated.
+      registrations = await ensureCompanionsForSpeakerEmails(eventId, toCreate.map((c) => c.email));
+      if (registrations.linked > 0 || registrations.failed > 0) {
+        apiLogger.warn({ msg: "speaker-import-contacts:registrations-not-all-made", eventId, source, speakers: toCreate.length, ...registrations });
+      }
+
+      // The event goes on each contact, as Add Speaker and the speakers CSV
+      // import do through syncToContact: it is what the central contacts table
+      // reads to say which events a person was part of. Only the stamp: the
+      // contact is where these details came from. A failure here must not
+      // undo an import that has already happened.
+      await db.contact
+        .updateMany({
+          where: { id: { in: toCreate.map((c) => c.id) }, organizationId, NOT: { eventIds: { has: eventId } } },
+          data: { eventIds: { push: eventId } },
+        })
+        .catch((err) => apiLogger.error({ err, msg: "speaker-import-contacts:contact-event-stamp-failed", eventId }));
+
+      refreshEventStats(eventId);
+    }
+
+    const created = toCreate.length;
+    const skipped = skippedEmails.length;
+    const ip = input.requestIp ?? null;
+
+    // Fire-and-forget audit: the bulk create, and who ran an import.
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId,
+          action: "CREATE",
+          entityType: "Speaker",
+          entityId: `bulk:${created}`,
+          changes: { bulk: true, source: "contacts-import", caller: source, created, skipped, ...(ip ? { ip } : {}) },
+          ...(ip ? { ipAddress: ip } : {}),
+        },
+      })
+      .catch((err) => apiLogger.error({ err, msg: "speaker-import-contacts:audit-log-failed", eventId }));
+    void recordImport(null, {
+      entityType: "Speaker",
+      eventId,
+      organizationId,
+      userId,
+      role: input.role ?? null,
+      source,
+      ip,
+      totalProcessed: contacts.length,
+      created,
+      skipped,
+      format: "contacts",
+    });
+
+    apiLogger.info({ msg: "speaker-import-contacts:done", eventId, source, created, skipped, missing: missingContactIds.length });
+    return {
+      ok: true as const,
+      created,
+      skipped,
+      createdEmails: toCreate.map((c) => c.email),
+      skippedEmails,
+      missingContactIds,
+      registrations,
+    };
+  });
 }
 
 // ── Speaker-status → companion-registration cascade ──────────────────────────

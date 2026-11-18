@@ -54,6 +54,7 @@ export const TOOL_PERMISSIONS: Readonly<Record<string, PermissionKey>> = {
   get_speaker_agreement_template: "speakers.read",
   create_speaker: "speakers.create",
   create_speakers_bulk: "speakers.import",
+  import_speakers_from_contacts: "speakers.import",
   update_speaker: "speakers.update",
   upload_speaker_agreement_template: "speakers.agreements.manage",
   // Registrations and types

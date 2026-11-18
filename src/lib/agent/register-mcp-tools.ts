@@ -217,26 +217,18 @@ export function registerAllMcpTools(
   );
 
   server.tool(
-    "list_contacts", "Search organization contacts.",
+    "list_contacts",
+    "Search the organisation's contacts (the master contact list). Each word of `search` must match a first name, last name, email or organisation, so a full name works. Returns each contact's id and every person field: title, names, email, additionalEmail, organization, jobTitle, role, specialty, phone, photo, city, state, zipCode, country, bio, tags. To make contacts speakers on an event with all their details, pass their ids to import_speakers_from_contacts; never retype a contact into create_speaker. A field that is null here is empty on the contact; never say a field is missing unless it is null here.",
     { search: z.string().optional(), tag: z.string().optional(), limit: z.number().optional() },
-    async ({ search, tag, limit }) => safeTool("list_contacts", () => runWithTenant(organizationId, async () => {
-      const contacts = await db.contact.findMany({
-        where: {
-          organizationId,
-          ...(search && { OR: [
-            { firstName: { contains: search, mode: "insensitive" as const } },
-            { lastName: { contains: search, mode: "insensitive" as const } },
-            { email: { contains: search, mode: "insensitive" as const } },
-          ]}),
-          ...(tag && { tags: { has: tag } }),
-        },
-        select: { firstName: true, lastName: true, email: true, organization: true, tags: true },
-        take: Math.min(limit || 50, 200),
-        orderBy: { lastName: "asc" },
-      });
-      return contacts.length === 0 ? "No contacts found." :
-        contacts.map(c => `${c.firstName} ${c.lastName} <${c.email}>${c.organization ? ` — ${c.organization}` : ""}`).join("\n");
-    }))
+    async (input) => safeTool("list_contacts", () =>
+      runTool("list_contacts", input, {
+        eventId: "",
+        organizationId,
+        userId: SYSTEM_USER_ID,
+        source: SOURCE,
+        counters: { creates: 0, emailsSent: 0 },
+      }),
+    ),
   );
 
   server.tool(
@@ -396,12 +388,19 @@ export function registerAllMcpTools(
 
   const writeTools: Array<{ name: string; description: string; params: Record<string, z.ZodTypeAny>; agentTool?: string }> = [
     { name: "create_track", description: "Create a track.", params: { name: z.string(), color: z.string().optional(), description: z.string().optional() }},
-    { name: "create_speaker", description: "Add a speaker.", params: {
+    { name: "create_speaker", description: "Add a speaker. For someone already in the organisation's contacts, use import_speakers_from_contacts instead: it copies every detail the contact holds.", params: {
       email: z.string(), firstName: z.string(), lastName: z.string(),
       additionalEmail: z.string().optional().describe("Secondary CC inbox auto-CC'd on speaker emails."),
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
+      role: z.string().max(100).optional().describe("Profession category: one of the organisation's Role answers, by key or label."),
       bio: z.string().optional(), organization: z.string().optional(), jobTitle: z.string().optional(),
+      phone: z.string().optional(), photo: z.string().optional(),
+      city: z.string().optional(), state: z.string().optional(), zipCode: z.string().optional(), country: z.string().optional(),
+      specialty: z.string().optional(), customSpecialty: z.string().optional().describe("Free text when specialty is \"Others\"."),
       status: z.enum(["INVITED", "CONFIRMED"]).optional(),
+    }},
+    { name: "import_speakers_from_contacts", description: "Make contacts from the organisation's contact list speakers on this event, with every detail the contact holds (title, role, job title, organisation, specialty, phone, photo, city, state, zip, country, bio, tags), as the Speakers page's Import from Contacts does. Each new speaker gets a complimentary Faculty registration (badge, barcode, check-in). A contact who is already a speaker on the event is skipped and left unchanged: to fill an existing speaker's details from their contact, read them with list_contacts and use update_speaker. Get the ids from list_contacts.", params: {
+      contactIds: z.array(z.string()).min(1).max(200).describe("Contact ids from list_contacts."),
     }},
     { name: "create_session", description: "Create a session or agenda break item. Set type to WORKSHOP or SYMPOSIUM for those program formats (speakers/topics/track allowed, like SESSION), or REGISTRATION/BREAK/LUNCH/NETWORKING for a break item — a plain agenda time block that cannot carry speakers or topics. On a WEBINAR event, add the talks of the webinar as topics on its existing webinar session (add_topic_to_session; list_sessions finds it), not as new sessions: the streaming page and the Zoom panelist import read only that session's speakers and its topics' speakers. Create another session on a webinar only when the user asks for a separate session.", params: {
       name: z.string(), startTime: z.string(), endTime: z.string(),
@@ -551,7 +550,7 @@ export function registerAllMcpTools(
         dietaryReqs: z.string().optional(),
       }).optional(),
     }},
-    { name: "update_speaker", description: "Update a speaker's status + details. status: INVITED/CONFIRMED/DECLINED/CANCELLED. Other fields: title, names, bio, organization, jobTitle, phone, city, country, specialty, website, photo, tags. Setting status to DECLINED/CANCELLED KEEPS the speaker's companion registration (badge + entry barcode) by default — pass cancelCompanionRegistration: true to also cancel it; the response reports the outcome. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
+    { name: "update_speaker", description: "Update a speaker's status + details. status: INVITED/CONFIRMED/DECLINED/CANCELLED. Other fields: title, names, bio, organization, jobTitle, phone, city, state, zipCode, country, specialty, website, photo, tags. Setting status to DECLINED/CANCELLED KEEPS the speaker's companion registration (badge + entry barcode) by default — pass cancelCompanionRegistration: true to also cancel it; the response reports the outcome. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
       speakerId: z.string(),
       expectedUpdatedAt: z.string().datetime().optional().describe("Row's updatedAt at read time. When supplied, server rejects the write with STALE_WRITE if the row has changed since."),
       status: z.enum(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]).optional(),
@@ -565,6 +564,8 @@ export function registerAllMcpTools(
       jobTitle: z.string().optional(),
       phone: z.string().optional(),
       city: z.string().optional(),
+      state: z.string().optional(),
+      zipCode: z.string().optional(),
       country: z.string().optional(),
       specialty: z.string().optional(),
       website: z.string().optional(),

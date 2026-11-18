@@ -2,7 +2,7 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** November 12, 2026. **125 tools** across 18 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
+**Last updated:** November 18, 2026. **126 tools** across 18 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
 
 ### July 29, 2026 — Optional registration type + Faculty guard (`0.4.27`)
 
@@ -18,6 +18,8 @@ EA-SYS exposes event management capabilities via the [Model Context Protocol (MC
 - No behavior change when the params are omitted — existing calls are byte-identical.
 
 ### June 25, 2026 — Speaker companion registrations, faculty-aware counts, multi-role certs
+
+**November 18, 2026: contacts become speakers with all their details.** An organiser asked the in-app agent to add three faculty "from the master contact"; it made three speakers with a name and an address, then said the contacts held no job title or country, which they did. Three gaps, all closed: `list_contacts` matched the whole search against each field, so a full name found no one (each word must now match a first name, last name, email or organisation, as `search_event` has since September 22); it returned a name, an address and the organisation only, with no id (it now returns the id and every person field, bios cut to a preview above 10 results); and `create_speaker` published six of the fields its executor takes (it now takes role, phone, photo, city, state, zipCode, country, specialty and customSpecialty too). New: **`import_speakers_from_contacts`** (`speakers.import`), the Speakers page's Import from Contacts through the same service (`importSpeakersFromContacts` in `speaker-service.ts`): every detail copied, a Faculty registration for each new speaker, an existing speaker skipped and left unchanged. `update_speaker` takes `state` and `zipCode`. Package 0.4.65 → 0.4.66: connected clients reconnect.
 
 **November 12, 2026: the CRM product catalogue and the report are admins only.** `create_crm_product` and `update_crm_product` now ask `crm.products.manage`, and `get_crm_report` asks `crm.reports.view`. Admins and a full organisation API key hold both, so their tool lists do not change. A CRM User (and any custom role without the key) no longer has these three tools; `list_crm_products`, `add_deal_product` and `update_deal_product` are unchanged. Package 0.4.59 → 0.4.60: connected clients reconnect to see the change.
 
@@ -154,7 +156,7 @@ log table only (warnings and errors, 30 days), not CloudWatch.
 The grant that reaches it lasts 30 days and renews, longer than the 48 hour
 browser session the `/logs` page needs. Revoke the connector's grant to end it.
 
-## Tools (125 total)
+## Tools (126 total)
 
 ### Organization-level (6)
 
@@ -163,7 +165,7 @@ browser session the `/logs` page needs. Revoke the connector's grant to end it.
 | `list_events` | All events with status, dates, registration/speaker/session counts |
 | `create_event` | Create a new event — slug auto-generated, WEBINAR type auto-provisions Zoom |
 | `update_event` | Safe-to-change fields only: name, description, venue, address, city, country, tag, specialty, `code` (invoice prefix), `taxRate` (0-100), `taxLabel`. Slug, dates, eventType and org are refused by design. |
-| `list_contacts` | Search org-wide contact store by name, email, or tag |
+| `list_contacts` | Search org-wide contact store by name (each word), email, organisation or tag; returns each contact's id and every person field |
 | `create_contact` | Add a contact to the org store |
 | `update_contact` | Any subset of title, names, organization, jobTitle, bio, specialty, phone, photo, city, state, zipCode, country, notes, tags. Email is **immutable** here. |
 
@@ -192,14 +194,15 @@ browser session the `/logs` page needs. Revoke the connector's grant to end it.
 | `list_ticket_types` | Registration types with pricing |
 | `create_ticket_type` | Auto-generates Early Bird / Standard / Onsite tiers |
 
-### Speakers (6)
+### Speakers (7)
 
 | Tool | Description |
 |---|---|
 | `list_speakers` | Filter by status (INVITED/CONFIRMED/DECLINED/CANCELLED) and created/updated date ranges (`createdAfter`/`createdBefore`/`updatedAfter`/`updatedBefore`, ISO 8601, inclusive) |
 | `create_speaker` | Add speaker; returns `existingId` on duplicate email |
 | `create_speakers_bulk` | Up to 100 in one call, per-row `{ created, errors }` so one bad row cannot kill the batch. Pre-dedups by email within the payload. |
-| `update_speaker` | Status + title/bio/org/jobTitle/phone/city/country/specialty/tags; post-update `syncToContact` |
+| `import_speakers_from_contacts` | `contactIds` (up to 200, from `list_contacts`): makes them speakers with every detail the contact holds, each with a Faculty registration; one already a speaker is skipped and left unchanged. Same service as the Speakers page's Import from Contacts |
+| `update_speaker` | Status + title/bio/org/jobTitle/phone/city/state/zipCode/country/specialty/tags; post-update `syncToContact` |
 | `list_speaker_agreements` | `filter: signed / unsigned / all`. Reads `Speaker.agreementAcceptedAt` |
 | `upload_speaker_agreement_template` | Upload the per-event .docx mail-merge template used to generate personalized speaker agreements. 10/hr per user. |
 
