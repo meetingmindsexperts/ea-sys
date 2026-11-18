@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   isAlertSelfRecipient,
+  isLocalInstance,
   shouldFireInThisEnvironment,
   shouldSendAdminAlert,
 } from "@/lib/admin-alert";
@@ -30,6 +31,13 @@ beforeEach(() => {
   // Restore env vars between tests so an isAlertSelfRecipient test
   // doesn't lock in a value for the dedupe tests.
   vi.unstubAllEnvs();
+  // The app's own address, as production has it. Left to the machine it is
+  // whatever .env holds (localhost on a laptop, nothing in CI), and since
+  // Nov 18, 2026 a local address switches alerts off: the tests below would
+  // pass or fail by where they ran.
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://events.meetingmindsgroup.com");
+  vi.stubEnv("NEXTAUTH_URL", "https://events.meetingmindsgroup.com");
+  vi.stubEnv("GIT_SHA", "");
 });
 
 describe("shouldSendAdminAlert", () => {
@@ -155,5 +163,81 @@ describe("shouldFireInThisEnvironment", () => {
     vi.stubEnv("NODE_ENV", "");
     vi.stubEnv("ENABLE_ADMIN_ALERTS", "");
     expect(shouldFireInThisEnvironment()).toBe(false);
+  });
+});
+
+
+describe("a local instance never emails alerts (owner, Nov 18, 2026)", () => {
+  // The test server, the gate's server and a local `npm start` all run with
+  // NODE_ENV=production. Until this rule they emailed the production alert
+  // inbox about errors the tests provoke on purpose.
+
+  const local = (address: string) => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", address);
+    vi.stubEnv("NEXTAUTH_URL", address);
+  };
+
+  it.each([
+    "http://localhost:3199",
+    "http://LOCALHOST:3113",
+    "http://acme.localhost:3114",
+    "http://127.0.0.1:3123",
+    "http://[::1]:3000",
+  ])("%s is local", (address) => {
+    local(address);
+    expect(isLocalInstance()).toBe(true);
+  });
+
+  it.each([
+    "https://events.meetingmindsgroup.com",
+    "https://localhost.example.com",
+    "https://notlocalhost",
+    "http://10.0.0.5:3000",
+    "not a url",
+  ])("%s is not local", (address) => {
+    local(address);
+    expect(isLocalInstance()).toBe(false);
+  });
+
+  it("no address at all is not local: nothing configured never switches alerts off", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
+    vi.stubEnv("NEXTAUTH_URL", "");
+    expect(isLocalInstance()).toBe(false);
+  });
+
+  it("the public address is read first, as the alert email's own links read it", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://events.meetingmindsgroup.com");
+    vi.stubEnv("NEXTAUTH_URL", "http://localhost:3000");
+    expect(isLocalInstance()).toBe(false);
+  });
+
+  it("a DEPLOYED image is never local, whatever its address says", () => {
+    // The safety: an image CI built carries its commit. If its address were
+    // ever set to localhost by mistake, production must go on alerting.
+    local("http://localhost:3000");
+    vi.stubEnv("GIT_SHA", "701a70e6a70376292dcad6e3bc498a721c9bb20a");
+    expect(isLocalInstance()).toBe(false);
+    vi.stubEnv("NODE_ENV", "production");
+    expect(shouldFireInThisEnvironment()).toBe(true);
+  });
+
+  it("a build with no commit baked in (\"unknown\") on localhost is local", () => {
+    local("http://localhost:3199");
+    vi.stubEnv("GIT_SHA", "unknown");
+    expect(isLocalInstance()).toBe(true);
+  });
+
+  it("does not fire from a local instance, even with NODE_ENV=production", () => {
+    local("http://localhost:3199");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ENABLE_ADMIN_ALERTS", "");
+    expect(shouldFireInThisEnvironment()).toBe(false);
+  });
+
+  it("fires from a local instance when the engineer opts in", () => {
+    local("http://localhost:3199");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ENABLE_ADMIN_ALERTS", "true");
+    expect(shouldFireInThisEnvironment()).toBe(true);
   });
 });

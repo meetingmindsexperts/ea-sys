@@ -94,81 +94,90 @@ export interface AlertClaim {
  */
 export async function claimAlertSend(dedupKey: string): Promise<AlertClaim> {
   try {
-    const { db } = await import("./db");
-
-    // ── 0. Operator silence window ────────────────────────────────────────
-    // Env var is the break-glass (needs a restart); the DB row is the one an
-    // on-call engineer can flip from /admin/infra while they fix the thing
-    // that is paging them. Nobody should be emailed by their own remediation.
-    const envSilencedUntil = process.env.ALERTS_SILENCED_UNTIL;
-    if (envSilencedUntil && new Date(envSilencedUntil).getTime() > Date.now()) {
-      return { send: false, suppressed: 0 };
-    }
-    const silence = await db.alertState.findUnique({ where: { key: SILENCE_KEY } });
-    if (silence?.silencedUntil && silence.silencedUntil.getTime() > Date.now()) {
-      return { send: false, suppressed: 0 };
-    }
-
-    // ── 1. Record the occurrence (always) ─────────────────────────────────
-    // Runs even when we end up suppressing, so the eventual email can say
-    // "this has fired 240 times in the last hour" — the single most useful
-    // number in the whole message, and the one the old pipeline never had.
-    const occurrence = await db.$queryRaw<Array<{ counter: number }>>`
-      INSERT INTO "AlertState" ("key", "lastSentAt", "windowStartedAt", "counter", "updatedAt")
-      VALUES (${dedupKey}, to_timestamp(0), now(), 1, now())
-      ON CONFLICT ("key") DO UPDATE
-        SET "counter" = "AlertState"."counter" + 1,
-            "updatedAt" = now()
-      RETURNING "counter"
-    `;
-    const suppressed = Math.max(0, (occurrence[0]?.counter ?? 1) - 1);
-
-    // ── 2. Claim the per-fingerprint hourly slot ──────────────────────────
-    const windowSeconds = ALERT_DEDUP_WINDOW_MS / 1000;
-    const claimed = await db.$queryRaw<Array<{ key: string }>>`
-      UPDATE "AlertState"
-         SET "lastSentAt" = now(),
-             "counter" = 0,
-             "updatedAt" = now()
-       WHERE "key" = ${dedupKey}
-         AND "lastSentAt" < now() - make_interval(secs => ${windowSeconds}::double precision)
-      RETURNING "key"
-    `;
-    if (claimed.length === 0) {
-      return { send: false, suppressed };
-    }
-
-    // ── 3. Spend from the global hourly budget ────────────────────────────
-    const budget = await db.$queryRaw<Array<{ counter: number }>>`
-      INSERT INTO "AlertState" ("key", "lastSentAt", "windowStartedAt", "counter", "updatedAt")
-      VALUES (${CEILING_KEY}, now(), now(), 1, now())
-      ON CONFLICT ("key") DO UPDATE
-        SET "windowStartedAt" = CASE
-              WHEN "AlertState"."windowStartedAt" < now() - interval '1 hour' THEN now()
-              ELSE "AlertState"."windowStartedAt" END,
-            "counter" = CASE
-              WHEN "AlertState"."windowStartedAt" < now() - interval '1 hour' THEN 1
-              ELSE "AlertState"."counter" + 1 END,
-            "updatedAt" = now()
-      RETURNING "counter"
-    `;
-    const spent = budget[0]?.counter ?? 1;
-
-    if (spent > ALERT_HOURLY_CEILING + 1) {
-      // Budget blown and the digest has already gone out. Stay quiet.
-      return { send: false, suppressed };
-    }
-    if (spent === ALERT_HOURLY_CEILING + 1) {
-      // The one email that tells you we're going quiet, so silence is never
-      // mistaken for health.
-      return { send: true, suppressed, ceilingDigest: true };
-    }
-
-    return { send: true, suppressed };
+    // Marked as the alert system's own bookkeeping, so that a failure of any
+    // statement below is not itself turned into an alert (alert-bookkeeping.ts).
+    // Imported lazily, as everything Node-only is in this file: it is reachable
+    // from logger.ts, which client components import.
+    const { inAlertBookkeeping } = await import("./alert-bookkeeping");
+    return await inAlertBookkeeping(() => claimFromDatabase(dedupKey));
   } catch {
-    // DB unreachable — degrade, don't go silent. See memoryLastSentAt.
+    // DB unreachable: degrade, don't go silent. See memoryLastSentAt.
     return { send: memoryShouldSend(dedupKey), suppressed: 0 };
   }
+}
+
+async function claimFromDatabase(dedupKey: string): Promise<AlertClaim> {
+  const { db } = await import("./db");
+
+  // ── 0. Operator silence window ────────────────────────────────────────
+  // Env var is the break-glass (needs a restart); the DB row is the one an
+  // on-call engineer can flip from /admin/infra while they fix the thing
+  // that is paging them. Nobody should be emailed by their own remediation.
+  const envSilencedUntil = process.env.ALERTS_SILENCED_UNTIL;
+  if (envSilencedUntil && new Date(envSilencedUntil).getTime() > Date.now()) {
+    return { send: false, suppressed: 0 };
+  }
+  const silence = await db.alertState.findUnique({ where: { key: SILENCE_KEY } });
+  if (silence?.silencedUntil && silence.silencedUntil.getTime() > Date.now()) {
+    return { send: false, suppressed: 0 };
+  }
+
+  // ── 1. Record the occurrence (always) ─────────────────────────────────
+  // Runs even when we end up suppressing, so the eventual email can say
+  // "this has fired 240 times in the last hour": the single most useful
+  // number in the whole message, and the one the old pipeline never had.
+  const occurrence = await db.$queryRaw<Array<{ counter: number }>>`
+    INSERT INTO "AlertState" ("key", "lastSentAt", "windowStartedAt", "counter", "updatedAt")
+    VALUES (${dedupKey}, to_timestamp(0), now(), 1, now())
+    ON CONFLICT ("key") DO UPDATE
+      SET "counter" = "AlertState"."counter" + 1,
+          "updatedAt" = now()
+    RETURNING "counter"
+  `;
+  const suppressed = Math.max(0, (occurrence[0]?.counter ?? 1) - 1);
+
+  // ── 2. Claim the per-fingerprint hourly slot ──────────────────────────
+  const windowSeconds = ALERT_DEDUP_WINDOW_MS / 1000;
+  const claimed = await db.$queryRaw<Array<{ key: string }>>`
+    UPDATE "AlertState"
+       SET "lastSentAt" = now(),
+           "counter" = 0,
+           "updatedAt" = now()
+     WHERE "key" = ${dedupKey}
+       AND "lastSentAt" < now() - make_interval(secs => ${windowSeconds}::double precision)
+    RETURNING "key"
+  `;
+  if (claimed.length === 0) {
+    return { send: false, suppressed };
+  }
+
+  // ── 3. Spend from the global hourly budget ────────────────────────────
+  const budget = await db.$queryRaw<Array<{ counter: number }>>`
+    INSERT INTO "AlertState" ("key", "lastSentAt", "windowStartedAt", "counter", "updatedAt")
+    VALUES (${CEILING_KEY}, now(), now(), 1, now())
+    ON CONFLICT ("key") DO UPDATE
+      SET "windowStartedAt" = CASE
+            WHEN "AlertState"."windowStartedAt" < now() - interval '1 hour' THEN now()
+            ELSE "AlertState"."windowStartedAt" END,
+          "counter" = CASE
+            WHEN "AlertState"."windowStartedAt" < now() - interval '1 hour' THEN 1
+            ELSE "AlertState"."counter" + 1 END,
+          "updatedAt" = now()
+    RETURNING "counter"
+  `;
+  const spent = budget[0]?.counter ?? 1;
+
+  if (spent > ALERT_HOURLY_CEILING + 1) {
+    // Budget blown and the digest has already gone out. Stay quiet.
+    return { send: false, suppressed };
+  }
+  if (spent === ALERT_HOURLY_CEILING + 1) {
+    // The one email that tells you we're going quiet, so silence is never
+    // mistaken for health.
+    return { send: true, suppressed, ceilingDigest: true };
+  }
+
+  return { send: true, suppressed };
 }
 
 /**
@@ -226,23 +235,81 @@ export interface AdminAlertInput {
 }
 
 /**
+ * Is this a copy of the app running on somebody's own machine?
+ *
+ * Both must hold:
+ *   - its own address is this machine (localhost, a name under .localhost,
+ *     127.x, ::1), read the way the alert email's own links read it;
+ *   - the build carries no deployed commit. CI bakes GIT_SHA into every image
+ *     it ships (web and worker); a build made on a laptop has none.
+ *
+ * The second condition is the safety: a deployed image whose address was set
+ * wrongly still alerts. Wrong in that direction costs an email; wrong in the
+ * other would silence production.
+ */
+export function isLocalInstance(): boolean {
+  // Read from the environment directly, as build-info.ts does (GIT_SHA, and
+  // NEXT_PUBLIC_APP_URL before NEXTAUTH_URL): that module imports `os`, and
+  // this function must stay synchronous and safe to load anywhere.
+  const deployedCommit = (process.env.GIT_SHA ?? "").trim();
+  if (deployedCommit !== "" && deployedCommit !== "unknown") return false;
+  const address = localAddress();
+  if (!address) return false;
+  let host: string;
+  try {
+    host = new URL(address).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return false;
+  }
+  return host === "localhost" || host.endsWith(".localhost") || host === "::1" || /^127\.\d+\.\d+\.\d+$/.test(host);
+}
+
+/**
  * Decide whether this process should fire admin alerts at all.
  *
  * Rules (in order):
- *   1. NODE_ENV=production → ALWAYS fire (the load-bearing case;
- *      no opt-out, dev never gates the prod alert pipeline)
- *   2. Otherwise → only fire when ENABLE_ADMIN_ALERTS=true (explicit
- *      opt-in for dev/staging when an engineer is intentionally
- *      testing the alert wiring)
- *   3. Otherwise → skip, no SES call, no console noise
+ *   1. ENABLE_ADMIN_ALERTS=true → fire, anywhere (the explicit opt-in an
+ *      engineer uses to test the alert wiring on their own machine)
+ *   2. A local instance (above) → never. Owner, Nov 18, 2026: "don't send
+ *      localhost alerts to email anymore". The test server, the gate's server
+ *      and a local `npm start` all run with NODE_ENV=production, so rule 3
+ *      alone had them emailing the production alert inbox about errors the
+ *      tests provoke on purpose.
+ *   3. NODE_ENV=production → fire (the load-bearing case; ENABLE_ADMIN_ALERTS
+ *      set to anything else cannot switch it off)
+ *   4. Otherwise → skip, no SES call
  *
  * Closes the dev-spam gap: pre-fix, a Prisma blip on a local
  * `npm run dev` would email the prod alert inbox because there
  * was no env gate. Now dev needs to opt in.
  */
 export function shouldFireInThisEnvironment(): boolean {
-  if (process.env.NODE_ENV === "production") return true;
-  return process.env.ENABLE_ADMIN_ALERTS === "true";
+  if (process.env.ENABLE_ADMIN_ALERTS === "true") return true;
+  if (isLocalInstance()) return false;
+  return process.env.NODE_ENV === "production";
+}
+
+/** On globalThis: the server loads this module more than once (one copy per bundle), and the line should be said once. */
+const localSkipFlag = globalThis as unknown as { __eaSysLocalAlertSkipNoted?: boolean };
+
+function localAddress(): string {
+  return (process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "").trim();
+}
+
+/**
+ * Say ONCE per process that alerts are off because this is a local instance,
+ * so the rule can never be silently wrong. A warning is below the alerting
+ * level, and the `admin-alert:` prefix is skipped by the forwarder as well.
+ */
+async function noteLocalSkipOnce(): Promise<void> {
+  if (localSkipFlag.__eaSysLocalAlertSkipNoted || process.env.NODE_ENV !== "production" || !isLocalInstance()) return;
+  localSkipFlag.__eaSysLocalAlertSkipNoted = true;
+  try {
+    const { apiLogger } = await import("./logger");
+    apiLogger.warn({ msg: "admin-alert:off-on-local-instance", appUrl: localAddress() });
+  } catch {
+    console.warn("admin-alert:off-on-local-instance", localAddress());
+  }
 }
 
 /**
@@ -265,6 +332,7 @@ export async function notifyAdminAlert(input: AdminAlertInput): Promise<void> {
     // (matters when ENABLE_ADMIN_ALERTS gets toggled mid-process,
     // rare but worth getting right).
     if (!shouldFireInThisEnvironment()) {
+      await noteLocalSkipOnce();
       return;
     }
 

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Alerts: the alert path no longer feeds itself, and a local copy of the app no longer emails alerts (November 18)
+
+- **What you will notice:** no more alert emails caused by a test run or a local server on a laptop. On production nothing changes in normal running.
+- **The loop.** An error line becomes an alert, and before sending one the alert path reads its own bookkeeping table. When that read failed with anything but a passing connection error, the failure was logged as an error, which asked for another alert, which read again: about 150 log lines a second for as long as the process lived (found when a test server was started with no database). On production a rotated database password or a lost permission on that one table would have started it and filled the disk in hours. Now such a failure is logged as the warning `admin-alert:state-unavailable` and is never turned into an alert. Every other error alerts exactly as before, and the alert that was being sent still goes out (the in-memory record decides). The owner agreed to this one downgrade.
+- **Local instances.** The test server, the gate's server and a local `npm start` all run in production mode, and the rule was "production mode always alerts", so errors the tests provoke on purpose were emailing the alert inbox. An instance is now local when BOTH hold: its own address is this machine (localhost, a name under .localhost, 127.x) and its build carries no deployed commit. A local instance never emails alerts, and says so once in its log (`admin-alert:off-on-local-instance`). Every image CI ships carries its commit, so a deployed server keeps alerting whatever its address is set to. `ENABLE_ADMIN_ALERTS=true` still sends alerts from a local run, for testing the wiring.
+- Files: `src/lib/alert-bookkeeping.ts` (new), `src/lib/admin-alert.ts`, `src/lib/db.ts`; tests in `__tests__/lib/admin-alert.test.ts` and, on a real database, `tests/integration-db/alert-bookkeeping-loop.db.test.ts`.
+
 ### One instance for everyone: the direction, and the first step (November 18)
 
 No change to the product.

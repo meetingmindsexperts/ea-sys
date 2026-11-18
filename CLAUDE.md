@@ -305,6 +305,7 @@ ADMIN_DOC_LINKS_ENABLED="true"        # master only: org ADMINs may open /admin/
 STORAGE_PROVIDER="s3"                 # "local" (default) | "supabase" | "s3". PRODUCTION is s3 (since Sep 7, 2026)
 NEXT_PUBLIC_SENTRY_DSN="..."          # Sentry DSN for client error tracking
 ANTHROPIC_API_KEY="..."               # Required for AI Agent feature
+ENABLE_ADMIN_ALERTS="true"            # local only: email admin alerts from a copy of the app on this machine (off by default; a deployed image always alerts)
 ```
 
 ## Common Commands

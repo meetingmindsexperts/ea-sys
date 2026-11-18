@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import { dbLogger } from "./logger";
+import { isAlertBookkeeping } from "./alert-bookkeeping";
 import { enterTenantTx, getTenantOrgId, getTenantStore } from "./tenant-context";
 import { noteUnlanedEventQuery } from "./tenant/lane-shadow";
 
@@ -200,6 +201,24 @@ function createPrismaClient(datasourceUrl: string | undefined = process.env.DATA
     // Skip systemLog errors to avoid feedback loop: DB stream flush fails →
     // Prisma error event → dbLogger → DB stream → flush fails → ...
     if (e.target?.includes("systemLog")) return;
+
+    // The alert system's own bookkeeping failed (see alert-bookkeeping.ts).
+    // Logged BELOW the alerting level, whatever the error is: at error this
+    // line would itself become an alert, whose first step is the read that
+    // just failed. Nothing is lost by it: `claimAlertSend` falls back to its
+    // in-memory record and the alert that was being sent still goes out. The
+    // target check covers a read made outside the marked path.
+    if (isAlertBookkeeping() || e.target?.includes("alertState")) {
+      const failure = new Error(e.message || "(no message)");
+      failure.name = "AlertBookkeepingError";
+      dbLogger.warn({
+        err: failure,
+        msg: "admin-alert:state-unavailable",
+        target: e.target,
+        classification: classifyPrismaError(e.message)?.category ?? null,
+      });
+      return;
+    }
 
     // Classify the error so Sentry's title-based grouping separates
     // transient connectivity blips from real bugs. Wrap the original
