@@ -17,6 +17,32 @@
 
 ## 0. Decision record — topology DECIDED: the two-silo plan (July 22, 2026)
 
+> **Direction, November 18, 2026 (owner): aim at ONE instance for everyone, in
+> small steps over weeks, nothing breaking on the way.** No second deployment is
+> being built. The current production system becomes the platform: MM Group is
+> its first tenant, row security is switched on for MM Group alone and runs for
+> weeks before any other organisation is added. This is the destination the
+> September 16 ruling already named (the merge), reached directly instead of
+> through a second instance; it is stated as a direction and a way of working,
+> not a date.
+>
+> What changes in this section: wherever the text below says a thing happens
+> "on the platform instance" or is "master only", read it as work that must be
+> done on production itself before a second organisation exists. The July
+> reasoning still describes the RISK correctly (a wrong policy shows an empty
+> page on a live event, not an error), and it is why every step is small, has
+> its own check and its own way back. What has shrunk since July: the
+> organisation columns are filled on the live database, every swept table has a
+> policy tested with two tenants (`npm run test:tenancy`, the Acme and Globex
+> sandbox), and switching on is one setting (which database role the app
+> connects as; the owner role ignores every policy, so switching back is the
+> same setting). A separate instance stays possible later for a customer who
+> needs one: it is the same image.
+>
+> The ordered road, with what is done and what is next, is in
+> [ROADMAP.md](ROADMAP.md), "One instance for everyone: the road". The record
+> below is kept as written.
+
 > **Owner decision (Krishna, July 22, 2026).** After steelmanning both options
 > (pooled-on-current-prod vs a second deployment), EA-SYS multi-tenancy will run as
 > **one codebase, two deployments**:

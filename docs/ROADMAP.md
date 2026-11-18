@@ -7,6 +7,35 @@
 
 ---
 
+## One instance for everyone: the road (direction set Nov 18, 2026): started
+
+**Direction (owner, Nov 18, 2026):** one instance for every organisation, reached in small steps over weeks, with nothing breaking on the way. No second deployment is built; production becomes the platform and MM Group is its first tenant ([MULTI_TENANCY.md](MULTI_TENANCY.md) §0). The order below is a proposal and is expected to change as steps land.
+
+**How each step is done**
+
+- One small change at a time: its own commit, its own gate, its own review, pushed on its own.
+- A step that changes what MM Group's people see or are told is asked first.
+- Anything touching lanes, policies or a policied table's writers is run under row security before it is committed: the tenancy harness, the whole product as the restricted role, and the two tenants (Acme and Globex).
+- Nothing is switched on in production without a way back that has been rehearsed, and never in a week with a live event.
+
+**Stage 0. The safety net (no product code).** The checks every later step leans on.
+- The rehearsal as one command (item 4 of the section below): the whole product under row security, the two-tenant crawl with the other tenant's ids, and the registration writes. Until it is a command it is a morning of hand work, and it has already been skipped once.
+- What that command trips on today: the e2e seed's empty organisation columns (item 2), the grant on `AlertState` (item 3), the import-completion flow (item 1), a sandbox database that cannot be updated (item 20).
+
+**Stage 1. What would go wrong the day row security is on.** Product code, each change invisible on production today: the two prune jobs that would delete what they should keep (item 9), the sponsor tier check that fails open (item 10), `charge.refunded` (item 11), the partner stream door (item 12), the small ones (item 13), the registration link sweep with no organisation term (item 21).
+
+**Stage 2. The tables still outside row security.** Organization's own policy (its section below), then every table `rls-coverage.test.ts` lists as deliberately without one: decide each (a policy, or a written reason it needs none).
+
+**Stage 3. Production made ready, row security still ignored.** Collect the detector's week (on or after Nov 23) and widen it past Event (item 17); restamp rows with no organisation (item 18); the restricted database role and the operator connection on the production database (owner steps); the policies applied to production, where they do nothing while the app connects as the owner, and `verify-tenant-isolation.ts` run against them.
+
+**Stage 4. Row security on, for MM Group alone.** A quiet week, the way back rehearsed (one setting), then weeks of ordinary use before anything else.
+
+**Stage 5. Accounts per organisation** ([PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md) §6), the largest single piece: today reviewers, submitters and registrants belong to no organisation and an email is unique across the system. MM Group's existing accounts move with it.
+
+**Stage 6. What was built for a single organisation.** HR and the contacts sync; the single stream server; the CRM's shared reply mailbox; identifiers that are unique across the system (entry barcodes, DTCM codes, payment ids); per-organisation email sending (decided, not built); refusing an unknown address (`TENANCY_ENFORCE_HOST`); an organisation of its own for the operator.
+
+**Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
+
 ## Panel Discussion / Q&A presets and numbered sessions: what the Nov 18 review left (recorded Nov 18, 2026): not started
 
 From the review of `4b84c150`, `bb5f4eb5` and `e399a17f` (0 BLOCKER, 0 HIGH, 1 MED, 8 LOW).
