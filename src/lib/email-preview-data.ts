@@ -32,6 +32,7 @@ import { buildSpeakerEmailContext } from "./speaker-agreement";
 import { buildAbstractManagementLink } from "./abstract-notifications";
 import { webinarRecordingBlock, webinarRecordingShown } from "./webinar";
 import { replayEmailUrl, replayPageUrl, sessionReplayKind } from "./webinar/replay";
+import { RUNNING_BUILT_IN_ROLES } from "@/lib/session-roles";
 
 export async function buildRealPreviewOverrides(
   eventId: string,
@@ -75,7 +76,7 @@ export async function buildRealPreviewOverrides(
       db.speaker.findFirst({
         // {{moderatorDetails}} covers chairs too (July 30, 2026), so a
         // chairs-only event still gets a real representative run-sheet.
-        where: { eventId, sessions: { some: { role: { in: ["MODERATOR", "CHAIRPERSON"] } } } },
+        where: { eventId, sessions: { some: { role: { in: RUNNING_BUILT_IN_ROLES } } } },
         select: { id: true },
       }),
     ]);

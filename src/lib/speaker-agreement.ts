@@ -1,4 +1,5 @@
 import { presenterLabelText } from "@/lib/session-topic-presets";
+import { runsSession } from "@/lib/session-roles";
 import { uploadFile, readStoredFile, deleteStoredFile } from "@/lib/storage";
 import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { sanitizePdfText } from "@/lib/pdf/pdf-text";
@@ -434,7 +435,7 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
   // of 2" states a sequence (review of 4b84c150), as the presentation block's
   // sort already does.
   const moderated = row.speaker.sessions
-    .filter((s) => s.role === "MODERATOR" || s.role === "CHAIRPERSON")
+    .filter((s) => runsSession(s.role))
     .sort((a, b) => new Date(a.session.startTime).getTime() - new Date(b.session.startTime).getTime());
   if (!moderated.length) return { html: "", text: "" };
 
@@ -547,9 +548,7 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   //
   // The scalar docx merge tokens ({sessionTitles}/{topicTitles}/{trackNames}/
   // {role}/{sessionDateTime}) cover ALL engagements and stay format-stable.
-  const speakingSessionRows = sessionRows.filter(
-    (s) => s.role !== "MODERATOR" && s.role !== "CHAIRPERSON",
-  );
+  const speakingSessionRows = sessionRows.filter((s) => !runsSession(s.role));
 
   const sessionTitles = sessionRows.map((s) => s.session.name).join("\n");
   const topicTitles = topicRows.map((t) => t.topic.title).join("\n");

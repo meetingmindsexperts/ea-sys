@@ -1,4 +1,8 @@
-# Session roles an organisation can edit: PLAN (Nov 18, 2026), not built
+# Session roles an organisation can edit: PLAN (Nov 18, 2026), IN BUILD
+
+**Status:** the owner accepted the six recommendations in section 6 on Nov 18,
+2026 ("proceed building"). Step 1 built Nov 18 (`src/lib/session-roles.ts`,
+pinned by `session-roles-ratchet.test.ts`).
 
 **Ask (owner, Nov 18, 2026):** the agenda's session roles are fixed at Moderator,
 Chairperson, Panelist and Speaker. An organiser should be able to add, rename and
@@ -95,9 +99,9 @@ Each step ships on its own, behind the full gate, with tests alongside.
 
 Rough size: three to four working days, most of it in steps 4 and 5.
 
-## 6. Decisions for the owner
+## 6. Decisions (accepted by the owner, Nov 18, 2026)
 
-| # | Question | Recommendation |
+| # | Question | Decision |
 |---|---|---|
 | D1 | Where does the list live? | The organisation, with each event choosing from it |
 | D2 | Can a role's duty change after people hold it? | No: only while unused. Changing it would silently move those people between the two email blocks |
