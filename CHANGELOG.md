@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Contacts: 100, 500 or 1,000 a page, and paging no longer repeats or skips (November 18)
+
+The Contacts page showed 20, 50 or 100 at a time. It now shows 100, 500 or 1,000 and opens on 100 (owner). The server's ceiling for `GET /api/contacts` rose from 100 to 1,000 with it (the API reference says so); a caller that names no size still gets 50. The sizes live in one list, `src/lib/contact-page-sizes.ts`, shared by the page and the route.
+
+The list was sorted by creation time alone, and an import gives hundreds of contacts the same time: production holds 58,065 contacts on 5,511 distinct times, 949 on one of them. With nothing to break the tie the database may order those rows differently on each request, so a contact could show on two pages or on none. The sort is now creation time, then id.
+
+Still page numbers, not a cursor: the last of 58,065 takes 61 ms in production, and a page of 1,000 is 317 KB and draws in about half a second. Worth an index on organisation and creation time before the table is several times larger. Selecting a whole page of 1,000 and changing tags sends exactly the bulk tag route's limit of 1,000.
+
 ### The "Joined" badge on a webinar's registrations is hidden (November 18)
 
 The green "Joined" badge appeared the first time a registered person opened the webinar's page, the waiting room included. A registrant who looked at the page six days before the webinar was shown as "Joined", which reads as attendance. The badge is hidden, not removed: the marker (`Registration.webinarFirstJoinedAt`) is still written, and `SHOW_WEBINAR_JOINED_BADGE` in the registrations page shows it again. Who watched is the attendance report's answer, after the webinar.

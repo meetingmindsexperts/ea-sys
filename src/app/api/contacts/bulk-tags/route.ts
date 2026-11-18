@@ -10,8 +10,9 @@ import { normalizeTag } from "@/lib/utils";
 
 const bulkTagsSchema = z.object({
   // Cap keeps the sequential in-tx update loop bounded well under the 30s
-  // transaction timeout (review LOW-1); dashboard selections are page-bound
-  // and far below this — only an unbounded API-key payload could hit it.
+  // transaction timeout (review LOW-1). Since Nov 18, 2026 the Contacts page
+  // shows up to 1,000 a page (`CONTACTS_MAX_PAGE_SIZE`), so "select all" on a
+  // full page sends exactly this many: keep the two numbers in step.
   contactIds: z.array(z.string()).min(1).max(1000),
   tags: z.array(z.string().transform(normalizeTag)),
   // add: union new tags with existing (deduped)

@@ -170,7 +170,7 @@ export function buildOpenApiSpec(serverUrl: string): Json {
             { name: "country", in: "query", required: false, style: "form", explode: true, schema: { type: "array", items: { type: "string" } }, description: "Repeat for several (`country=A&country=B`, matches any). Whole value, case-insensitive. `__none__` matches contacts with no country." },
             { name: "role", in: "query", required: false, schema: { type: "string", maxLength: 100 }, description: "A stored Role answer key of the organisation (for MM Group: ACADEMIA, ALLIED_HEALTH, MEDICAL_DEVICES, PHARMA, PHYSICIAN, RESIDENT, SPEAKER, STUDENT, OTHERS), matched exactly or ignoring case; __none__ for contacts with no role. An unknown value matches no contact; over 100 characters is refused with 400." },
             { name: "page", in: "query", required: false, schema: { type: "integer", default: 1, minimum: 1 } },
-            { name: "limit", in: "query", required: false, schema: { type: "integer", default: 50, minimum: 1, maximum: 100 } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", default: 50, minimum: 1, maximum: 1000 } },
           ],
           responses: {
             "200": { description: "Paginated contacts", content: { "application/json": { schema: { $ref: "#/components/schemas/ContactList" } } } },

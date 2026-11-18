@@ -11,6 +11,7 @@ import {
   queryKeys,
 } from "@/hooks/use-api";
 import { useQueryClient } from "@tanstack/react-query";
+import { CONTACT_DEFAULT_PAGE_SIZE, CONTACT_PAGE_SIZES } from "@/lib/contact-page-sizes";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -84,8 +85,8 @@ interface Contact {
   createdAt: string;
 }
 
-const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
-const DEFAULT_PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = CONTACT_PAGE_SIZES;
+const DEFAULT_PAGE_SIZE: number = CONTACT_DEFAULT_PAGE_SIZE;
 
 const AVATAR_BG = [
   "bg-primary/10 text-primary",

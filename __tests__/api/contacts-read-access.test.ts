@@ -72,6 +72,7 @@ import { GET as exportContacts } from "@/app/api/contacts/export/route";
 import { GET as listTags } from "@/app/api/contacts/tags/route";
 import { GET as getContact, PUT as updateContact } from "@/app/api/contacts/[contactId]/route";
 import { canExportContacts, canViewContacts } from "../helpers/role-can";
+import { CONTACT_DEFAULT_PAGE_SIZE, CONTACT_PAGE_SIZES, CONTACTS_MAX_PAGE_SIZE } from "@/lib/contact-page-sizes";
 
 const ORG = "org_1";
 
@@ -109,6 +110,40 @@ beforeEach(() => {
   mockDb.registration.findMany.mockResolvedValue([]);
   mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
   mockDb.$queryRaw.mockResolvedValue([]);
+});
+
+describe("the contacts list: page size and order (Nov 18, 2026)", () => {
+  const listArgs = () => mockDb.contact.findMany.mock.calls[0][0] as { take: number; skip: number; orderBy: unknown };
+
+  beforeEach(() => mockGetOrgContext.mockResolvedValue(ctxFor("ADMIN")));
+
+  it("serves every size the Contacts page offers, in full", async () => {
+    expect([...CONTACT_PAGE_SIZES]).toEqual([100, 500, 1000]);
+    expect(CONTACT_PAGE_SIZES).toContain(CONTACT_DEFAULT_PAGE_SIZE);
+    for (const size of CONTACT_PAGE_SIZES) {
+      mockDb.contact.findMany.mockClear();
+      const res = await listContacts(req(`http://x/api/contacts?page=3&limit=${size}`));
+      expect(res.status).toBe(200);
+      expect(listArgs().take).toBe(size);
+      expect(listArgs().skip).toBe(2 * size);
+    }
+  });
+
+  it("never returns more than the ceiling, whatever is asked for", async () => {
+    await listContacts(req("http://x/api/contacts?limit=50000"));
+    expect(listArgs().take).toBe(CONTACTS_MAX_PAGE_SIZE);
+    expect(CONTACTS_MAX_PAGE_SIZE).toBe(1000);
+  });
+
+  it("keeps 50 for a caller that names no size (the API's documented default)", async () => {
+    await listContacts(req());
+    expect(listArgs().take).toBe(50);
+  });
+
+  it("breaks a tie on creation time by id, so paging neither repeats nor skips a contact", async () => {
+    await listContacts(req());
+    expect(listArgs().orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+  });
 });
 
 describe("canViewContacts — the boundary (staff + MEMBER + CRM_USER; fails closed)", () => {

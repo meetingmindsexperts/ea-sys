@@ -2,6 +2,7 @@ import { roleAnswerRefusal } from "@/lib/person-field-rules";
 import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
 import { NextResponse } from "next/server";
 import { contactFiltersWhere, parseContactFilters } from "@/lib/contact-filters";
+import { CONTACTS_MAX_PAGE_SIZE } from "@/lib/contact-page-sizes";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -67,7 +68,9 @@ export async function GET(req: Request) {
     return await runWithTenant(ctx.organizationId, async () => {
     const { searchParams } = new URL(req.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
-    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50")));
+    // Up to 1,000 a page (owner, Nov 18, 2026: the Contacts page offers 100, 500
+    // and 1,000; it was 100). A page of 1,000 is about 300 KB of JSON.
+    const limit = Math.min(CONTACTS_MAX_PAGE_SIZE, Math.max(1, parseInt(searchParams.get("limit") || "50")));
     const skip = (page - 1) * limit;
 
     // The page's filters (search, tags, specialty, country, role), shared with
@@ -82,7 +85,12 @@ export async function GET(req: Request) {
     const [contacts, total] = await Promise.all([
       db.contact.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        // Newest first, then by id. An import gives hundreds of contacts the SAME
+        // creation time (production: 58,065 contacts on 5,511 distinct times, one
+        // of them shared by 949), and with nothing to break the tie the database
+        // may order those rows differently on each request, so a contact showed
+        // on two pages or on none while paging (Nov 18, 2026).
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip,
         take: limit,
         select: {
