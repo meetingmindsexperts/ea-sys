@@ -91,7 +91,7 @@ export function SessionRolesCard({ readOnly = false }: { readOnly?: boolean }) {
   };
 
   return (
-    <Card>
+    <Card className="h-full">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
@@ -120,71 +120,77 @@ export function SessionRolesCard({ readOnly = false }: { readOnly?: boolean }) {
             {rows.map((row, i) => {
               const dutyLocked = row.builtIn || row.assignments > 0;
               return (
-                <li key={row.key ?? `new-${i}`} className="flex flex-wrap items-center gap-2 px-3 py-2">
-                  <Input
-                    aria-label={`Role ${i + 1} name`}
-                    className={`h-8 min-w-[9rem] flex-1 ${row.hidden ? "text-muted-foreground line-through" : ""}`}
-                    value={row.label}
-                    maxLength={MAX_SESSION_ROLE_LABEL}
-                    disabled={!canEdit || busy}
-                    onChange={(e) => setRow(i, { label: e.target.value })}
-                  />
-                  {dutyLocked ? (
-                    <span
-                      className="w-40 text-sm text-muted-foreground"
-                      title={row.builtIn ? "A built-in role keeps its duty" : `Held in ${sessionsLabel(row.assignments)}: its duty stays`}
-                    >
-                      {DUTY_LABELS[row.duty]}
-                    </span>
-                  ) : (
-                    <Select value={row.duty} disabled={!canEdit || busy} onValueChange={(v) => setRow(i, { duty: v as SessionRoleDuty })}>
-                      <SelectTrigger className="h-8 w-40" aria-label={`What ${row.label || "this role"} does`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="RUNS">{DUTY_LABELS.RUNS}</SelectItem>
-                        <SelectItem value="PRESENTS">{DUTY_LABELS.PRESENTS}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {row.builtIn && <Badge variant="secondary">Built in</Badge>}
-                  {row.hidden && <Badge variant="secondary">Hidden</Badge>}
-                  {!row.key && <Badge variant="outline">New</Badge>}
-                  {row.assignments > 0 && (
-                    <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">{sessionsLabel(row.assignments)}</span>
-                  )}
-                  {canEdit && (
-                    <>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Move ${row.label} up`} disabled={busy || i === 0} onClick={() => move(i, i - 1)}>
-                        <ArrowUp className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Move ${row.label} down`} disabled={busy || i === rows.length - 1} onClick={() => move(i, i + 1)}>
-                        <ArrowDown className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        aria-label={row.hidden ? `Offer ${row.label} again` : `Hide ${row.label}`}
-                        title={row.hidden ? "Offer again" : "Hide: no longer offered, kept by the people who hold it"}
-                        disabled={busy}
-                        onClick={() => setRow(i, { hidden: !row.hidden })}
+                // Two lines, so a half-width card never wraps the buttons under the
+                // name: the name and its buttons, then what it does and who holds it.
+                <li key={row.key ?? `new-${i}`} className="space-y-1.5 px-3 py-2">
+                  <div className="flex items-center gap-1">
+                    <Input
+                      aria-label={`Role ${i + 1} name`}
+                      className={`mr-1 h-8 min-w-0 flex-1 ${row.hidden ? "text-muted-foreground line-through" : ""}`}
+                      value={row.label}
+                      maxLength={MAX_SESSION_ROLE_LABEL}
+                      disabled={!canEdit || busy}
+                      onChange={(e) => setRow(i, { label: e.target.value })}
+                    />
+                    {canEdit && (
+                      <>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label={`Move ${row.label} up`} disabled={busy || i === 0} onClick={() => move(i, i - 1)}>
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label={`Move ${row.label} down`} disabled={busy || i === rows.length - 1} onClick={() => move(i, i + 1)}>
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          aria-label={row.hidden ? `Offer ${row.label} again` : `Hide ${row.label}`}
+                          title={row.hidden ? "Offer again" : "Hide: no longer offered, kept by the people who hold it"}
+                          disabled={busy}
+                          onClick={() => setRow(i, { hidden: !row.hidden })}
+                        >
+                          {row.hidden ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0 text-destructive"
+                          aria-label={`Delete ${row.label}`}
+                          title={deleteHint(row)}
+                          disabled={busy || row.builtIn || row.assignments > 0}
+                          onClick={() => setEdited(rows.filter((_, j) => j !== i))}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pl-1">
+                    {dutyLocked ? (
+                      <span
+                        className="text-sm text-muted-foreground"
+                        title={row.builtIn ? "A built-in role keeps its duty" : `Held in ${sessionsLabel(row.assignments)}: its duty stays`}
                       >
-                        {row.hidden ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        aria-label={`Delete ${row.label}`}
-                        title={deleteHint(row)}
-                        disabled={busy || row.builtIn || row.assignments > 0}
-                        onClick={() => setEdited(rows.filter((_, j) => j !== i))}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </>
-                  )}
+                        {DUTY_LABELS[row.duty]}
+                      </span>
+                    ) : (
+                      <Select value={row.duty} disabled={!canEdit || busy} onValueChange={(v) => setRow(i, { duty: v as SessionRoleDuty })}>
+                        <SelectTrigger className="h-7 w-40 text-sm" aria-label={`What ${row.label || "this role"} does`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="RUNS">{DUTY_LABELS.RUNS}</SelectItem>
+                          <SelectItem value="PRESENTS">{DUTY_LABELS.PRESENTS}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {row.builtIn && <Badge variant="secondary">Built in</Badge>}
+                    {row.hidden && <Badge variant="secondary">Hidden</Badge>}
+                    {!row.key && <Badge variant="outline">New</Badge>}
+                    {row.assignments > 0 && (
+                      <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">{sessionsLabel(row.assignments)}</span>
+                    )}
+                  </div>
                 </li>
               );
             })}

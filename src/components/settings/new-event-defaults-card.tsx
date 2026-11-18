@@ -63,7 +63,7 @@ export function NewEventDefaultsCard({ readOnly = false }: { readOnly?: boolean 
   };
 
   return (
-    <Card className="mt-6">
+    <Card className="h-full">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
