@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The "Joined" badge on a webinar's registrations is hidden (November 18)
+
+The green "Joined" badge appeared the first time a registered person opened the webinar's page, the waiting room included. A registrant who looked at the page six days before the webinar was shown as "Joined", which reads as attendance. The badge is hidden, not removed: the marker (`Registration.webinarFirstJoinedAt`) is still written, and `SHOW_WEBINAR_JOINED_BADGE` in the registrations page shows it again. Who watched is the attendance report's answer, after the webinar.
+
 ### The agent makes contacts speakers with all their details (November 18)
 
 An organiser asked the agent to add three faculty "from the master contact". It made three speakers with a name and an address, set a professor's title to Dr, and then said the contacts held no job title or country. They did; the agent could not see them. Three gaps, all closed:

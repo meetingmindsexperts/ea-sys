@@ -124,6 +124,13 @@ import { isRegistrationFormCompleted } from "@/lib/registration-completion";
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 
+// The green "Joined" badge on a webinar's registrations is HIDDEN (owner, Nov 18,
+// 2026), not removed. It is set the first time a registered person opens the
+// webinar's page, the waiting room included, so it showed days before a webinar
+// ran and read as attendance. The marker (`Registration.webinarFirstJoinedAt`) is
+// still written; set this to true to show the badge again.
+const SHOW_WEBINAR_JOINED_BADGE: boolean = false;
+
 /** The registration form filter: not completed (and not cancelled), or completed. */
 function matchesCompletionFilter(r: Registration, filter: "all" | "pending" | "done"): boolean {
   const completed = isRegistrationFormCompleted(r);
@@ -1208,7 +1215,7 @@ export default function RegistrationsPage() {
                             Virtual
                           </Badge>
                         )}
-                        {eventIsWebinar && registration.webinarFirstJoinedAt && (
+                        {SHOW_WEBINAR_JOINED_BADGE && eventIsWebinar && registration.webinarFirstJoinedAt && (
                           <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-200">
                             Joined
                           </Badge>

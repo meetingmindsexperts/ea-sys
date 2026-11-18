@@ -20,7 +20,7 @@ Creating an event with `eventType = 'WEBINAR'` turns on a differentiated mode:
 7. **Surfaces sponsors + topics + speaker bios** under a 3-tab layout (Live Video / Session Details / Sponsors) on the public session page
 8. **Waiting room + producer-gated admission** (June 23, 2026) — registered attendees land in a branded lobby (live countdown + optional YouTube/Vimeo holding video + message); a producer clicks **"Open the room / Go live"** on the console (sets the anchor session `LIVE`) to admit everyone into the live view
 9. **Per-event viewing mode** — attendees watch via the **Zoom SDK embed** (interactive, native Q&A; counts against Zoom capacity) **or** a **custom HLS stream** (one-way broadcast, scales to ~5,000 via CloudFront — see `LIVE_STREAMING.md`)
-10. **Real-time presence tracking** — a heartbeat records who's in the lobby / joined live; the console shows a **"Live now"** roster, and the registrations list shows a **"Joined"** badge (`WebinarPresence` table; distinct from the authoritative post-event `ZoomAttendance`)
+10. **Real-time presence tracking** — a heartbeat records who's in the lobby / joined live; the console shows a **"Live now"** roster, and the registrations list can show a **"Joined"** badge (hidden since Nov 18, 2026: it appeared on opening the waiting room and read as attendance; `SHOW_WEBINAR_JOINED_BADGE` in the registrations page) (`WebinarPresence` table; distinct from the authoritative post-event `ZoomAttendance`)
 
 Non-webinar events are **untouched** — all logic is gated on `eventType` + a registered viewer.
 
@@ -659,7 +659,7 @@ The full path is: **email CTA → `/e/{slug}/session/{id}` → (sign in if neede
 ### Real-time presence (`WebinarPresence` table)
 - Additive migration `20260623000000_add_webinar_presence` — one row per `(sessionId, registrationId)` (`@@unique`), plus a write-once `Registration.webinarFirstJoinedAt`.
 - `POST .../sessions/[sessionId]/presence` heartbeat (auth + registration-gated; org staff skipped) — **`upsert`** (INSERT … ON CONFLICT, no interactive transaction) so two-tab first-beats can't collide on the unique key and no pooled connection is held. Escalates `lobby→joined` only (never downgrades). The page beats every ~30–40s while open, paused when the tab is hidden.
-- `GET /api/events/[eventId]/webinar/presence` (org-scoped) → registrants present in the last 60s, split lobby/joined → the console **"Live now"** card. The registrations list shows a **"Joined"** badge (`webinarFirstJoinedAt`). **This is OUR-page presence, not Zoom viewing** — keep it distinct from the post-event `ZoomAttendance`.
+- `GET /api/events/[eventId]/webinar/presence` (org-scoped) → registrants present in the last 60s, split lobby/joined → the console **"Live now"** card. The registrations list has a **"Joined"** badge (`webinarFirstJoinedAt`), hidden since Nov 18, 2026 (`SHOW_WEBINAR_JOINED_BADGE`); the marker is still written. **This is OUR-page presence, not Zoom viewing** — keep it distinct from the post-event `ZoomAttendance`.
 
 ### 5k stream delivery
 HLS playback is **CDN-aware** via `HLS_CDN_BASE` (CloudFront) with the app origin as fallback (emitted by `stream-status` + `zoom-join`); `stream-status` keeps probing the MediaMTX origin internally (cached 3s so 5k pollers share one probe).
