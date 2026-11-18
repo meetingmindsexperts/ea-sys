@@ -316,9 +316,11 @@ async function verify(owner: PrismaClient, role: string): Promise<void> {
   }
 
   console.log("\n✓ Enforcement verified for the app role.\n");
-  console.log("Next: point the application's DATABASE_URL at this role and set");
-  console.log("RLS_SET_LOCAL=1. The boot tripwire re-checks the above on every start");
-  console.log("and refuses to serve if it ever stops being true.\n");
+  console.log("Next: point the application's DATABASE_URL at this role, set");
+  console.log("DATABASE_URL_OPERATOR to the table owner's connection, and set");
+  console.log("RLS_SET_LOCAL=1 (all three together, on the web containers and the worker).");
+  console.log("The boot tripwire re-checks the above on every start and refuses to serve");
+  console.log("if it ever stops being true, or if the owner's connection is missing.\n");
 }
 
 main().catch((e) => {

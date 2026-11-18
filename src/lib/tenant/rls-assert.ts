@@ -65,7 +65,9 @@ export async function listPoliciedTables(client: RlsQueryClient): Promise<Polici
  * database is never consulted, with nothing in the logs. A deployment that
  * identifies itself as the platform (PLATFORM_ORG_ID set: it serves other
  * organisations) must therefore claim enforcement, so the check above runs.
- * Master leaves PLATFORM_ORG_ID unset and is untouched. Synchronous, no DB.
+ * A deployment with row security OFF and no PLATFORM_ORG_ID is untouched
+ * (production today). One with it ON is asked for the privileged connection
+ * whether or not it calls itself the platform. Synchronous, no DB.
  */
 export function assertPlatformClaimsRls(env: NodeJS.ProcessEnv = process.env): void {
   // The privileged lane is on the request path since Event carries a policy

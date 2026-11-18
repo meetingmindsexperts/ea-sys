@@ -80,12 +80,6 @@ export async function runSupportingDocumentPruneTick(
     errors: 0,
   };
 
-  // Enumeration goes through the storage layer, so this works whatever the
-  // backing store is. It used to walk the filesystem directly, which meant that
-  // under any other provider it would have listed an empty local directory,
-  // found no orphans, and reported a clean tick forever while unclaimed uploads
-  // accumulated. A reaper that silently reaps nothing is the worst shape of
-  // failure: every dashboard stays green.
   // Before anything is deleted: can the claim check below see every
   // organisation's registrations? If the privileged client is itself held by
   // the row policies (row security on, DATABASE_URL_OPERATOR forgotten), every
@@ -102,6 +96,12 @@ export async function runSupportingDocumentPruneTick(
     return result;
   }
 
+  // Enumeration goes through the storage layer, so this works whatever the
+  // backing store is. It used to walk the filesystem directly, which meant that
+  // under any other provider it would have listed an empty local directory,
+  // found no orphans, and reported a clean tick forever while unclaimed uploads
+  // accumulated. A reaper that silently reaps nothing is the worst shape of
+  // failure: every dashboard stays green.
   let files: Awaited<ReturnType<typeof listStoredFiles>>;
   try {
     files = await listStoredFiles(UPLOAD_SEGMENT.supportingDocuments);

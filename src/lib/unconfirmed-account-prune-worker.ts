@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { dbOperator } from "@/lib/db";
+import { dbOperator, operatorSeesEveryTenant } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { UNCONFIRMED_ACCOUNT_RETENTION_DAYS } from "@/lib/account-signup";
 
@@ -37,6 +37,17 @@ const MAX_PER_TICK = 200;
 
 export async function runUnconfirmedAccountPruneTick(now: Date = new Date()): Promise<{ deleted: number; skipped: number }> {
   const cutoff = new Date(now.getTime() - UNCONFIRMED_ACCOUNT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  // "Owns no registration, is no speaker, coordinates no group" below is read
+  // on the privileged client. If that client is itself held by row security
+  // (row security on, DATABASE_URL_OPERATOR forgotten) every account reads as
+  // owning nothing and would be deleted. Delete none, and say so loudly
+  // (review of 1198dd76).
+  for (const table of ["Registration", "Speaker", "RegistrationGroup"]) {
+    if (!(await operatorSeesEveryTenant(table))) {
+      apiLogger.error({ msg: "unconfirmed-account-prune:privileged-client-is-bound", table, fix: "set DATABASE_URL_OPERATOR to the table owner's connection" });
+      return { deleted: 0, skipped: 0 };
+    }
+  }
   const candidates = await dbOperator.user.findMany({
     where: {
       accountProfile: { signedUpAt: { not: null } },

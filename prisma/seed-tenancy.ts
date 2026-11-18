@@ -1289,8 +1289,8 @@ async function main() {
     where: { id: { in: [SCHED_EMAIL_A_ID, SCHED_EMAIL_B_ID] } },
   });
   // Fixtures of tests/tenancy/guard-reads-rls.test.ts, in case a killed run
-  // left them: they point at the uploader users deleted below, and that
-  // relation refuses the delete.
+  // left them. The queued sends point at the uploader users deleted below, and
+  // that relation refuses the delete; the sponsor is removed for tidiness.
   await db.scheduledEmail.deleteMany({ where: { id: { startsWith: "tenancy-guard-send-" } } });
   await db.sponsor.deleteMany({ where: { id: { startsWith: "tenancy-guard-sponsor-" } } });
   // MediaFile → User is a cross-child FK (not org-cascade-ordered), so wipe the

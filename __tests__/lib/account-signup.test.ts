@@ -8,14 +8,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Prisma } from "@prisma/client";
 
-const { mockDb } = vi.hoisted(() => ({
+const { mockDb, mockSees } = vi.hoisted(() => ({
+  mockSees: vi.fn<(table: string) => Promise<boolean>>(async () => true),
   mockDb: {
     accountProfile: { findUnique: vi.fn() },
     user: { findMany: vi.fn(), delete: vi.fn() },
   },
 }));
 // The prune runs on the RLS-exempt lane (portal review): the same mock serves both names.
-vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb }));
+vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb, operatorSeesEveryTenant: (t: string) => mockSees(t) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { signInNeedsConfirmation } from "@/lib/account-signup";
@@ -108,6 +109,22 @@ describe("unconfirmed-account-prune", () => {
     mockDb.user.findMany.mockResolvedValue([{ id: "a" }]);
     mockDb.user.delete.mockRejectedValue(new Error("connection lost"));
     await expect(runUnconfirmedAccountPruneTick(now)).rejects.toThrow("connection lost");
+  });
+
+  it("deletes NO account when the privileged client cannot see every organisation's registrations", async () => {
+    // Row security on and DATABASE_URL_OPERATOR forgotten: "owns no
+    // registration" would be true of every account (review of 1198dd76).
+    mockSees.mockImplementation(async (table: string) => table !== "Registration");
+    mockDb.user.findMany.mockClear();
+    mockDb.user.delete.mockClear();
+    mockDb.user.findMany.mockResolvedValue([{ id: "a" }]);
+    try {
+      expect(await runUnconfirmedAccountPruneTick(now)).toEqual({ deleted: 0, skipped: 0 });
+      expect(mockDb.user.findMany).not.toHaveBeenCalled();
+      expect(mockDb.user.delete).not.toHaveBeenCalled();
+    } finally {
+      mockSees.mockImplementation(async () => true);
+    }
   });
 });
 

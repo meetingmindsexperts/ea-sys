@@ -116,14 +116,21 @@ re-run whenever a new domain policy lands.
 checks `verifiedAt` and nothing else. Do **not** pass `--primary` — that marks
 the canonical public domain, and localhost is not it.
 
-Then in `.env.local`, switch **only** `DATABASE_URL` to the app role. `DIRECT_URL`
-stays on the owner, because migrations need DDL rights the app role deliberately
-does not have:
+Then in `.env.local`, switch `DATABASE_URL` to the app role and name the owner's
+connection as the privileged one. `DIRECT_URL` stays on the owner, because
+migrations need DDL rights the app role deliberately does not have:
 
 ```
 DATABASE_URL="postgresql://app_user:local_dev_pw@localhost:54322/ea_sys_prod_local"
+DATABASE_URL_OPERATOR="<the owner connection, the same string as DIRECT_URL>"
 RLS_SET_LOCAL=1
 ```
+
+**`DATABASE_URL_OPERATOR` is required whenever `RLS_SET_LOCAL=1`** (since Nov 18,
+2026; it used to be asked only when `PLATFORM_ORG_ID` was set). Without it the
+app and the worker refuse to start: the privileged client would be the app's
+own restricted connection, and a cleanup job that asks "does anything still
+need this file" would be told "no".
 
 **If you forget to switch `DATABASE_URL`, the dev server will not start.** The
 boot tripwire (`src/lib/tenant/rls-assert.ts`) runs the same check the bootstrap

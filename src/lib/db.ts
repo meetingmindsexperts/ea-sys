@@ -493,6 +493,12 @@ export const db = globalForPrisma.prisma ?? buildDb();
  * permitted to import this; anything else importing it fails CI. A boolean
  * argument would have been invisible to that gate.
  *
+ * (One library that tenant routes call does use this client with no operator
+ * check, deliberately: src/lib/photo-cleanup.ts, Nov 18, 2026. It returns
+ * nothing to the caller; it counts, across every organisation, the rows that
+ * still show a photo file, to decide whether the file may be deleted. What a
+ * caller can learn from it is one bit about a file address they already hold.)
+ *
  * ⚠ TWO WALLS, NOT ONE. This client only removes the DATABASE lane. Any HTTP
  * route using it MUST also pass `denyNonOperator()` (src/lib/platform-operator.ts).
  * The DB lane and the RBAC check are independent; neither substitutes for the
@@ -527,7 +533,8 @@ function buildOperatorDb(): PrismaClient {
 
 export const dbOperator = globalForPrisma.prismaOperator ?? buildOperatorDb();
 
-const operatorSight = new Map<string, boolean>();
+/** Tables the privileged client was found NOT to see in full. Only that answer is remembered. */
+const operatorBound = new Set<string>();
 
 /**
  * Can the privileged client really see EVERY organisation's rows of this
@@ -544,15 +551,22 @@ const operatorSight = new Map<string, boolean>();
  *
  * `row_security_active` is Postgres's own answer for the connected role and
  * this table: false for the owner, a superuser, a BYPASSRLS role, or a table
- * with no row security at all (production today). The answer cannot change
- * while the process lives, so it is asked once per table.
+ * with no row security at all (production today).
+ *
+ * A "yes" is asked afresh every time and NEVER remembered (review of
+ * 1198dd76): the answer can change under a running process, because enabling
+ * row security on a table, or changing its owner, takes effect on open
+ * connections. A job that remembered "yes" from before the policies were
+ * applied would go on deleting after them. A "no" is remembered: it is the
+ * safe answer, and it only changes with a restart on a new connection. The
+ * cost is one small query per table before a delete; none of the callers is on
+ * a hot path.
  */
 export async function operatorSeesEveryTenant(table: string): Promise<boolean> {
-  const known = operatorSight.get(table);
-  if (known !== undefined) return known;
+  if (operatorBound.has(table)) return false;
   const rows = await dbOperator.$queryRaw<{ bound: boolean }[]>`SELECT row_security_active(${`"${table}"`}::regclass) AS bound`;
   const sees = rows[0]?.bound === false;
-  operatorSight.set(table, sees);
+  if (!sees) operatorBound.add(table);
   return sees;
 }
 

@@ -447,8 +447,11 @@ SWEPT_MODULES=(
 #     (Nov 18, 2026) ask "does ANY row, of any organisation, still need this
 #     FILE" before deleting it. The folders are shared by every organisation,
 #     so the answer is a fact about the whole table; read through a lane (or
-#     none) it is "no", and the file is destroyed. These three must also ask
-#     `operatorSeesEveryTenant` first and delete nothing when it says no.
+#     none) it is "no", and the file is destroyed.
+#   A member whose read can answer "nothing uses this, delete it" (these three,
+#   and unconfirmed-account-prune) must ask `operatorSeesEveryTenant` first and
+#   delete nothing when it says no. That is a rule in prose: nothing here
+#   checks it.
 #
 # NOT here, deliberately: log-archive, oauth-cleanup and
 # login-event-prune. They scan SystemLog / McpOAuth* / LoginEvent, none of
@@ -459,7 +462,7 @@ OPERATOR_LANE_ALLOWLIST=(
   "src/lib/supporting-document-prune-worker.ts" # "does ANY registration claim this file" before a delete: the whole table, never a lane (Nov 18, 2026)
   "src/lib/email-attachment-prune-worker.ts"    # "does ANY queued send need this file" before a delete (Nov 18, 2026)
   "src/lib/photo-cleanup.ts"                    # "does ANY attendee, speaker or contact still show this photo" before a delete (Nov 18, 2026)
-  "src/lib/unconfirmed-account-prune-worker.ts" # cross-tenant sweep; "owns no registration" must see every tenant (Nov 9, 2026)
+  "src/lib/unconfirmed-account-prune-worker.ts" # cross-tenant sweep; "owns no registration" must see every tenant (Nov 9, 2026), and asks operatorSeesEveryTenant first (Nov 18)
   "src/lib/scheduled-emails-worker.ts"       # due-row scan + stuck sweep
   "src/lib/invoice-reconciliation-worker.ts" # PAID-without-invoice candidate sweep
   "src/lib/webinar-recordings-worker.ts"     # ZoomMeeting candidate scan
@@ -498,7 +501,9 @@ OPERATOR_LANE_ALLOWLIST=(
   # who reaches an event by their link to it. It returns the id and the
   # organisation and nothing else; the content is then read inside that lane on
   # the normal client. Not a worker scan and not an operator surface: the third
-  # kind of member, and the only one of its kind.
+  # kind of member. (src/lib/photo-cleanup.ts, above, is the other library on
+  # the request path with no operator check: it returns nothing to the caller,
+  # only decides whether a file may be deleted.)
   "src/lib/tenant/event-tenant.ts"           # event id + organisation discovery for a linked role
   # The operator's list of every tenant with its event and user counts (the
   # organisation switcher). Behind denyNonOperator(). The event count under an
