@@ -112,11 +112,12 @@ export default function EmailTemplateEditorPage() {
       stored.subject === normalizeTemplateTokens(lastSent.subject) &&
       stored.textContent === normalizeTemplateTokens(lastSent.textContent) &&
       stored.isActive === lastSent.isActive;
+    // Forgotten after any sync: after an echo it is done with, and after a
+    // re-seed the screen no longer comes from our send, so our echo, if it
+    // comes later, must re-seed to what is stored (review of ecb63937). Saves
+    // do not overlap: the save stays pending until its refetch is in.
+    setLastSent(null);
     if (echoOfOurSave) {
-      // Forgotten only by its own echo: a row from someone else seen while
-      // our save is in flight must not make our echo look foreign (review of
-      // 0f2204a9). The handlers leave `dirty` to this block for the same reason.
-      setLastSent(null);
       setDirty(
         htmlContent !== lastSent.htmlContent ||
           subject !== lastSent.subject ||

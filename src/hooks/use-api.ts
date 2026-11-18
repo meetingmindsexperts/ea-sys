@@ -1637,10 +1637,15 @@ export function useUpdateEmailTemplate(eventId: string) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       }),
-    onSuccess: (_, { templateId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.emailTemplates(eventId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.emailTemplate(eventId, templateId) });
-    },
+    // Returned, so the save stays pending until the template's refetch is in
+    // (Nov 18, 2026): the editor page tells its own save's echo from someone
+    // else's row, and keeps Save, Preview and Send test off until it lands,
+    // or a second save in that gap made the echo look foreign.
+    onSuccess: (_, { templateId }) =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.emailTemplates(eventId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.emailTemplate(eventId, templateId) }),
+      ]),
   });
 }
 
