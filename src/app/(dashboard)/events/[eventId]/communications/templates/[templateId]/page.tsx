@@ -92,8 +92,21 @@ export default function EmailTemplateEditorPage() {
     // ae8a3d5e). A remount dropped Source mode, and the next Source view showed
     // the editor's re-parse, which loses table widths, <center>, <font> and
     // comments, and the next save stored that.
-    const echoOfOurSave = syncedAt !== null && bodyContent === htmlContent && data.template.subject === subject;
-    if (!echoOfOurSave) {
+    // Every field the page saves is compared (review of d42604e7: a Reset to
+    // Default that changed only the switch or the plain text passed as an
+    // echo, and the next save undid it), each as the server stores it (it
+    // normalises {{ token }} spacing, which alone is no reason to remount).
+    const echoOfOurSave =
+      syncedAt !== null &&
+      bodyContent === normalizeTemplateTokens(htmlContent) &&
+      data.template.subject === normalizeTemplateTokens(subject) &&
+      (data.template.textContent || "") === normalizeTemplateTokens(textContent) &&
+      data.template.isActive === isActive;
+    if (echoOfOurSave) {
+      // The stored spelling of any normalised token, without a remount.
+      if (bodyContent !== htmlContent) setHtmlContent(bodyContent);
+      if (data.template.subject !== subject) setSubject(data.template.subject);
+    } else {
       setSubject(data.template.subject);
       setHtmlContent(bodyContent);
       setTextContent(data.template.textContent || "");
