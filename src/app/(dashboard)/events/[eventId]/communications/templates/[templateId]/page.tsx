@@ -108,12 +108,15 @@ export default function EmailTemplateEditorPage() {
     const echoOfOurSave =
       syncedAt !== null &&
       lastSent !== null &&
-      stored.htmlContent === normalizeTemplateTokens(lastSent.htmlContent) &&
+      stored.htmlContent === stripDocumentWrapper(normalizeTemplateTokens(lastSent.htmlContent)) &&
       stored.subject === normalizeTemplateTokens(lastSent.subject) &&
       stored.textContent === normalizeTemplateTokens(lastSent.textContent) &&
       stored.isActive === lastSent.isActive;
-    setLastSent(null);
     if (echoOfOurSave) {
+      // Forgotten only by its own echo: a row from someone else seen while
+      // our save is in flight must not make our echo look foreign (review of
+      // 0f2204a9). The handlers leave `dirty` to this block for the same reason.
+      setLastSent(null);
       setDirty(
         htmlContent !== lastSent.htmlContent ||
           subject !== lastSent.subject ||
@@ -142,7 +145,6 @@ export default function EmailTemplateEditorPage() {
   const handleSave = useCallback(async () => {
     try {
       const saved = await saveNow();
-      setDirty(false);
       // The server recomputes this after normalizing, so the toast reports what
       // the stored template will actually do rather than what was on screen.
       const unfillable: string[] = saved?.unfillableTokens ?? [];
@@ -185,7 +187,6 @@ export default function EmailTemplateEditorPage() {
       // Save first if dirty
       if (dirty) {
         await saveNow();
-        setDirty(false);
       }
       const result = await previewMutation.mutateAsync({
         templateId,
@@ -205,7 +206,6 @@ export default function EmailTemplateEditorPage() {
     try {
       if (dirty) {
         await saveNow();
-        setDirty(false);
       }
       const result = await previewMutation.mutateAsync({
         templateId,
@@ -347,7 +347,7 @@ export default function EmailTemplateEditorPage() {
             variant="outline"
             size="sm"
             onClick={handlePreview}
-            disabled={previewMutation.isPending}
+            disabled={previewMutation.isPending || updateMutation.isPending}
           >
             <Eye className="mr-2 h-4 w-4" />
             Preview
@@ -356,7 +356,7 @@ export default function EmailTemplateEditorPage() {
             variant="outline"
             size="sm"
             onClick={handleTestEmail}
-            disabled={previewMutation.isPending}
+            disabled={previewMutation.isPending || updateMutation.isPending}
           >
             <Send className="mr-2 h-4 w-4" />
             Send Test
