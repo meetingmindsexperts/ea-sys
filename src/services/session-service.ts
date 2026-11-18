@@ -1158,9 +1158,11 @@ export type AddSessionSpeakerResult =
  * no-op; different role → role update. Break items refuse a roster (H1).
  */
 export async function addSessionSpeaker(
-  input: RosterOpBase & { speakerId: string; role: SessionRole },
+  input: RosterOpBase & { speakerId: string; role: SessionRole; customRoleKey?: string | null },
 ): Promise<AddSessionSpeakerResult> {
   const { eventId, sessionId, speakerId, role } = input;
+  // An added role (a Host) arrives resolved: its duty's built-in plus its key.
+  const customRoleKey = input.customRoleKey ?? null;
   try {
     const session = await findRosterSession(sessionId, eventId);
     if (!session) {
@@ -1185,15 +1187,15 @@ export async function addSessionSpeaker(
       where: { sessionId_speakerId: { sessionId, speakerId } },
       select: { role: true, customRoleKey: true },
     });
-    // An added role (a Host) is stored as its duty's built-in; asking for that
-    // built-in by name is a change of role, not a no-op.
-    if (existing && existing.role === role && !existing.customRoleKey) {
+    // An added role (a Host) is stored as its duty's built-in, so the key
+    // decides too: asking for Moderator when they are a Host is a change.
+    if (existing && existing.role === role && (existing.customRoleKey ?? null) === customRoleKey) {
       return { ok: true, sessionSpeaker: { sessionId, speakerId, role }, alreadyAssigned: true, roleChanged: false };
     }
     const result = await db.sessionSpeaker.upsert({
       where: { sessionId_speakerId: { sessionId, speakerId } },
-      create: { sessionId, speakerId, role, organizationId: input.organizationId },
-      update: { role, customRoleKey: null },
+      create: { sessionId, speakerId, role, customRoleKey, organizationId: input.organizationId },
+      update: { role, customRoleKey },
       select: { sessionId: true, speakerId: true, role: true },
     });
 
@@ -1284,7 +1286,7 @@ export type ReplaceSessionRosterResult =
  * allowed — it's a cleanup.
  */
 export async function replaceSessionRoster(
-  input: RosterOpBase & { assignments: { speakerId: string; role: SessionRole }[] },
+  input: RosterOpBase & { assignments: { speakerId: string; role: SessionRole; customRoleKey?: string | null }[] },
 ): Promise<ReplaceSessionRosterResult> {
   const { eventId, sessionId, assignments } = input;
   try {
@@ -1327,7 +1329,7 @@ export async function replaceSessionRoster(
     const result = await tenantTransaction(async (tx) => {
       const beforeRows = await tx.sessionSpeaker.findMany({
         where: { sessionId },
-        select: { speakerId: true, role: true },
+        select: { speakerId: true, role: true, customRoleKey: true },
       });
       const { topicRowsRemoved } = await setSessionSpeakersTx(tx, sessionId, input.organizationId, assignments);
       return { before: beforeRows, topicRowsRemoved };

@@ -265,3 +265,20 @@ export function sessionRoleFilterLabel(filter: string, roles: readonly SessionRo
   if (filter === PRESENTS_FILTER) return "Everyone who presents";
   return roles.find((r) => r.key === filter)?.label ?? SESSION_ROLE_LABELS[filter as SessionRole] ?? filter;
 }
+
+/**
+ * A role as someone types it (the agent, a CSV): a built-in's code in any
+ * case, an added role's key, or any role's name. Null when it is none of
+ * them: the caller refuses it rather than guess.
+ */
+export function findSessionRoleByName(typed: string, roles: readonly SessionRoleDef[]): SessionRoleDef | null {
+  const t = typed.trim();
+  if (!t) return null;
+  const lower = t.toLowerCase();
+  return (
+    roles.find((r) => r.key === t) ??
+    roles.find((r) => r.builtIn && r.key.toLowerCase() === lower) ??
+    roles.find((r) => r.label.trim().toLowerCase() === lower) ??
+    null
+  );
+}

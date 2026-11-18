@@ -7,7 +7,12 @@ from section 3: the list is kept in `Organization.settings.sessionRoles` and an
 assignment stores an added role's key in `SessionSpeaker.customRoleKey`, the way
 sponsor tiers and person fields are kept, instead of a new table (no new row
 policy, same deploy safety; `src/services/session-role-service.ts`,
-`/api/organization/session-roles`).
+`/api/organization/session-roles`). Steps 3 to 6 built Nov 18: the Settings card and
+the event's choice (`Event.settings.hiddenSessionRoles`, the roles an event turns
+off), every picker and badge, the Communications audiences by role and by duty,
+and the agent taking a role by name (an unknown name is refused, it used to become
+SPEAKER). The archive export keeps a built-in's code and names an added role. The
+CSV import is unchanged (D6). Step 7, the browser proof, is next.
 
 **Ask (owner, Nov 18, 2026):** the agenda's session roles are fixed at Moderator,
 Chairperson, Panelist and Speaker. An organiser should be able to add, rename and

@@ -290,7 +290,16 @@ export function buildOpenApiSpec(serverUrl: string): Json {
               items: {
                 type: "object",
                 properties: {
-                  role: { type: "string", enum: ["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"] },
+                  role: {
+                    type: "string",
+                    enum: ["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"],
+                    description: "The stored role. For a role the organisation added, this is its duty's built-in (MODERATOR runs the session, SPEAKER presents) and customRoleKey names it.",
+                  },
+                  customRoleKey: {
+                    type: "string",
+                    nullable: true,
+                    description: "A session role the organisation added (Settings, Session roles), by its key. Null for a built-in.",
+                  },
                   speaker: { type: "object", properties: { id: { type: "string" }, title: TITLE, firstName: { type: "string" }, lastName: { type: "string" }, status: SPEAKER_STATUS } },
                 },
               },

@@ -3,7 +3,6 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import type { ToolExecutor } from "./_shared";
 import {
-  SessionRole as PrismaSessionRole,
   SessionStatus as PrismaSessionStatus,
   SessionType as PrismaSessionType,
   type SessionType,
@@ -19,18 +18,65 @@ import {
   type SessionStatus,
 } from "@/services/session-service";
 import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
+import {
+  BUILT_IN_SESSION_ROLES,
+  findSessionRoleByName,
+  resolveSessionRoleKey,
+  sessionRoleLabel,
+  type SessionRoleDef,
+} from "@/lib/session-roles";
+import { getSessionRoles, getSessionRolesForDisplay } from "@/services/session-role-service";
 
 // Derived from the Prisma enums so a new value can't silently drift out of
 // the agent's whitelists (the session-enums.ts pattern).
-const VALID_SESSION_ROLES = new Set<string>(Object.values(PrismaSessionRole));
 const VALID_SESSION_STATUSES = new Set<string>(Object.values(PrismaSessionStatus));
 const VALID_SESSION_TYPES = new Set<string>(Object.values(PrismaSessionType));
 
-/** Agent input is untyped JSON — coerce to the service's unions, defaulting
- *  the same way the pre-service executor did (unknown role → SPEAKER). */
-function normalizeRole(role: unknown): SessionRole {
-  const r = String(role ?? "").toUpperCase();
-  return (VALID_SESSION_ROLES.has(r) ? r : "SPEAKER") as SessionRole;
+/**
+ * The agent names a session role as it likes: a built-in's code, an added
+ * role's key, or any of the organisation's role names (session-roles.ts). An
+ * absent role is a Speaker. A name that is none of these is refused with the
+ * organisation's names (Nov 18, 2026; it used to become SPEAKER silently,
+ * which an organisation's own "Host" would have too).
+ */
+function agentRoleKey(
+  raw: unknown,
+  roles: readonly SessionRoleDef[],
+): { ok: true; key: string } | { ok: false; error: string; code: "INVALID_ROLE" } {
+  if (raw == null || String(raw).trim() === "") return { ok: true, key: "SPEAKER" };
+  const found = findSessionRoleByName(String(raw), roles);
+  if (found) return { ok: true, key: found.key };
+  return {
+    ok: false,
+    error: `Unknown session role "${String(raw)}". This organisation's roles: ${roles.map((r) => r.label).join(", ")}.`,
+    code: "INVALID_ROLE",
+  };
+}
+
+/**
+ * The list to resolve the agent's roles against. Built-in codes (any case) and
+ * absent roles need no read, as the session service's own check; a name
+ * needs the organisation's list.
+ */
+async function rolesFor(raw: unknown[], organizationId: string): Promise<readonly SessionRoleDef[]> {
+  const builtInOnly = raw.every(
+    (r) => r == null || String(r).trim() === "" || BUILT_IN_SESSION_ROLES.some((b) => b.key === String(r).trim().toUpperCase()),
+  );
+  return builtInOnly ? BUILT_IN_SESSION_ROLES : getSessionRoles(organizationId);
+}
+
+/** The keys for a list of {speakerId, role} the agent sent, or the first refusal. */
+function agentRoleKeys(
+  raw: { speakerId: string; role: string }[],
+  roles: readonly SessionRoleDef[],
+): { ok: true; rows: { speakerId: string; role: string }[] } | { ok: false; error: string; code: "INVALID_ROLE" } {
+  const rows: { speakerId: string; role: string }[] = [];
+  for (const r of raw) {
+    const k = agentRoleKey(r.role, roles);
+    if (!k.ok) return k;
+    rows.push({ speakerId: r.speakerId, role: k.key });
+  }
+  return { ok: true, rows };
 }
 function normalizeStatus(status: unknown): SessionStatus {
   const s = String(status ?? "").toUpperCase();
@@ -70,9 +116,12 @@ const listSessions: ToolExecutor = async (input, ctx) => {
         track: { select: { name: true, color: true } },
         // Session-level roles. speaker.id lets n8n cross-link to the speaker
         // record; speaker.title carries the honorific for agenda display.
+        // customRoleKey + roleName (added below): the organisation's own
+        // roles (session-roles.ts); `role` stays the stored code for n8n.
         speakers: {
           select: {
             role: true,
+            customRoleKey: true,
             speaker: { select: { id: true, title: true, firstName: true, lastName: true } },
           },
         },
@@ -98,7 +147,12 @@ const listSessions: ToolExecutor = async (input, ctx) => {
       orderBy: { startTime: "asc" },
       take: limit,
     });
-    return { sessions, total: sessions.length };
+    const roles = await getSessionRolesForDisplay(ctx.organizationId);
+    const named = sessions.map((sess) => ({
+      ...sess,
+      speakers: sess.speakers.map((sp) => ({ ...sp, roleName: sessionRoleLabel(sp, roles) })),
+    }));
+    return { sessions: named, total: sessions.length };
     });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_sessions failed");
@@ -142,6 +196,8 @@ const createSession: ToolExecutor = async (input, ctx) => {
     // stats refresh all live in the service (review H4) — this executor used to
     // write NO audit row and send NO notification, and silently dropped
     // `status`, `abstractId` and topic `sortOrder`.
+    const roleRows = rawRoles ? agentRoleKeys(rawRoles, await rolesFor(rawRoles.map((r) => r.role), ctx.organizationId)) : null;
+    if (roleRows && !roleRows.ok) return { error: roleRows.error, code: roleRows.code };
     const result = await createSessionService({
       eventId: ctx.eventId,
       organizationId: ctx.organizationId,
@@ -158,7 +214,7 @@ const createSession: ToolExecutor = async (input, ctx) => {
       ...(input.capacity != null && { capacity: Number(input.capacity) }),
       ...(input.status != null && { status: normalizeStatus(input.status) }),
       ...(rawSpeakerIds && { speakerIds: rawSpeakerIds }),
-      ...(rawRoles && { sessionRoles: rawRoles.map((r) => ({ speakerId: r.speakerId, role: normalizeRole(r.role) })) }),
+      ...(roleRows && { sessionRoles: roleRows.rows }),
       ...(rawTopics && {
         topics: rawTopics.map((t) => ({
           title: t.title,
@@ -319,6 +375,8 @@ const updateSession: ToolExecutor = async (input, ctx) => {
     // transaction, the event-timezone date validation, the `endTime <= startTime`
     // rule (this path used to allow a zero-duration session) and the positive
     // capacity rule (this path used to allow 0) are now identical to REST.
+    const roleRows = rawRoles ? agentRoleKeys(rawRoles, await rolesFor(rawRoles.map((r) => r.role), ctx.organizationId)) : null;
+    if (roleRows && !roleRows.ok) return { error: roleRows.error, code: roleRows.code };
     const result = await updateSessionService({
       eventId: ctx.eventId,
       organizationId: ctx.organizationId,
@@ -336,7 +394,7 @@ const updateSession: ToolExecutor = async (input, ctx) => {
       ...(input.capacity !== undefined && { capacity: input.capacity == null ? null : Number(input.capacity) }),
       ...(input.status != null && { status: normalizeStatus(input.status) }),
       ...(rawSpeakerIds && { speakerIds: rawSpeakerIds }),
-      ...(rawRoles && { sessionRoles: rawRoles.map((r) => ({ speakerId: r.speakerId, role: normalizeRole(r.role) })) }),
+      ...(roleRows && { sessionRoles: roleRows.rows }),
       ...(rawTopics && {
         topics: rawTopics.map((t) => ({
           // Existing topic ids are preserved (updated in place) — see M2 in
@@ -382,7 +440,6 @@ const updateSession: ToolExecutor = async (input, ctx) => {
 // All three tools verify the session is in the caller's event (org-scope)
 // and that any provided speakers belong to that same event.
 
-const SESSION_ROLES = VALID_SESSION_ROLES;
 
 // Thin MCP wrappers — the roster domain logic (H1 break-item gate, idempotent
 // upsert, transactional remove + L1 topic cleanup, the atomic replace-all swap,
@@ -395,19 +452,20 @@ const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
     return await runWithTenant(ctx.organizationId, async () => {
     const sessionId = String(input.sessionId ?? "").trim();
     const speakerId = String(input.speakerId ?? "").trim();
-    const rawRole = input.role ? String(input.role).toUpperCase() : "SPEAKER";
     if (!sessionId) return { error: "sessionId is required", code: "MISSING_SESSION_ID" };
     if (!speakerId) return { error: "speakerId is required", code: "MISSING_SPEAKER_ID" };
-    if (!SESSION_ROLES.has(rawRole)) {
-      return { error: `Invalid role. Must be one of: ${[...SESSION_ROLES].join(", ")}`, code: "INVALID_ROLE" };
-    }
+    const roles = await rolesFor([input.role], ctx.organizationId);
+    const key = agentRoleKey(input.role, roles);
+    if (!key.ok) return { error: key.error, code: key.code };
+    const resolved = resolveSessionRoleKey(key.key, roles)!;
 
     const result = await addSessionSpeakerService({
       eventId: ctx.eventId,
       organizationId: ctx.organizationId,
       sessionId,
       speakerId,
-      role: rawRole as SessionRole,
+      role: resolved.role,
+      customRoleKey: resolved.customRoleKey,
       actorUserId: ctx.userId,
       source: ctx.source,
     });
@@ -475,19 +533,22 @@ const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
 
     // Normalise + validate each assignment up front so we don't
     // half-apply on bad input.
-    const normalised: { speakerId: string; role: SessionRole }[] = [];
+    const roles = await rolesFor(
+      rawAssignments.map((a) => (a && typeof a === "object" ? (a as Record<string, unknown>).role : null)),
+      ctx.organizationId,
+    );
+    const normalised: { speakerId: string; role: SessionRole; customRoleKey: string | null }[] = [];
     for (let i = 0; i < rawAssignments.length; i++) {
       const a = rawAssignments[i] as Record<string, unknown> | null;
       if (!a || typeof a !== "object") {
         return { error: `Assignment ${i}: must be an object`, code: "INVALID_ASSIGNMENT" };
       }
       const speakerId = a.speakerId ? String(a.speakerId).trim() : "";
-      const role = a.role ? String(a.role).toUpperCase() : "SPEAKER";
       if (!speakerId) return { error: `Assignment ${i}: speakerId required`, code: "INVALID_ASSIGNMENT" };
-      if (!SESSION_ROLES.has(role)) {
-        return { error: `Assignment ${i}: invalid role "${role}"`, code: "INVALID_ROLE" };
-      }
-      normalised.push({ speakerId, role: role as SessionRole });
+      const key = agentRoleKey(a.role, roles);
+      if (!key.ok) return { error: `Assignment ${i}: ${key.error}`, code: key.code };
+      const resolved = resolveSessionRoleKey(key.key, roles)!;
+      normalised.push({ speakerId, role: resolved.role, customRoleKey: resolved.customRoleKey });
     }
 
     const result = await replaceSessionRosterService({

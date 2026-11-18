@@ -409,7 +409,7 @@ export function registerAllMcpTools(
       trackId: z.string().optional(), location: z.string().optional(), description: z.string().optional(),
       capacity: z.number().optional(),
       speakerIds: z.array(z.string()).optional(),
-      sessionRoles: z.array(z.object({ speakerId: z.string(), role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]) })).optional(),
+      sessionRoles: z.array(z.object({ speakerId: z.string(), role: z.string().max(60).describe("A built-in (SPEAKER, MODERATOR, CHAIRPERSON, PANELIST) or one of the organisation's own session roles by name, as list_sessions shows them in roleName. Defaults to SPEAKER.") })).optional(),
       topics: z.array(z.object({ title: z.string(), duration: z.number().optional(), abstractId: z.string().optional(), speakerIds: z.array(z.string()).optional() })).optional(),
     }},
     { name: "add_topic_to_session", description: "Add a topic to a session, with its speakers. On a WEBINAR event this is how each talk of the webinar is added: one topic per talk on the webinar session, so its speakers show on the streaming page and import to Zoom as panelists.", params: {
@@ -499,7 +499,7 @@ export function registerAllMcpTools(
     { name: "add_speaker_to_session", description: "Assign a speaker to a session with a role. W2-F3 fix — replaces the old delete-and-recreate workaround for day-of speaker swaps. Idempotent: re-calling with the same role is a no-op; calling with a different role updates the existing assignment. Roles: SPEAKER, MODERATOR, CHAIRPERSON, PANELIST.", params: {
       sessionId: z.string(),
       speakerId: z.string(),
-      role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]).optional(),
+      role: z.string().max(60).optional().describe("A built-in (SPEAKER, MODERATOR, CHAIRPERSON, PANELIST) or one of the organisation's own session roles by name, as list_sessions shows them in roleName. Defaults to SPEAKER."),
     }},
     { name: "remove_speaker_from_session", description: "Remove a speaker from a session. Idempotent — returns alreadyRemoved=true when the speaker wasn't assigned.", params: {
       sessionId: z.string(),
@@ -509,7 +509,7 @@ export function registerAllMcpTools(
       sessionId: z.string(),
       assignments: z.array(z.object({
         speakerId: z.string(),
-        role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]).optional(),
+        role: z.string().max(60).optional().describe("A built-in (SPEAKER, MODERATOR, CHAIRPERSON, PANELIST) or one of the organisation's own session roles by name, as list_sessions shows them in roleName. Defaults to SPEAKER."),
       })),
     }},
     { name: "check_in_registration", description: "Check in a registration. Desk-parity gates: UNPAID/PENDING → PAYMENT_REQUIRED (unless complimentary/free); CANCELLED → REGISTRATION_CANCELLED unless allowCancelled=true (override reactivates + re-claims the seat; may return CAPACITY_EXCEEDED).", params: { registrationId: z.string(), allowCancelled: z.boolean().optional() }},
@@ -969,7 +969,8 @@ export function registerAllMcpTools(
         select: {
           id: true, name: true, startTime: true, endTime: true, location: true,
           track: { select: { name: true, color: true } },
-          speakers: { select: { role: true, speaker: { select: { firstName: true, lastName: true } } } },
+          // customRoleKey: a role the organisation added (session-roles.ts); role is its duty's built-in.
+          speakers: { select: { role: true, customRoleKey: true, speaker: { select: { firstName: true, lastName: true } } } },
           // presenterLabel: a Panel Discussion / Q&A preset's "Presented by" (ALL | ALL_FACULTY | ALL_ABOVE) in place of speakers.
           topics: { select: { title: true, duration: true, presenterLabel: true, speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } } } },
         },
