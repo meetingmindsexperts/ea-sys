@@ -97,17 +97,30 @@ export default async function EventPage({ params }: EventPageProps) {
     session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
   const canFinance = can(principalFromSession(session), "finance.view");
 
-  // The Invoices & Quotes card shows only once the event has an invoice or a
-  // receipt (owner, Nov 18, 2026): on an event with none it led to an empty
-  // page. Read only for someone who may see the card. If the read fails the
-  // card shows, since it is only a link.
+  // The Invoices & Quotes card shows only once its page has something to list
+  // (owner, Nov 18, 2026): an invoice, receipt or credit note, or a quote,
+  // which is every priced registration (the invoices page's rule: the rate's
+  // price when it has one, else the type's). An event with quotes and no
+  // invoice yet keeps the card: it is the only link to the quote list. Read
+  // only for someone who may see the card. If the read fails the card shows,
+  // since it is only a link.
   let hasInvoices = false;
   if (canFinance) {
     try {
-      hasInvoices = !!(await db.invoice.findFirst({
-        where: { eventId, type: { in: ["INVOICE", "RECEIPT"] } },
-        select: { id: true },
-      }));
+      const [invoice, quoted] = await Promise.all([
+        db.invoice.findFirst({ where: { eventId }, select: { id: true } }),
+        db.registration.findFirst({
+          where: {
+            eventId,
+            OR: [
+              { pricingTier: { price: { gt: 0 } } },
+              { pricingTierId: null, ticketType: { price: { gt: 0 } } },
+            ],
+          },
+          select: { id: true },
+        }),
+      ]);
+      hasInvoices = !!invoice || !!quoted;
     } catch (err) {
       apiLogger.error({ err, msg: "Failed to check invoices for event dashboard", eventId });
       hasInvoices = true;
@@ -421,7 +434,7 @@ export default async function EventPage({ params }: EventPageProps) {
               </Card>
             )}
             {/* Invoices & Quotes — finance-gated, and only once the event has an
-                invoice or a receipt. Lives in the left column so it matches the
+                invoice, receipt, credit note or quote. Lives in the left column so it matches the
                 width of the Registration Link + Registrations-by-Tier cards
                 above (not full-width). */}
             {canFinance && hasInvoices && (
