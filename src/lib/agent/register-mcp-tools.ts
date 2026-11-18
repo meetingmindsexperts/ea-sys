@@ -970,7 +970,8 @@ export function registerAllMcpTools(
           id: true, name: true, startTime: true, endTime: true, location: true,
           track: { select: { name: true, color: true } },
           speakers: { select: { role: true, speaker: { select: { firstName: true, lastName: true } } } },
-          topics: { select: { title: true, duration: true, speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } } } },
+          // presenterLabel: a Panel Discussion / Q&A preset's "Presented by" (ALL | ALL_FACULTY | ALL_ABOVE) in place of speakers.
+          topics: { select: { title: true, duration: true, presenterLabel: true, speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } } } },
         },
         orderBy: { startTime: "asc" },
       });

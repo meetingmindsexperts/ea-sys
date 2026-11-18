@@ -405,7 +405,10 @@ const SESSION_GAP = '<div style="height:24px; font-size:0; line-height:0;">&nbsp
  */
 function sessionNumberLabel(index: number, total: number): string {
   if (total < 2) return "";
-  return `<table style="border-collapse:collapse; margin:12px 0 8px 0;"><tr><td style="width:4px; height:20px; background:#00aade; padding:0; font-size:0; line-height:0;">&nbsp;</td><td style="padding:0 0 0 8px; color:#374151; font-size:14px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; line-height:20px;">Session ${index} of ${total}</td></tr></table>`;
+  // Outlook desktop ignores table margins, so the 8px below the label is a
+  // spacer div (as SESSION_GAP), and mso-line-height-rule keeps Word from
+  // drawing the bar taller than 20px.
+  return `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin:12px 0 0 0;"><tr><td style="width:4px; height:20px; background:#00aade; padding:0; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td><td style="padding:0 0 0 8px; color:#374151; font-size:14px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; line-height:20px; mso-line-height-rule:exactly;">Session ${index} of ${total}</td></tr></table><div style="height:8px; font-size:0; line-height:0;">&nbsp;</div>`;
 }
 
 /** The plain-text twin of `sessionNumberLabel`. */
@@ -427,9 +430,12 @@ function sessionNumberText(index: number, total: number): string[] {
 function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text: string } {
   // One role per (session, speaker) — SessionSpeaker's PK — so a session
   // appears at most once here.
-  const moderated = row.speaker.sessions.filter(
-    (s) => s.role === "MODERATOR" || s.role === "CHAIRPERSON",
-  );
+  // In schedule order: the loader's relation read has none, and "Session 1
+  // of 2" states a sequence (review of 4b84c150), as the presentation block's
+  // sort already does.
+  const moderated = row.speaker.sessions
+    .filter((s) => s.role === "MODERATOR" || s.role === "CHAIRPERSON")
+    .sort((a, b) => new Date(a.session.startTime).getTime() - new Date(b.session.startTime).getTime());
   if (!moderated.length) return { html: "", text: "" };
 
   const eventTz = resolveTimezone(row.event.timezone);

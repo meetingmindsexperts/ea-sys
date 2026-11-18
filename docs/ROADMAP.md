@@ -7,6 +7,35 @@
 
 ---
 
+## Panel Discussion / Q&A presets and numbered sessions: what the Nov 18 review left (recorded Nov 18, 2026): not started
+
+From the review of `4b84c150`, `bb5f4eb5` and `e399a17f` (0 BLOCKER, 0 HIGH, 1 MED, 8 LOW).
+Fixed in the follow-up: the moderation block numbers its sessions in schedule order
+(it followed database order); the number label keeps its 8px gap in Outlook desktop
+(a spacer, not a table margin) and its bar keeps 20px in Word; the agent's agenda
+resource and the public API reference carry `presenterLabel`; the service rules
+(keep an omitted label, clear it when speakers are named, refuse both) are tested
+through `updateSession`.
+
+**LOW, listed, not fixed:**
+
+- **The agent cannot make a preset.** `add_topic_to_session` and `create_session`
+  take no `presenterLabel`, so "add a Q&A" makes an ordinary topic that reads TBA;
+  `list_sessions` returns the code (`ALL_FACULTY`), not the words. Left because
+  accepting it changes the MCP tool list, and every connected client must reconnect
+  (CLAUDE.md, MCP caching); do it with the next tool-changing deploy.
+- **Session-level TBA beside a preset.** `sessionNeedsTba` does not count a preset
+  as presented, so a session with nobody named and only presets still shows
+  "Speakers TBA" beside "All Faculty". Left for the owner: nobody is named there.
+- **A bare "All" on the public pages.** The detail panel says "Presented by: All";
+  the public agenda and session page show the phrase alone under the topic. Owner's
+  call on the wording.
+- **An unknown code is narrowed to null by the editors**, and the next save writes
+  null. Only matters if a fourth code is added while an older tab or image is still
+  in use.
+- **No route test** that the REST schema refuses an unknown code, and the agenda
+  export test does not check the phrase in the Speakers column.
+
 ## Row security rehearsal: what the Event switch-on left (recorded Nov 17, 2026): not started
 
 Event row security is finished for the code (every query inside a lane, the policy in `prisma/rls/event.sql`, the plan in [SECURITY_AUDIT_ACTION_PLAN.md](SECURITY_AUDIT_ACTION_PLAN.md) §3.1). It was rehearsed by running the whole product as the non-owner database role with every policy applied. The Event policy changed nothing. The rehearsal itself turned up items that are not about Event, and a few things were left on purpose.

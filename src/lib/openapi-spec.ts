@@ -304,6 +304,12 @@ export function buildOpenApiSpec(serverUrl: string): Json {
                   title: { type: "string" },
                   sortOrder: { type: "integer" },
                   duration: { type: "integer", nullable: true },
+                  presenterLabel: {
+                    type: "string",
+                    nullable: true,
+                    enum: ["ALL", "ALL_FACULTY", "ALL_ABOVE"],
+                    description: "Panel Discussion / Q&A presets: who presents it (All, All Faculty, All the above) in place of speakers. Null for an ordinary topic.",
+                  },
                   speakers: { type: "array", items: { type: "object", properties: { speaker: { type: "object", properties: { id: { type: "string" }, firstName: { type: "string" }, lastName: { type: "string" } } } } } },
                 },
               },

@@ -193,7 +193,15 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
   it("numbers moderated sessions within the moderator block, on their own count", async () => {
     const row = speakerRow();
     const second = moderatedSession([], "CHAIRPERSON");
-    second.session = { ...second.session, id: "s-panel-2", name: "Imaging Panel" };
+    // Earlier than the Structural Heart Panel but listed after it: the number
+    // follows the schedule, not the order the database hands them back.
+    second.session = {
+      ...second.session,
+      id: "s-panel-2",
+      name: "Imaging Panel",
+      startTime: new Date("2026-03-05T13:00:00Z"),
+      endTime: new Date("2026-03-05T13:45:00Z"),
+    };
     row.sessions.push(moderatedSession(), second);
     mockDb.speaker.findFirst.mockResolvedValue(row);
     mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
@@ -202,8 +210,8 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     expect(ctx?.presentationDetails).not.toMatch(/Session \d of/);
     expect(ctx?.moderatorDetails).toContain("Session 1 of 2");
     expect(ctx?.moderatorDetails).toContain("Session 2 of 2");
-    expect(ctx?.moderatorDetailsText).toContain("Session 1 of 2\nSession: Structural Heart Panel");
-    expect(ctx?.moderatorDetailsText).toContain("Session 2 of 2\nSession: Imaging Panel");
+    expect(ctx?.moderatorDetailsText).toContain("Session 1 of 2\nSession: Imaging Panel");
+    expect(ctx?.moderatorDetailsText).toContain("Session 2 of 2\nSession: Structural Heart Panel");
   });
 
   it("keeps the {sessionDateTime} docx token format-stable (start time only)", async () => {

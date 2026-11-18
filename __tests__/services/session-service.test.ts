@@ -813,3 +813,44 @@ describe("updateSession — webinar anchor retime reschedules the email sequence
     expect(mockReschedule).not.toHaveBeenCalled();
   });
 });
+
+describe("updateSession — Panel Discussion / Q&A presets (Nov 18, 2026)", () => {
+  const STORED = [{ id: "t1" }];
+
+  it("keeps a stored label when the caller leaves the field out", async () => {
+    mockTx.sessionTopic.findMany.mockResolvedValue(STORED);
+    const res = await updateSession({ ...BASE_UPDATE, topics: [{ id: "t1", title: "Panel Discussion", speakerIds: [] }] });
+    expect(res.ok).toBe(true);
+    const data = mockTx.sessionTopic.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty("presenterLabel");
+  });
+
+  it("writes the label it is sent", async () => {
+    mockTx.sessionTopic.findMany.mockResolvedValue(STORED);
+    const res = await updateSession({
+      ...BASE_UPDATE,
+      topics: [{ id: "t1", title: "Discussion with the Panel", speakerIds: [], presenterLabel: "ALL_FACULTY" }],
+    });
+    expect(res.ok).toBe(true);
+    expect(mockTx.sessionTopic.update.mock.calls[0][0].data.presenterLabel).toBe("ALL_FACULTY");
+  });
+
+  it("makes it an ordinary topic when the caller leaves the field out and names speakers", async () => {
+    mockTx.sessionTopic.findMany.mockResolvedValue(STORED);
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }]);
+    const res = await updateSession({ ...BASE_UPDATE, topics: [{ id: "t1", title: "Panel Discussion", speakerIds: ["sp1"] }] });
+    expect(res.ok).toBe(true);
+    expect(mockTx.sessionTopic.update.mock.calls[0][0].data.presenterLabel).toBeNull();
+  });
+
+  it("refuses a preset that also names speakers, before anything is written", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }]);
+    const res = await updateSession({
+      ...BASE_UPDATE,
+      topics: [{ title: "Q&A", speakerIds: ["sp1"], presenterLabel: "ALL" }],
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("INVALID_PRESET_TOPIC");
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+});
