@@ -78,6 +78,8 @@ export default function EmailTemplateEditorPage() {
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // What the last save sent (see the sync below).
+  const [lastSent, setLastSent] = useState<{ subject: string; htmlContent: string; textContent: string; isActive: boolean } | null>(null);
   // Key to force re-mount TiptapEditor when server data reloads
   const [editorKey, setEditorKey] = useState(0);
 
@@ -87,43 +89,59 @@ export default function EmailTemplateEditorPage() {
     setSyncedAt(serverUpdatedAt);
     // Strip document wrapper for backwards compat with old full-document templates
     const bodyContent = stripDocumentWrapper(data.template.htmlContent);
-    // The echo of our own save (Save, Preview and Send test all save first):
-    // the editor already holds exactly this, so it is not remounted (review of
-    // ae8a3d5e). A remount dropped Source mode, and the next Source view showed
-    // the editor's re-parse, which loses table widths, <center>, <font> and
-    // comments, and the next save stored that.
-    // Every field the page saves is compared (review of d42604e7: a Reset to
-    // Default that changed only the switch or the plain text passed as an
-    // echo, and the next save undid it), each as the server stores it (it
-    // normalises {{ token }} spacing, which alone is no reason to remount).
+    // The echo of our own save (Save, Preview and Send test all save first,
+    // through saveNow): the editor already holds it, so it is not remounted
+    // (review of ae8a3d5e: a remount dropped Source mode, and the next Source
+    // view showed the editor's re-parse, without table widths, <center>,
+    // <font> or comments, which the next save stored). An echo is the stored
+    // row equal to what was SENT, each field as the server stores it (it
+    // normalises {{ token }} spacing), not to what is on screen now: anything
+    // typed while the save was in flight stays, and stays unsaved (reviews of
+    // d42604e7 and 8a167e1e). Anything else, a Reset to Default or another
+    // person's save, re-seeds the page.
+    const stored = {
+      subject: data.template.subject,
+      htmlContent: bodyContent,
+      textContent: data.template.textContent || "",
+      isActive: data.template.isActive,
+    };
     const echoOfOurSave =
       syncedAt !== null &&
-      bodyContent === normalizeTemplateTokens(htmlContent) &&
-      data.template.subject === normalizeTemplateTokens(subject) &&
-      (data.template.textContent || "") === normalizeTemplateTokens(textContent) &&
-      data.template.isActive === isActive;
+      lastSent !== null &&
+      stored.htmlContent === normalizeTemplateTokens(lastSent.htmlContent) &&
+      stored.subject === normalizeTemplateTokens(lastSent.subject) &&
+      stored.textContent === normalizeTemplateTokens(lastSent.textContent) &&
+      stored.isActive === lastSent.isActive;
+    setLastSent(null);
     if (echoOfOurSave) {
-      // The stored spelling of any normalised token, without a remount.
-      if (bodyContent !== htmlContent) setHtmlContent(bodyContent);
-      if (data.template.subject !== subject) setSubject(data.template.subject);
+      setDirty(
+        htmlContent !== lastSent.htmlContent ||
+          subject !== lastSent.subject ||
+          textContent !== lastSent.textContent ||
+          isActive !== lastSent.isActive,
+      );
     } else {
-      setSubject(data.template.subject);
-      setHtmlContent(bodyContent);
-      setTextContent(data.template.textContent || "");
-      setIsActive(data.template.isActive);
+      setSubject(stored.subject);
+      setHtmlContent(stored.htmlContent);
+      setTextContent(stored.textContent);
+      setIsActive(stored.isActive);
       setEditorKey((k) => k + 1);
+      setDirty(false);
     }
-    setDirty(false);
   }
 
   const allowedTokens: string[] = data?.allowedTokens ?? [];
 
+  // Every save goes through here, so the sync can tell its own echo apart.
+  const saveNow = useCallback(() => {
+    const sent = { subject, htmlContent, textContent, isActive };
+    setLastSent(sent);
+    return updateMutation.mutateAsync({ templateId, data: sent });
+  }, [updateMutation, templateId, subject, htmlContent, textContent, isActive]);
+
   const handleSave = useCallback(async () => {
     try {
-      const saved = await updateMutation.mutateAsync({
-        templateId,
-        data: { subject, htmlContent, textContent, isActive },
-      });
+      const saved = await saveNow();
       setDirty(false);
       // The server recomputes this after normalizing, so the toast reports what
       // the stored template will actually do rather than what was on screen.
@@ -139,7 +157,7 @@ export default function EmailTemplateEditorPage() {
       console.error("[email-template] operation failed", err);
       toast.error("Failed to save template");
     }
-  }, [updateMutation, templateId, subject, htmlContent, textContent, isActive]);
+  }, [saveNow]);
 
   const handleReset = useCallback(async () => {
     try {
@@ -166,10 +184,7 @@ export default function EmailTemplateEditorPage() {
     try {
       // Save first if dirty
       if (dirty) {
-        await updateMutation.mutateAsync({
-          templateId,
-          data: { subject, htmlContent, textContent, isActive },
-        });
+        await saveNow();
         setDirty(false);
       }
       const result = await previewMutation.mutateAsync({
@@ -184,15 +199,12 @@ export default function EmailTemplateEditorPage() {
       console.error("[email-template] operation failed", err);
       toast.error("Failed to generate preview");
     }
-  }, [dirty, updateMutation, previewMutation, templateId, subject, htmlContent, textContent, isActive]);
+  }, [dirty, saveNow, previewMutation, templateId]);
 
   const handleTestEmail = useCallback(async () => {
     try {
       if (dirty) {
-        await updateMutation.mutateAsync({
-          templateId,
-          data: { subject, htmlContent, textContent, isActive },
-        });
+        await saveNow();
         setDirty(false);
       }
       const result = await previewMutation.mutateAsync({
@@ -208,7 +220,7 @@ export default function EmailTemplateEditorPage() {
       console.error("[email-template] operation failed", err);
       toast.error("Failed to send test email");
     }
-  }, [dirty, updateMutation, previewMutation, templateId, subject, htmlContent, textContent, isActive]);
+  }, [dirty, saveNow, previewMutation, templateId]);
 
   const insertVariable = useCallback(
     (varKey: string) => {
