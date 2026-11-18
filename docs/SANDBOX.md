@@ -82,11 +82,16 @@ The sandbox lives in a **dedicated `sandbox` database** inside the tenancy
 container — so `npm run test:tenancy` (which wipes the separate `tenancy` db)
 never clobbers it. Re-seed any time with `npm run sandbox:seed`.
 
-**If setup stops with "Use the --accept-data-loss flag"** (Nov 18, 2026): the
-`sandbox` database was made before the schema gained a unique constraint, and
-`prisma db push` will not add one to a database that already holds rows without
-being told to. Do not pass the flag. The sandbox holds only fixtures, so drop
-the `sandbox` database and run setup again; it rebuilds everything.
+**If setup stops with "Use the --accept-data-loss flag", or asks "Do you want
+to ignore the warning(s)?"** (Nov 18, 2026): the `sandbox` database was made
+before the schema gained a unique constraint, and `prisma db push` will not add
+one to a table that already exists without being told to. Run from a script it
+stops with the first message; typed in a terminal it asks the question instead.
+Do not pass the flag, and answer **N**: "y" is the flag by another name. The
+sandbox holds only fixtures, so drop the `sandbox` database (a docker step, so
+the owner's: `docker exec ea-sys-tenancy-db psql -U postgres -d tenancy -c
+'DROP DATABASE sandbox'`) and run setup again; it rebuilds everything. Until
+then `npm run sandbox:seed` fails too, on a column the old database lacks.
 
 ## Run
 

@@ -294,7 +294,12 @@ async function main() {
 
     await db.registration.upsert({
       where: { id: `sandbox-reg-${t.slug}` },
-      update: { organizationId: t.orgId },
+      // `userId: null` puts the row back to UNLINKED on every seed. The first
+      // portal read links it, and a linked row is found by `userId` alone, so
+      // without this the address rule and the link sweep ran once per database
+      // and never again (review of 764c587d): a seed that lost the proven
+      // address would have stayed green on any database already signed into.
+      update: { organizationId: t.orgId, userId: null },
       create: {
         id: `sandbox-reg-${t.slug}`,
         eventId: t.eventId,
@@ -315,10 +320,11 @@ async function main() {
     // number 1 by hand; without a counter the first registration made through
     // the app is handed number 1 again and fails on the unique (eventId,
     // serialId), so nobody could ever register in the sandbox (found Nov 18,
-    // 2026). `update` is empty: a counter the app has moved on is left alone.
+    // 2026). `update` never touches the number: a counter the app has moved on
+    // is left where it is. It restamps the organisation, as every row here does.
     await db.registrationSerialCounter.upsert({
       where: { eventId: t.eventId },
-      update: {},
+      update: { organizationId: t.orgId },
       create: { eventId: t.eventId, lastSerial: 1, organizationId: t.orgId },
     });
 
@@ -412,7 +418,8 @@ async function main() {
     });
 
     // A swept-table row per org so isolation is visible immediately (no need
-    // to create one by hand): /contacts and the event's Speakers page.
+    // to create one by hand): /contacts. (The speaker, for the event's
+    // Speakers page, is created above, before the abstract that points at it.)
     await db.contact.upsert({
       where: { id: t.contactId },
       update: { organizationId: t.orgId },
