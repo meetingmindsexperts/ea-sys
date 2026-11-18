@@ -1,5 +1,5 @@
 import { presenterLabelText } from "@/lib/session-topic-presets";
-import { runsSession } from "@/lib/session-roles";
+import { BUILT_IN_SESSION_ROLES, readSessionRoles, runsSession, sessionRoleLabel, type SessionRoleDef } from "@/lib/session-roles";
 import { uploadFile, readStoredFile, deleteStoredFile } from "@/lib/storage";
 import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { sanitizePdfText } from "@/lib/pdf/pdf-text";
@@ -14,7 +14,7 @@ import { hashVerificationToken } from "./security";
 import { formatPersonName, getTitleLabel, formatDate, slugify } from "./utils";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "./event-time";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "./default-terms";
-import { formatSessionRole, TBA_LABEL } from "./session-enums";
+import { TBA_LABEL } from "./session-enums";
 import { honorariumVars, readHonorarium } from "./reimbursement/constants";
 
 export interface SpeakerAgreementTemplateMeta {
@@ -207,6 +207,7 @@ interface SpeakerEmailContextRow {
     honorariumCurrency: string | null;
     sessions: Array<{
       role: string;
+      customRoleKey?: string | null;
       session: {
         id: string;
         name: string;
@@ -254,6 +255,8 @@ interface SpeakerEmailContextRow {
     city: string | null;
     organization: { name: string };
   };
+  /** The organisation's session roles, for the {role} token's names (session-roles.ts). */
+  sessionRoles?: SessionRoleDef[];
 }
 
 async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<SpeakerEmailContextRow | null> {
@@ -273,6 +276,7 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
         sessions: {
           select: {
             role: true,
+            customRoleKey: true,
             session: {
               select: {
                 id: true,
@@ -341,14 +345,20 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
         venue: true,
         address: true,
         city: true,
-        organization: { select: { name: true } },
+        // settings only to read the session roles below; never passed on.
+        organization: { select: { name: true, settings: true } },
       },
     }),
   ]);
 
   if (!speaker || !event) return null;
 
-  return { speaker, event } as SpeakerEmailContextRow;
+  const { settings: orgSettings, ...organization } = event.organization ?? { name: "", settings: null };
+  return {
+    speaker,
+    event: { ...event, organization },
+    sessionRoles: readSessionRoles(orgSettings),
+  } as SpeakerEmailContextRow;
 }
 
 /**
@@ -598,9 +608,10 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   for (const t of topicRows) if (t.topic.session.track?.name) trackSet.add(t.topic.session.track.name);
   const trackNames = Array.from(trackSet).join(", ");
 
+  // The organisation's names ({role} lands in the agreement document).
   const roleSet = new Set<string>();
   for (const s of sessionRows) {
-    const label = formatSessionRole(s.role);
+    const label = sessionRoleLabel(s, row.sessionRoles ?? BUILT_IN_SESSION_ROLES);
     if (label) roleSet.add(label);
   }
   const role = Array.from(roleSet).join(", ");

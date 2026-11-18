@@ -10,6 +10,7 @@ const mockDb = vi.hoisted(() => ({
   promoCode: { findMany: vi.fn() },
   accommodation: { findMany: vi.fn() },
   hotel: { findMany: vi.fn() },
+  organization: { findUnique: vi.fn() },
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 
@@ -125,6 +126,22 @@ describe("shape", () => {
   it("formula-shaped cells are neutralised by the shared escaper", async () => {
     const csv = (await speakersSheet("ev1", as("ADMIN"))).csv;
     expect(csv).not.toMatch(/,=HYPERLINK/);
+  });
+
+  it("a role the organisation added prints its name; a built-in keeps its code", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: { sessionRoles: [{ key: "host", label: "Host", duty: "RUNS" }] } });
+    const [row] = await mockDb.speaker.findMany();
+    mockDb.speaker.findMany.mockResolvedValueOnce([
+      {
+        ...row,
+        sessions: [
+          { role: "SPEAKER", customRoleKey: null, organizationId: "org1", session: { name: "Opening" } },
+          { role: "MODERATOR", customRoleKey: "host", organizationId: "org1", session: { name: "Panel" } },
+        ],
+      },
+    ]);
+    const csv = (await speakersSheet("ev1", as("ADMIN"))).csv;
+    expect(csv).toContain("Opening (SPEAKER); Panel (Host)");
   });
 
   it("a speaker's sessions and companion registration are listed", async () => {

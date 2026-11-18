@@ -87,7 +87,8 @@ interface Session {
   status: string;
   type?: string;
   track: Track | null;
-  speakers: Array<{ role: string; speaker: Speaker }>;
+  /** roleKey / roleLabel: the organisation's role and its name, from the server (session-roles.ts). */
+  speakers: Array<{ role: string; roleKey?: string; roleLabel?: string; speaker: Speaker }>;
   topics: Topic[];
 }
 
@@ -1041,7 +1042,7 @@ function SessionCard({
                     affiliations (organizer decision, July 22). */}
                 {session.speakers.length > 0 && (
                   <div className="flex items-center gap-2 mt-3 flex-wrap">
-                    {session.speakers.map(({ role, speaker }) => (
+                    {session.speakers.map(({ role, roleLabel, speaker }) => (
                       <div
                         key={speaker.id}
                         className="flex items-center gap-2 bg-slate-50 border border-slate-200/70 rounded-full pl-1.5 pr-3 py-1"
@@ -1069,7 +1070,7 @@ function SessionCard({
                             2.9:1, under AA, and put a second accent colour
                             beside the event's own on every speaker. */}
                         <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 bg-slate-100 rounded-full px-2 py-0.5">
-                          {formatSessionRole(role || "SPEAKER")}
+                          {roleLabel ?? formatSessionRole(role || "SPEAKER")}
                         </span>
                       </div>
                     ))}

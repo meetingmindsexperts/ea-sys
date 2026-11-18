@@ -15,6 +15,9 @@ export interface Panelist {
   organization?: string | null;
   photo?: string | null;
   role?: string;
+  /** The organisation's role and its name, from the server (session-roles.ts). */
+  roleKey?: string;
+  roleLabel?: string;
 }
 
 /**
@@ -69,9 +72,9 @@ export function PanelistsCard({ panelists }: { panelists: Panelist[] }) {
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium" title={name}>{name}</p>
-                  {p.role && p.role !== "SPEAKER" && (
+                  {p.role && (p.roleKey ?? p.role) !== "SPEAKER" && (
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-                      {formatSessionRole(p.role)}
+                      {p.roleLabel ?? formatSessionRole(p.role)}
                     </p>
                   )}
                   {subtitle && (

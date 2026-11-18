@@ -213,3 +213,15 @@ export function offeredSessionRoles(
   const off = new Set(eventHidden);
   return roles.filter((r) => r.key === keep || (!r.hidden && !off.has(r.key)));
 }
+
+/**
+ * What a public page is sent about an assignment's role: the key (to tell a
+ * plain Speaker, which shows no badge, from the rest) and the name to show.
+ * Public pages cannot read the organisation's list, so the server names it.
+ */
+export function describeSessionRole(
+  assignment: { role: string; customRoleKey?: string | null },
+  roles: readonly SessionRoleDef[],
+): { roleKey: string; roleLabel: string } {
+  return { roleKey: sessionRoleKeyOf(assignment), roleLabel: sessionRoleLabel(assignment, roles) };
+}

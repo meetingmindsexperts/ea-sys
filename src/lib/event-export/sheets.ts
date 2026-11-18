@@ -16,6 +16,8 @@ import { formatPersonName } from "@/lib/utils";
 import { can, type Principal } from "@/lib/permissions/can";
 import { speakerRegistrationTypeName } from "@/lib/speaker-registration-type";
 import { presenterLabelText } from "@/lib/session-topic-presets";
+import { sessionRoleLabel } from "@/lib/session-roles";
+import { getSessionRoles } from "@/services/session-role-service";
 
 export interface Sheet {
   /** Path inside the ZIP. */
@@ -25,6 +27,22 @@ export interface Sheet {
 }
 
 type Cell = unknown;
+
+/**
+ * How a session role reads in the archive. A built-in keeps its code
+ * (SPEAKER and so on), as every archive before Nov 18, 2026 printed it; a
+ * role the organisation added prints its name, since its stored code is only
+ * its duty's built-in and would call a Host a moderator.
+ */
+type RoleAssignment = { role: string; customRoleKey: string | null; organizationId: string | null };
+
+async function sessionRoleCell(assignments: RoleAssignment[]): Promise<(a: RoleAssignment) => string> {
+  // The list is read only when an added role is there; its row carries the
+  // organisation (stamped on every write since the role could be added).
+  const orgId = assignments.find((a) => a.customRoleKey && a.organizationId)?.organizationId;
+  const roles = orgId ? await getSessionRoles(orgId) : [];
+  return (a) => (a.customRoleKey ? sessionRoleLabel(a, roles) : a.role);
+}
 
 function sheet(file: string, header: string[], rows: Cell[][]): Sheet {
   return { file, csv: [toCsvRow(header), ...rows.map((r) => toCsvRow(r))].join("\n"), rows: rows.length };
@@ -110,7 +128,7 @@ export async function speakersSheet(eventId: string, principal: Principal): Prom
         select: { status: true, ticketType: { select: { name: true, isFaculty: true } }, attendee: { select: { registrationType: true } } },
       },
       createdAt: true,
-      sessions: { select: { role: true, session: { select: { name: true } } } },
+      sessions: { select: { role: true, customRoleKey: true, organizationId: true, session: { select: { name: true } } } },
     },
   });
   const header = [
@@ -120,10 +138,11 @@ export async function speakersSheet(eventId: string, principal: Principal): Prom
     ...(honorarium ? ["Honorarium", "Honorarium Currency"] : []),
     "Has Companion Registration", "Bio", "Created At",
   ];
+  const roleCell = await sessionRoleCell(speakers.flatMap((s) => s.sessions));
   const rows = speakers.map((s) => [
     s.id, person(s), s.title ?? "", s.firstName, s.lastName, s.email, s.additionalEmail, s.phone,
     s.organization, s.jobTitle, s.city, s.state, s.country, s.customSpecialty || s.specialty, speakerRegistrationTypeName(s.registrationType, s.sourceRegistration), s.status,
-    s.tags.join("; "), s.website, s.sessions.map((x) => `${x.session.name} (${x.role})`).join("; "),
+    s.tags.join("; "), s.website, s.sessions.map((x) => `${x.session.name} (${roleCell(x)})`).join("; "),
     iso(s.agreementAcceptedAt), iso(s.presenterAgreementAcceptedAt),
     ...(honorarium ? [money(s.honorariumAmount), s.honorariumCurrency] : []),
     s.sourceRegistrationId ? "Yes" : "No", s.bio, iso(s.createdAt),
@@ -151,7 +170,7 @@ export async function sessionSheets(eventId: string): Promise<Sheet[]> {
       type: true,
       track: { select: { name: true } },
       abstract: { select: { serialId: true, title: true } },
-      speakers: { select: { role: true, speaker: { select: { title: true, firstName: true, lastName: true } } } },
+      speakers: { select: { role: true, customRoleKey: true, organizationId: true, speaker: { select: { title: true, firstName: true, lastName: true } } } },
       topics: {
         orderBy: { sortOrder: "asc" },
         select: {
@@ -165,9 +184,10 @@ export async function sessionSheets(eventId: string): Promise<Sheet[]> {
       },
     },
   });
+  const roleCell = await sessionRoleCell(sessions.flatMap((s) => s.speakers));
   const sessionRows = sessions.map((s) => [
     s.id, s.name, s.type, s.status, iso(s.startTime), iso(s.endTime), s.location, s.track?.name ?? "",
-    s.capacity ?? "", s.speakers.map((x) => `${person(x.speaker)} (${x.role})`).join("; "),
+    s.capacity ?? "", s.speakers.map((x) => `${person(x.speaker)} (${roleCell(x)})`).join("; "),
     s.topics.length, s.abstract ? `A-${String(s.abstract.serialId ?? "").padStart(3, "0")} ${s.abstract.title}` : "", s.description,
   ]);
   const topicRows = sessions.flatMap((s) =>

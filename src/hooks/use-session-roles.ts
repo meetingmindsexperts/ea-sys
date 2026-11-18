@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchApi } from "@/hooks/use-api";
-import type { SessionRoleDef, SessionRoleDuty } from "@/lib/session-roles";
+import { BUILT_IN_SESSION_ROLES, type SessionRoleDef, type SessionRoleDuty } from "@/lib/session-roles";
 
 /**
  * The organisation's session roles (Nov 18, 2026; docs/SESSION_ROLES_PLAN.md),
@@ -31,4 +31,14 @@ export function useSaveSessionRoles() {
       }).then((d) => d.roles),
     onSuccess: (roles) => queryClient.setQueryData(SESSION_ROLES_KEY, roles),
   });
+}
+
+/**
+ * The list for a picker or a badge: the organisation's, or the four built-ins
+ * while it loads (or for someone who may not read it), so a picker is never
+ * empty and a badge never blank.
+ */
+export function useSessionRoleDefs(): SessionRoleDef[] {
+  const { data } = useSessionRoles();
+  return data ?? BUILT_IN_SESSION_ROLES;
 }

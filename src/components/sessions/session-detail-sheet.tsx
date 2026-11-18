@@ -32,9 +32,10 @@ import {
   type TopicPresenterLabel,
 } from "@/lib/session-topic-presets";
 import { PresenterLabelSelect } from "./presenter-label-select";
+import { useSessionRoleDefs } from "@/hooks/use-session-roles";
+import { sessionRoleLabel } from "@/lib/session-roles";
 import {
   SESSION_ROLE_COLORS,
-  formatSessionRole,
   formatSessionStatus,
   sessionStatusColor,
 } from "@/lib/session-enums";
@@ -45,6 +46,8 @@ import { toast } from "sonner";
 
 interface SessionSpeaker {
   role: string;
+  /** A role the organisation added (src/lib/session-roles.ts); null for a built-in. */
+  customRoleKey?: string | null;
   speaker: {
     id: string;
     firstName: string;
@@ -145,6 +148,7 @@ export function SessionDetailSheet({
   timezone,
 }: SessionDetailSheetProps) {
   const eventTz = resolveTimezone(timezone);
+  const sessionRoleDefs = useSessionRoleDefs();
   // Topics save through the session PUT, which asks sessions.write.
   const canWriteSessions = useCan("sessions.write", eventId) === "allowed";
   const [session, setSession] = useState<SessionData | null>(null);
@@ -355,7 +359,7 @@ export function SessionDetailSheet({
                         variant="outline"
                         className={`text-xs ${SESSION_ROLE_COLORS[sp.role as SessionRole] ?? ""}`}
                       >
-                        {formatSessionRole(sp.role)}
+                        {sessionRoleLabel(sp, sessionRoleDefs)}
                       </Badge>
                       <span>
                         {sp.speaker.firstName} {sp.speaker.lastName}

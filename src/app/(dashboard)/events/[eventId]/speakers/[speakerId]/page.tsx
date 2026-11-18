@@ -73,6 +73,8 @@ import { usePreviewEmailBySlug, useEventSpeakerTags, useEvent, useEmailTemplates
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { singleSendSlugFor } from "@/lib/email-template-registry";
 import { SESSION_ROLE_COLORS, formatSessionRole } from "@/lib/session-enums";
+import { useSessionRoleDefs } from "@/hooks/use-session-roles";
+import { sessionRoleLabel } from "@/lib/session-roles";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
@@ -135,6 +137,8 @@ interface Speaker {
   };
   sessions: Array<{
     role?: string;
+    /** A role the organisation added (src/lib/session-roles.ts); null for a built-in. */
+    customRoleKey?: string | null;
     session: {
       id: string;
       name: string;
@@ -183,6 +187,7 @@ interface Speaker {
 export default function SpeakerDetailPage() {
   const specialtyField = usePersonFieldLabel("specialty");
   const roleField = usePersonFieldLabel("role");
+  const sessionRoleDefs = useSessionRoleDefs();
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
@@ -1036,9 +1041,10 @@ export default function SpeakerDetailPage() {
 
           {/* Sessions — includes both session-level and topic-level assignments */}
           {(() => {
-            const sessionMap = new Map<string, { id: string; name: string; startTime: string; track?: { name: string }; role?: string }>();
+            const sessionMap = new Map<string, { id: string; name: string; startTime: string; track?: { name: string }; role?: string; roleLabel?: string }>();
             for (const s of speaker.sessions) {
-              sessionMap.set(s.session.id, { ...s.session, role: s.role });
+              // The organisation's name for the role (session-roles.ts).
+              sessionMap.set(s.session.id, { ...s.session, role: s.role, roleLabel: s.role ? sessionRoleLabel({ role: s.role, customRoleKey: s.customRoleKey }, sessionRoleDefs) : undefined });
             }
             for (const ts of (speaker.topicSpeakers || [])) {
               if (!sessionMap.has(ts.topic.session.id)) {
@@ -1100,7 +1106,7 @@ export default function SpeakerDetailPage() {
                                   "bg-slate-100 text-slate-700 border-slate-200"
                                 }`}
                               >
-                                {formatSessionRole(session.role)}
+                                {session.roleLabel ?? formatSessionRole(session.role)}
                               </span>
                             )}
                             <Pencil className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />

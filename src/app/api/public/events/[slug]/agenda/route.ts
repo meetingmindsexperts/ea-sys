@@ -5,6 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { agendaPayload, isAgendaPublished, loadAgendaEvent } from "@/lib/agenda-data";
 import { AGENDA_PUBLIC_EVENT_STATUSES } from "@/lib/agenda-display";
+import { getSessionRolesForDisplay } from "@/services/session-role-service";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -85,7 +86,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return notAvailable("AGENDA_NOT_PUBLISHED", "Agenda not published yet");
     }
 
-    const response = NextResponse.json(agendaPayload(event));
+    const response = NextResponse.json(agendaPayload(event, await getSessionRolesForDisplay(event.organizationId)));
 
     response.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     return response;

@@ -13,6 +13,8 @@ import { BUILT_IN_SPONSOR_TIER_KEYS, sponsorTierLabel } from "@/lib/sponsor-tier
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { resolveWebinarExitLink } from "@/lib/webinar-exit-link";
 import { readPublicBrand } from "@/lib/public-brand";
+import { getSessionRolesForDisplay } from "@/services/session-role-service";
+import { describeSessionRole } from "@/lib/session-roles";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -129,6 +131,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Topics + session metadata + speakers fetched together. Each topic
     // carries its own speakers (TopicSpeaker join), so we walk the
     // speaker→speaker relation in one round-trip instead of N+1.
+    // The organisation's role names, for the speakers' badges (session-roles.ts).
+    const sessionRoles = await getSessionRolesForDisplay(event.organizationId);
     const session = await db.eventSession.findFirst({
       where: { id: sessionId, eventId: event.id },
       select: {
@@ -145,6 +149,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         speakers: {
           select: {
             role: true,
+            customRoleKey: true,
             speaker: {
               select: {
                 id: true,
@@ -273,6 +278,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         speakers: session.speakers.map((s) => ({
           ...s.speaker,
           role: s.role,
+          // The organisation's name for it; a public page cannot read the list.
+          ...describeSessionRole(s, sessionRoles),
         })),
         topics: session.topics.map((t) => ({
           id: t.id,

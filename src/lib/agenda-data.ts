@@ -15,6 +15,7 @@
  */
 import { db } from "@/lib/db";
 import { readAgendaTrackBorder } from "@/lib/agenda-display";
+import { describeSessionRole, type SessionRoleDef } from "@/lib/session-roles";
 
 export { isAgendaPublished } from "@/lib/agenda-display";
 
@@ -26,6 +27,7 @@ export function loadAgendaEvent(eventId: string) {
     where: { id: eventId },
     select: {
       id: true,
+      organizationId: true,
       name: true,
       slug: true,
       status: true,
@@ -57,6 +59,7 @@ export function loadAgendaEvent(eventId: string) {
           speakers: {
             select: {
               role: true,
+              customRoleKey: true,
               speaker: {
                 select: {
                   id: true,
@@ -96,8 +99,13 @@ export function loadAgendaEvent(eventId: string) {
 
 export type AgendaEvent = NonNullable<Awaited<ReturnType<typeof loadAgendaEvent>>>;
 
-/** The JSON the agenda page reads. Never carries `settings` or `status` itself. */
-export function agendaPayload(event: AgendaEvent) {
+/**
+ * The JSON the agenda page reads. Never carries `settings` or `status` itself.
+ * `roles` is the organisation's session-role list (getSessionRoles): each
+ * assignment is sent with its role's key and name, since the public page
+ * cannot read the list.
+ */
+export function agendaPayload(event: AgendaEvent, roles: readonly SessionRoleDef[]) {
   return {
     id: event.id,
     name: event.name,
@@ -111,6 +119,13 @@ export function agendaPayload(event: AgendaEvent) {
     organization: event.organization,
     tracks: event.tracks,
     trackBorder: readAgendaTrackBorder(event.settings),
-    sessions: event.eventSessions,
+    // `?? []`: a caller's event without its sessions sends none, as it did before.
+    sessions: (event.eventSessions ?? []).map(({ speakers, ...session }) => ({
+      ...session,
+      speakers: speakers.map(({ customRoleKey, ...assignment }) => ({
+        ...assignment,
+        ...describeSessionRole({ role: assignment.role, customRoleKey }, roles),
+      })),
+    })),
   };
 }

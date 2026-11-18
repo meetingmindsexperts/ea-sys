@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { agendaPayload, isAgendaPublished, loadAgendaEvent } from "@/lib/agenda-data";
 import { isAgendaLiveForAttendees } from "@/lib/agenda-display";
+import { getSessionRolesForDisplay } from "@/services/session-role-service";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -60,7 +61,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       const liveForAttendees = isAgendaLiveForAttendees(event.settings, event.status);
       apiLogger.info({ msg: "agenda-preview:served", eventId, userId: session.user.id, published, liveForAttendees });
       return privateJson(
-        { ...agendaPayload(event), preview: true, published, liveForAttendees, eventStatus: event.status },
+        { ...agendaPayload(event, await getSessionRolesForDisplay(event.organizationId)), preview: true, published, liveForAttendees, eventStatus: event.status },
         200,
       );
     });

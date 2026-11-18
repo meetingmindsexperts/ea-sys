@@ -75,6 +75,20 @@ export async function getSessionRoles(organizationId: string): Promise<SessionRo
 }
 
 /**
+ * The list for a page that only shows names (the public agenda, a session
+ * page): a failure to read it is logged and the four built-in names are used,
+ * so a role name can never take the page down.
+ */
+export async function getSessionRolesForDisplay(organizationId: string): Promise<SessionRoleDef[]> {
+  try {
+    return await getSessionRoles(organizationId);
+  } catch (err) {
+    apiLogger.warn({ err, organizationId, msg: "session-roles:read-failed-showing-built-ins" });
+    return BUILT_IN_SESSION_ROLES.map((r) => ({ ...r }));
+  }
+}
+
+/**
  * The list with how many session assignments hold each role, for Settings: a
  * held role can be hidden, not deleted, and keeps its duty. Built-ins are
  * counted by their enum among assignments that hold no added role. The caller

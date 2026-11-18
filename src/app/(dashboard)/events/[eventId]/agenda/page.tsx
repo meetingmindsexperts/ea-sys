@@ -40,6 +40,8 @@ import {
   type TopicPresenterLabel,
 } from "@/lib/session-topic-presets";
 import { PresenterLabelSelect } from "@/components/sessions/presenter-label-select";
+import { useSessionRoleDefs } from "@/hooks/use-session-roles";
+import { offeredSessionRoles, readEventHiddenSessionRoles, sessionRoleKeyOf, sessionRoleLabel } from "@/lib/session-roles";
 import {
   Select,
   SelectContent,
@@ -89,10 +91,8 @@ import {
   wallTimeInTzToDate,
 } from "@/lib/event-time";
 import {
-  SESSION_ROLE_OPTIONS,
   SESSION_STATUS_LABELS,
   SESSION_TYPE_OPTIONS,
-  formatSessionRole,
   formatSessionStatus,
   formatSessionType,
   isBreakSessionType,
@@ -130,6 +130,8 @@ interface Speaker {
 
 interface SessionSpeakerEntry {
   role: string;
+  /** A role the organisation added (src/lib/session-roles.ts); null for a built-in. */
+  customRoleKey?: string | null;
   speaker: Speaker;
 }
 
@@ -189,7 +191,8 @@ interface TopicForm {
 
 interface SessionRoleForm {
   speakerId: string;
-  role: "SPEAKER" | "MODERATOR" | "CHAIRPERSON" | "PANELIST";
+  /** A role key: a built-in, or a role the organisation added. */
+  role: string;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -280,7 +283,7 @@ function sessionToForm(s: Session, eventTz: string): typeof DEFAULT_SESSION_FORM
     speakerIds: [],
     sessionRoles: s.speakers.map((sp) => ({
       speakerId: sp.speaker.id,
-      role: sp.role as SessionRoleForm["role"],
+      role: sessionRoleKeyOf(sp),
     })),
     topics: (s.topics || []).map((t) => ({
       id: t.id,
@@ -364,6 +367,8 @@ export default function AgendaPage() {
   const [detailSessionId, setDetailSessionId] = useState<string | null>(null);
 
   const { data: event } = useEvent(eventId);
+  const sessionRoleDefs = useSessionRoleDefs();
+  const eventHiddenSessionRoles = readEventHiddenSessionRoles(event?.settings);
   const { data: sessions = [], isLoading: loading, isFetching, refetch: refetchSessions } = useSessions(eventId);
   const { data: tracks = [], refetch: refetchTracks } = useTracks(eventId);
   const { data: speakers = [] } = useSpeakers(eventId);
@@ -1562,7 +1567,7 @@ export default function AgendaPage() {
                           value={sr.role}
                           onValueChange={(v) => {
                             const updated = [...sessionForm.sessionRoles];
-                            updated[idx] = { ...updated[idx], role: v as SessionRoleForm["role"] };
+                            updated[idx] = { ...updated[idx], role: v };
                             setSessionForm({ ...sessionForm, sessionRoles: updated });
                           }}
                         >
@@ -1570,8 +1575,9 @@ export default function AgendaPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {SESSION_ROLE_OPTIONS.map((r) => (
-                              <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                            {/* The organisation's roles this event offers; a role the row holds stays. */}
+                            {offeredSessionRoles(sessionRoleDefs, eventHiddenSessionRoles, sr.role).map((r) => (
+                              <SelectItem key={r.key} value={r.key}>{r.label}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -2190,6 +2196,7 @@ function SessionCard({
   const color = isBreak ? BREAK_COLOR : session.track?.color || "#6B7280";
   const BreakIcon = isBreak ? BREAK_TYPE_ICONS[session.type] : null;
   const heightPx = parseInt(style.height);
+  const sessionRoleDefs = useSessionRoleDefs();
 
   return (
     <Tooltip>
@@ -2279,7 +2286,7 @@ function SessionCard({
               <div className="space-y-0.5">
                 {session.speakers.map((s, i) => (
                   <div key={i}>
-                    <span className="font-medium text-foreground/80">{s.role !== "SPEAKER" ? `${formatSessionRole(s.role)}: ` : ""}</span>
+                    <span className="font-medium text-foreground/80">{sessionRoleKeyOf(s) !== "SPEAKER" ? `${sessionRoleLabel(s, sessionRoleDefs)}: ` : ""}</span>
                     {formatPersonName(s.speaker.title, s.speaker.firstName, s.speaker.lastName)}
                   </div>
                 ))}

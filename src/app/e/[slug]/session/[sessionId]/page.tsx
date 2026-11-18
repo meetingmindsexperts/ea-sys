@@ -139,6 +139,9 @@ interface SpeakerInfo {
   photo?: string | null;
   bio?: string | null;
   role?: string;
+  /** The organisation's role and its name, from the server (session-roles.ts). */
+  roleKey?: string;
+  roleLabel?: string;
 }
 
 interface TopicInfo {
@@ -1298,9 +1301,9 @@ export default function PublicSessionPage() {
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        {speaker.role && speaker.role !== "SPEAKER" && (
+                        {speaker.role && (speaker.roleKey ?? speaker.role) !== "SPEAKER" && (
                           <span className="inline-block mb-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                            {formatSessionRole(speaker.role)}
+                            {speaker.roleLabel ?? formatSessionRole(speaker.role)}
                           </span>
                         )}
                         <p className="font-medium">

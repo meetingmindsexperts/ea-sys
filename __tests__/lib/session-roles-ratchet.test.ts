@@ -17,7 +17,6 @@ const ALLOWED: Record<string, string> = {
   "src/lib/session-roles.ts": "the rule itself",
   "src/lib/session-enums.ts": "labels, colours and the picker order of the four built-ins",
   "src/services/session-service.ts": "the list of values the service accepts",
-  "src/app/(dashboard)/events/[eventId]/agenda/page.tsx": "the form's role type",
   "src/app/(dashboard)/events/[eventId]/communications/page.tsx":
     "the Moderators and Chairpersons audiences filter by that one role, not by duty (plan step 5)",
   "src/app/api/events/[eventId]/import/sessions/route.ts": "the CSV columns moderatorEmails and chairEmails name their role",
