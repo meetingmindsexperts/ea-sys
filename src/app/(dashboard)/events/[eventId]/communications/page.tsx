@@ -962,7 +962,14 @@ export default function CommunicationsPage() {
                     <SelectItem value="all">All Roles</SelectItem>
                     {/* The two duties, then the organisation's roles (session-roles.ts):
                         the count uses the rule the send selects with. */}
-                    {[RUNS_FILTER, PRESENTS_FILTER, ...sessionRoleDefs.filter((r) => !r.hidden).map((r) => r.key)].map((filter) => (
+                    {/* A hidden role is still listed while somebody holds it: they can still be emailed. */}
+                    {[
+                      RUNS_FILTER,
+                      PRESENTS_FILTER,
+                      ...sessionRoleDefs
+                        .filter((r) => !r.hidden || speakers.some((s) => s.sessions?.some((sx) => matchesSessionRoleFilter(sx, r.key))))
+                        .map((r) => r.key),
+                    ].map((filter) => (
                       <SelectItem key={filter} value={filter}>
                         {sessionRoleFilterLabel(filter, sessionRoleDefs)} (
                         {speakers.filter((s) => s.sessions?.some((sx) => matchesSessionRoleFilter(sx, filter))).length})

@@ -41,7 +41,14 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { isBreakSessionType } from "@/lib/session-enums";
 import { isTopicPresenterLabel, presenterLabelText, TOPIC_PRESENTER_LABEL_KEYS } from "@/lib/session-topic-presets";
-import { resolveSessionRoleKey } from "@/lib/session-roles";
+import {
+  offeredSessionRoles,
+  readEventHiddenSessionRoles,
+  readSessionRoles,
+  resolveSessionRoleKey,
+  sessionRoleKeyOf,
+  sessionRoleLabel,
+} from "@/lib/session-roles";
 import { getSessionRoles } from "@/services/session-role-service";
 import { readWebinarSettings } from "@/lib/webinar";
 import { updateZoomMeeting, updateZoomWebinar } from "@/lib/zoom";
@@ -164,6 +171,7 @@ export type SessionServiceErrorCode =
   | "BREAK_ITEM_HAS_PROGRAM"
   | "INVALID_PRESET_TOPIC"
   | "UNKNOWN_SESSION_ROLE"
+  | "SESSION_ROLE_NOT_OFFERED"
   | "WEBINAR_ANCHOR_SESSION"
   | "STALE_WRITE"
   | "UNKNOWN";
@@ -373,6 +381,63 @@ async function resolveSessionRoleInputs<T extends SessionFieldsInput & { organiz
 }
 
 /**
+ * A role someone is newly given must be on offer here: on the organisation's
+ * list, not hidden, not turned off by this event (review of the session roles
+ * work: only the picker used to filter, so the agent could put a Host on an
+ * event that turned Host off). Someone who already holds that exact role on
+ * this session keeps it. Returns the first refused role's name, or null.
+ */
+async function roleOfferProblem(
+  organizationId: string,
+  eventSettings: unknown,
+  sessionId: string | null,
+  rows: { speakerId: string; role: string; customRoleKey?: string | null }[],
+): Promise<string | null> {
+  if (rows.length === 0) return null;
+  const roles = await getSessionRoles(organizationId);
+  const offered = new Set(offeredSessionRoles(roles, readEventHiddenSessionRoles(eventSettings)).map((r) => r.key));
+  const notOffered = rows.filter((r) => !offered.has(sessionRoleKeyOf(r)));
+  if (notOffered.length === 0) return null;
+  const held = sessionId
+    ? await db.sessionSpeaker.findMany({ where: { sessionId }, select: { speakerId: true, role: true, customRoleKey: true } })
+    : [];
+  const holds = new Set(held.map((h) => `${h.speakerId}|${sessionRoleKeyOf(h)}`));
+  const refused = notOffered.find((r) => !holds.has(`${r.speakerId}|${sessionRoleKeyOf(r)}`));
+  return refused ? sessionRoleLabel(refused, roles) : null;
+}
+
+const notOfferedMessage = (label: string) =>
+  `"${label}" is not offered on this event: the organisation hid it or the event turned it off. Choose another role, or offer it again in the event's settings.`;
+
+/** Thrown inside a write's transaction when an added role changed under it. */
+class SessionRoleListChanged extends Error {}
+
+const ROLE_LIST_CHANGED_MESSAGE =
+  "The organisation's session roles changed while this was being saved. Reload and try again.";
+
+/**
+ * Re-reads the organisation's roles inside the write's transaction, under a
+ * share lock on its row (review of the session roles work). `saveSessionRoles`
+ * holds the update lock on the same row, so a role's duty cannot change, and
+ * a role cannot be deleted, between this save resolving the key and storing
+ * it. Only for assignments holding an added role; a built-in never changes.
+ */
+async function lockAddedRolesTx(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  rows: { role: string; customRoleKey?: string | null }[],
+): Promise<void> {
+  const added = rows.filter((r) => r.customRoleKey);
+  if (added.length === 0) return;
+  const found = await tx.$queryRaw<{ settings: Prisma.JsonValue | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${organizationId} FOR SHARE`;
+  const roles = readSessionRoles(found[0]?.settings);
+  for (const r of added) {
+    const now = resolveSessionRoleKey(r.customRoleKey!, roles);
+    if (!now || now.role !== r.role) throw new SessionRoleListChanged(r.customRoleKey!);
+  }
+}
+
+/**
  * Times, track, abstract, speakers, capacity — the rules that used to be
  * copied (and to disagree) across the four call sites.
  *
@@ -402,9 +467,19 @@ async function validate(
   const event = await db.event.findUnique({
     where: { id: eventId },
     // `settings` carries the webinar anchor pointer the break-item guard reads.
-    select: { startDate: true, endDate: true, timezone: true, settings: true },
+    select: { startDate: true, endDate: true, timezone: true, settings: true, organizationId: true },
   });
   if (!event) return fail("EVENT_NOT_FOUND", `Event ${eventId} not found`);
+
+  if (input.sessionRoles !== undefined || input.speakerIds !== undefined) {
+    const refused = await roleOfferProblem(
+      event.organizationId,
+      event.settings,
+      opts.sessionId ?? null,
+      buildSessionSpeakerRows(input).rows,
+    );
+    if (refused) return fail("SESSION_ROLE_NOT_OFFERED", notOfferedMessage(refused), { role: refused });
+  }
 
   // One role per speaker per session (composite PK). Same speaker under two
   // different roles is ambiguous — reject with a message the dashboard toast
@@ -559,7 +634,8 @@ export async function createSession(rawInput: CreateSessionInput): Promise<Creat
     // admits them on the platform. Single nested create — the db extension
     // applies SET LOCAL per-op, so no tenantTransaction needed here.
     const orgId = input.organizationId;
-    created = await db.eventSession.create({
+    const speakerRows = buildSessionSpeakerRows(input).rows;
+    const write = (client: Prisma.TransactionClient | typeof db) => client.eventSession.create({
       data: {
         eventId,
         organizationId: orgId,
@@ -604,7 +680,19 @@ export async function createSession(rawInput: CreateSessionInput): Promise<Creat
       },
       select: { id: true },
     });
+    // An added role is checked again under the organisation row's share lock,
+    // in the same transaction as the write; built-ins only need no lock.
+    created = speakerRows.some((r) => r.customRoleKey)
+      ? await tenantTransaction(async (tx) => {
+          await lockAddedRolesTx(tx, orgId, speakerRows);
+          return write(tx);
+        })
+      : await write(db);
   } catch (err) {
+    if (err instanceof SessionRoleListChanged) {
+      apiLogger.warn({ msg: "session-service:create-rejected", code: "UNKNOWN_SESSION_ROLE", eventId, userId, source, role: err.message });
+      return fail("UNKNOWN_SESSION_ROLE", ROLE_LIST_CHANGED_MESSAGE);
+    }
     if (isAbstractUniqueViolation(err)) {
       apiLogger.warn(
         { msg: "session-service:abstract-unique-race", eventId, userId, source, detail: "Abstract was assigned to another session concurrently" },
@@ -734,6 +822,9 @@ export async function updateSession(rawInput: UpdateSessionInput): Promise<Updat
   const orgId = input.organizationId;
   try {
     await tenantTransaction(async (tx) => {
+      // 0. An added role in the payload is checked again under the
+      //    organisation row's share lock (see lockAddedRolesTx).
+      if (input.sessionRoles !== undefined) await lockAddedRolesTx(tx, orgId, buildSessionSpeakerRows(input).rows);
       // 1. CLAIM THE ROW FIRST (H1). Nothing below runs unless we own the write.
       const claim = await tx.eventSession.updateMany({
         where: {
@@ -829,6 +920,10 @@ export async function updateSession(rawInput: UpdateSessionInput): Promise<Updat
       }
     });
   } catch (err) {
+    if (err instanceof SessionRoleListChanged) {
+      apiLogger.warn({ msg: "session-service:update-rejected", code: "UNKNOWN_SESSION_ROLE", sessionId, eventId, userId, source, role: err.message });
+      return fail("UNKNOWN_SESSION_ROLE", ROLE_LIST_CHANGED_MESSAGE);
+    }
     if (err instanceof StaleWriteSentinel) {
       apiLogger.info({ msg: "session:stale-write-rejected", sessionId, eventId, userId, source });
       return fail(
@@ -1086,6 +1181,8 @@ export type SessionRosterErrorCode =
   | "SPEAKER_NOT_FOUND"
   | "BREAK_ITEM_HAS_PROGRAM"
   | "DUPLICATE_SPEAKER_ID"
+  | "UNKNOWN_SESSION_ROLE"
+  | "SESSION_ROLE_NOT_OFFERED"
   | "UNKNOWN";
 
 const rosterFail = (
@@ -1137,7 +1234,8 @@ interface RosterOpBase {
 async function findRosterSession(sessionId: string, eventId: string) {
   return db.eventSession.findFirst({
     where: { id: sessionId, eventId },
-    select: { id: true, type: true },
+    // The event's settings: which session roles it turned off (roleOfferProblem).
+    select: { id: true, type: true, event: { select: { settings: true } } },
   });
 }
 
@@ -1183,6 +1281,12 @@ export async function addSessionSpeaker(
       return rosterFail("SPEAKER_NOT_FOUND", `Speaker ${speakerId} not found in this event`);
     }
 
+    const refused = await roleOfferProblem(input.organizationId, session.event?.settings, sessionId, [{ speakerId, role, customRoleKey }]);
+    if (refused) {
+      apiLogger.warn({ msg: "session-roster:add-rejected", code: "SESSION_ROLE_NOT_OFFERED", eventId, sessionId, speakerId, role: refused, source: input.source });
+      return rosterFail("SESSION_ROLE_NOT_OFFERED", notOfferedMessage(refused));
+    }
+
     const existing = await db.sessionSpeaker.findUnique({
       where: { sessionId_speakerId: { sessionId, speakerId } },
       select: { role: true, customRoleKey: true },
@@ -1192,12 +1296,26 @@ export async function addSessionSpeaker(
     if (existing && existing.role === role && (existing.customRoleKey ?? null) === customRoleKey) {
       return { ok: true, sessionSpeaker: { sessionId, speakerId, role }, alreadyAssigned: true, roleChanged: false };
     }
-    const result = await db.sessionSpeaker.upsert({
-      where: { sessionId_speakerId: { sessionId, speakerId } },
-      create: { sessionId, speakerId, role, customRoleKey, organizationId: input.organizationId },
-      update: { role, customRoleKey },
-      select: { sessionId: true, speakerId: true, role: true },
-    });
+    const upsert = (client: Prisma.TransactionClient | typeof db) =>
+      client.sessionSpeaker.upsert({
+        where: { sessionId_speakerId: { sessionId, speakerId } },
+        create: { sessionId, speakerId, role, customRoleKey, organizationId: input.organizationId },
+        update: { role, customRoleKey },
+        select: { sessionId: true, speakerId: true, role: true, customRoleKey: true },
+      });
+    let result: Awaited<ReturnType<typeof upsert>>;
+    try {
+      result = customRoleKey
+        ? await tenantTransaction(async (tx) => {
+            await lockAddedRolesTx(tx, input.organizationId, [{ role, customRoleKey }]);
+            return upsert(tx);
+          })
+        : await upsert(db);
+    } catch (err) {
+      if (!(err instanceof SessionRoleListChanged)) throw err;
+      apiLogger.warn({ msg: "session-roster:add-rejected", code: "UNKNOWN_SESSION_ROLE", eventId, sessionId, speakerId, role: err.message, source: input.source });
+      return rosterFail("UNKNOWN_SESSION_ROLE", ROLE_LIST_CHANGED_MESSAGE);
+    }
 
     db.auditLog
       .create({
@@ -1207,7 +1325,12 @@ export async function addSessionSpeaker(
           action: existing ? "UPDATE" : "CREATE",
           entityType: "SessionSpeaker",
           entityId: `${sessionId}:${speakerId}`,
-          changes: { source: input.source, role, ...(existing && { previousRole: existing.role }) },
+          changes: {
+            source: input.source,
+            role,
+            customRoleKey,
+            ...(existing && { previousRole: existing.role, previousCustomRoleKey: existing.customRoleKey ?? null }),
+          },
         },
       })
       .catch((err) => apiLogger.error({ err, eventId, sessionId }, "session-roster:add audit-log-failed"));
@@ -1326,7 +1449,15 @@ export async function replaceSessionRoster(
       }
     }
 
+    const refused = await roleOfferProblem(input.organizationId, session.event?.settings, sessionId, assignments);
+    if (refused) {
+      apiLogger.warn({ msg: "session-roster:replace-rejected", code: "SESSION_ROLE_NOT_OFFERED", eventId, sessionId, role: refused, source: input.source });
+      return rosterFail("SESSION_ROLE_NOT_OFFERED", notOfferedMessage(refused));
+    }
+
     const result = await tenantTransaction(async (tx) => {
+      // An added role is checked again under the organisation row's share lock.
+      await lockAddedRolesTx(tx, input.organizationId, assignments);
       const beforeRows = await tx.sessionSpeaker.findMany({
         where: { sessionId },
         select: { speakerId: true, role: true, customRoleKey: true },
@@ -1350,6 +1481,10 @@ export async function replaceSessionRoster(
 
     return { ok: true, before: result.before, after: assignments, topicRowsRemoved: result.topicRowsRemoved };
   } catch (err) {
+    if (err instanceof SessionRoleListChanged) {
+      apiLogger.warn({ msg: "session-roster:replace-rejected", code: "UNKNOWN_SESSION_ROLE", eventId, sessionId, role: err.message, source: input.source });
+      return rosterFail("UNKNOWN_SESSION_ROLE", ROLE_LIST_CHANGED_MESSAGE);
+    }
     apiLogger.error({ err, msg: "session-roster:replace-failed", eventId, sessionId, source: input.source });
     return rosterFail("UNKNOWN", "Failed to replace session speakers");
   }

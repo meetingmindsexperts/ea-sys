@@ -84,7 +84,7 @@ test("an admin adds a Host, and the agenda offers and shows it", async ({ page }
   }
 });
 
-test("an event turns a role off: new rows never offer it, the person who holds it keeps it", async ({ page }) => {
+test("an event turns a role off: the server and new rows refuse it, the person who holds it keeps it", async ({ page }) => {
   await loginAs(page, "ADMIN");
   const before: Role[] = (await (await page.request.get("/api/organization/session-roles")).json()).roles;
   const stamp = Date.now();
@@ -95,15 +95,6 @@ test("an event turns a role off: new rows never offer it, the person who holds i
       ...before.map(({ key, label, duty, hidden }) => ({ key, label, duty, hidden })),
       { label: "Host", duty: "RUNS", hidden: false },
     ]);
-
-    // Event settings, Registration tab, Agenda card: untick Host and save.
-    await page.goto(`/events/${EVENT_ID}/settings`);
-    await page.getByRole("tab", { name: "Registration" }).click();
-    const host = page.getByRole("checkbox", { name: "Offer Host on this event" });
-    await expect(host).toBeChecked();
-    await host.click();
-    await page.getByRole("button", { name: "Save registration settings" }).click();
-    await expect.poll(async () => (await (await page.request.get(`/api/events/${EVENT_ID}`)).json()).settings?.hiddenSessionRoles).toEqual(["host"]);
 
     // A session where someone already holds Host.
     const sp = await page.request.post(`/api/events/${EVENT_ID}/speakers`, {
@@ -124,6 +115,27 @@ test("an event turns a role off: new rows never offer it, the person who holds i
     });
     expect(created.status(), await created.text()).toBe(201);
     sessionId = (await created.json()).id;
+
+    // Event settings, Registration tab, Agenda card: untick Host and save.
+    await page.goto(`/events/${EVENT_ID}/settings`);
+    await page.getByRole("tab", { name: "Registration" }).click();
+    const host = page.getByRole("checkbox", { name: "Offer Host on this event" });
+    await expect(host).toBeChecked();
+    await host.click();
+    await page.getByRole("button", { name: "Save registration settings" }).click();
+    await expect.poll(async () => (await (await page.request.get(`/api/events/${EVENT_ID}`)).json()).settings?.hiddenSessionRoles).toEqual(["host"]);
+
+    // The server refuses a new Host here too, not only the picker.
+    const refused = await page.request.post(`/api/events/${EVENT_ID}/sessions`, {
+      data: {
+        name: `Roles refused ${stamp}`,
+        startTime: start.toISOString(),
+        endTime: new Date(start.getTime() + 3_600_000).toISOString(),
+        sessionRoles: [{ speakerId, role: "host" }],
+      },
+    });
+    expect(refused.status()).toBe(400);
+    expect((await refused.json()).code).toBe("SESSION_ROLE_NOT_OFFERED");
 
     await page.goto(`/events/${EVENT_ID}/agenda`);
     await page.getByRole("button", { name: new RegExp(name) }).click();

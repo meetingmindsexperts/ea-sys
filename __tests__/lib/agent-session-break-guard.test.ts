@@ -15,6 +15,8 @@ const { mockDb } = vi.hoisted(() => ({
     sessionTopic: { aggregate: vi.fn(), create: vi.fn() },
     topicSpeaker: { deleteMany: vi.fn() },
     auditLog: { create: vi.fn() },
+    // The organisation's session roles (roleOfferProblem): none of its own here.
+    organization: { findUnique: vi.fn().mockResolvedValue(null) },
   },
 }));
 

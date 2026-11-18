@@ -122,6 +122,7 @@ export function planSessionRoles(
   }
   const byKey = new Map(current.map((r) => [r.key, r]));
   const labelsSeen = new Set<string>();
+  const keysSeen = new Set<string>();
   const keysTaken = new Set<string>([...current.map((r) => r.key), ...heldCount.keys()]);
   const next: SessionRoleDef[] = [];
   for (const entry of input) {
@@ -133,6 +134,18 @@ export function planSessionRoles(
       return { ok: false, result: fail("DUPLICATE_LABEL", `There is already a role called "${label}".`) };
     }
     labelsSeen.add(label.toLowerCase());
+    // A built-in's code is how the agent and a CSV name it, so no other role may
+    // be called that: "moderator" must never mean two roles (review LOW 3).
+    const codeOf = BUILT_IN_SESSION_ROLES.find((b) => b.key.toLowerCase() === label.toLowerCase());
+    if (codeOf && entry.key !== codeOf.key) {
+      return { ok: false, result: fail("DUPLICATE_LABEL", `"${label}" is the built-in ${codeOf.label} role's own name. Choose another name.`) };
+    }
+    if (entry.key) {
+      if (keysSeen.has(entry.key)) {
+        return { ok: false, result: fail("UNKNOWN_ROLE", `"${label}" is listed twice. Reload and try again.`) };
+      }
+      keysSeen.add(entry.key);
+    }
     const hidden = entry.hidden === true;
 
     if (!entry.key) {

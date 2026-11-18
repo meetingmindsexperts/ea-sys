@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchApi } from "@/hooks/use-api";
+import { useCan } from "@/hooks/use-can";
 import { BUILT_IN_SESSION_ROLES, type SessionRoleDef, type SessionRoleDuty } from "@/lib/session-roles";
 
 /**
@@ -14,9 +15,13 @@ export type SessionRoleRow = SessionRoleDef & { assignments: number };
 export const SESSION_ROLES_KEY = ["organization", "session-roles"] as const;
 
 export function useSessionRoles() {
+  // Only for someone who may read the programme (the route asks sessions.read):
+  // anyone else would log a refusal on every page; they see the built-in names.
+  const allowed = useCan("sessions.read") === "allowed";
   return useQuery({
     queryKey: SESSION_ROLES_KEY,
     queryFn: () => fetchApi<{ roles: SessionRoleRow[] }>("/api/organization/session-roles").then((d) => d.roles),
+    enabled: allowed,
   });
 }
 

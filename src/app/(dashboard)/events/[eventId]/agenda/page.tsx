@@ -1576,7 +1576,11 @@ export default function AgendaPage() {
                           </SelectTrigger>
                           <SelectContent>
                             {/* The organisation's roles this event offers; a role the row holds stays. */}
-                            {offeredSessionRoles(sessionRoleDefs, eventHiddenSessionRoles, sr.role).map((r) => (
+                            {offeredSessionRoles(sessionRoleDefs, eventHiddenSessionRoles, [
+                              sr.role,
+                              // The role this person held when the dialog opened.
+                              editingSession?.speakers.find((sp) => sp.speaker.id === sr.speakerId)?.customRoleKey,
+                            ]).map((r) => (
                               <SelectItem key={r.key} value={r.key}>{r.label}</SelectItem>
                             ))}
                           </SelectContent>

@@ -189,6 +189,16 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   `SELECT email FROM "User" WHERE role = 'BASE';`. Never delete the enum value; retire it
   through `RETIRED_ROLES`.
 
+- **Session roles an organisation added (Nov 18, 2026; migration
+  `20261118140000_session_speaker_custom_role_key`).** Safe to READ on an older image: it
+  ignores `SessionSpeaker.customRoleKey` and reads `role`, which holds the duty's built-in, so a
+  Host shows as "Moderator" and still gets the moderation run-sheet. Not safe to WRITE: an
+  older image (or a browser tab opened before the deploy) that saves the session again stores
+  the plain built-in and drops the key, so that person becomes a Moderator for good. Before
+  rolling back past it, note who holds an added role and put them back after rolling forward.
+  Read-only check:
+  `SELECT "sessionId", "speakerId", "customRoleKey" FROM "SessionSpeaker" WHERE "customRoleKey" IS NOT NULL;`.
+
 - **The onsite desk source (`ONSITE_DESK`, Nov 2, 2026; migration
   `20261102120000_add_onsite_desk_source`).** Once the desk has registered a walk-in, an image
   older than this release cannot read that registration: its Prisma client throws on the

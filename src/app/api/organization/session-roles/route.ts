@@ -6,7 +6,8 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { MAX_SESSION_ROLE_LABEL, MAX_SESSION_ROLES } from "@/lib/session-roles";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getSessionRolesWithCounts, saveSessionRoles, type SaveSessionRolesErrorCode } from "@/services/session-role-service";
+import { getSessionRoles, getSessionRolesWithCounts, saveSessionRoles, type SaveSessionRolesErrorCode } from "@/services/session-role-service";
+import { can } from "@/lib/permissions/can";
 
 /**
  * The organisation's session roles (Nov 18, 2026; docs/SESSION_ROLES_PLAN.md):
@@ -53,7 +54,12 @@ export async function GET() {
       apiLogger.warn({ userId: session.user.id, role: session.user.role }, "session-roles:list-no-org");
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    // The counts read SessionSpeaker, which is policied: inside the lane.
+    // The counts are organisation-wide, so only for those who edit the list
+    // (Settings); a picker needs the names. Counts read SessionSpeaker,
+    // which is policied: inside the lane.
+    if (!can(gate.principal, "org.settings")) {
+      return NextResponse.json({ roles: (await getSessionRoles(organizationId)).map((r) => ({ ...r, assignments: 0 })) });
+    }
     const roles = await runWithTenant(organizationId, () => getSessionRolesWithCounts(organizationId));
     return NextResponse.json({ roles });
   } catch (err) {

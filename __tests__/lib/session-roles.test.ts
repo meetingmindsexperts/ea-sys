@@ -136,6 +136,16 @@ describe("planSessionRoles", () => {
     expect(planSessionRoles(current, hidden, held).ok).toBe(true);
   });
 
+  it("never lets another role be named like a built-in's code, nor list one key twice", () => {
+    const named = planSessionRoles(current, asInput([{ label: "moderator", duty: "PRESENTS" }]), none);
+    expect(!named.ok && named.result.ok === false && named.result.code).toBe("DUPLICATE_LABEL");
+    // The built-in itself may be called by its code.
+    const self = asInput().map((r) => (r.key === "MODERATOR" ? { ...r, label: "Moderator" } : r));
+    expect(planSessionRoles(current, self, none).ok).toBe(true);
+    const twice = planSessionRoles(current, [...asInput(), { key: "host", label: "Host again", duty: "PRESENTS" }], none);
+    expect(!twice.ok && twice.result.ok === false && twice.result.code).toBe("UNKNOWN_ROLE");
+  });
+
   it("refuses two roles with one name, a blank name, and a key it does not know", () => {
     const dup = planSessionRoles(current, asInput([{ label: "host", duty: "RUNS" }]), none);
     expect(!dup.ok && dup.result.ok === false && dup.result.code).toBe("DUPLICATE_LABEL");

@@ -19,6 +19,8 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => {
   return {
     mockDb: {
       eventSession: { findFirst: vi.fn() },
+      // The organisation's session roles (roleOfferProblem): none of its own here.
+      organization: { findUnique: vi.fn().mockResolvedValue(null) },
       speaker: { findFirst: vi.fn(), findMany: vi.fn() },
       sessionSpeaker: { findUnique: vi.fn(), upsert: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },

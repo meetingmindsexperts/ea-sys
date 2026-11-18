@@ -19,6 +19,8 @@ const {
   mockReschedule,
 } = vi.hoisted(() => {
   const mockTx = {
+    // lockAddedRolesTx's share-locked read of the organisation's roles.
+    $queryRaw: vi.fn(),
     eventSession: { updateMany: vi.fn() },
     sessionSpeaker: { deleteMany: vi.fn(), createMany: vi.fn() },
     sessionTopic: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn(), update: vi.fn() },
@@ -30,6 +32,8 @@ const {
       $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(mockTx)),
       event: { findUnique: vi.fn() },
       organization: { findUnique: vi.fn() },
+      // roleOfferProblem: who already holds a role on the session.
+      sessionSpeaker: { findMany: vi.fn() },
       eventSession: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
       track: { findFirst: vi.fn() },
       abstract: { findFirst: vi.fn() },
@@ -857,8 +861,10 @@ describe("updateSession — Panel Discussion / Q&A presets (Nov 18, 2026)", () =
 });
 
 describe("updateSession — roles the organisation added (Nov 18, 2026)", () => {
-  it("stores an added role as its duty's built-in plus its key", async () => {
-    mockDb.organization.findUnique.mockResolvedValue({ settings: { sessionRoles: [{ key: "host", label: "Host", duty: "RUNS" }] } });
+  it("stores an added role as its duty's built-in plus its key, checked again under the lock", async () => {
+    const settings = { sessionRoles: [{ key: "host", label: "Host", duty: "RUNS" }] };
+    mockDb.organization.findUnique.mockResolvedValue({ settings });
+    mockTx.$queryRaw.mockResolvedValue([{ settings }]);
     mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }]);
     const res = await updateSession({ ...BASE_UPDATE, sessionRoles: [{ speakerId: "sp1", role: "host" }] });
     expect(res.ok).toBe(true);
@@ -874,11 +880,47 @@ describe("updateSession — roles the organisation added (Nov 18, 2026)", () => 
     expect(mockDb.$transaction).not.toHaveBeenCalled();
   });
 
-  it("reads no list when every role is a built-in", async () => {
+  it("a built-in takes no lock", async () => {
     mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }]);
     const res = await updateSession({ ...BASE_UPDATE, sessionRoles: [{ speakerId: "sp1", role: "CHAIRPERSON" }] });
     expect(res.ok).toBe(true);
-    expect(mockDb.organization.findUnique).not.toHaveBeenCalled();
+    expect(mockTx.$queryRaw).not.toHaveBeenCalled();
     expect(mockTx.sessionSpeaker.createMany.mock.calls[0][0].data[0]).toMatchObject({ role: "CHAIRPERSON", customRoleKey: null });
+  });
+});
+
+describe("session roles: what the server enforces (review of the session roles work)", () => {
+  it("refuses a save when the added role changed duty under it", async () => {
+    mockDb.organization.findUnique.mockResolvedValue({ settings: { sessionRoles: [{ key: "host", label: "Host", duty: "RUNS" }] } });
+    // By the time the transaction holds the lock, Host presents.
+    mockTx.$queryRaw.mockResolvedValue([{ settings: { sessionRoles: [{ key: "host", label: "Host", duty: "PRESENTS" }] } }]);
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }]);
+    const res = await updateSession({ ...BASE_UPDATE, sessionRoles: [{ speakerId: "sp1", role: "host" }] });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("UNKNOWN_SESSION_ROLE");
+    expect(mockTx.sessionSpeaker.createMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses giving someone a role the event turned off, or the organisation hid", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }]);
+    mockDb.sessionSpeaker.findMany.mockResolvedValue([]);
+    mockDb.event.findUnique.mockResolvedValue({ ...EVENT, settings: { hiddenSessionRoles: ["CHAIRPERSON"] } });
+    const off = await updateSession({ ...BASE_UPDATE, sessionRoles: [{ speakerId: "sp1", role: "CHAIRPERSON" }] });
+    expect(off.ok).toBe(false);
+    if (!off.ok) expect(off.code).toBe("SESSION_ROLE_NOT_OFFERED");
+
+    mockDb.event.findUnique.mockResolvedValue(EVENT);
+    mockDb.organization.findUnique.mockResolvedValue({ settings: { sessionRoles: [{ key: "PANELIST", hidden: true }] } });
+    const hidden = await updateSession({ ...BASE_UPDATE, sessionRoles: [{ speakerId: "sp1", role: "PANELIST" }] });
+    expect(hidden.ok).toBe(false);
+    if (!hidden.ok) expect(hidden.code).toBe("SESSION_ROLE_NOT_OFFERED");
+  });
+
+  it("someone who already holds the role on this session keeps it", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }]);
+    mockDb.sessionSpeaker.findMany.mockResolvedValue([{ speakerId: "sp1", role: "CHAIRPERSON", customRoleKey: null }]);
+    mockDb.event.findUnique.mockResolvedValue({ ...EVENT, settings: { hiddenSessionRoles: ["CHAIRPERSON"] } });
+    const res = await updateSession({ ...BASE_UPDATE, sessionRoles: [{ speakerId: "sp1", role: "CHAIRPERSON" }] });
+    expect(res.ok).toBe(true);
   });
 });

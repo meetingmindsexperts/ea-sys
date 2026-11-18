@@ -201,17 +201,19 @@ export function readEventHiddenSessionRoles(eventSettings: unknown): string[] {
 
 /**
  * The roles a picker on this event offers: on the organisation's list, not
- * hidden there, not turned off by the event. `keep` is the role a row already
- * holds: it stays choosable even when hidden since, so saving the session
- * never takes it from the person.
+ * hidden there, not turned off by the event. `keep` is the role (or roles) a
+ * row holds, now and as it was saved: it stays choosable even when hidden
+ * since, so saving the session never takes it from the person, and switching
+ * away and back in one edit works.
  */
 export function offeredSessionRoles(
   roles: readonly SessionRoleDef[],
   eventHidden: readonly string[],
-  keep?: string | null,
+  keep?: string | null | readonly (string | null | undefined)[],
 ): SessionRoleDef[] {
   const off = new Set(eventHidden);
-  return roles.filter((r) => r.key === keep || (!r.hidden && !off.has(r.key)));
+  const kept = new Set((Array.isArray(keep) ? keep : [keep]).filter((k): k is string => !!k));
+  return roles.filter((r) => kept.has(r.key) || (!r.hidden && !off.has(r.key)));
 }
 
 /**

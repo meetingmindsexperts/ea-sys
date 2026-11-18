@@ -37,6 +37,29 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Session roles: what the Nov 18 review left (recorded Nov 18, 2026): not started
+
+From the review of the seven session roles commits (`77769f0a` to `015463dd`; 0 BLOCKER,
+0 HIGH, 2 MED, 8 LOW). Fixed in the follow-up: a save holding an added role checks it again
+under a share lock on the organisation row, so a role's duty cannot change, nor the role be
+deleted, between resolving and storing it; the server refuses giving someone a role the
+organisation hid or the event turned off (`SESSION_ROLE_NOT_OFFERED`), while a holder keeps
+it; no role may be named like a built-in's code, and a key listed twice is refused; the
+single-add audit carries the added role; a hidden role somebody holds stays an audience; the
+picker keeps the role held when the dialog opened; the list is fetched only by those who may
+read the programme, with counts only for those who edit it; docs/ROLLBACK.md says an older
+image drops the key when it saves.
+
+**LOW, listed, not fixed:**
+
+- **A deleted role's key can come back.** Only held keys are reserved, so a new "Host" made
+  after an old one was deleted gets `host` again, and inherits any event's
+  `hiddenSessionRoles` entry and any saved bulk-email filter naming it. Fix: keep deleted keys
+  in the organisation's settings and treat them as taken. Rare: a role is deleted only while
+  nobody holds it.
+- **While the list loads, a row holding an added role shows a blank picker** for a moment (the
+  built-in fallback has no such key). Cosmetic.
+
 ## Panel Discussion / Q&A presets and numbered sessions: what the Nov 18 review left (recorded Nov 18, 2026): not started
 
 From the review of `4b84c150`, `bb5f4eb5` and `e399a17f` (0 BLOCKER, 0 HIGH, 1 MED, 8 LOW).
