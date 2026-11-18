@@ -35,8 +35,9 @@ export default defineConfig({
   testDir: "./e2e",
   // agent-golden makes real model calls (playwright.golden.config.ts). screenshots
   // and tenancy-shots have their own seed and server (playwright.docs.config.ts,
-  // playwright.tenancy.config.ts on :3114); run here they only time out.
-  testIgnore: ["**/fixtures/**", "**/agent-golden/**", "**/screenshots/**", "**/tenancy-shots/**"],
+  // playwright.tenancy.config.ts on :3114); run here they only time out. rls is
+  // the row security run (playwright.rls.config.ts, `npm run e2e:rls`).
+  testIgnore: ["**/fixtures/**", "**/agent-golden/**", "**/screenshots/**", "**/tenancy-shots/**", "**/rls/**"],
   // Specs share a seeded DB; running in parallel would let workers race against
   // each other (e.g. the admin-smoke spec mutates the event list). One worker
   // keeps the suite deterministic without costing much at this size.

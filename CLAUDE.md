@@ -314,6 +314,7 @@ npm run dev          # Start dev server (localhost:3113, on the LOCAL test DB)
 npm run build        # Build for production
 npm run lint         # Run ESLint
 npm run gate         # THE pre-push gate: what CI gates on (less its container suites) + the browser suite, on one commit (AGENTS.md rule 5)
+npm run e2e:rls      # The whole product with ROW SECURITY ON (needs the tenancy Postgres): run before committing a change to lanes, policies or a policied table's writers
 npx prisma generate  # Generate Prisma client
 npm run db:refresh   # Reset the local test DB from the latest live DR dump
 npm run uploads:refresh  # Pull the uploaded FILES those rows point at (photos/banners/certs)

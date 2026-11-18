@@ -139,6 +139,23 @@ host (public). There is no in-session switcher (that's a future feature).
 
 ---
 
+## The other check: the whole product under row security, one organisation
+
+The sandbox shows two tenants side by side. It does not run the product's own
+browser suite. `npm run e2e:rls` (Nov 18, 2026) does: it rebuilds a throwaway
+`ea_sys_test` database on this same Postgres with every policy applied, starts
+the standalone build as the restricted role, runs the browser suite, asks every
+GET route and every page as each seeded role, and finally reads the server's
+log. The run fails on a write a policy refused, an Event read made outside a
+tenant lane, or an object the restricted role was refused on, even when no
+request failed. About four minutes. It needs only the tenancy container up; it
+does not touch the `sandbox` database, and its address is fixed in
+`e2e/rls/rls-env.ts`, never read from the environment.
+
+Run it before committing any change to lanes, policies or a policied table's
+writers. It has one organisation, so it can show a dead lane and never a lane
+that names the wrong tenant: that is what the two tenants here are for.
+
 ## Honest caveats (this is a partial platform — that's the point)
 
 **Corrected Sep 2 2026.** This section used to say "only ~14 domains are swept"

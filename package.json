@@ -33,6 +33,7 @@
     "docs:screenshots:ui": "playwright test -c playwright.docs.config.ts --ui",
     "tenancy:screenshots": "playwright test -c playwright.tenancy.config.ts",
     "tenancy:isolation": "playwright test -c playwright.tenancy.config.ts domain-isolation",
+    "e2e:rls": "tsx e2e/rls/setup.ts && playwright test -c playwright.rls.config.ts",
     "db:push": "DB_LOCAL_OP=push bash scripts/db-local-op.sh",
     "db:reset": "DB_LOCAL_OP=reset bash scripts/db-local-op.sh",
     "db:snapshot": "bash scripts/db-snapshot.sh",

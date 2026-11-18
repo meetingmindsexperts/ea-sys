@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### One instance for everyone: the direction, and the first step (November 18)
+
+No change to the product.
+
+- **Direction (owner):** no second deployment. Production becomes the platform, MM Group its first tenant, in small steps over weeks. Record: `docs/MULTI_TENANCY.md` §0; the ordered road: `docs/ROADMAP.md`, "One instance for everyone: the road".
+- **`npm run e2e:rls`**: the whole product with row security on, as one command (`e2e/rls/`, `playwright.rls.config.ts`). It builds a throwaway database with every policy, runs the browser suite as the restricted role, asks every route and page as each role, and reads the server log at the end, failing on a refused write, an Event read outside a lane or a permission error. 50 tests, about four minutes. Until now this was done by hand. One organisation; the two-tenant half is the next step.
+- **Found by its first run: the alert path can feed itself** when its own bookkeeping read fails with anything but a connection blip (about 150 log lines a second). Recorded as ROADMAP "Row security rehearsal", item 22; not fixed yet, because the fix touches alerting and waits for the owner.
+
 ### Agenda: Panel Discussion and Q&A topics, numbered sessions in speaker emails (November 18)
 
 - **One-click topics**: beside Add Topic, in the session dialog and on the session detail panel, "Panel Discussion" and "Q&A" add a topic with that title. The title stays editable ("Discussion with the Panel"), the organiser sets its minutes and the agenda gives it its time slot like any topic. Nothing is added unless the organiser clicks.
