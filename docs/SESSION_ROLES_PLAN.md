@@ -1,4 +1,4 @@
-# Session roles an organisation can edit: PLAN (Nov 18, 2026), IN BUILD
+# Session roles an organisation can edit: PLAN (Nov 18, 2026), BUILT
 
 **Status:** the owner accepted the six recommendations in section 6 on Nov 18,
 2026 ("proceed building"). Step 1 built Nov 18 (`src/lib/session-roles.ts`,
@@ -12,7 +12,10 @@ the event's choice (`Event.settings.hiddenSessionRoles`, the roles an event turn
 off), every picker and badge, the Communications audiences by role and by duty,
 and the agent taking a role by name (an unknown name is refused, it used to become
 SPEAKER). The archive export keeps a built-in's code and names an added role. The
-CSV import is unchanged (D6). Step 7, the browser proof, is next.
+CSV import is unchanged (D6). Step 7 built Nov 18: `e2e/session-roles.spec.ts` (an admin adds a
+Host and hides Panelist; the picker and the public agenda follow; an event turns a
+role off and only new rows lose it). The rollback rehearsal is covered by design: an
+older image reads the enum, which holds the duty's built-in.
 
 **Ask (owner, Nov 18, 2026):** the agenda's session roles are fixed at Moderator,
 Chairperson, Panelist and Speaker. An organiser should be able to add, rename and
