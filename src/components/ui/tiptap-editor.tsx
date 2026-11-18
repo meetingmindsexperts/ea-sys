@@ -5,6 +5,7 @@ import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import { Node, Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
+import { linkStyle } from "@/lib/editor-link-style";
 import Image from "@tiptap/extension-image";
 import TextAlign from "@tiptap/extension-text-align";
 import Color from "@tiptap/extension-color";
@@ -81,9 +82,6 @@ const StyleBlock = Node.create({
     return ["style", {}, HTMLAttributes.css || ""];
   },
 });
-
-/** What a link looks like when it has no style of its own (the brand cerulean). */
-export const LINK_DEFAULT_STYLE = "color: #00aade; text-decoration: underline;";
 
 /**
  * GlobalAttributes — adds `class` and `style` to every built-in node type
@@ -588,9 +586,10 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
       }),
       Color,
       // A link keeps its own `style` (Nov 18, 2026): every link used to be
-      // given the cerulean style below, so a pasted red link turned blue on
-      // reload and was saved blue by the next visual edit. The default is for
-      // a link with no style. Not set through HTMLAttributes: Tiptap merges
+      // given the cerulean style, so a pasted red link turned blue on reload
+      // and was saved blue by the next visual edit. The cerulean colour and
+      // underline fill in only what the link does not set (linkStyle). Not
+      // set through HTMLAttributes: Tiptap merges
       // that with the link's own style by splitting on ":", which cuts a value
       // such as url(https://...).
       Link.extend({
@@ -600,7 +599,7 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
             style: {
               default: null,
               parseHTML: (el) => el.getAttribute("style") || null,
-              renderHTML: (attrs) => ({ style: attrs.style || LINK_DEFAULT_STYLE }),
+              renderHTML: (attrs) => ({ style: linkStyle(attrs.style) }),
             },
           };
         },

@@ -86,6 +86,10 @@ export function CertEmailEditorDialog({
   // initialSubject/initialBody and decides what to re-seed with).
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
+  // The editor reads `content` only when it mounts, so an inserted token
+  // remounts it (Nov 18, 2026: the token never showed, and the next
+  // keystroke dropped it).
+  const [editorKey, setEditorKey] = useState(0);
 
   // Seed from the initials only when the dialog OPENS (React 19 "store info
   // from previous renders"). Re-seeding whenever the initials change would
@@ -114,6 +118,7 @@ export function CertEmailEditorDialog({
       // insert behavior predictable rather than trying to track the
       // current cursor inside Tiptap.
       setBody((cur) => `${cur}<p>${token}</p>`);
+      setEditorKey((k) => k + 1);
     }
   }
 
@@ -153,6 +158,7 @@ export function CertEmailEditorDialog({
           <div className="space-y-2">
             <Label>Body</Label>
             <TiptapEditor
+              key={editorKey}
               cleanPastedStyles
               content={body}
               onChange={setBody}

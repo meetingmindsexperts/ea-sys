@@ -85,14 +85,22 @@ export default function EmailTemplateEditorPage() {
   const serverUpdatedAt = data?.template?.updatedAt ?? null;
   if (serverUpdatedAt && serverUpdatedAt !== syncedAt && data?.template) {
     setSyncedAt(serverUpdatedAt);
-    setSubject(data.template.subject);
     // Strip document wrapper for backwards compat with old full-document templates
     const bodyContent = stripDocumentWrapper(data.template.htmlContent);
-    setHtmlContent(bodyContent);
-    setTextContent(data.template.textContent || "");
-    setIsActive(data.template.isActive);
+    // The echo of our own save (Save, Preview and Send test all save first):
+    // the editor already holds exactly this, so it is not remounted (review of
+    // ae8a3d5e). A remount dropped Source mode, and the next Source view showed
+    // the editor's re-parse, which loses table widths, <center>, <font> and
+    // comments, and the next save stored that.
+    const echoOfOurSave = syncedAt !== null && bodyContent === htmlContent && data.template.subject === subject;
+    if (!echoOfOurSave) {
+      setSubject(data.template.subject);
+      setHtmlContent(bodyContent);
+      setTextContent(data.template.textContent || "");
+      setIsActive(data.template.isActive);
+      setEditorKey((k) => k + 1);
+    }
     setDirty(false);
-    setEditorKey((k) => k + 1);
   }
 
   const allowedTokens: string[] = data?.allowedTokens ?? [];
