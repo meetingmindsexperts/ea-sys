@@ -37,6 +37,15 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## The agent's contacts and speakers: what the Nov 18 reviews left (recorded Nov 18, 2026): not started
+
+From the reviews of `bec582ad`, `5bbb3dfc` and `a564d103` (contacts become speakers with all their details).
+
+- **Owner question: should contact lists leaving through MCP be logged like an export?** `list_contacts` returns up to 200 contacts with phone, bio and address to an API key or an OAuth client, and nothing writes a `recordExport` row. Not a regression: `GET /api/contacts` gives the same `contacts.read` holders the same fields. Options: a `recordExport` for `list_contacts` on the MCP door, or phone and address only for `contacts.export.sensitive` there.
+- **LOW: the services answer an unreadable Role list with `ROLE_NOT_OFFERED`.** `roleAnswerProblem` returns the `ROLE_NOT_CHECKED` text ("could not check this answer just now") under the same code as a refused answer (`speaker-service.ts`, `registration-service.ts`), so a tool passes "not offered" for what is a retry. Give it its own code (`ROLES_UNREADABLE`, as the tools now use) and a 503 in the REST maps.
+- **LOW: `create_speakers_bulk` keeps the old Role refusal** (per row `INVALID_ROLE`, "could not be read; try again" for an empty list, pinned by `mcp-bulk-parity.test.ts`). Move it to `writtenRoleRefusal` with the single tools.
+- **LOW: filling an existing speaker from a contact whose Role answer is retired** is refused by `update_speaker` (the import keeps it through `roleFromRecord`). The tool tells the model to leave role out and say so; keeping it would mean trusting a role read from the same-address contact.
+
 ## Session roles: what the Nov 18 review left (recorded Nov 18, 2026): not started
 
 From the review of the seven session roles commits (`77769f0a` to `015463dd`; 0 BLOCKER,

@@ -248,12 +248,13 @@ async function updatedSpeakerRole(
   const text = String(written).trim();
   if (text === "") return { ok: true, key: null };
   if (stored && text === stored) return { ok: true, key: stored };
-  const read = await resolveWrittenRole(organizationId, text);
+  // One read of the list (review of a564d103: a second read that failed
+  // turned "keep their retired answer" into "not offered").
+  const roleField = await loadRoleFieldForWrite(organizationId);
+  if (!roleField) return { ok: false, refusal: writtenRoleRefusal(text, { offered: [], unreadable: true }) };
+  const read = writtenRoleOnOffer(roleField, text);
   if (read.ok) return read;
-  if (stored && !read.unreadable) {
-    const roleField = await loadRoleFieldForWrite(organizationId);
-    if (roleField && answerKeyFor(roleField, text) === stored) return { ok: true, key: stored };
-  }
+  if (stored && answerKeyFor(roleField, text) === stored) return { ok: true, key: stored };
   return { ok: false, refusal: writtenRoleRefusal(text, read) };
 }
 
@@ -733,7 +734,7 @@ const importSpeakersFromContactsTool: ToolExecutor = async (input, ctx) => {
       createdEmails: result.createdEmails,
       skipped: result.skipped,
       ...(result.skipped > 0
-        ? { skippedEmails: result.skippedEmails, skippedNote: "Already speakers on this event, left unchanged. To fill their details from the contact, read it with list_contacts and pass the fields to update_speaker." }
+        ? { skippedEmails: result.skippedEmails, skippedNote: "Already speakers on this event, left unchanged. To fill their details from the contact, read it with list_contacts and pass the fields to update_speaker. If it refuses the contact's role (an answer the organisation has retired), leave role out and say so." }
         : {}),
       ...(result.missingContactIds.length > 0 ? { notFoundContactIds: result.missingContactIds } : {}),
       facultyRegistrations: registrations.created,
