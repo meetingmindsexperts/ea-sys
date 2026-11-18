@@ -97,6 +97,23 @@ export default async function EventPage({ params }: EventPageProps) {
     session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
   const canFinance = can(principalFromSession(session), "finance.view");
 
+  // The Invoices & Quotes card shows only once the event has an invoice or a
+  // receipt (owner, Nov 18, 2026): on an event with none it led to an empty
+  // page. Read only for someone who may see the card. If the read fails the
+  // card shows, since it is only a link.
+  let hasInvoices = false;
+  if (canFinance) {
+    try {
+      hasInvoices = !!(await db.invoice.findFirst({
+        where: { eventId, type: { in: ["INVOICE", "RECEIPT"] } },
+        select: { id: true },
+      }));
+    } catch (err) {
+      apiLogger.error({ err, msg: "Failed to check invoices for event dashboard", eventId });
+      hasInvoices = true;
+    }
+  }
+
   // ── Registrations-by-Tier breakdown ─────────────────────────────────────────
   // groupBy returns rows like { pricingTierId, _count: { _all: 42 } }. The
   // second query resolves tier ids → names + sortOrder so the dashboard can
@@ -403,10 +420,11 @@ export default async function EventPage({ params }: EventPageProps) {
                 </CardContent>
               </Card>
             )}
-            {/* Invoices & Quotes — finance-gated. Lives in the left column so it
-                matches the width of the Registration Link + Registrations-by-Tier
-                cards above (not full-width). */}
-            {canFinance && (
+            {/* Invoices & Quotes — finance-gated, and only once the event has an
+                invoice or a receipt. Lives in the left column so it matches the
+                width of the Registration Link + Registrations-by-Tier cards
+                above (not full-width). */}
+            {canFinance && hasInvoices && (
               <Link href={`/events/${eventId}/invoices`} className="group block">
                 <Card className="border-emerald-300 bg-emerald-50 transition-all duration-200 hover:border-emerald-500 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] dark:border-emerald-800 dark:bg-emerald-950/30">
                   <CardContent className="flex items-center gap-4 p-5">
