@@ -98,17 +98,22 @@ export async function claimAlertSend(dedupKey: string): Promise<AlertClaim> {
     // statement below is not itself turned into an alert (alert-bookkeeping.ts).
     // Imported lazily, as everything Node-only is in this file: it is reachable
     // from logger.ts, which client components import.
+    //
+    // db.ts is loaded BEFORE the marked scope, never inside it. Loading it is
+    // what builds the Prisma client, and the engine's log callback keeps the
+    // async context the client was built in: built inside the scope, every
+    // engine error for the life of the process would carry the mark and stop
+    // alerting (review of 2b8a7b08; pinned by admin-alert-source.test.ts).
+    const { db } = await import("./db");
     const { inAlertBookkeeping } = await import("./alert-bookkeeping");
-    return await inAlertBookkeeping(() => claimFromDatabase(dedupKey));
+    return await inAlertBookkeeping(() => claimFromDatabase(db, dedupKey));
   } catch {
     // DB unreachable: degrade, don't go silent. See memoryLastSentAt.
     return { send: memoryShouldSend(dedupKey), suppressed: 0 };
   }
 }
 
-async function claimFromDatabase(dedupKey: string): Promise<AlertClaim> {
-  const { db } = await import("./db");
-
+async function claimFromDatabase(db: typeof import("./db")["db"], dedupKey: string): Promise<AlertClaim> {
   // ── 0. Operator silence window ────────────────────────────────────────
   // Env var is the break-glass (needs a restart); the DB row is the one an
   // on-call engineer can flip from /admin/infra while they fix the thing

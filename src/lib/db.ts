@@ -1,6 +1,6 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import { dbLogger } from "./logger";
-import { isAlertBookkeeping } from "./alert-bookkeeping";
+import { isAlertBookkeeping, isClientCall } from "./alert-bookkeeping";
 import { enterTenantTx, getTenantOrgId, getTenantStore } from "./tenant-context";
 import { noteUnlanedEventQuery } from "./tenant/lane-shadow";
 
@@ -207,8 +207,10 @@ function createPrismaClient(datasourceUrl: string | undefined = process.env.DATA
     // line would itself become an alert, whose first step is the read that
     // just failed. Nothing is lost by it: `claimAlertSend` falls back to its
     // in-memory record and the alert that was being sent still goes out. The
-    // target check covers a read made outside the marked path.
-    if (isAlertBookkeeping() || e.target?.includes("alertState")) {
+    // mark is honoured for a client call only (an engine line carries the
+    // context the client was built in, not the caller's); the target check
+    // covers a read of the table made outside the marked path.
+    if ((isAlertBookkeeping() && isClientCall(e.target)) || e.target?.includes("alertState")) {
       const failure = new Error(e.message || "(no message)");
       failure.name = "AlertBookkeepingError";
       dbLogger.warn({
@@ -255,14 +257,15 @@ function createPrismaClient(datasourceUrl: string | undefined = process.env.DATA
 
     // Option (c): ONE summarized alert per DB-connectivity outage window. The
     // per-error logs above are warn now (below the page threshold), so surface
-    // a single "Supabase blipped" ping. The in-memory throttle is what stops
-    // re-entry: the alert's OWN alertState query failing during the same outage
-    // is itself a connectivity error — the `alertState` target skip + the
-    // throttle both prevent it from re-firing the alert (the 2026-07-23 loop).
+    // a single "Supabase blipped" ping. The in-memory throttle stops re-entry.
+    // The alert's OWN bookkeeping failing during the same outage never reaches
+    // this point: it returned above (the 2026-07-23 loop, closed for every
+    // kind of error on Nov 18, 2026). So an outage that shows ONLY on the
+    // bookkeeping statements raises no summarized alert; any other query that
+    // meets it does.
     if (
       classification?.retryable &&
       CONNECTIVITY_OUTAGE_CATEGORIES.has(classification.category) &&
-      !e.target?.includes("alertState") &&
       Date.now() - lastConnectivityAlertAt > CONNECTIVITY_ALERT_THROTTLE_MS
     ) {
       lastConnectivityAlertAt = Date.now();
