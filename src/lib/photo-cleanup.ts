@@ -22,27 +22,29 @@
  * a leaked orphan file costs a few hundred KB and is mirrored to DR anyway,
  * while a wrongly-deleted shared file is data loss (INC-004's lesson).
  */
-import { db } from "@/lib/db";
+import { dbOperator, operatorSeesEveryTenant } from "@/lib/db";
 import { deletePhoto } from "@/lib/storage";
 import { apiLogger } from "@/lib/logger";
-import { getTenantOrgId } from "@/lib/tenant-context";
 
 export async function deletePhotoIfUnreferenced(url: string): Promise<void> {
   try {
-    // The three counts below are read through the caller's tenant lane, and
-    // all three tables carry a row policy. With row security on and NO lane
-    // they read 0 whatever the truth is, and the file would be deleted from
-    // under the rows that still use it (INC-004 again). The three callers are
-    // in a lane today; this keeps a fourth, or a moved line, from destroying a
-    // file: with no lane the photo is left where it is and the skip is logged.
-    if (process.env.RLS_SET_LOCAL === "1" && !getTenantOrgId()) {
-      apiLogger.warn({ msg: "photo-cleanup:skipped-no-lane", photo: url });
+    // Counted across EVERY organisation, on the privileged client (Nov 18,
+    // 2026), not through the caller's tenant lane. The photos folder is one
+    // folder for everybody, and a photo field is a string a caller supplies:
+    // counted inside a lane, another organisation's rows naming the same file
+    // are invisible under row security, and counted outside one, all rows are.
+    // Either way "nothing references it" would be read off a partial view and
+    // the file deleted from under rows that use it (INC-004 again). If the
+    // privileged client is itself held by the row policies, nothing can be
+    // concluded: leave the file, and say so.
+    if (!(await Promise.all(["Attendee", "Speaker", "Contact"].map(operatorSeesEveryTenant))).every(Boolean)) {
+      apiLogger.warn({ msg: "photo-cleanup:skipped-cannot-see-every-reference", photo: url });
       return;
     }
     const [attendees, speakers, contacts] = await Promise.all([
-      db.attendee.count({ where: { photo: url } }),
-      db.speaker.count({ where: { photo: url } }),
-      db.contact.count({ where: { photo: url } }),
+      dbOperator.attendee.count({ where: { photo: url } }),
+      dbOperator.speaker.count({ where: { photo: url } }),
+      dbOperator.contact.count({ where: { photo: url } }),
     ]);
     const references = attendees + speakers + contacts;
     if (references > 0) {

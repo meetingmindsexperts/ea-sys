@@ -15,7 +15,7 @@
  * reference check, a per-tick ceiling, and a summary line only when something
  * happened.
  */
-import { dbOperator } from "@/lib/db";
+import { dbOperator, operatorSeesEveryTenant } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { listStoredFiles, deleteStoredFile } from "@/lib/storage";
 import { UPLOAD_PREFIX, UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
@@ -48,6 +48,12 @@ export interface EmailAttachmentPruneResult {
  * real policy in tests/tenancy/guard-reads-rls.test.ts.
  */
 export async function referencedAttachmentPaths(): Promise<Set<string>> {
+  // If the privileged client is itself held by the row policies (row security
+  // on, DATABASE_URL_OPERATOR forgotten) the set would be empty and every file
+  // would be deleted. Throw: the tick's caller fails the tick, by design.
+  if (!(await operatorSeesEveryTenant("ScheduledEmail"))) {
+    throw new Error("the privileged client is bound by row security: set DATABASE_URL_OPERATOR to the table owner's connection");
+  }
   const rows = await dbOperator.scheduledEmail.findMany({
     where: { status: { in: ["PENDING", "PROCESSING", "FAILED"] } },
     select: { attachments: true },

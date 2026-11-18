@@ -102,10 +102,12 @@ export async function saveSponsorTiers(input: {
 }): Promise<SaveSponsorTiersResult> {
   try {
     // In the organisation's lane, and a TENANT transaction (Nov 18, 2026). The
-    // route calls this with no lane, and a plain `db.$transaction` names no
-    // tenant even inside one. Sponsor carries a row policy, so under row
-    // security the count of sponsors holding a tier read 0 and a tier still in
-    // use was removed. Pinned on a real policy in tests/tenancy/guard-reads-rls.test.ts.
+    // route calls this with no lane. Sponsor carries a row policy, so under
+    // row security the count of sponsors holding a tier read 0 and a tier
+    // still in use was removed. A tenant transaction, not a plain one: inside
+    // a lane a plain `db.$transaction` runs each model call on its own, OUTSIDE
+    // the transaction, so the lock taken below would not hold the write.
+    // Pinned on a real policy in tests/tenancy/guard-reads-rls.test.ts.
     const outcome = await runWithTenant(input.organizationId, () => tenantTransaction(async (tx): Promise<TierSaveOutcome> => {
       // The same row lock the settings writer takes, so this serialises with
       // every other organisation-settings change.

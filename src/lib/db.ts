@@ -527,6 +527,35 @@ function buildOperatorDb(): PrismaClient {
 
 export const dbOperator = globalForPrisma.prismaOperator ?? buildOperatorDb();
 
+const operatorSight = new Map<string, boolean>();
+
+/**
+ * Can the privileged client really see EVERY organisation's rows of this
+ * table? Asked of the database, not of the environment.
+ *
+ * WHY IT EXISTS (review of 2a05830e, Nov 18, 2026). `dbOperator` is the normal
+ * client whenever DATABASE_URL_OPERATOR is unset. That is right on a database
+ * with no row security, and silently wrong on one that has it: the
+ * "privileged" read is then bound by the policies like any other and returns
+ * nothing. For a scan that only finds work, nothing is the safe answer. For a
+ * read that decides whether something may be DELETED ("does any registration
+ * claim this file?") nothing means "delete it". Such a caller asks this first
+ * and destroys nothing when the answer is no.
+ *
+ * `row_security_active` is Postgres's own answer for the connected role and
+ * this table: false for the owner, a superuser, a BYPASSRLS role, or a table
+ * with no row security at all (production today). The answer cannot change
+ * while the process lives, so it is asked once per table.
+ */
+export async function operatorSeesEveryTenant(table: string): Promise<boolean> {
+  const known = operatorSight.get(table);
+  if (known !== undefined) return known;
+  const rows = await dbOperator.$queryRaw<{ bound: boolean }[]>`SELECT row_security_active(${`"${table}"`}::regclass) AS bound`;
+  const sees = rows[0]?.bound === false;
+  operatorSight.set(table, sees);
+  return sees;
+}
+
 /**
  * The sanctioned interactive-transaction entry point once tenancy is live:
  * issues the SET LOCAL on the transaction's own backend first, then marks the

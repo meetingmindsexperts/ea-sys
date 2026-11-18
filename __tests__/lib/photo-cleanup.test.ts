@@ -5,7 +5,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockDeletePhoto, mockLogger } = vi.hoisted(() => ({
+const { mockDb, mockSees, mockDeletePhoto, mockLogger } = vi.hoisted(() => ({
+  mockSees: vi.fn(),
   mockDb: {
     attendee: { count: vi.fn() },
     speaker: { count: vi.fn() },
@@ -15,12 +16,14 @@ const { mockDb, mockDeletePhoto, mockLogger } = vi.hoisted(() => ({
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// The references are counted on the privileged client: across every
+// organisation, never through the caller's lane. `db` is deliberately absent,
+// so a count that went back to it fails here.
+vi.mock("@/lib/db", () => ({ dbOperator: mockDb, operatorSeesEveryTenant: (t: string) => mockSees(t) }));
 vi.mock("@/lib/storage", () => ({ deletePhoto: (u: string) => mockDeletePhoto(u) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 
 import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
-import { runWithTenant } from "@/lib/tenant-context";
 
 const URL = "/uploads/photos/2026/07/b017b5f4.png";
 
@@ -30,6 +33,7 @@ beforeEach(() => {
   mockDb.speaker.count.mockResolvedValue(0);
   mockDb.contact.count.mockResolvedValue(0);
   mockDeletePhoto.mockResolvedValue(undefined);
+  mockSees.mockResolvedValue(true);
 });
 
 describe("deletePhotoIfUnreferenced", () => {
@@ -85,35 +89,28 @@ describe("deletePhotoIfUnreferenced", () => {
 });
 
 
-describe("a count made outside a tenant lane is never trusted (Nov 18, 2026)", () => {
-  // The three tables carry a row policy. With row security on and no lane the
-  // counts read 0 whatever the truth is, so "nothing references it" would mean
-  // nothing, and the file would be deleted from under the rows that use it.
-  it("row security on and no lane: the file is left alone, nothing is counted, the skip is logged", async () => {
-    vi.stubEnv("RLS_SET_LOCAL", "1");
-    try {
-      await deletePhotoIfUnreferenced(URL);
-    } finally {
-      vi.unstubAllEnvs();
-    }
+describe("the count must be able to see every organisation (Nov 18, 2026)", () => {
+  // The photos folder is one folder for everybody and a photo field is a
+  // string the caller supplies. A count that can see only part of the three
+  // tables cannot say "nothing references it".
+  it("the privileged client is held by row security: the file is left alone, nothing is counted, the skip is logged", async () => {
+    mockSees.mockImplementation(async (table: string) => table !== "Speaker");
+    await deletePhotoIfUnreferenced(URL);
     expect(mockDeletePhoto).not.toHaveBeenCalled();
     expect(mockDb.attendee.count).not.toHaveBeenCalled();
-    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "photo-cleanup:skipped-no-lane", photo: URL }));
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "photo-cleanup:skipped-cannot-see-every-reference", photo: URL }),
+    );
   });
 
-  it("row security on and IN a lane: counted and unlinked as before", async () => {
-    vi.stubEnv("RLS_SET_LOCAL", "1");
-    try {
-      await runWithTenant("org-1", () => deletePhotoIfUnreferenced(URL));
-    } finally {
-      vi.unstubAllEnvs();
-    }
-    expect(mockDb.attendee.count).toHaveBeenCalled();
-    expect(mockDeletePhoto).toHaveBeenCalledWith(URL);
-  });
-
-  it("row security off (production today): unchanged, lane or no lane", async () => {
+  it("asks about all three tables", async () => {
     await deletePhotoIfUnreferenced(URL);
-    expect(mockDeletePhoto).toHaveBeenCalledWith(URL);
+    expect(mockSees.mock.calls.map((call) => call[0]).sort()).toEqual(["Attendee", "Contact", "Speaker"]);
+  });
+
+  it("the check itself failing never throws and never deletes", async () => {
+    mockSees.mockRejectedValue(new Error("db down"));
+    await expect(deletePhotoIfUnreferenced(URL)).resolves.toBeUndefined();
+    expect(mockDeletePhoto).not.toHaveBeenCalled();
   });
 });

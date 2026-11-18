@@ -13,14 +13,18 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockList, mockDelete } = vi.hoisted(() => ({
+const { mockDb, tenantClient, mockSees, mockList, mockDelete } = vi.hoisted(() => ({
   mockDb: { registration: { findFirst: vi.fn() } },
+  // The tenant client. The job must never ask it: with no lane it sees nothing.
+  tenantClient: { registration: { findFirst: vi.fn() } },
+  mockSees: vi.fn(),
   mockList: vi.fn(),
   mockDelete: vi.fn().mockResolvedValue(undefined),
 }));
 
 // The claim is read on the privileged client (the job has no tenant lane).
-vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb }));
+// A DIFFERENT object from `db`, so a job that went back to `db` fails here.
+vi.mock("@/lib/db", () => ({ db: tenantClient, dbOperator: mockDb, operatorSeesEveryTenant: (t: string) => mockSees(t) }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -54,6 +58,26 @@ describe("runSupportingDocumentPruneTick", () => {
     mockDelete.mockResolvedValue(undefined);
     mockList.mockResolvedValue([]);
     mockDb.registration.findFirst.mockResolvedValue(null);
+    mockSees.mockResolvedValue(true);
+  });
+
+  it("deletes NOTHING when the privileged client cannot see every organisation, and says so", async () => {
+    // Row security on and DATABASE_URL_OPERATOR forgotten: the claim check
+    // would answer "unclaimed" for every file (review of 2a05830e).
+    mockSees.mockResolvedValue(false);
+    layout(["old-unclaimed.pdf", "old-claimed.pdf"]);
+    const result = await run();
+    expect(mockSees).toHaveBeenCalledWith("Registration");
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ deleted: 0, errors: 1 });
+  });
+
+  it("asks the privileged client, never the tenant one", async () => {
+    layout(["old.pdf"]);
+    await run();
+    expect(mockDb.registration.findFirst).toHaveBeenCalled();
+    expect(tenantClient.registration.findFirst).not.toHaveBeenCalled();
   });
 
   async function run() {

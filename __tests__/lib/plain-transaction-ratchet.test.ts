@@ -1,25 +1,34 @@
 /**
- * A plain interactive transaction names no tenant (the sweep of Nov 18, 2026).
+ * A plain interactive transaction is not a tenant transaction (the sweep of
+ * Nov 18, 2026).
  *
- * `db.$transaction(async (tx) => ...)` hands back a client that the tenant
- * extension does not see, so inside it no query says which organisation it is
- * for, EVEN when the caller is in a lane. Under row security every policied
- * read in it returns nothing and every policied write is refused. Two of
- * these were dangerous: the sponsor tier save counted "sponsors holding this
- * tier" as 0 and removed a tier in use, and a DTCM reversal that DET had
- * already made was never recorded here. `tenantTransaction` (src/lib/db.ts) is
- * the way in: it names the lane's tenant on the transaction's own connection.
+ * What `db.$transaction(async (tx) => ...)` does under row security, measured
+ * on the tenancy harness as the non-owner role:
+ *   - with NO tenant lane, nothing inside it names a tenant: every policied
+ *     read returns nothing and every policied write is refused, and a refused
+ *     statement aborts the whole transaction;
+ *   - INSIDE a lane, each model call is run on its own with the tenant named,
+ *     OUTSIDE the transaction (a write followed by a throw was not rolled
+ *     back), and a raw query still names no tenant.
+ * Either way it is not what its author meant. `tenantTransaction`
+ * (src/lib/db.ts) is: it names the lane's tenant on the transaction's own
+ * connection, so the statements see their rows and stand or fall together.
+ * Two were dangerous: the sponsor tier save (called with no lane) counted
+ * "sponsors holding this tier" as 0 and removed a tier in use, and the
+ * recording of a DTCM reversal was not one transaction.
  *
- * So a new plain interactive transaction fails this test. The ones listed are
- * the sign-in and account doors, which have no organisation to name; they are
- * not safe, they are KNOWN (see each reason).
+ * So a new one fails this test. The ones listed are the sign-in and account
+ * doors, which run with no lane; they are not safe, they are KNOWN (see each
+ * reason). The batch form, `$transaction([a, b])`, is a different thing and is
+ * not counted.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = path.resolve(__dirname, "../..");
-const PLAIN = /\b(?:db|prisma)\s*\.\s*\$transaction\s*\(\s*async\b/g;
+/** Any receiver (`db`, `prisma`, `client`, `dbOperator`), any callback (an arrow, a function, a variable), a type argument or not: everything but the batch form, which opens with `[`. */
+const PLAIN = /\b\w+\s*\.\s*\$transaction\s*(?:<[^>(]*>)?\s*\(\s*(?!\[)/g;
 
 /** file -> how many plain interactive transactions it holds, and why they are left. */
 const KNOWN: Record<string, { count: number; why: string }> = {
@@ -32,7 +41,10 @@ const KNOWN: Record<string, { count: number; why: string }> = {
   },
   "src/app/api/auth/forgot-password/route.ts": { count: 1, why: "as accept-invitation: an audit row inside the transaction (item 25)" },
   "src/app/api/auth/reset-password/route.ts": { count: 1, why: "as accept-invitation: an audit row inside the transaction (item 25)" },
-  "src/app/api/organization/users/route.ts": { count: 3, why: "as accept-invitation: an audit row inside each transaction (item 25)" },
+  "src/app/api/organization/users/route.ts": {
+    count: 3,
+    why: "User and VerificationToken; two of the three (inviting, and creating a user) also write an audit row inside the transaction (item 25)",
+  },
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {

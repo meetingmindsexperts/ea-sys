@@ -68,23 +68,30 @@ export async function listPoliciedTables(client: RlsQueryClient): Promise<Polici
  * Master leaves PLATFORM_ORG_ID unset and is untouched. Synchronous, no DB.
  */
 export function assertPlatformClaimsRls(env: NodeJS.ProcessEnv = process.env): void {
-  if (!env.PLATFORM_ORG_ID?.trim()) return;
   // The privileged lane is on the request path since Event carries a policy
   // (Nov 17, 2026): the one read made before a tenant lane exists goes through
   // `dbOperator`. With DATABASE_URL_OPERATOR unset, or the same as the app's
   // connection, `dbOperator` IS `db`: every reviewer, submitter and registrant
-  // would get "not found" on every event, and every worker scan would return
-  // nothing and log success. Refuse to serve instead (review of 9c0a24c5).
+  // would get "not found" on every event, every worker scan would return
+  // nothing and log success, and a job that asks "is this file still claimed"
+  // would hear "no" and delete it. Refuse to serve instead (review of 9c0a24c5).
+  //
+  // Asked whenever row security is claimed, NOT only on a deployment that
+  // calls itself the platform (review of 2a05830e, Nov 18, 2026): since the
+  // direction is one instance for everyone, the deployment that switches row
+  // security on is production itself, which sets no PLATFORM_ORG_ID.
   const operatorUrl = env.DATABASE_URL_OPERATOR?.trim();
   if (env.RLS_SET_LOCAL === "1" && (!operatorUrl || operatorUrl === env.DATABASE_URL?.trim())) {
     throw new Error(
-      "PLATFORM_ORG_ID and RLS_SET_LOCAL=1 are set but DATABASE_URL_OPERATOR is " +
+      "RLS_SET_LOCAL=1 is set but DATABASE_URL_OPERATOR is " +
         (operatorUrl ? "the same connection as DATABASE_URL" : "not set") +
         ". The privileged client would connect as the app's own role: worker scans would find " +
-        "nothing, and a reviewer, submitter or registrant could open no event. Set it to the " +
-        "table-owner connection (docs/PLATFORM_PROVISIONING.md, B3). Refusing to serve.",
+        "nothing, a cleanup job would read every file as unclaimed, and a reviewer, submitter or " +
+        "registrant could open no event. Set it to the table-owner connection " +
+        "(docs/PLATFORM_PROVISIONING.md, B3). Refusing to serve.",
     );
   }
+  if (!env.PLATFORM_ORG_ID?.trim()) return;
   if (env.RLS_SET_LOCAL === "1") return;
   throw new Error(
     "PLATFORM_ORG_ID is set (this deployment serves other organisations) but RLS_SET_LOCAL is not \"1\", " +

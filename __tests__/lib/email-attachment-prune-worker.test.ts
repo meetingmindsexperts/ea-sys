@@ -8,14 +8,22 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { listStoredFiles, deleteStoredFile, findMany } = vi.hoisted(() => ({
+const { listStoredFiles, deleteStoredFile, findMany, tenantFindMany, sees } = vi.hoisted(() => ({
   listStoredFiles: vi.fn(),
   deleteStoredFile: vi.fn(async () => undefined),
   findMany: vi.fn(),
+  // The tenant client. The job must never ask it: with no lane it sees nothing.
+  tenantFindMany: vi.fn(),
+  sees: vi.fn(),
 }));
 vi.mock("@/lib/storage", () => ({ listStoredFiles, deleteStoredFile }));
 // The reference set is read on the privileged client (the job has no tenant lane).
-vi.mock("@/lib/db", () => ({ db: { scheduledEmail: { findMany } }, dbOperator: { scheduledEmail: { findMany } } }));
+// A DIFFERENT object from `db`, so a job that went back to `db` fails here.
+vi.mock("@/lib/db", () => ({
+  db: { scheduledEmail: { findMany: tenantFindMany } },
+  dbOperator: { scheduledEmail: { findMany } },
+  operatorSeesEveryTenant: (t: string) => sees(t),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { runEmailAttachmentPruneTick, EMAIL_ATTACHMENT_GRACE_DAYS } from "@/lib/email-attachment-prune-worker";
@@ -27,6 +35,28 @@ const file = (storedPath: string, ageDays: number) => ({ storedPath, modifiedAt:
 beforeEach(() => {
   vi.clearAllMocks();
   findMany.mockResolvedValue([]);
+  sees.mockResolvedValue(true);
+});
+
+describe("the privileged client", () => {
+  it("deletes NOTHING when it cannot see every organisation's queued sends", async () => {
+    // Row security on and DATABASE_URL_OPERATOR forgotten: the reference set
+    // would be empty and every file would go (review of 2a05830e).
+    sees.mockResolvedValue(false);
+    listStoredFiles.mockResolvedValueOnce([file("/uploads/email-attachments/ev1/old.pdf", EMAIL_ATTACHMENT_GRACE_DAYS + 1)]);
+    const r = await runEmailAttachmentPruneTick(NOW);
+    expect(sees).toHaveBeenCalledWith("ScheduledEmail");
+    expect(deleteStoredFile).not.toHaveBeenCalled();
+    expect(findMany).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ deleted: 0, errors: 1 });
+  });
+
+  it("is the one asked, never the tenant client", async () => {
+    listStoredFiles.mockResolvedValueOnce([file("/uploads/email-attachments/ev1/old.pdf", EMAIL_ATTACHMENT_GRACE_DAYS + 1)]);
+    await runEmailAttachmentPruneTick(NOW);
+    expect(findMany).toHaveBeenCalled();
+    expect(tenantFindMany).not.toHaveBeenCalled();
+  });
 });
 
 describe("runEmailAttachmentPruneTick", () => {

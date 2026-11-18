@@ -651,10 +651,12 @@ async function recordReversal(
   userId: string,
   how: "DTCM_ORDER_REVERSED" | "DTCM_ORDER_MARKED_REVERSED",
 ): Promise<{ ok: true; order: DtcmOrder; clearedRegistrationCode: boolean; codeStillInUse: boolean } | { ok: false }> {
-  // A TENANT transaction (Nov 18, 2026): a plain `db.$transaction` names no
-  // tenant even when the caller is in a lane, so under row security the update
-  // below matched no row and a ticket DET had already reversed was never
-  // recorded as reversed here.
+  // A TENANT transaction (Nov 18, 2026). Under row security, inside a lane, a
+  // plain `db.$transaction` runs each model call on its own with the tenant
+  // named, OUTSIDE the transaction (measured on the harness: a write followed
+  // by a throw was not rolled back). These statements must stand or fall
+  // together: the order marked reversed, the registration's code cleared, the
+  // audit row.
   return tenantTransaction(async (tx) => {
     const done = await tx.dtcmOrder.updateMany({ where: { id: order.id, status: "PURCHASED" }, data: { status: "REVERSED", activeKey: null } });
     if (done.count === 0) return { ok: false as const };

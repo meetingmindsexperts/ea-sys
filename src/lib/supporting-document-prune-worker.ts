@@ -1,4 +1,4 @@
-import { dbOperator } from "@/lib/db";
+import { dbOperator, operatorSeesEveryTenant } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { listStoredFiles, deleteStoredFile } from "@/lib/storage";
 import { UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
@@ -86,6 +86,22 @@ export async function runSupportingDocumentPruneTick(
   // found no orphans, and reported a clean tick forever while unclaimed uploads
   // accumulated. A reaper that silently reaps nothing is the worst shape of
   // failure: every dashboard stays green.
+  // Before anything is deleted: can the claim check below see every
+  // organisation's registrations? If the privileged client is itself held by
+  // the row policies (row security on, DATABASE_URL_OPERATOR forgotten), every
+  // file would read as unclaimed. Delete nothing, and say so loudly.
+  try {
+    if (!(await operatorSeesEveryTenant("Registration"))) {
+      result.errors++;
+      apiLogger.error({ msg: "resident-letter-prune:privileged-client-is-bound", fix: "set DATABASE_URL_OPERATOR to the table owner's connection" });
+      return result;
+    }
+  } catch (err) {
+    result.errors++;
+    apiLogger.error({ err, msg: "resident-letter-prune:privilege-check-failed" });
+    return result;
+  }
+
   let files: Awaited<ReturnType<typeof listStoredFiles>>;
   try {
     files = await listStoredFiles(UPLOAD_SEGMENT.supportingDocuments);
