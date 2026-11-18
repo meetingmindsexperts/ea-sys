@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Invoices: the event filter can be searched (November 18)
+
+- **What you will notice:** on Invoices, the "All events" filter now opens with a search box. Type part of an event's name and pick it; "All events" is the first choice. The year, month and type filters are short fixed lists and are unchanged.
+- **Why:** with years of events the plain dropdown had to be scrolled to find one (owner).
+- **Behind it:** the app's existing searchable picker (`SearchableSelect`, the one Country and Specialty use). The list of events offered and what the filter sends are the same as before. File: `src/app/(dashboard)/invoices/invoices-client.tsx`.
+
 ### Saving an event's settings would have failed under row security, and an event with invoices could have been deleted (November 18)
 
 On production today (row security off) one small thing changes: the record of an event being deleted now carries its organisation, so it appears in the Activity feed. It was being stored with none, and the feed did not show it. Older ones stay hidden. One more thing changes today: if the audit record of a settings save cannot be written (a database blip, say), the save now answers as saved, which it is, and the failure is logged and alerts; it used to answer "Failed to update event". The rest matters only once row security is on.

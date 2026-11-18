@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/searchable-select";
 
 /** Event statuses worth offering in the invoice event filter. */
 const BILLABLE_EVENT_STATUSES: readonly string[] = ["PUBLISHED", "LIVE", "COMPLETED"];
@@ -101,6 +102,12 @@ export default function OrgInvoicesClient() {
           return bt - at;
         }),
     [events],
+  );
+
+  /** The event picker's choices: "All events" first, then the events above. */
+  const eventOptions = useMemo<SearchableSelectOption[]>(
+    () => [{ value: "all", label: "All events" }, ...selectableEvents.map((e) => ({ value: e.id, label: e.name }))],
+    [selectableEvents],
   );
 
   const query = useMemo(() => {
@@ -223,15 +230,20 @@ export default function OrgInvoicesClient() {
                 {MONTHS.map((m, i) => <SelectItem key={m} value={String(i + 1)}>{m}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={eventId} onValueChange={setEventId}>
-              <SelectTrigger className="w-[220px]"><SelectValue placeholder="Event" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All events</SelectItem>
-                {selectableEvents.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Searchable (Nov 18, 2026): an organisation with years of events
+                cannot find one by scrolling. The other three filters are short
+                fixed lists and stay plain selects. */}
+            <div className="w-[260px]">
+              <SearchableSelect
+                value={eventId}
+                displayLabel={eventOptions.find((o) => o.value === eventId)?.label}
+                onChange={setEventId}
+                options={eventOptions}
+                placeholder="Event"
+                searchPlaceholder="Search events..."
+                emptyText="No event matches."
+              />
+            </div>
             <Select value={type} onValueChange={setType}>
               <SelectTrigger className="w-[160px]"><SelectValue placeholder="Type" /></SelectTrigger>
               <SelectContent>
