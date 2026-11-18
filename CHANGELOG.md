@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event row security: checked with two tenants (November 18)
+
+No change to the product. The rehearsal of November 17 had one organisation; this one ran the sandbox's two (Acme and Globex) under every policy, on the final commit.
+
+- **Result**: the isolation suite passes 7 of 7; every GET route and page, asked as each tenant with the other tenant's event and row ids, returned none of the other tenant's data; a public registration and a staff registration with a payment landed in the right tenant with that tenant's own numbering, and the same writes aimed at the other tenant were refused; no policy refusal and no Event query outside a lane in the server log. Paying by card was not run. Record: `docs/SECURITY_AUDIT_ACTION_PLAN.md` §3.1.
+- **The sandbox seed works on a fresh database again, and the sandbox can take a registration** (`scripts/seed-sandbox.ts`): the speaker is created before the abstract that points at it; each delegate's address is marked proven, which the registration ownership rule has required since November 5; and each event gets the serial counter that goes with its hand-numbered registration.
+- **Known**: `npm run sandbox:setup` cannot update the old `sandbox` database (ROADMAP, "Row security rehearsal", item 20).
+
 ### Event row security: what three independent reviews found, fixed (November 17)
 
 Each of the three commits of this work was reviewed by an independent reader. None found a BLOCKER or a HIGH in the new work, and none found a change of behaviour on production. They did find that the new safety net had holes, and one real miss.

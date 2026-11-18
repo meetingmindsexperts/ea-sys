@@ -82,6 +82,12 @@ The sandbox lives in a **dedicated `sandbox` database** inside the tenancy
 container — so `npm run test:tenancy` (which wipes the separate `tenancy` db)
 never clobbers it. Re-seed any time with `npm run sandbox:seed`.
 
+**If setup stops with "Use the --accept-data-loss flag"** (Nov 18, 2026): the
+`sandbox` database was made before the schema gained a unique constraint, and
+`prisma db push` will not add one to a database that already holds rows without
+being told to. Do not pass the flag. The sandbox holds only fixtures, so drop
+the `sandbox` database and run setup again; it rebuilds everything.
+
 ## Run
 
 > ⚠️ **Next.js 16 runs one dev server per project at a time.** Stop your MMG dev

@@ -143,7 +143,7 @@ async function main() {
     // have told us.
     await db.user.upsert({
       where: { email: `delegate@${t.slug}.test` },
-      update: { organizationId: t.orgId, role: "REGISTRANT", passwordHash, emailVerified: new Date() },
+      update: { organizationId: t.orgId, role: "REGISTRANT", passwordHash, emailVerified: new Date(), emailConfirmedAt: new Date() },
       create: {
         email: `delegate@${t.slug}.test`,
         firstName: "Dana",
@@ -155,6 +155,12 @@ async function main() {
         // the platform.
         organizationId: t.orgId,
         emailVerified: new Date(),
+        // The address is PROVEN (`emailConfirmedAt`). Since Nov 5, 2026 an
+        // unlinked registration is its account's only once the account has
+        // proven it owns the address (`ownRegistrationWhere`); without this
+        // the portal correctly returned nothing and the isolation suite's
+        // "own row present" half failed (found Nov 18, 2026).
+        emailConfirmedAt: new Date(),
       },
     });
 
@@ -305,6 +311,34 @@ async function main() {
       },
     });
 
+    // The serial counter that goes with that registration. The row above takes
+    // number 1 by hand; without a counter the first registration made through
+    // the app is handed number 1 again and fails on the unique (eventId,
+    // serialId), so nobody could ever register in the sandbox (found Nov 18,
+    // 2026). `update` is empty: a counter the app has moved on is left alone.
+    await db.registrationSerialCounter.upsert({
+      where: { eventId: t.eventId },
+      update: {},
+      create: { eventId: t.eventId, lastSerial: 1, organizationId: t.orgId },
+    });
+
+    // The speaker comes BEFORE the abstract that points at it. It used to be
+    // created further down, which only worked on a sandbox database that
+    // already held the speaker from an earlier seed: on a fresh database the
+    // abstract's foreign key failed and the seed stopped (found Nov 18, 2026).
+    await db.speaker.upsert({
+      where: { id: t.speakerId },
+      update: { organizationId: t.orgId, eventId: t.eventId },
+      create: {
+        id: t.speakerId,
+        eventId: t.eventId,
+        organizationId: t.orgId,
+        firstName: t.name.split(" ")[0],
+        lastName: "Speaker",
+        email: `speaker@${t.slug}.test`,
+      },
+    });
+
     await db.abstract.upsert({
       where: { id: `sandbox-abstract-${t.slug}` },
       update: { organizationId: t.orgId },
@@ -388,19 +422,6 @@ async function main() {
         firstName: t.name.split(" ")[0],
         lastName: "Contact",
         email: `contact@${t.slug}.test`,
-      },
-    });
-
-    await db.speaker.upsert({
-      where: { id: t.speakerId },
-      update: { organizationId: t.orgId, eventId: t.eventId },
-      create: {
-        id: t.speakerId,
-        eventId: t.eventId,
-        organizationId: t.orgId,
-        firstName: t.name.split(" ")[0],
-        lastName: "Speaker",
-        email: `speaker@${t.slug}.test`,
       },
     });
 
