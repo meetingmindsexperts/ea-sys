@@ -1,5 +1,7 @@
 # Multi-Tenancy — Impact & Blast-Radius Assessment
 
+> **Direction changed on November 18, 2026 (owner): one instance for everyone, no second deployment.** Where this document says "the platform instance", "master only" or "two silos", read it as work to be done on production itself before a second organisation exists. Record: [MULTI_TENANCY.md](MULTI_TENANCY.md) §0; the road: [ROADMAP.md](ROADMAP.md), "One instance for everyone: the road". The text below is kept as written.
+
 > **Companion to [docs/MULTI_TENANCY.md](MULTI_TENANCY.md).** That doc is the
 > *conceptual* reference (tenancy models, RLS, Stripe Connect, cost model). **This
 > doc is the codebase-grounded impact analysis**: exactly where single-org

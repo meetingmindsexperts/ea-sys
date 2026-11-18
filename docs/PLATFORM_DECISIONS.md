@@ -1,5 +1,7 @@
 # Platform pre-launch decisions — the 8-item round (Aug 4, 2026)
 
+> **Direction changed on November 18, 2026 (owner): one instance for everyone, no second deployment.** Where this document says "the platform instance", "master only" or "two silos", read it as work to be done on production itself before a second organisation exists. Record: [MULTI_TENANCY.md](MULTI_TENANCY.md) §0; the road: [ROADMAP.md](ROADMAP.md), "One instance for everyone: the road". The text below is kept as written.
+
 > **What this is.** The Phase-2 multi-tenancy sweep finished on Aug 4, 2026 (all 20
 > domains — see [MULTI_TENANCY.md](MULTI_TENANCY.md) §13). What remained before the
 > future **platform** instance (the second silo hosting external tenants under RLS)
@@ -347,7 +349,7 @@ It lost on three grounds, none of them cost:
 
 1. **A shared account shares a password.** One compromised credential reaches
    every tenant that person belongs to. The column contains it to one.
-2. **The two-silo topology already answers it.** A person active at MMG *and* a
+2. **The two-silo topology already answers it.** *(Nov 18, 2026: this reason no longer holds. With one instance, a person active at MM Group and at another organisation is in ONE database, so the two-accounts answer is no longer given for free; reason 1 stands. Re-read this decision before stage 5 of the road.)* A person active at MMG *and* a
    platform tenant has two accounts regardless — separate databases. Per-tenant
    accounts inside the platform DB are the consistent continuation.
 3. **Its unique advantage has no instances.** The only thing Membership buys

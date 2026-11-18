@@ -163,7 +163,7 @@ ea-sys/
 │   ├── schema.prisma  migrations/ # generator + datasource; migrations forward-only, additive + idempotent
 │   ├── models/                    # the models, one file per area: core · registrations · program ·
 │   │                              #   communications · engagement · operations · crm · hr · procurement
-│   ├── rls/                       # per-domain RLS policies (platform instance only)
+│   ├── rls/                       # per-domain RLS policies (not applied on production yet; never by migration)
 │   └── seed-*.ts                  # e2e · docs-screenshots · tenancy · local scenarios
 ├── __tests__/                     # vitest unit/route tests (the main suite)
 ├── tests/tenancy/                 # RLS isolation harness (real Postgres + pgbouncer)
@@ -314,7 +314,7 @@ npm run dev          # Start dev server (localhost:3113, on the LOCAL test DB)
 npm run build        # Build for production
 npm run lint         # Run ESLint
 npm run gate         # THE pre-push gate: what CI gates on (less its container suites) + the browser suite, on one commit (AGENTS.md rule 5)
-npm run e2e:rls      # The whole product with ROW SECURITY ON (needs the tenancy Postgres): run before committing a change to lanes, policies or a policied table's writers
+npm run e2e:rls      # The browser suite, every GET route and every page with ROW SECURITY ON (needs the tenancy Postgres). Run it, WITH `npm run test:tenancy`, before committing a change to lanes or policies; what a green run does not show is listed in docs/SANDBOX.md
 npx prisma generate  # Generate Prisma client
 npm run db:refresh   # Reset the local test DB from the latest live DR dump
 npm run uploads:refresh  # Pull the uploaded FILES those rows point at (photos/banners/certs)
@@ -383,9 +383,9 @@ has the partial pair too, and every `db:push` tries to create the full index and
 dies on the name collision. Nothing is wrong with your schema edit. Use the
 documented flow instead: hand-author the migration SQL (or `migrate dev
 --create-only`, which writes the file and never touches a database), then
-`npm run db:migrate`. **Consequence worth knowing for the platform instance:**
-it will be built from the chain, so it gets the FULL indexes while master keeps
-the PARTIAL ones. Functionally identical (Postgres treats NULLs as distinct in a
+`npm run db:migrate`. **Consequence worth knowing for any database built from
+the chain** (the test databases, the sandbox): it gets the FULL indexes while
+production keeps the PARTIAL ones. Functionally identical (Postgres treats NULLs as distinct in a
 composite unique), but the two databases genuinely differ, and `db:push` will
 behave differently on each.
 

@@ -13,8 +13,15 @@ import { RLS_OWNER_URL } from "./rls-env";
  * the database itself (the dashboard, an event's pages, the public event page,
  * the catalogue, the sitemap). Under a policy a read made outside a tenant
  * lane is not an error, it is an empty page, and the server's detector
- * (RLS_SHADOW=1) names it in the log that server-log.spec.ts reads next. What
- * THIS spec asserts is narrower: no page answers 5xx and none hangs.
+ * (RLS_SHADOW=1) names it in the log that server-log.spec.ts reads next.
+ *
+ * WHAT THIS SPEC CAN AND CANNOT SEE. A page here streams (there is a root
+ * loading.tsx), so the status is 200 before the page's own code runs: a page
+ * whose server component throws still answers 200. The status check below
+ * catches only a failure before the first byte, and a page that never
+ * finishes. A page that throws is caught by server-log.spec.ts, which fails
+ * on the `request:unhandled-error` line the server writes for it. This spec's
+ * job is to make every page RUN, to the end.
  */
 
 const APP = path.resolve(process.cwd(), "src/app");
@@ -116,7 +123,12 @@ test("every page answers, as each role and signed out", async ({ browser, baseUR
               signal: AbortSignal.timeout(60_000),
             });
             status = String(res.status);
-            await res.body?.cancel().catch(() => undefined);
+            // Read to the end. A page streams: the status is sent with the
+            // shell, before the page's own reads run. Hanging up early cut
+            // those reads short AND made the server log an error of its own
+            // for every page (434 of them in the first run), which would have
+            // buried a real one.
+            await res.arrayBuffer();
           } catch (error) {
             status = `no answer (${(error as Error).name})`;
           }

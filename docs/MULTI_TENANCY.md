@@ -15,7 +15,7 @@
 
 ---
 
-## 0. Decision record — topology DECIDED: the two-silo plan (July 22, 2026)
+## 0. Decision record: topology (the two-silo plan of July 22, 2026, superseded in direction on November 18, 2026)
 
 > **Direction, November 18, 2026 (owner): aim at ONE instance for everyone, in
 > small steps over weeks, nothing breaking on the way.** No second deployment is
@@ -26,18 +26,31 @@
 > through a second instance; it is stated as a direction and a way of working,
 > not a date.
 >
-> What changes in this section: wherever the text below says a thing happens
-> "on the platform instance" or is "master only", read it as work that must be
-> done on production itself before a second organisation exists. The July
+> What changes, in this whole document and in its companions
+> (MULTI_TENANCY_IMPACT.md, PLATFORM_DECISIONS.md, PLATFORM_PROVISIONING.md,
+> SANDBOX.md): wherever the text says a thing happens "on the platform
+> instance" or is "master only", read it as work that must be done on
+> production itself before a second organisation exists. The phase plan and the
+> decision table further down still describe standing up a second box; that
+> part is not being done. The July
 > reasoning still describes the RISK correctly (a wrong policy shows an empty
 > page on a live event, not an error), and it is why every step is small, has
 > its own check and its own way back. What has shrunk since July: the
-> organisation columns are filled on the live database, every swept table has a
-> policy tested with two tenants (`npm run test:tenancy`, the Acme and Globex
-> sandbox), and switching on is one setting (which database role the app
-> connects as; the owner role ignores every policy, so switching back is the
-> same setting). A separate instance stays possible later for a customer who
-> needs one: it is the same image.
+> organisation columns are filled on the live database, and every swept table
+> has a policy (143 tables; the tenancy harness, `npm run test:tenancy`, tests
+> most of them with two tenants, and 21 have a policy and no harness case yet:
+> ROADMAP, "Row security rehearsal", item 23). A separate instance stays
+> possible later for a customer who needs one: it is the same image.
+>
+> **Switching on is THREE settings changed together, on the web containers and
+> the worker**, not one: the database role in `DATABASE_URL` (a role the
+> policies apply to; the owner ignores them), `RLS_SET_LOCAL=1` (so each query
+> names its tenant), and `DATABASE_URL_OPERATOR` (the owner connection for the
+> privileged lane). Switching back is the same three. **Changing only the role
+> is the worst case:** the policies apply, no query names a tenant, the boot
+> check is off with the flag, and every policied read returns nothing with no
+> error, on the live system. The switch must be scripted and rehearsed as one
+> step, never done by hand a setting at a time.
 >
 > The ordered road, with what is done and what is next, is in
 > [ROADMAP.md](ROADMAP.md), "One instance for everyone: the road". The record
@@ -136,7 +149,7 @@
 
 ## Table of contents
 
-0. [Decision record — the two-silo plan (July 22, 2026)](#0-decision-record--topology-decided-the-two-silo-plan-july-22-2026)
+0. [Decision record: topology (two-silo, July 22, 2026; superseded in direction Nov 18, 2026)](#0-decision-record-topology-the-two-silo-plan-of-july-22-2026-superseded-in-direction-on-november-18-2026)
 1. [Where EA-SYS is today (the starting line)](#1-where-ea-sys-is-today-the-starting-line)
 2. [Tenancy models — the isolation spectrum](#2-tenancy-models--the-isolation-spectrum)
 3. [System design / architecture](#3-system-design--architecture)

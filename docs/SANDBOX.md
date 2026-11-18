@@ -1,6 +1,6 @@
 # Local multi-tenant RLS sandbox
 
-A local dress-rehearsal of the future **platform instance** (`docs/MULTI_TENANCY.md §0`):
+A local dress-rehearsal of production with row security on and more than one organisation (since Nov 18, 2026 the direction is one instance for everyone, not a separate platform instance: `docs/MULTI_TENANCY.md §0`):
 two throwaway tenants, RLS **on**, host-based routing — so you can *feel* what
 multi-tenancy will do before the platform is stood up. **Local only. Prod is
 never touched** (the MMG box keeps `RLS_SET_LOCAL` unset and never has these
@@ -147,14 +147,25 @@ browser suite. `npm run e2e:rls` (Nov 18, 2026) does: it rebuilds a throwaway
 the standalone build as the restricted role, runs the browser suite, asks every
 GET route and every page as each seeded role, and finally reads the server's
 log. The run fails on a write a policy refused, an Event read made outside a
-tenant lane, or an object the restricted role was refused on, even when no
-request failed. About four minutes. It needs only the tenancy container up; it
-does not touch the `sandbox` database, and its address is fixed in
+tenant lane, a request that threw (a page that throws still answers 200), or
+an object the restricted role was refused on, even when no request failed. It
+also checks that the app's database role really is one the policies apply to.
+About four minutes. It needs only the tenancy container up; it does not touch
+the `sandbox` database, and every address it uses is fixed in
 `e2e/rls/rls-env.ts`, never read from the environment.
 
-Run it before committing any change to lanes, policies or a policied table's
-writers. It has one organisation, so it can show a dead lane and never a lane
-that names the wrong tenant: that is what the two tenants here are for.
+Run it before committing any change to lanes or policies. **What a green run
+does not show** (the full list is at the top of `e2e/rls/server-log.spec.ts`):
+an UPDATE or DELETE that a policy filtered to nothing (Postgres raises no
+error), a read outside a lane on any table but Event, anything the worker
+does, and any write no browser spec makes. Those are the tenancy harness's
+job (`npm run test:tenancy`). It also has one organisation, so it can show a
+dead lane on Event and never a lane that names the wrong tenant: that is what
+the two tenants here are for.
+
+Do not run it while `npm run gate` or the everyday browser suite is running:
+they share the standalone build directory, and one rebuilding it pulls the
+files from under the other's server.
 
 ## Honest caveats (this is a partial platform — that's the point)
 

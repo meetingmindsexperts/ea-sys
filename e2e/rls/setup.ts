@@ -71,7 +71,8 @@ async function main() {
 
 /**
  * The e2e seed is written for master and leaves the denormalised organisation
- * column empty on its rows; a policy hides a row with none, and five specs
+ * column empty on SOME of its rows (it stamps the attendee, the registration
+ * and the serial counter); a policy hides a row with none, and five specs
  * failed for that reason alone (ROADMAP, "Row security rehearsal", item 2).
  * Filled here the way the migrations' backfills filled production: from the
  * row's event, then from the parent a table without an event names. When the

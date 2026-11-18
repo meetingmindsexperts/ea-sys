@@ -22,6 +22,14 @@ import { RLS_APP_URL, RLS_OWNER_URL, RLS_PORT, RLS_SERVER_LOG } from "./e2e/rls/
 dotenv.config({ path: path.resolve(__dirname, ".env.local") });
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
+// The specs that look rows up for themselves (route-smoke's ids, the import
+// spec's reads) take their database from DATABASE_URL_TEST. Left to .env.local
+// that is the EVERYDAY test database, on another server: the ids they found
+// did not exist on the one the app was running on, so about twenty detail
+// routes answered 404 whatever their lane did (review of fc7a7ebb). They read
+// as the owner; the server below is given the restricted role.
+process.env.DATABASE_URL_TEST = RLS_OWNER_URL;
+
 const baseURL = `http://localhost:${RLS_PORT}`;
 const serverLog = path.resolve(__dirname, RLS_SERVER_LOG);
 
@@ -30,6 +38,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  forbidOnly: true,
   reporter: "list",
   use: { baseURL, trace: "off", screenshot: "only-on-failure" },
   projects: [
@@ -38,13 +47,12 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
       testIgnore: [
         "**/fixtures/**", "**/agent-golden/**", "**/screenshots/**", "**/tenancy-shots/**", "**/rls/**",
-        // Fails under row security for a reason of its own, not yet diagnosed
-        // (ROADMAP, "Row security rehearsal", item 1). Left out so that a red
-        // run means something new; take this line out when it is fixed.
-        "**/import-completion-self-select.spec.ts",
       ],
       // Runs when the suite has finished, whether or not a spec failed: the
-      // server log matters most on the day something did.
+      // server log matters most on the day something did. Two things defeat
+      // that, so do not pass them: --max-failures (or -x) stops before the
+      // teardown, and more than one worker reads the log while pages are
+      // still being asked.
       teardown: "after the suite",
     },
     { name: "after the suite", use: { ...devices["Desktop Chrome"] }, testMatch: ["**/rls/pages.spec.ts", "**/rls/server-log.spec.ts"] },
