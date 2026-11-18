@@ -225,3 +225,43 @@ export function describeSessionRole(
 ): { roleKey: string; roleLabel: string } {
   return { roleKey: sessionRoleKeyOf(assignment), roleLabel: sessionRoleLabel(assignment, roles) };
 }
+
+// ── Audiences (plan step 5) ──────────────────────────────────────────────────
+//
+// A Communications audience by session role is one role key, or one of the two
+// duties: everyone who runs a session, everyone who presents. The page counts
+// recipients in the browser with `matchesSessionRoleFilter`; the bulk send
+// selects them in the database with `sessionRoleFilterWhere`. One rule, both
+// sides, so the count shown is the count sent.
+
+export const RUNS_FILTER = "duty:RUNS";
+export const PRESENTS_FILTER = "duty:PRESENTS";
+
+/** A built-in means its own holders only: "Moderator" does not include a Host. */
+export function matchesSessionRoleFilter(
+  assignment: { role: string; customRoleKey?: string | null },
+  filter: string,
+): boolean {
+  if (filter === RUNS_FILTER) return runsSession(assignment.role);
+  if (filter === PRESENTS_FILTER) return !runsSession(assignment.role);
+  if (isBuiltInRoleKey(filter)) return assignment.role === filter && !assignment.customRoleKey;
+  return assignment.customRoleKey === filter;
+}
+
+/** The same rule as a `SessionSpeaker` where clause. */
+export function sessionRoleFilterWhere(filter: string): {
+  role?: SessionRole | { in: SessionRole[] } | { notIn: SessionRole[] };
+  customRoleKey?: string | null;
+} {
+  if (filter === RUNS_FILTER) return { role: { in: RUNNING_BUILT_IN_ROLES } };
+  if (filter === PRESENTS_FILTER) return { role: { notIn: RUNNING_BUILT_IN_ROLES } };
+  if (isBuiltInRoleKey(filter)) return { role: filter, customRoleKey: null };
+  return { customRoleKey: filter };
+}
+
+/** How an audience filter reads ("Everyone who runs a session", or the role's name). */
+export function sessionRoleFilterLabel(filter: string, roles: readonly SessionRoleDef[]): string {
+  if (filter === RUNS_FILTER) return "Everyone who runs a session";
+  if (filter === PRESENTS_FILTER) return "Everyone who presents";
+  return roles.find((r) => r.key === filter)?.label ?? SESSION_ROLE_LABELS[filter as SessionRole] ?? filter;
+}

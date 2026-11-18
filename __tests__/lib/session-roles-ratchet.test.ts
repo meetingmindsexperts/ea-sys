@@ -18,7 +18,7 @@ const ALLOWED: Record<string, string> = {
   "src/lib/session-enums.ts": "labels, colours and the picker order of the four built-ins",
   "src/services/session-service.ts": "the list of values the service accepts",
   "src/app/(dashboard)/events/[eventId]/communications/page.tsx":
-    "the Moderators and Chairpersons audiences filter by that one role, not by duty (plan step 5)",
+    "the Brief Moderators and Brief Chairpersons tiles name their one role, matched through matchesSessionRoleFilter",
   "src/app/api/events/[eventId]/import/sessions/route.ts": "the CSV columns moderatorEmails and chairEmails name their role",
   "src/lib/agent/register-mcp-tools.ts": "the agent's role parameter lists the four values (plan step 6)",
   "src/lib/openapi-spec.ts": "the public API reference lists the four values",

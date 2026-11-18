@@ -1,4 +1,5 @@
-import { AbstractStatus, PaymentStatus, Prisma, RegistrationStatus, SessionRole, SpeakerStatus } from "@prisma/client";
+import { AbstractStatus, PaymentStatus, Prisma, RegistrationStatus, SpeakerStatus } from "@prisma/client";
+import { sessionRoleFilterWhere } from "@/lib/session-roles";
 import { z } from "zod";
 import { MAX_MANUAL_CC } from "@/lib/email-address-list";
 import { db } from "./db";
@@ -245,11 +246,12 @@ export interface BulkEmailFilters {
    */
   hasSession?: "yes" | "no";
   /**
-   * Speakers recipient only — SessionRole filter
-   * (SPEAKER/MODERATOR/CHAIRPERSON/PANELIST). Setting this implies the
-   * speaker has at least one session in that role.
+   * Speakers recipient only: a session role key (a built-in or a role the
+   * organisation added) or a duty (duty:RUNS, duty:PRESENTS), read by
+   * `sessionRoleFilterWhere` in src/lib/session-roles.ts. Setting this implies
+   * the speaker has at least one session in that role.
    */
-  sessionRole?: SessionRole;
+  sessionRole?: string;
   /**
    * survey-invitation email type only — TTL (days) for the minted
    * survey link token (a whole number of days, 1 to 365, default 7; see
@@ -666,7 +668,8 @@ export const bulkEmailSchema = z.object({
       owesMoney: z.boolean().optional(),
       agreementSigned: z.enum(["signed", "unsigned"]).optional(),
       hasSession: z.enum(["yes", "no"]).optional(),
-      sessionRole: z.nativeEnum(SessionRole).optional(),
+      // A role key (built-in or added) or a duty, duty:RUNS / duty:PRESENTS.
+      sessionRole: z.string().min(1).max(60).optional(),
       surveyExpiryDays: surveyExpiryDaysSchema.optional(),
       surveyId: z.string().min(1).max(64).optional(),
       registrationFormRate: z.string().trim().min(1).max(100).optional(),
@@ -1441,7 +1444,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     };
     const agreementWhere = agreementWhereFor();
     const sessionWhereFor = () => {
-      if (filters?.sessionRole) return { sessions: { some: { role: filters.sessionRole } } };
+      // A role key or a duty (session-roles.ts): the rule the page counts with.
+      if (filters?.sessionRole) return { sessions: { some: sessionRoleFilterWhere(filters.sessionRole) } };
       if (filters?.hasSession === "yes") return { sessions: { some: {} } };
       if (filters?.hasSession === "no") return { sessions: { none: {} } };
       return {};

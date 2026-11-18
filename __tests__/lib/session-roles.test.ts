@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  matchesSessionRoleFilter,
+  PRESENTS_FILTER,
+  RUNS_FILTER,
+  sessionRoleFilterLabel,
+  sessionRoleFilterWhere,
   newSessionRoleKey,
   offeredSessionRoles,
   readEventHiddenSessionRoles,
@@ -168,5 +173,37 @@ describe("an event's choice of roles", () => {
     expect(readEventHiddenSessionRoles({ hiddenSessionRoles: ["host", 3, "", "SPEAKER"] })).toEqual(["host", "SPEAKER"]);
     expect(readEventHiddenSessionRoles({ hiddenSessionRoles: "host" })).toEqual([]);
     expect(readEventHiddenSessionRoles(null)).toEqual([]);
+  });
+});
+
+describe("audiences by session role", () => {
+  const host = { role: "MODERATOR", customRoleKey: "host" };
+  const moderator = { role: "MODERATOR", customRoleKey: null };
+  const keynote = { role: "SPEAKER", customRoleKey: "keynote" };
+  const chair = { role: "CHAIRPERSON" };
+
+  it("a duty takes every role that has it, added ones included", () => {
+    expect([host, moderator, keynote, chair].map((a) => matchesSessionRoleFilter(a, RUNS_FILTER))).toEqual([true, true, false, true]);
+    expect([host, moderator, keynote, chair].map((a) => matchesSessionRoleFilter(a, PRESENTS_FILTER))).toEqual([false, false, true, false]);
+  });
+
+  it("a built-in means its own holders: Moderators do not include a Host", () => {
+    expect(matchesSessionRoleFilter(moderator, "MODERATOR")).toBe(true);
+    expect(matchesSessionRoleFilter(host, "MODERATOR")).toBe(false);
+    expect(matchesSessionRoleFilter(host, "host")).toBe(true);
+  });
+
+  it("the database filter says the same", () => {
+    expect(sessionRoleFilterWhere(RUNS_FILTER)).toEqual({ role: { in: ["MODERATOR", "CHAIRPERSON"] } });
+    expect(sessionRoleFilterWhere(PRESENTS_FILTER)).toEqual({ role: { notIn: ["MODERATOR", "CHAIRPERSON"] } });
+    expect(sessionRoleFilterWhere("MODERATOR")).toEqual({ role: "MODERATOR", customRoleKey: null });
+    expect(sessionRoleFilterWhere("host")).toEqual({ customRoleKey: "host" });
+  });
+
+  it("reads in words", () => {
+    const roles = readSessionRoles({ sessionRoles: [{ key: "host", label: "Host", duty: "RUNS" }] });
+    expect(sessionRoleFilterLabel(RUNS_FILTER, roles)).toBe("Everyone who runs a session");
+    expect(sessionRoleFilterLabel("host", roles)).toBe("Host");
+    expect(sessionRoleFilterLabel("CHAIRPERSON", roles)).toBe("Chairperson");
   });
 });

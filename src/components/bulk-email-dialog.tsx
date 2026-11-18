@@ -59,7 +59,8 @@ import {
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
-import { formatSessionRole } from "@/lib/session-enums";
+import { sessionRoleFilterLabel } from "@/lib/session-roles";
+import { useSessionRoleDefs } from "@/hooks/use-session-roles";
 import { stripDocumentWrapper } from "@/lib/email-utils";
 import { describeCertificateCoverSources } from "@/lib/certificates/email-tokens";
 import {
@@ -277,6 +278,7 @@ export function BulkEmailDialog({
   defaultEmailType,
   recipientCountFor,
 }: BulkEmailDialogProps) {
+  const sessionRoleDefs = useSessionRoleDefs();
   const [emailType, setEmailType] = useState<string>(
     defaultEmailType ?? getDefaultEmailType(recipientType)
   );
@@ -1549,7 +1551,7 @@ export function BulkEmailDialog({
               </p>
             )}
             {recipientType === "speakers" && sessionRoleFilter && sessionRoleFilter !== "all" && (
-              <p className="text-muted-foreground">Filtered by session role: {formatSessionRole(sessionRoleFilter)}</p>
+              <p className="text-muted-foreground">Filtered by session role: {sessionRoleFilterLabel(sessionRoleFilter, sessionRoleDefs)}</p>
             )}
             {selectedRsvp && (
               <p className="text-muted-foreground">

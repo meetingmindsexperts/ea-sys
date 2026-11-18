@@ -62,7 +62,13 @@ import {
   useEmailTemplates,
 } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
-import { SESSION_ROLE_OPTIONS } from "@/lib/session-enums";
+import { useSessionRoleDefs } from "@/hooks/use-session-roles";
+import {
+  matchesSessionRoleFilter,
+  PRESENTS_FILTER,
+  RUNS_FILTER,
+  sessionRoleFilterLabel,
+} from "@/lib/session-roles";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { ABSTRACT_PICKER_FETCH_LIMIT, abstractStatusLabel, type AbstractPickerOption } from "@/lib/bulk-email-abstract-picker";
 import { AbstractPickerDialog, type AbstractSelection } from "@/components/abstracts/abstract-picker-dialog";
@@ -96,7 +102,8 @@ interface SpeakerItem {
   email?: string;
   agreementAcceptedAt: string | null;
   _count?: { sessions: number };
-  sessions?: Array<{ role: string }>;
+  /** customRoleKey: a role the organisation added (src/lib/session-roles.ts). */
+  sessions?: Array<{ role: string; customRoleKey?: string | null }>;
 }
 
 interface AbstractItem {
@@ -180,7 +187,7 @@ const SPEAKER_TILES: SpeakerTile[] = [
     icon: Megaphone,
     filters: { sessionRole: "MODERATOR" },
     defaultEmailType: "custom",
-    matches: (s) => !!s.sessions?.some((sx) => sx.role === "MODERATOR"),
+    matches: (s) => !!s.sessions?.some((sx) => matchesSessionRoleFilter(sx, "MODERATOR")),
   },
   {
     id: "brief-chairpersons",
@@ -189,7 +196,7 @@ const SPEAKER_TILES: SpeakerTile[] = [
     icon: Crown,
     filters: { sessionRole: "CHAIRPERSON" },
     defaultEmailType: "custom",
-    matches: (s) => !!s.sessions?.some((sx) => sx.role === "CHAIRPERSON"),
+    matches: (s) => !!s.sessions?.some((sx) => matchesSessionRoleFilter(sx, "CHAIRPERSON")),
   },
   {
     id: "active-faculty",
@@ -391,6 +398,7 @@ export default function CommunicationsPage() {
   const [activeAgreementSignedFilter, setActiveAgreementSignedFilter] = useState<string | undefined>();
   const [activeHasSessionFilter, setActiveHasSessionFilter] = useState<string | undefined>();
   const [activeSessionRoleFilter, setActiveSessionRoleFilter] = useState<string | undefined>();
+  const sessionRoleDefs = useSessionRoleDefs();
   const [activeDefaultEmailType, setActiveDefaultEmailType] = useState<string | undefined>();
   // When the organizer picks specific recipients ("Select by IDs"), the dialog
   // runs in "selected" mode over these ids instead of an audience-wide filter.
@@ -427,9 +435,8 @@ export default function CommunicationsPage() {
     const sessionCount = s._count?.sessions ?? s.sessions?.length ?? 0;
     if (speakerHasSessionFilter === "yes" && sessionCount === 0) return false;
     if (speakerHasSessionFilter === "no" && sessionCount > 0) return false;
-    if (speakerRoleFilter !== "all") {
-      const roles = s.sessions?.map((sx) => sx.role) ?? [];
-      if (!roles.includes(speakerRoleFilter)) return false;
+    if (speakerRoleFilter !== "all" && !s.sessions?.some((sx) => matchesSessionRoleFilter(sx, speakerRoleFilter))) {
+      return false;
     }
     return true;
   });
@@ -497,10 +504,7 @@ export default function CommunicationsPage() {
       const sessionCount = s._count?.sessions ?? s.sessions?.length ?? 0;
       if (f.hasSession === "yes" && sessionCount === 0) return false;
       if (f.hasSession === "no" && sessionCount > 0) return false;
-      if (f.sessionRole) {
-        const roles = s.sessions?.map((x) => x.role) ?? [];
-        if (!roles.includes(f.sessionRole)) return false;
-      }
+      if (f.sessionRole && !s.sessions?.some((x) => matchesSessionRoleFilter(x, f.sessionRole!))) return false;
       return true;
     }).length;
   }
@@ -956,12 +960,12 @@ export default function CommunicationsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Roles</SelectItem>
-                    {/* Enum-driven (review L7) — a new SessionRole value shows
-                        up here automatically instead of drifting. */}
-                    {SESSION_ROLE_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label} (
-                        {speakers.filter((s) => s.sessions?.some((sx) => sx.role === opt.value)).length})
+                    {/* The two duties, then the organisation's roles (session-roles.ts):
+                        the count uses the rule the send selects with. */}
+                    {[RUNS_FILTER, PRESENTS_FILTER, ...sessionRoleDefs.filter((r) => !r.hidden).map((r) => r.key)].map((filter) => (
+                      <SelectItem key={filter} value={filter}>
+                        {sessionRoleFilterLabel(filter, sessionRoleDefs)} (
+                        {speakers.filter((s) => s.sessions?.some((sx) => matchesSessionRoleFilter(sx, filter))).length})
                       </SelectItem>
                     ))}
                   </SelectContent>
