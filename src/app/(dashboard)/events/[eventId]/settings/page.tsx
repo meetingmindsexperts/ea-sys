@@ -1720,36 +1720,36 @@ export default function EventSettingsPage() {
           {/* Two short cards side by side on a wide screen (owner, Nov 18, 2026); each
               then stacks its description above its controls, as two columns of
               two columns would be too narrow to read. */}
-          <div className="grid gap-6 xl:grid-cols-2">
-          <SettingsCard
-            title="Optional fields on the registration form"
-            description="Untick a field to leave it off the forms attendees fill in: registration, the complete-registration link and their own edit page. Staff forms keep every field, and answers already given are kept."
-            contentClassName="space-y-3"
-            className="h-full"
-            sectionClassName="xl:grid-cols-1"
-          >
-            {OPTIONAL_FORM_FIELDS.map((f) => (
-              <div key={f.key} className="flex items-center gap-3">
-                <Checkbox
-                  id={`form-field-${f.key}`}
-                  checked={formFields[f.key]}
-                  onCheckedChange={(checked) => setFormFields((prev) => ({ ...prev, [f.key]: checked === true }))}
-                />
-                <Label htmlFor={`form-field-${f.key}`} className="font-normal">
-                  Ask for {f.label.toLowerCase()}
-                </Label>
-              </div>
-            ))}
-          </SettingsCard>
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <SettingsCard
+              title="Optional fields on the registration form"
+              description="Untick a field to leave it off the forms attendees fill in: registration, the complete-registration link and their own edit page. Staff forms keep every field, and answers already given are kept."
+              contentClassName="space-y-3"
+              className="h-full"
+              sectionClassName="xl:grid-cols-1"
+            >
+              {OPTIONAL_FORM_FIELDS.map((f) => (
+                <div key={f.key} className="flex items-center gap-3">
+                  <Checkbox
+                    id={`form-field-${f.key}`}
+                    checked={formFields[f.key]}
+                    onCheckedChange={(checked) => setFormFields((prev) => ({ ...prev, [f.key]: checked === true }))}
+                  />
+                  <Label htmlFor={`form-field-${f.key}`} className="font-normal">
+                    Ask for {f.label.toLowerCase()}
+                  </Label>
+                </div>
+              ))}
+            </SettingsCard>
 
-          <SettingsCard
-            title="Title, Role and Specialty on this event"
-            description="What this event's forms do with the three fields your organisation asks: registration, completing a registration, group registration, the desk walk-in, and abstract and proposal sign-up. A field the organisation has switched off cannot be asked here. Staff forms keep every field, and answers already given are kept."
-            className="h-full"
-            sectionClassName="xl:grid-cols-1"
-          >
-            <EventPersonFieldChoicesEditor value={personFieldChoices} onChange={setPersonFieldChoices} disabled={!canEditSettings} />
-          </SettingsCard>
+            <SettingsCard
+              title="Title, Role and Specialty on this event"
+              description="What this event's forms do with the three fields your organisation asks: registration, completing a registration, group registration, the desk walk-in, and abstract and proposal sign-up. A field the organisation has switched off cannot be asked here. Staff forms keep every field, and answers already given are kept."
+              className="h-full"
+              sectionClassName="xl:grid-cols-1"
+            >
+              <EventPersonFieldChoicesEditor value={personFieldChoices} onChange={setPersonFieldChoices} disabled={!canEditSettings} />
+            </SettingsCard>
           </div>
 
           <SettingsCard

@@ -175,7 +175,7 @@ export function SessionRolesCard({ readOnly = false }: { readOnly?: boolean }) {
                       </span>
                     ) : (
                       <Select value={row.duty} disabled={!canEdit || busy} onValueChange={(v) => setRow(i, { duty: v as SessionRoleDuty })}>
-                        <SelectTrigger className="h-7 w-40 text-sm" aria-label={`What ${row.label || "this role"} does`}>
+                        <SelectTrigger size="sm" className="w-40 text-sm" aria-label={`What ${row.label || "this role"} does`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

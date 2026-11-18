@@ -1088,7 +1088,7 @@ export default function SettingsPage() {
           {/* Side by side on a wide screen (owner, Nov 18, 2026). The roles the agenda
               offers, and what each does in the speaker emails, sit beside the types
               every new event starts with. */}
-          <div className="mt-6 grid gap-6 xl:grid-cols-2">
+          <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
             <NewEventDefaultsCard readOnly={!canEditOrg} />
             <SessionRolesCard readOnly={!canEditOrg} />
           </div>
