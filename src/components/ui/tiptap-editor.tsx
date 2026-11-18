@@ -82,6 +82,9 @@ const StyleBlock = Node.create({
   },
 });
 
+/** What a link looks like when it has no style of its own (the brand cerulean). */
+export const LINK_DEFAULT_STYLE = "color: #00aade; text-decoration: underline;";
+
 /**
  * GlobalAttributes — adds `class` and `style` to every built-in node type
  * so ProseMirror preserves them on parse and emits them on serialize.
@@ -584,7 +587,24 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
         },
       }),
       Color,
-      Link.configure({ openOnClick: false, HTMLAttributes: { style: "color: #00aade; text-decoration: underline;" } }),
+      // A link keeps its own `style` (Nov 18, 2026): every link used to be
+      // given the cerulean style below, so a pasted red link turned blue on
+      // reload and was saved blue by the next visual edit. The default is for
+      // a link with no style. Not set through HTMLAttributes: Tiptap merges
+      // that with the link's own style by splitting on ":", which cuts a value
+      // such as url(https://...).
+      Link.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            style: {
+              default: null,
+              parseHTML: (el) => el.getAttribute("style") || null,
+              renderHTML: (attrs) => ({ style: attrs.style || LINK_DEFAULT_STYLE }),
+            },
+          };
+        },
+      }).configure({ openOnClick: false, HTMLAttributes: {} }),
       // allowBase64 deliberately omitted — base64-pasted images
       // inflate the email past Gmail's 102KB clip threshold. The
       // toolbar's "Insert Image" button now routes through the
@@ -667,7 +687,13 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
       {sourceMode ? (
         <Textarea
           value={sourceHtml}
-          onChange={(e) => setSourceHtml(e.target.value)}
+          onChange={(e) => {
+            // Straight to the caller (Nov 18, 2026): it used to hear of a
+            // source edit only on the switch back to Visual, so Save sent the
+            // version from before the edit, or stayed off.
+            setSourceHtml(e.target.value);
+            onChange(e.target.value);
+          }}
           rows={20}
           className="border-0 rounded-none font-mono text-xs leading-relaxed focus-visible:ring-0 resize-y"
           placeholder="<!DOCTYPE html>..."
