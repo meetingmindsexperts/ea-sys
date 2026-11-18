@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Saving an event's settings would have failed under row security (November 18)
+
+No change on production today (row security is off there).
+
+- **What was wrong:** the event update route wrote its audit record outside the tenant lane. Under row security the database refuses that record, and because the route waited for it, every settings save would have answered "Failed to update event" after the event had in fact been saved. The route's delete path lost its audit records the same way.
+- **Fixed:** the route's five audit writes run inside the lane (`src/app/api/events/[eventId]/route.ts`).
+- **How it was found:** `npm run e2e:rls`, on the day it was written, once a browser test (the new session roles one) saved event settings for the first time.
+- **Not done:** the same mistake in other routes. Roughly 38 audit writes sit in files that enter no lane at all; recorded as ROADMAP "Row security rehearsal", item 25.
+- The page sweep of `npm run e2e:rls` waits for the sign-in form to settle before typing (it met the form twice once and failed).
+
 ### Alerts: the alert path no longer feeds itself, and a local copy of the app no longer emails alerts (November 18)
 
 - **What you will notice:** no more alert emails caused by a test run or a local server on a laptop. On production nothing changes in normal running.

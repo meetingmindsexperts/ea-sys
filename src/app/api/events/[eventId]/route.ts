@@ -978,8 +978,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
-    // Log the action
-    await db.auditLog.create({
+    // Log the action. Inside the lane like every other write here: the audit
+    // row carries this organisation, and under row security a row is refused
+    // unless the lane names the same one. Outside a lane this awaited write
+    // threw AFTER the event was saved, so every settings save answered
+    // "Failed to update event" (found by `npm run e2e:rls`, Nov 18, 2026).
+    await runWithTenant(orgGuard.orgId, () => db.auditLog.create({
       data: {
         eventId,
         userId: session.user.id,
@@ -994,7 +998,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(nextSlug && nextSlug !== existingEvent.slug && { slugFrom: existingEvent.slug, slugTo: nextSlug }),
         },
       },
-    });
+    }));
 
     // Notify admins on status change
     if (validated.data.status && validated.data.status !== existingEvent.status) {
@@ -1073,7 +1077,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
           take: 200,
         })
       ).map((i) => i.invoiceNumber);
-      db.auditLog
+      runWithTenant(orgGuard.orgId, () => db.auditLog
         .create({
           data: {
             eventId,
@@ -1089,7 +1093,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
               ip: getClientIp(req),
             },
           },
-        })
+        }))
         .catch((err) => apiLogger.error({ err, msg: "Failed to create DELETE_BLOCKED audit log" }));
       apiLogger.warn({ msg: "event:delete-blocked-financial-records", eventId, invoiceCount, paymentCount });
       return NextResponse.json(
@@ -1117,7 +1121,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
     if (liveDtcmTickets > 0) {
       apiLogger.warn({ msg: "event:delete-blocked-dtcm-tickets", eventId, liveDtcmTickets, userId: session.user.id });
-      db.auditLog
+      runWithTenant(orgGuard.orgId, () => db.auditLog
         .create({
           data: {
             eventId,
@@ -1127,7 +1131,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
             entityId: eventId,
             changes: { reason: "has-dtcm-tickets", liveDtcmTickets, ip: getClientIp(req) },
           },
-        })
+        }))
         .catch((err) => apiLogger.error({ err, msg: "Failed to create DELETE_BLOCKED audit log" }));
       return NextResponse.json(
         {
@@ -1154,7 +1158,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const liveZoomIds = zoomMeetings.filter((m) => m.session.status === "LIVE").map((m) => m.zoomMeetingId);
     if (liveZoomIds.length > 0) {
       apiLogger.warn({ msg: "event:delete-blocked-live-session", eventId, liveZoomIds, userId: session.user.id });
-      db.auditLog
+      runWithTenant(orgGuard.orgId, () => db.auditLog
         .create({
           data: {
             eventId,
@@ -1164,7 +1168,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
             entityId: eventId,
             changes: { reason: "session-live", liveZoomIds, ip: getClientIp(req) },
           },
-        })
+        }))
         .catch((err) => apiLogger.error({ err, msg: "Failed to create DELETE_BLOCKED audit log" }));
       return NextResponse.json(
         { error: "A session of this event is live on Zoom right now. End it first, then delete the event.", code: "EVENT_SESSION_LIVE" },
@@ -1228,8 +1232,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       });
     }
 
-    // Log the action (non-blocking for better response time)
-    db.auditLog.create({
+    // Log the action (non-blocking for better response time), in the lane as above.
+    runWithTenant(orgGuard.orgId, () => db.auditLog.create({
       data: {
         userId: session.user.id,
         action: "DELETE",
@@ -1241,7 +1245,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
           ip: getClientIp(req),
         },
       },
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
+    })).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json(zoomNotRemoved.length > 0 ? { success: true, zoomNotRemoved } : { success: true });
   } catch (error) {

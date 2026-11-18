@@ -102,6 +102,10 @@ test("every page answers, as each role and signed out", async ({ browser, baseUR
       const context = await browser.newContext();
       const page = await context.newPage();
       await page.goto(`${baseURL}/login`);
+      // Wait for ONE email field. For a moment after it loads, the page can
+      // hold the form twice (the server's copy and the browser's own), and
+      // filling "the" field then fails; it settles to one.
+      await expect(page.getByLabel("Email")).toHaveCount(1, { timeout: 15_000 });
       await page.getByLabel("Email").fill(user.email);
       await page.getByLabel("Password").fill(DEFAULT_PASSWORD);
       await page.getByRole("button", { name: /sign in/i }).click();
