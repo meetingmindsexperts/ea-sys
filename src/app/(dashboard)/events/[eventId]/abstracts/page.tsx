@@ -1102,7 +1102,7 @@ export default function AbstractsPage() {
         onOpenChange={(open) => !open && setReviewersForAbstract(null)}
       >
         {/* No description: the abstract's title under the heading says what this is. */}
-        <DialogContent className="max-w-lg" aria-describedby={undefined}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle className="text-base">
               Assign reviewers
@@ -1114,7 +1114,7 @@ export default function AbstractsPage() {
             </DialogTitle>
           </DialogHeader>
           {reviewersForAbstract && (
-            <AbstractReviewersCard eventId={eventId} abstractId={reviewersForAbstract.id} />
+            <AbstractReviewersCard eventId={eventId} abstractId={reviewersForAbstract.id} embedded />
           )}
         </DialogContent>
       </Dialog>

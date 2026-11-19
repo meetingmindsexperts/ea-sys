@@ -169,7 +169,7 @@ describe("the dialog option lists", () => {
     expect(bulkEmailTypeOptionsFor("speakers")).toEqual([
       { value: "invitation", label: "Speaker Invitation", description: "Invite speakers to your event" },
       { value: "agreement", label: "Speaker Agreement", description: "Send agreement terms for review" },
-      { value: "certificate", label: "Certificates", description: "Issue & attach certificate PDFs (tag-matched, one email per person)" },
+      { value: "certificate", label: "Certificates", description: "Issue and attach certificate PDFs to the people assigned each one, one email per person" },
       { value: "custom", label: "Custom Email", description: "Write a custom message" },
     ]);
     expect(bulkEmailTypeOptionsFor("reviewers")).toEqual([
@@ -181,7 +181,7 @@ describe("the dialog option lists", () => {
       { value: "reminder", label: "Event Reminder", description: "Remind about the upcoming event" },
       { value: "payment-reminder", label: "Payment Reminder", description: "Chase an outstanding balance with a Pay Now link" },
       { value: "survey-invitation", label: "Survey Invitation", description: "Send a unique link to the post-event feedback survey" },
-      { value: "certificate", label: "Certificates", description: "Issue & attach certificate PDFs (tag-matched, one email per person)" },
+      { value: "certificate", label: "Certificates", description: "Issue and attach certificate PDFs to the people assigned each one, one email per person" },
       { value: "custom", label: "Custom Email", description: "Write a custom message" },
     ]);
     expect(bulkEmailTypeOptionsFor("abstracts")).toEqual([

@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 interface MutationOptions {
-  mutationFn: () => Promise<unknown>;
+  mutationFn: (input?: SendInvitationsInput) => Promise<unknown>;
   onSettled?: () => void;
   onSuccess?: () => void;
 }
@@ -30,7 +30,7 @@ vi.mock("@tanstack/react-query", async (orig) => {
   };
 });
 
-import { queryKeys, useSendReviewerInvitations, type SendInvitationsOutcome } from "@/hooks/use-api";
+import { queryKeys, useSendReviewerInvitations, type SendInvitationsInput, type SendInvitationsOutcome } from "@/hooks/use-api";
 import { sendInvitationsReport } from "@/app/(dashboard)/events/[eventId]/reviewers/send-report";
 
 const round = (over: Record<string, unknown> = {}) => ({ emailed: 0, failed: 0, remaining: 0, nextAfter: null, results: [], ...over });
@@ -74,6 +74,18 @@ describe("useSendReviewerInvitations", () => {
       // Who was emailed and who was refused, so the page can name the rest.
       emailedIds: ["r1", "r2", "r3"], failedIds: ["r4"],
     });
+  });
+
+  // Nov 19, 2026: one row, or the ticked rows, from the email dialog.
+  it("with named reviewers and a CC, every request of the send carries them", async () => {
+    fetchMock
+      .mockReturnValueOnce(answer(round({ emailed: 1, nextAfter: "r1", remaining: 1, results: [{ reviewerId: "r1", ok: true, kind: "setup" }] })))
+      .mockReturnValueOnce(answer(round({ emailed: 1, results: [{ reviewerId: "r3", ok: true, kind: "portal" }] })));
+    mount("ev1");
+    const input = { reviewerIds: ["r1", "r3"], cc: ["chair@x.com"], bccSelf: true };
+    const total = (await captured.options!.mutationFn(input)) as SendInvitationsOutcome;
+    expect(bodies()).toEqual([input, { after: "r1", ...input }]);
+    expect(total).toMatchObject({ emailed: 2, emailedIds: ["r1", "r3"] });
   });
 
   it("a refused first request throws, so the page shows the refusal", async () => {

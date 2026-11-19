@@ -11,14 +11,28 @@ import { getClientIp, checkRateLimit } from "@/lib/security";
 import { reviewerPoolIds } from "@/lib/abstract-reviewer-access";
 import { inviterNameOf, sendReviewerInvitation } from "@/lib/abstract-reviewer-notify";
 import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
+import { resolveBulkObservers } from "@/lib/bulk-email";
+import { resolveStoredAttachments } from "@/lib/email-attachments";
+import { MAX_MANUAL_CC } from "@/lib/email-address-list";
+import { MAX_MANUAL_ATTACHMENTS } from "@/lib/email-attachment-limits";
 
 /**
  * Send to all: the reviewer invitation to EVERY reviewer on the event's pool
  * (owner, Nov 10, 2026). The same email the row's Send button sends
  * (sendReviewerInvitation), one reviewer after another.
  *
- *   POST { after?: string }
+ *   POST { after?: string, reviewerIds?: string[] }
  *     → everyone on the pool, in userId order, starting after `after`.
+ *     → with `reviewerIds`, only those of them who are on the pool: the row's
+ *       Send invitation and a ticked selection (Nov 19, 2026, when every send
+ *       moved behind the email dialog and its Preview). An id that is not on
+ *       the pool is never emailed; an empty list is refused, never read as
+ *       "everyone".
+ *     → `cc`, `bcc`, `bccSelf` and `attachments` are the organiser's own
+ *       additions from the email dialog, with the limits and the rules of
+ *       every other send (resolveBulkObservers, resolveStoredAttachments):
+ *       copied on, and attached to, every invitation of the send. A request
+ *       that carries on (`after`) must carry them again.
  *
  * Each press goes to everyone, including people already emailed: nothing
  * records who was sent what, and a second press is how an organiser reminds
@@ -32,7 +46,30 @@ interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
-const bodySchema = z.object({ after: z.string().min(1).max(100).optional() }).strict();
+/** A committee is tens of people; this bounds the request, not the pool. */
+const MAX_NAMED_REVIEWERS = 500;
+
+const bodySchema = z
+  .object({
+    after: z.string().min(1).max(100).optional(),
+    reviewerIds: z.array(z.string().min(1).max(100)).min(1).max(MAX_NAMED_REVIEWERS).optional(),
+    // The same shapes and limits as the bulk send's (bulk-email.ts).
+    cc: z.array(z.string().email()).max(MAX_MANUAL_CC).optional(),
+    bcc: z.array(z.string().email()).max(10).optional(),
+    bccSelf: z.boolean().optional(),
+    // References to files uploaded via /email-attachments, never bytes.
+    attachments: z
+      .array(
+        z.object({
+          storedPath: z.string().min(1).max(500),
+          name: z.string().min(1).max(255),
+          contentType: z.string().min(1).max(150),
+        }),
+      )
+      .max(MAX_MANUAL_ATTACHMENTS)
+      .optional(),
+  })
+  .strict();
 
 export const maxDuration = 60;
 
@@ -61,7 +98,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "reviewer-invitations-send:invalid-input", eventId, errors: parsed.error.flatten() });
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
-    const { after } = parsed.data;
+    const { after, reviewerIds, cc, bcc, bccSelf, attachments } = parsed.data;
 
     return await runWithTenant(orgGuard.orgId, async () => {
       const rl = checkRateLimit({ key: `reviewer-invitations-send:${session.user.id}`, limit: SENDS_PER_HOUR, windowMs: 60 * 60 * 1000 });
@@ -79,7 +116,23 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
       }
 
-      const pool = reviewerPoolIds(event.settings);
+      // The picked files, read once per request; one that is missing or was
+      // uploaded under another event refuses the send before anyone is emailed.
+      const files = await resolveStoredAttachments(attachments, eventId);
+      if (!files.ok) {
+        apiLogger.warn({ msg: "reviewer-invitations-send:attachment-refused", eventId, userId: session.user.id, code: files.code });
+        return NextResponse.json({ error: files.error, code: files.code }, { status: 400 });
+      }
+      const observers = resolveBulkObservers({ cc, bcc, bccSelf }, session.user.email ?? undefined);
+      const extras = { manualCc: observers.manualCc, bcc: observers.bcc, attachments: files.attachments };
+
+      const onPool = reviewerPoolIds(event.settings);
+      // Named reviewers are a narrowing of the pool, never a way around it.
+      const named = reviewerIds ? new Set(reviewerIds) : null;
+      const pool = named ? onPool.filter((id) => named.has(id)) : onPool;
+      if (named && pool.length < named.size) {
+        apiLogger.warn({ msg: "reviewer-invitations-send:named-not-on-pool", eventId, userId: session.user.id, named: named.size, onPool: pool.length });
+      }
       const [reviewers, brand] = await Promise.all([
         pool.length
           ? db.user.findMany({
@@ -106,6 +159,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           organizationName: brand?.name || "your organization",
           inviterName: inviterNameOf(session.user),
           triggeredByUserId: session.user.id,
+          extras,
         });
         results.push(sent.ok ? { reviewerId: reviewer.id, ok: true, kind: sent.kind } : { reviewerId: reviewer.id, ok: false, message: sent.message });
       }
@@ -116,7 +170,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const failedRows = results.filter((r) => !r.ok);
       const durationMs = Date.now() - startedAt;
 
-      apiLogger.info({ msg: "reviewer-invitations-send:done", eventId, attempted: results.length, emailed, failed: failedRows.length, remaining, nextAfter, durationMs });
+      apiLogger.info({ msg: "reviewer-invitations-send:done", eventId, attempted: results.length, emailed, failed: failedRows.length, remaining, nextAfter, named: named ? named.size : null, durationMs });
       if (failedRows.length > 0) {
         apiLogger.warn({ msg: "reviewer-invitations-send:some-failed", eventId, failed: failedRows });
       }
@@ -127,7 +181,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           action: "UPDATE",
           entityType: "EventReviewer",
           entityId: eventId,
-          changes: { sendInvitations: { emailed, failed: failedRows.length, remaining, after: after ?? null, durationMs }, ip: getClientIp(req) },
+          changes: { sendInvitations: { emailed, failed: failedRows.length, remaining, after: after ?? null, named: named ? named.size : null, cc: observers.manualCc.length, bcc: observers.bcc.length, attachments: files.attachments.length, durationMs }, ip: getClientIp(req) },
         },
       }).catch((err) => apiLogger.error({ err, msg: "reviewer-invitations-send:audit-log-failed" }));
 

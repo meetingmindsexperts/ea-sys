@@ -1227,7 +1227,9 @@ export const BULK_EMAIL_TEMPLATE_SLUGS: Readonly<Record<string, string>> = (() =
  *
  * A reviewer "invitation" is NOT a bulk email since Nov 10, 2026: the one
  * reviewer invitation carries a per-reviewer set-password link, minted where
- * it is sent (the Reviewers page). Without this line the type would fall
+ * it is sent. The email dialog offers it to the reviewers audience all the
+ * same (Nov 19, 2026) and sends it through that sender, never through here
+ * (REVIEWER_INVITATION_TYPE in bulk-email-dialog.tsx). Without this line the type would fall
  * through to the speaker invitation, and a scheduled row or an agent call
  * naming it would send reviewers the wrong email.
  */
@@ -1253,7 +1255,7 @@ export const EXTRA_BULK_EMAIL_OPTIONS: ReadonlyArray<BulkEmailTypeOption & { aud
   {
     value: "certificate",
     label: "Certificates",
-    description: "Issue & attach certificate PDFs (tag-matched, one email per person)",
+    description: "Issue and attach certificate PDFs to the people assigned each one, one email per person",
     audiences: [{ audience: "speakers", order: 2 }, { audience: "registrations", order: 4 }],
   },
 ];

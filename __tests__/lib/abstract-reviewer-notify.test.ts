@@ -30,6 +30,7 @@ vi.mock("@/lib/email", async () => {
   return {
     sendEmail: sendEmailSpy,
     brandingCc: actual.brandingCc,
+    observerBcc: actual.observerBcc,
     getEventTemplate: vi.fn(),
     getDefaultTemplate: vi.fn(),
     renderAndWrap: vi.fn(actual.renderAndWrap),
@@ -39,7 +40,7 @@ vi.mock("@/lib/email", async () => {
 vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
 vi.mock("@/lib/security", () => ({ hashVerificationToken: (t: string) => `hash:${t}` }));
 
-import { inviterNameOf, reviewerSpeakerRecords, sendReviewerInvitation } from "@/lib/abstract-reviewer-notify";
+import { inviterNameOf, previewReviewerInvitation, reviewerSpeakerRecords, sendReviewerInvitation } from "@/lib/abstract-reviewer-notify";
 import { getDefaultTemplate, getEventTemplate } from "@/lib/email";
 import { DEFAULT_TEMPLATE_BODIES } from "@/lib/email-template-defaults";
 import { EMAIL_TEMPLATE_SPECS } from "@/lib/email-template-registry";
@@ -214,6 +215,81 @@ describe("sendReviewerInvitation: title, additional email and failures", () => {
     expect(await sendReviewerInvitation(args(NEW_REVIEWER))).toEqual({ ok: false, code: "SEND_FAILED", message: "The email could not be sent" });
     expect(sendEmailSpy).not.toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-invitation:send-error" }));
+  });
+});
+
+/**
+ * The Preview button (Nov 19, 2026): no reviewer email goes out unseen. It
+ * renders through the sender's own code and must touch nothing.
+ */
+/** Nov 19, 2026: the email dialog's CC, BCC and attachments reach the invitation. */
+describe("sendReviewerInvitation: what the organiser added in the email dialog", () => {
+  const FILE = { name: "guide.pdf", content: "JVBERi0=", contentType: "application/pdf" };
+
+  it("copies the manual CC beside the event's own, BCCs the observers and attaches the files", async () => {
+    speakerFindMany.mockResolvedValue([{ userId: "u2", email: "sam@x.com", title: "DR", additionalEmail: "sam.second@x.com" }]);
+    await sendReviewerInvitation({ ...args(HAS_ACCOUNT), extras: { manualCc: ["chair@x.com"], bcc: ["secretariat@x.com"], attachments: [FILE] } });
+    expect(sent().cc).toEqual([{ email: "ops@example.com" }, { email: "new@x.com" }, { email: "sam.second@x.com" }, { email: "chair@x.com" }]);
+    expect(sent().bcc).toEqual([{ email: "secretariat@x.com" }]);
+    expect(sent().attachments).toEqual([FILE]);
+  });
+
+  it("never BCCs someone who already gets the email: the reviewer, or anyone on its CC", async () => {
+    await sendReviewerInvitation({ ...args(HAS_ACCOUNT), extras: { manualCc: ["chair@x.com"], bcc: ["sam@x.com", "chair@x.com", "ops@example.com"] } });
+    expect(sent().bcc).toBeUndefined();
+  });
+
+  it("with nothing added, the email is what it always was: no BCC, no attachment", async () => {
+    await sendReviewerInvitation(args(HAS_ACCOUNT));
+    expect(sent().bcc).toBeUndefined();
+    expect(sent().attachments).toBeUndefined();
+  });
+});
+
+describe("previewReviewerInvitation", () => {
+  it("a new reviewer: the set-password form of the email, with NO link minted, none withdrawn and nothing sent", async () => {
+    speakerFindMany.mockResolvedValue([{ userId: "u1", email: "new@x.com", title: "DR", additionalEmail: null }]);
+    const preview = await previewReviewerInvitation(args(NEW_REVIEWER));
+
+    expect(preview?.kind).toBe("setup");
+    expect(preview?.htmlContent).toContain("SET YOUR PASSWORD");
+    expect(preview?.htmlContent).toContain("REVIEWER PORTAL");
+    // Their own name and title, and the signature of whoever is looking.
+    expect(preview?.htmlContent).toContain("Ortiz");
+    expect(preview?.htmlContent).toContain("Dr.");
+    expect(preview?.htmlContent).toContain("Sarah, Secretariat");
+    // The button leads nowhere: a preview never creates a set-password link.
+    expect(preview?.htmlContent).not.toContain("/accept-invitation");
+    expect(tokenCreate).not.toHaveBeenCalled();
+    expect(tokenDeleteMany).not.toHaveBeenCalled();
+    expect(sendEmailSpy).not.toHaveBeenCalled();
+    expect(findUnresolvedTokens(`${preview?.subject} ${preview?.htmlContent}`)).toEqual([]);
+  });
+
+  it("a reviewer who can already sign in: the portal button only", async () => {
+    const preview = await previewReviewerInvitation(args(HAS_ACCOUNT));
+    expect(preview?.kind).toBe("portal");
+    expect(preview?.htmlContent).toContain("REVIEWER PORTAL");
+    expect(preview?.htmlContent).not.toContain("SET YOUR PASSWORD");
+    expect(tokenCreate).not.toHaveBeenCalled();
+  });
+
+  it("is what the send delivers, the link apart", async () => {
+    const preview = await previewReviewerInvitation(args(HAS_ACCOUNT));
+    await sendReviewerInvitation(args(HAS_ACCOUNT));
+    expect(preview?.subject).toBe(sent().subject);
+    expect(preview?.htmlContent).toBe(sent().htmlContent);
+  });
+
+  it("no template, or a render that throws: null and logged, never an exception", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce(null);
+    vi.mocked(getDefaultTemplate).mockReturnValueOnce(undefined);
+    expect(await previewReviewerInvitation(args(NEW_REVIEWER))).toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-invitation:preview-no-template" }));
+
+    vi.mocked(getEventTemplate).mockRejectedValueOnce(new Error("db down"));
+    expect(await previewReviewerInvitation(args(NEW_REVIEWER))).toBeNull();
+    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-invitation:preview-error" }));
   });
 });
 

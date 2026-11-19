@@ -25,6 +25,9 @@ import { buildTravelGrantBlock, type TravelGrantBlockStatus } from "@/lib/travel
 import { buildTravelGrantLink } from "@/lib/travel-grant/server";
 import { formatTravelGrantDeadline, readTravelGrantSettings } from "@/lib/travel-grant/settings";
 import { getTitleLabel, formatPersonName } from "@/lib/utils";
+import { reviewerPoolIds } from "@/lib/abstract-reviewer-access";
+import { inviterNameOf, previewReviewerInvitation } from "@/lib/abstract-reviewer-notify";
+import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -46,6 +49,11 @@ const previewSchema = z.object({
   // preview: render THAT abstract's A-### number / title / theme / type /
   // co-authors, not representative samples (same builder as the send).
   abstractId: z.string().min(1).max(100).optional(),
+  // Target reviewer: slug === "reviewer-invitation" only. The Reviewers page
+  // previews the invitation as THAT reviewer gets it: their name and title,
+  // and their own access block (set a password, or the portal button). It is
+  // rendered by the sender's own code, and nothing is minted.
+  reviewerId: z.string().min(1).max(100).optional(),
   // slug === "certificate" only — the CertificateTemplate ids the send
   // would carry. The cert cover email isn't an EmailTemplate slug (it
   // lives on the template row / system defaults), so it renders through
@@ -71,7 +79,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId, registrationId, abstractId } = parsed.data;
+    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId, registrationId, abstractId, reviewerId } = parsed.data;
 
     // Verify event access (org-scoped for team members; org-null SUPER_ADMIN
     // passes with no org filter, so the tenant wrap below uses the RESOURCE
@@ -171,6 +179,42 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "Failed to generate preview" }, { status: 500 });
       }
       return NextResponse.json(preview);
+    }
+
+    // One reviewer's invitation, through the sender's own render
+    // (previewReviewerInvitation): preview == send by construction. Only for
+    // someone on this event's reviewer list, the people the send can reach.
+    if (slug === "reviewer-invitation" && reviewerId) {
+      if (!reviewerPoolIds(eventRow.settings).includes(reviewerId)) {
+        apiLogger.warn({ msg: "email-preview:reviewer-not-on-pool", eventId, reviewerId });
+        return NextResponse.json({ error: "Reviewer not found for this event" }, { status: 404 });
+      }
+      const [reviewer, brand] = await Promise.all([
+        db.user.findUnique({
+          where: { id: reviewerId },
+          select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true, role: true },
+        }),
+        loadPublicBrandForOrg(eventRow.organizationId),
+      ]);
+      if (!reviewer) {
+        apiLogger.warn({ msg: "email-preview:reviewer-account-not-found", eventId, reviewerId });
+        return NextResponse.json({ error: "Reviewer account not found" }, { status: 404 });
+      }
+      const preview = await previewReviewerInvitation({
+        eventId,
+        organizationId: eventRow.organizationId,
+        eventName: eventRow.name,
+        eventSlug: eventRow.slug,
+        reviewer,
+        organizationName: brand?.name || "your organization",
+        inviterName: inviterNameOf(session.user),
+        triggeredByUserId: session.user.id,
+      });
+      if (!preview) {
+        apiLogger.error({ msg: "email-preview:reviewer-invitation-render-failed", eventId, reviewerId });
+        return NextResponse.json({ error: "Failed to generate preview" }, { status: 500 });
+      }
+      return NextResponse.json({ subject: preview.subject, htmlContent: preview.htmlContent });
     }
 
     // Target-speaker overrides — applied LAST over the sample/representative

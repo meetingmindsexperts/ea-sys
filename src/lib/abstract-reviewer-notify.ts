@@ -1,5 +1,6 @@
 import crypto from "crypto";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc, observerBcc } from "@/lib/email";
+import type { ResolvedAttachment } from "@/lib/email-attachments";
 import { reviewerAccountIsSetUp } from "@/lib/abstract-reviewer-access";
 import { reviewerPortalAccess, REVIEWER_SETUP_EXPIRES_IN, REVIEWER_SETUP_LINK_DAYS } from "@/lib/reviewer-portal-access";
 import { hashVerificationToken } from "@/lib/security";
@@ -157,6 +158,15 @@ export interface ReviewerInvitationArgs {
   organizationName: string;
   inviterName: string;
   triggeredByUserId?: string | null;
+  /**
+   * What the organiser added in the email dialog (Nov 19, 2026): addresses
+   * copied on every invitation of the send, and files attached to each. The
+   * caller has already cleaned the addresses (resolveBulkObservers) and read
+   * the files (resolveStoredAttachments). A copy of a NEW reviewer's
+   * invitation carries their set-password link, as the event's own CC list
+   * always has; the dialog says so.
+   */
+  extras?: { manualCc?: string[]; bcc?: string[]; attachments?: ResolvedAttachment[] };
 }
 
 /**
@@ -189,46 +199,25 @@ export async function sendReviewerInvitation(args: ReviewerInvitationArgs): Prom
   const ctx = { eventId, reviewerUserId: reviewer.id };
   let minted: SetupLink | null = null;
   try {
-    const tpl = (await getEventTemplate(eventId, "reviewer-invitation")) || getDefaultTemplate("reviewer-invitation");
+    const tpl = await invitationTemplate(eventId);
     if (!tpl) {
       apiLogger.warn({ msg: "reviewer-invitation:no-template", eventId });
       return { ok: false, code: "NO_TEMPLATE", message: "The reviewer invitation email template is missing" };
     }
-    const [speakerRecord, organizerSignature] = await Promise.all([
-      reviewerSpeakerRecord(eventId, reviewer),
-      senderSignature(args.triggeredByUserId),
-    ]);
-    const kind = reviewerAccountIsSetUp(reviewer) ? "portal" : "setup";
+    const kind = invitationKind(reviewer);
     if (kind === "setup") minted = await mintSetupLink(reviewer.email, args.eventSlug);
-    const setupLink = minted?.link ?? null;
-    const reviewLink = myReviewsLink();
-    const access = reviewerPortalAccess({ email: reviewer.email, reviewLink, setupLink });
+    const built = await renderReviewerInvitation(args, tpl, minted?.link ?? null);
 
-    const vars = {
-      title: getTitleLabel(speakerRecord.title),
-      firstName: reviewer.firstName ?? "",
-      lastName: reviewer.lastName ?? "",
-      email: reviewer.email,
-      eventName: args.eventName,
-      organizationName: args.organizationName,
-      inviterName: args.inviterName,
-      organizerSignature,
-      portalAccess: access.html,
-      reviewLink,
-      // For a copy saved before {{portalAccess}} existed: its set-password
-      // button still leads somewhere for a reviewer who needs no password.
-      setupLink: setupLink ?? reviewLink,
-      expiresIn: REVIEWER_SETUP_EXPIRES_IN,
-    };
-    const branding = "branding" in tpl ? tpl.branding : { eventName: args.eventName };
-    const rendered = renderAndWrap(tpl, vars, branding, undefined, { text: { portalAccess: access.text } });
-
-    const to = [{ email: reviewer.email, name: `${vars.firstName} ${vars.lastName}`.trim() || reviewer.email }];
+    const to = [{ email: reviewer.email, name: `${reviewer.firstName ?? ""} ${reviewer.lastName ?? ""}`.trim() || reviewer.email }];
+    const cc = brandingCc(built.branding, to, [built.additionalEmail, ...(args.extras?.manualCc ?? [])]);
     const result = await sendEmail({
       to,
-      cc: brandingCc(branding, to, [speakerRecord.additionalEmail]),
-      ...rendered,
-      from: brandingFrom(branding),
+      cc,
+      // Nobody is BCC'd on an email they already get (the bulk sends' rule).
+      bcc: observerBcc(args.extras?.bcc ?? [], reviewer, cc),
+      attachments: args.extras?.attachments?.length ? args.extras.attachments : undefined,
+      ...built.rendered,
+      from: brandingFrom(built.branding),
       emailType: "reviewer_invitation",
       stream: "transactional",
       logContext: {
@@ -255,6 +244,85 @@ export async function sendReviewerInvitation(args: ReviewerInvitationArgs): Prom
     apiLogger.error({ err, msg: "reviewer-invitation:send-error", eventId, reviewerUserId: reviewer.id });
     if (minted) await discardSetupLink(minted, ctx);
     return { ok: false, code: "SEND_FAILED", message: "The email could not be sent" };
+  }
+}
+
+type InvitationTemplate = NonNullable<Awaited<ReturnType<typeof getEventTemplate>>> | NonNullable<ReturnType<typeof getDefaultTemplate>>;
+
+/** The event's own copy of the invitation, else the built-in one. */
+async function invitationTemplate(eventId: string): Promise<InvitationTemplate | null> {
+  return (await getEventTemplate(eventId, "reviewer-invitation")) || getDefaultTemplate("reviewer-invitation") || null;
+}
+
+/** Which of the invitation's two forms this reviewer gets (reviewerAccountIsSetUp is the rule). */
+function invitationKind(reviewer: ReviewerInvitationArgs["reviewer"]): "setup" | "portal" {
+  return reviewerAccountIsSetUp(reviewer) ? "portal" : "setup";
+}
+
+/**
+ * The invitation as ONE reviewer gets it, rendered and not sent. The send and
+ * the preview (previewReviewerInvitation) both come through here, so what the
+ * organiser previews is what goes out: the same template, title, signature and
+ * access block. `setupLink` is the freshly minted link on a send, a
+ * placeholder on a preview, and null for a reviewer who can already sign in.
+ */
+async function renderReviewerInvitation(args: ReviewerInvitationArgs, tpl: InvitationTemplate, setupLink: string | null) {
+  const { eventId, reviewer } = args;
+  const [speakerRecord, organizerSignature] = await Promise.all([
+    reviewerSpeakerRecord(eventId, reviewer),
+    senderSignature(args.triggeredByUserId),
+  ]);
+  const reviewLink = myReviewsLink();
+  const access = reviewerPortalAccess({ email: reviewer.email, reviewLink, setupLink });
+  const vars = {
+    title: getTitleLabel(speakerRecord.title),
+    firstName: reviewer.firstName ?? "",
+    lastName: reviewer.lastName ?? "",
+    email: reviewer.email,
+    eventName: args.eventName,
+    organizationName: args.organizationName,
+    inviterName: args.inviterName,
+    organizerSignature,
+    portalAccess: access.html,
+    reviewLink,
+    // For a copy saved before {{portalAccess}} existed: its set-password
+    // button still leads somewhere for a reviewer who needs no password.
+    setupLink: setupLink ?? reviewLink,
+    expiresIn: REVIEWER_SETUP_EXPIRES_IN,
+  };
+  const branding = "branding" in tpl ? tpl.branding : { eventName: args.eventName };
+  const rendered = renderAndWrap(tpl, vars, branding, undefined, { text: { portalAccess: access.text } });
+  return { rendered, branding, additionalEmail: speakerRecord.additionalEmail };
+}
+
+/** Where a preview's set-password button leads: nowhere. */
+const PREVIEW_SETUP_LINK = "#";
+
+/**
+ * The invitation exactly as THIS reviewer would get it, for the Preview button
+ * on the Reviewers page (Nov 19, 2026: no reviewer email goes out unseen).
+ *
+ * Mints nothing and withdraws nothing: a preview must never create a
+ * set-password link or cost the reviewer the one they hold. A reviewer with no
+ * password yet sees the set-password form of the email with a button that
+ * leads nowhere. Null when the template is missing or the render fails; the
+ * caller says so.
+ */
+export async function previewReviewerInvitation(
+  args: ReviewerInvitationArgs,
+): Promise<{ subject: string; htmlContent: string; kind: "setup" | "portal" } | null> {
+  try {
+    const tpl = await invitationTemplate(args.eventId);
+    if (!tpl) {
+      apiLogger.warn({ msg: "reviewer-invitation:preview-no-template", eventId: args.eventId });
+      return null;
+    }
+    const kind = invitationKind(args.reviewer);
+    const built = await renderReviewerInvitation(args, tpl, kind === "setup" ? PREVIEW_SETUP_LINK : null);
+    return { subject: built.rendered.subject, htmlContent: built.rendered.htmlContent, kind };
+  } catch (err) {
+    apiLogger.error({ err, msg: "reviewer-invitation:preview-error", eventId: args.eventId, reviewerUserId: args.reviewer.id });
+    return null;
   }
 }
 

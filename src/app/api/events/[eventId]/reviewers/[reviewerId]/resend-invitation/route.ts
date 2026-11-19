@@ -11,11 +11,11 @@ import { inviterNameOf, sendReviewerInvitation } from "@/lib/abstract-reviewer-n
 import { loadPublicBrandForOrg } from "@/lib/public-brand-server";
 
 /**
- * Send ONE reviewer the reviewer invitation: the row's Send button on the
- * Reviewers page. Adding a reviewer sends nothing (owner, Nov 10, 2026), so
- * this and Send to all (`reviewers/send-invitations`) are the only ways a
- * reviewer is emailed. The path keeps its old "resend" name so existing
- * clients keep working.
+ * Send ONE reviewer the reviewer invitation. Adding a reviewer sends nothing
+ * (owner, Nov 10, 2026). No screen calls this since Nov 19, 2026: the row's
+ * Send invitation button opens the email dialog, which previews the email and
+ * sends through `reviewers/send-invitations` with that one reviewer named.
+ * Kept, under its old "resend" name, for existing API clients.
  *
  * One email for everyone (sendReviewerInvitation): an account with no
  * password yet gets a freshly minted set-password link in it, one that can

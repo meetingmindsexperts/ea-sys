@@ -822,20 +822,6 @@ export function useRemoveReviewer(eventId: string) {
   });
 }
 
-export function useResendReviewerInvitation(eventId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (reviewerId: string) =>
-      fetchApi<{ success: boolean; sent: boolean; type: "setup" | "portal" }>(
-        `/api/events/${eventId}/reviewers/${reviewerId}/resend-invitation`,
-        { method: "POST" },
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
-    },
-  });
-}
-
 /** One request's answer from the send-invitations route. */
 interface SendInvitationsRound {
   emailed: number;
@@ -865,7 +851,19 @@ const MAX_SEND_ROUNDS = 40;
  * response at 60) and answers where to carry on, so a large committee is
  * several requests behind one press.
  */
-async function sendInvitationsInRounds(eventId: string): Promise<SendInvitationsOutcome> {
+/**
+ * Who one send goes to and what the organiser added to it. No `reviewerIds`
+ * means everyone on the pool. The additions ride on every request of the send.
+ */
+export interface SendInvitationsInput {
+  reviewerIds?: string[];
+  cc?: string[];
+  bcc?: string[];
+  bccSelf?: boolean;
+  attachments?: { storedPath: string; name: string; contentType: string }[];
+}
+
+async function sendInvitationsInRounds(eventId: string, input: SendInvitationsInput = {}): Promise<SendInvitationsOutcome> {
   const total: SendInvitationsOutcome = { emailed: 0, failed: 0, firstFailure: null, interrupted: null, emailedIds: [], failedIds: [] };
   let after: string | null = null;
   for (let round = 0; round < MAX_SEND_ROUNDS; round++) {
@@ -874,7 +872,7 @@ async function sendInvitationsInRounds(eventId: string): Promise<SendInvitations
       page = await fetchApi<SendInvitationsRound>(`/api/events/${eventId}/reviewers/send-invitations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(after ? { after } : {}),
+        body: JSON.stringify({ ...(after ? { after } : {}), ...input }),
       });
     } catch (err) {
       // Nothing went at all: let the caller show the error.
@@ -893,11 +891,16 @@ async function sendInvitationsInRounds(eventId: string): Promise<SendInvitations
   return total;
 }
 
-/** Send to all: the reviewer invitation to everyone on the event's pool. */
+/**
+ * The reviewer invitation to everyone on the event's pool, or with
+ * `reviewerIds` to those of them only (one row, or a ticked selection), with
+ * the CC, BCC and attachments the organiser added in the email dialog.
+ */
 export function useSendReviewerInvitations(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => sendInvitationsInRounds(eventId),
+    // `void`, so a Send to all press stays a bare `mutateAsync()`.
+    mutationFn: (input: SendInvitationsInput | void) => sendInvitationsInRounds(eventId, input ?? {}),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
     },
@@ -1733,6 +1736,8 @@ export function usePreviewEmailBySlug(eventId: string) {
       registrationId?: string;
       /** Target abstract — the resend-confirmation preview renders that abstract's real number/title/theme. */
       abstractId?: string;
+      /** Target reviewer: slug "reviewer-invitation" only; the invitation as THAT reviewer gets it. */
+      reviewerId?: string;
     }) =>
       fetchApi<{ subject: string; htmlContent: string }>(
         `/api/events/${eventId}/email-preview`,

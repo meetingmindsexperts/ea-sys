@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Reviewer emails are previewed before they go, and three screens are easier to use (November 19)
+
+**Reviewer invitation.** Send invitation on a reviewer's row and Send invitation to all used to send the moment they were pressed. Both now open the email dialog on a new Reviewer Invitation type, with Preview beside Send. Previewing one reviewer shows their own copy: their name and title, and whether they get the link to set a password or only the portal button. The invitation is also in the dialog for ticked reviewers and on the Reviewers card of Communications, and it takes a CC, a BCC and attachments like every other email. It still cannot be scheduled, because a new reviewer's password link is made at the moment of sending. The dialog warns that anyone copied on a new reviewer's email also receives that link.
+
+**Email type list.** The list in the email dialog can be searched, is grouped into Standard emails and Your saved templates, and opens under the field instead of covering the dialog. The row under the pointer is light blue, not orange. The Certificates entry no longer says "tag-matched": certificates go to the people assigned them.
+
+**Assign reviewers.** The list is split into Assigned to this abstract and Available reviewers, with a search box and its own scroll, so a committee of sixteen fits on the screen. Each available reviewer shows how many abstracts they already hold, lightest first.
+
+**Reviewers page.** One strip of numbers in place of two large cards, a denser list with search, and status labels in plain words (Speaker: Invited).
+
+Nothing changes for the reviewer: the email is the same one, sent by the same code. No database change.
+
 ### Emails now show whether they were delivered or bounced (November 19)
 
 The app only ever knew "sent" (handed to the mail service) or "failed" (the service refused it). A bounce arrives later and the app never heard of it. One speaker's address bounced on October 2 on his faculty invitation; three more emails to him were logged as sent while the mail service dropped each one, and the copies to colleagues arrived, so nobody noticed. Communications could not show a bounce because it was never told about one.

@@ -55,9 +55,14 @@ import {
   useEventTags,
   useBulkEmailAudienceCount,
   useRsvpCampaigns,
+  useReviewers,
+  useSendReviewerInvitations,
   assignedCountOf,
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { EmailTypePicker, type EmailTypePickerGroup } from "@/components/communications/email-type-picker";
+import { reportSendInvitations } from "@/components/reviewers/send-invitations-toast";
+import { formatPersonName } from "@/lib/utils";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { sessionRoleFilterLabel } from "@/lib/session-roles";
 import { useSessionRoleDefs } from "@/hooks/use-session-roles";
@@ -71,6 +76,24 @@ import { abstractScopeLabel, abstractStatusLabel, resolveAbstractStatusFilter } 
 
 /** Prefix marking a Select value as a saved custom template (value = `template:<slug>`). */
 const SAVED_TEMPLATE_PREFIX = "template:";
+
+/**
+ * The reviewer invitation, offered to the reviewers audience (Nov 19, 2026).
+ *
+ * It is NOT a bulk type on the server and must not become one
+ * (bulkTemplateSlugFor answers null for it): each new reviewer's copy carries
+ * a set-password link minted as it is sent. Choosing it here sends through the
+ * invitation's own sender (`reviewers/send-invitations`), with the CC, BCC and
+ * attachments typed here. It cannot be scheduled (the link is minted as it is
+ * sent), so the dialog hides Delivery for it. Offered only to someone who
+ * holds that route's key.
+ */
+const REVIEWER_INVITATION_TYPE = "reviewer-invitation";
+const REVIEWER_INVITATION_OPTION = {
+  value: REVIEWER_INVITATION_TYPE,
+  label: "Reviewer Invitation",
+  description: "The event's invitation to review: a new reviewer gets a link to set a password, the others the portal button",
+};
 
 /**
  * Effective filter set the dialog asks a page to count against (live recipient
@@ -192,6 +215,11 @@ interface BulkEmailDialogProps {
    */
   defaultEmailType?: string;
   /**
+   * Who the send goes to, when it is one known person (the Reviewers page's
+   * row button): the dialog then says "Send to Dr. Jane Doe" instead of a count.
+   */
+  recipientName?: string;
+  /**
    * Optional live-count function. Given the dialog's current effective
    * filters (including the in-dialog payment dropdown), returns how many
    * recipients an "all"-mode send would actually reach. When provided, it
@@ -276,6 +304,7 @@ export function BulkEmailDialog({
   hasSessionFilter,
   sessionRoleFilter,
   defaultEmailType,
+  recipientName,
   recipientCountFor,
 }: BulkEmailDialogProps) {
   const sessionRoleDefs = useSessionRoleDefs();
@@ -409,6 +438,13 @@ export function BulkEmailDialog({
   const bulkEmail = useBulkEmail(eventId);
   const scheduleEmail = useScheduleBulkEmail(eventId);
   const previewMutation = usePreviewEmailBySlug(eventId);
+  // The reviewer invitation: offered to whoever may send it (the send route's
+  // own key), and sent through its own sender. The reviewers list is read only
+  // to NAME anyone a send did not reach; it is the Reviewers page's cached query.
+  const canInviteReviewers = useCan("reviewers.pool.manage", eventId) === "allowed";
+  const offersReviewerInvitation = recipientType === "reviewers" && canInviteReviewers;
+  const sendInvitations = useSendReviewerInvitations(eventId);
+  const reviewersQuery = useReviewers(eventId, { enabled: open && offersReviewerInvitation });
   // RSVPs for the {{rsvpLink}} picker. Only registrations and speakers can
   // hold an invite (the server refuses the filter for other audiences), and
   // only OPEN RSVPs are offered: the server refuses a closed one too.
@@ -469,13 +505,20 @@ export function BulkEmailDialog({
   }>;
   const customTemplates = allTemplateRows.filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
 
-  const emailTypes: EmailTypeOption[] = [
+  // Two groups in the picker: the built-in emails for this audience, then the
+  // organiser's own saved templates.
+  const standardEmailTypes: EmailTypeOption[] = [
+    ...(offersReviewerInvitation ? [REVIEWER_INVITATION_OPTION] : []),
     ...getEmailTypes(recipientType),
-    ...customTemplates.map((t) => ({
-      value: `${SAVED_TEMPLATE_PREFIX}${t.slug}`,
-      label: t.name,
-      description: "Your saved template",
-    })),
+  ];
+  const savedTemplateTypes: EmailTypeOption[] = customTemplates.map((t) => ({
+    value: `${SAVED_TEMPLATE_PREFIX}${t.slug}`,
+    label: t.name,
+    description: "Your saved template",
+  }));
+  const emailTypeGroups: EmailTypePickerGroup[] = [
+    { heading: "Standard emails", options: standardEmailTypes },
+    { heading: "Your saved templates", options: savedTemplateTypes },
   ];
 
   const isSavedTemplate = emailType.startsWith(SAVED_TEMPLATE_PREFIX);
@@ -488,6 +531,11 @@ export function BulkEmailDialog({
   const isCustom = emailType === "custom";
   const isReminder = emailType === "abstract-reminder";
   const isCertificate = emailType === "certificate";
+  const isReviewerInvitation = emailType === REVIEWER_INVITATION_TYPE;
+  // The invitation is sent now or not at all: a "later" left on from another
+  // email type must not change who it says it goes to.
+  const scheduling = sendMode === "later" && !isReviewerInvitation;
+  const sending = bulkEmail.isPending || scheduleEmail.isPending || sendInvitations.isPending;
   const label = getRecipientLabel(recipientType);
 
   // Live recipient count. In "all" mode, ask the page to count against the
@@ -534,7 +582,7 @@ export function BulkEmailDialog({
   // mode; for a row selection it's true only when scheduling for later with the
   // late-inclusive "matching" choice. Immediate selected sends stay a fixed list.
   const resolvesToMatching =
-    effectiveSelectionMode === "all" || (sendMode === "later" && scheduledAudience === "matching");
+    effectiveSelectionMode === "all" || (scheduling && scheduledAudience === "matching");
   // Abstracts are counted on the SERVER by the resolver's own where (review
   // HIGH 1): the list this dialog holds never contains a draft, and a reminder
   // mails exactly draft authors, so a client-side count read 0 while the server
@@ -580,6 +628,18 @@ export function BulkEmailDialog({
     }
   };
 
+  // One chosen reviewer: the invitation previews as THEIR copy.
+  const onlyReviewerId =
+    recipientType === "reviewers" && effectiveSelectionMode === "selected" && effectiveRecipientIds.length === 1
+      ? effectiveRecipientIds[0]
+      : undefined;
+
+  const audienceLine = () => {
+    if (resolvesToMatching) return `Send to all ${displayCount} ${label}`;
+    if (recipientName && displayCount === 1) return `Send to ${recipientName}`;
+    return `Send to ${displayCount} selected ${displayCount === 1 ? label.slice(0, -1) : label}`;
+  };
+
   const handlePreview = async () => {
     // Certificate sends preview the cert COVER email (each template's own
     // wording, else the event's certificate Email Template, with sample
@@ -598,6 +658,18 @@ export function BulkEmailDialog({
           customSubject: customSubject.trim() || undefined,
           customMessage: customMessage.trim() || undefined,
         });
+        setPreviewData(result);
+        setPreviewOpen(true);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to generate preview");
+      }
+      return;
+    }
+    if (isReviewerInvitation) {
+      // One chosen reviewer: their own copy (their name, and whether they are
+      // sent the set-password link). Several: a new reviewer's copy.
+      try {
+        const result = await previewMutation.mutateAsync({ slug: REVIEWER_INVITATION_TYPE, reviewerId: onlyReviewerId });
         setPreviewData(result);
         setPreviewOpen(true);
       } catch (err) {
@@ -625,9 +697,58 @@ export function BulkEmailDialog({
     }
   };
 
+  /** The typed CC and BCC, checked: null, after saying why, when one cannot be sent to. */
+  const readObservers = (): { cc: string[]; bcc: string[] } | null => {
+    const bcc = bccInput.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean);
+    const invalidBcc = bcc.filter((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (invalidBcc.length) {
+      toast.error(`Invalid BCC address: ${invalidBcc.join(", ")}`);
+      return null;
+    }
+    const parsedCc = parseEmailList(ccInput);
+    if (parsedCc.invalid.length) {
+      toast.error(`Invalid CC address: ${parsedCc.invalid.join(", ")}`);
+      return null;
+    }
+    if (parsedCc.valid.length > MAX_MANUAL_CC) {
+      toast.error(`At most ${MAX_MANUAL_CC} CC addresses per email`);
+      return null;
+    }
+    return { cc: parsedCc.valid, bcc };
+  };
+
+  // The reviewer invitation goes through its own sender, never the bulk
+  // pipeline. One toast reports the whole send and names anyone not reached.
+  const sendReviewerInvitations = async () => {
+    const observers = readObservers();
+    if (!observers) return;
+    const named = effectiveSelectionMode === "selected" ? effectiveRecipientIds : undefined;
+    const pool = ((reviewersQuery.data?.reviewers ?? []) as Array<{ userId: string; title?: string | null; firstName: string; lastName: string }>)
+      .map((r) => ({ userId: r.userId, name: formatPersonName(r.title, r.firstName, r.lastName) }));
+    const sentTo = named ? pool.filter((r) => named.includes(r.userId)) : pool;
+    try {
+      const res = await sendInvitations.mutateAsync({
+        ...(named ? { reviewerIds: named } : {}),
+        ...(observers.cc.length > 0 ? { cc: observers.cc } : {}),
+        ...(observers.bcc.length > 0 ? { bcc: observers.bcc } : {}),
+        ...(bccSelf ? { bccSelf: true } : {}),
+        ...(attachmentFiles.length > 0 ? { attachments: await uploadEmailAttachments(eventId, attachmentFiles) } : {}),
+      });
+      reportSendInvitations(res, sentTo);
+      onOpenChange(false);
+      resetForm();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send the invitations");
+    }
+  };
+
   const handleSend = async () => {
     if (effectiveSelectionMode === "selected" && !resolvesToMatching && effectiveRecipientIds.length === 0) {
       toast.error("No recipients to send to");
+      return;
+    }
+    if (isReviewerInvitation) {
+      await sendReviewerInvitations();
       return;
     }
     if (isCustom && (!customSubject.trim() || !customMessage.trim())) {
@@ -659,7 +780,6 @@ export function BulkEmailDialog({
     // filters at send time — picking up registrations added later.
     const useFixedList = effectiveSelectionMode === "selected" && !resolvesToMatching;
 
-    const parsedBcc = bccInput.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean);
     // Survey Invitation: the expiry is typed, so check it before anything is
     // queued. The server re-validates the same bounds (survey/expiry.ts).
     const parsedSurveyExpiry =
@@ -676,20 +796,8 @@ export function BulkEmailDialog({
       toast.error(registrationForm.error);
       return;
     }
-    const invalidBcc = parsedBcc.filter((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
-    if (invalidBcc.length) {
-      toast.error(`Invalid BCC address: ${invalidBcc.join(", ")}`);
-      return;
-    }
-    const parsedCc = parseEmailList(ccInput);
-    if (parsedCc.invalid.length) {
-      toast.error(`Invalid CC address: ${parsedCc.invalid.join(", ")}`);
-      return;
-    }
-    if (parsedCc.valid.length > MAX_MANUAL_CC) {
-      toast.error(`At most ${MAX_MANUAL_CC} CC addresses per email`);
-      return;
-    }
+    const observers = readObservers();
+    if (!observers) return;
 
     const payloadSubject = () => {
       if (isCustom) return customSubject.trim();
@@ -780,8 +888,8 @@ export function BulkEmailDialog({
         // BCC observers ride in filters so scheduled sends reconstruct them
         // from the persisted ScheduledEmail.filters JSON; bccSelf resolves to
         // the triggering organizer at SEND time.
-        ...(parsedBcc.length > 0 ? { bcc: parsedBcc } : {}),
-        ...(parsedCc.valid.length > 0 ? { cc: parsedCc.valid } : {}),
+        ...(observers.bcc.length > 0 ? { bcc: observers.bcc } : {}),
+        ...(observers.cc.length > 0 ? { cc: observers.cc } : {}),
         ...(bccSelf ? { bccSelf: true } : {}),
         // RSVP link: the campaign id rides in filters so a scheduled send
         // reconstructs it from the persisted ScheduledEmail.filters JSON.
@@ -850,15 +958,23 @@ export function BulkEmailDialog({
   };
 
   const sendButtonContent = () => {
-    if (bulkEmail.isPending || scheduleEmail.isPending) {
+    if (sending) {
       return (
         <>
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          {sendMode === "later" ? "Scheduling..." : "Sending..."}
+          {scheduling ? "Scheduling..." : "Sending..."}
         </>
       );
     }
-    if (sendMode === "later") {
+    if (isReviewerInvitation) {
+      return (
+        <>
+          <Send className="mr-2 h-4 w-4" />
+          {displayCount === 1 ? "Send invitation" : `Send ${displayCount} invitations`}
+        </>
+      );
+    }
+    if (scheduling) {
       return (
         <>
           <Calendar className="mr-2 h-4 w-4" />
@@ -881,41 +997,36 @@ export function BulkEmailDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
-            Send Bulk Email
+            {recipientName ? "Send Email" : "Send Bulk Email"}
           </DialogTitle>
-          <DialogDescription>
-            {resolvesToMatching
-              ? `Send to all ${displayCount} ${label}`
-              : `Send to ${displayCount} selected ${displayCount === 1 ? label.slice(0, -1) : label}`}
-          </DialogDescription>
+          <DialogDescription>{audienceLine()}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           {/* Email Type Selection */}
           <div className="space-y-2">
-            <Label>Email Type</Label>
-            <Select value={emailType} onValueChange={setEmailType}>
-              {/* h-auto + extra py so the two-line option (title + description)
-                  isn't cramped by the trigger's default fixed h-9. */}
-              {/* The base trigger has `data-[size=default]:h-9` (a data-variant);
-                  a plain h-12/h-auto loses to it via tailwind-merge, so the
-                  height stayed 36px. Override the SAME variant to actually win,
-                  + min-h-12 + py-3 so the two-line option never clips. */}
-              <SelectTrigger className="data-[size=default]:h-auto min-h-12 py-1">
-                <SelectValue placeholder="Select email type" />
-              </SelectTrigger>
-              <SelectContent>
-                {emailTypes.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    <div>
-                      <div className="font-medium">{type.label}</div>
-                      <div className="text-xs text-muted-foreground">{type.description}</div>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="bulk-email-type">Email Type</Label>
+            <EmailTypePicker id="bulk-email-type" value={emailType} onChange={setEmailType} groups={emailTypeGroups} disabled={sending} />
           </div>
+
+          {/* The reviewer invitation: what it sends, since none of the fields
+              below apply to it. */}
+          {isReviewerInvitation && (
+            <div className="space-y-1.5 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
+              <p>
+                Sends this event&apos;s <strong className="font-medium text-foreground">Reviewer Invitation</strong> template.
+                A reviewer with no password yet gets a new link to set one, and any earlier link stops working; a
+                reviewer who can already sign in gets the Reviewer Portal button.
+              </p>
+              <p>
+                {displayCount === 1 ? "They are" : "Everyone chosen is"} emailed even if you have sent it before.{" "}
+                {onlyReviewerId
+                  ? "Preview shows the email exactly as they will get it."
+                  : "Preview shows a new reviewer's copy."}{" "}
+                To change the wording, edit the template under Communications, Email Templates.
+              </p>
+            </div>
+          )}
 
           {/* Certificate template multi-select. Who is ASSIGNED each template
               decides who receives it; a template nobody is assigned can reach
@@ -1152,7 +1263,7 @@ export function BulkEmailDialog({
           )}
 
           {/* Info box for template emails */}
-          {!isCustom && !isCertificate && emailType !== "invitation" && (
+          {!isCustom && !isCertificate && !isReviewerInvitation && emailType !== "invitation" && (
             <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
               {emailType === "agreement" && (
                 <p>This will send the speaker agreement template with event details and terms.</p>
@@ -1234,6 +1345,16 @@ export function BulkEmailDialog({
             </label>
           </div>
           </div>
+
+          {/* A copy of a NEW reviewer's invitation carries the link that sets
+              their password: whoever is copied can use it. Said once, when a
+              copy is actually asked for. */}
+          {isReviewerInvitation && (ccInput.trim() || bccInput.trim() || bccSelf) && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              A reviewer who has no password yet is sent a personal link to set one. Everyone copied on their
+              email, on CC or BCC, receives that link too, so copy only people you would trust with it.
+            </p>
+          )}
 
           {/* Audience filters (registrations only) — collapsed by default so the
               dialog opens compact. All filters are OR within a field and AND
@@ -1564,12 +1685,14 @@ export function BulkEmailDialog({
                 {certTemplateIds
                   .map((id) => certTemplateOptions.find((t) => t.id === id)?.name ?? id)
                   .join(", ")}{" "}
-                — each person gets only the certs whose tag they hold
+                — each person gets only the certificates assigned to them
               </p>
             )}
           </div>
 
-          {/* Send mode toggle */}
+          {/* Send mode toggle. Not for the reviewer invitation: its
+              set-password link is minted as it is sent, so it goes now. */}
+          {!isReviewerInvitation && (
           <div className="space-y-2">
             <Label>Delivery</Label>
             <div className="grid grid-cols-2 gap-2">
@@ -1669,20 +1792,21 @@ export function BulkEmailDialog({
               </div>
             )}
           </div>
+          )}
         </div>
 
         <DialogFooter>
           <Button
             variant="outline"
             onClick={() => handleOpenChange(false)}
-            disabled={bulkEmail.isPending || scheduleEmail.isPending}
+            disabled={sending}
           >
             Cancel
           </Button>
           <Button
             variant="outline"
             onClick={handlePreview}
-            disabled={previewMutation.isPending || bulkEmail.isPending || scheduleEmail.isPending}
+            disabled={previewMutation.isPending || sending}
           >
             {previewMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1694,8 +1818,7 @@ export function BulkEmailDialog({
           <Button
             onClick={handleSend}
             disabled={
-              bulkEmail.isPending ||
-              scheduleEmail.isPending ||
+              sending ||
               (isCertificate && certTemplateIds.length === 0) ||
               // Review MED 4: never enqueue a send the server will resolve to
               // nobody, and never one whose audience could not be counted.

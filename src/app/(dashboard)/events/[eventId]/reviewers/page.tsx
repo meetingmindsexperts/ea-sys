@@ -2,12 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,9 +17,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { UserCheck, Plus, Mail, Building2, Trash2, Send, X } from "lucide-react";
+import { UserCheck, Plus, Trash2, Send, X, Search, PenLine } from "lucide-react";
+import { PageHeader } from "@/components/ui/typography";
 import { PermissionGate } from "@/components/permissions/permission-gate";
-import { useReviewers, useAddReviewer, useRemoveReviewer, useResendReviewerInvitation, useSendReviewerInvitations, type SendInvitationsOutcome } from "@/hooks/use-api";
+import { useReviewers, useAddReviewer, useRemoveReviewer } from "@/hooks/use-api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,7 +33,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { formatPersonName } from "@/lib/utils";
-import { plural, sendInvitationsReport, type SendReportLevel } from "./send-report";
+import { plural } from "./send-report";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
@@ -87,6 +83,9 @@ const speakerStatusColors: Record<string, string> = {
   CANCELLED: "bg-gray-100 text-gray-800",
 };
 
+/** "INVITED" as a person reads it: "Invited". */
+const speakerStatusLabel = (status: string) => status.charAt(0) + status.slice(1).toLowerCase();
+
 export default function ReviewersPage() {
   const params = useParams();
   const eventId = params.eventId as string;
@@ -103,17 +102,35 @@ function assignmentSummary(a: { assigned: number } | undefined): string {
   return `${plural(a.assigned, "abstract", "abstracts")} assigned`;
 }
 
-/** A failure stays until closed; a warning long enough to read; a success the usual few seconds. */
-const SEND_REPORT_DURATION: Record<SendReportLevel, number | undefined> = { error: Infinity, warning: 15000, info: undefined, success: undefined };
+/** Where a reviewer's account stands: one badge, the state that needs acting on first. */
+function accountBadge(r: Reviewer): { label: string; className: string } {
+  if (r.needsEmailConfirmation) return { label: "Must confirm email", className: "bg-amber-50 text-amber-800 border-amber-200" };
+  if (r.accountActive) return { label: "Active", className: "bg-green-100 text-green-800" };
+  return { label: "Pending invitation", className: "bg-yellow-100 text-yellow-800" };
+}
 
-/** Every outcome of a Send to all press in ONE toast, the worst first (see send-report.ts). */
-function reportSendInvitations(res: SendInvitationsOutcome, onPage: { userId: string; name: string }[]): void {
-  const { level, lines } = sendInvitationsReport(res, onPage);
-  const [title, ...rest] = lines;
-  toast[level](title, {
-    duration: SEND_REPORT_DURATION[level],
-    description: rest.length > 0 ? <div className="space-y-1">{rest.map((line) => <p key={line}>{line}</p>)}</div> : undefined,
-  });
+/** Email, organisation and job title on one line; whichever of them exist. */
+function contactLine(r: Reviewer): string {
+  return [r.email, r.organization, r.jobTitle].filter(Boolean).join(" · ");
+}
+
+function matchesSearch(r: Reviewer, query: string): boolean {
+  return [r.firstName, r.lastName, r.email, r.organization ?? ""].join(" ").toLowerCase().includes(query);
+}
+
+/** A list this long gets a search box. */
+const SEARCH_FROM = 6;
+
+/**
+ * Who the email dialog is opened for (Nov 19, 2026). Every reviewer email,
+ * the invitation included, goes through that dialog, so it can be previewed
+ * before it is sent. No ids = everyone on the list.
+ */
+interface EmailTarget {
+  ids: string[];
+  emailType: "reviewer-invitation" | "custom";
+  /** The one person a row's button addresses. */
+  name?: string;
 }
 
 function removeDescription(assigned: number): string {
@@ -133,9 +150,6 @@ function Reviewers({ eventId }: { eventId: string }) {
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);
   const addReviewer = useAddReviewer(eventId);
   const removeReviewer = useRemoveReviewer(eventId);
-  const resendInvitation = useResendReviewerInvitation(eventId);
-  const sendInvitations = useSendReviewerInvitations(eventId);
-  const [sendAllOpen, setSendAllOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<Reviewer | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
 
@@ -154,11 +168,17 @@ function Reviewers({ eventId }: { eventId: string }) {
   const [directFirstName, setDirectFirstName] = useState("");
   const [directLastName, setDirectLastName] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
-  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
-  // Bulk email state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  // Open and target are separate states: the target is kept while the dialog
+  // closes, so its wording does not change mid-fade.
+  const [emailTarget, setEmailTarget] = useState<EmailTarget>({ ids: [], emailType: "custom" });
+  const [emailOpen, setEmailOpen] = useState(false);
+  const openEmail = (target: EmailTarget) => {
+    setEmailTarget(target);
+    setEmailOpen(true);
+  };
 
   const resetForm = () => {
     setSelectedSpeakerId("");
@@ -219,40 +239,29 @@ function Reviewers({ eventId }: { eventId: string }) {
     }
   };
 
-  const handleResendInvitation = async (userId: string, name: string) => {
-    setResendingId(userId);
-    try {
-      const res = await resendInvitation.mutateAsync(userId);
-      toast.success(res.type === "setup" ? `Invitation sent to ${name}, with the link to set a password` : `Invitation sent to ${name}`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send the email");
-    } finally {
-      setResendingId(null);
-    }
-  };
+  const query = search.trim().toLowerCase();
+  const shownReviewers = query ? reviewers.filter((r) => matchesSearch(r, query)) : reviewers;
+  const activeCount = reviewers.filter((r) => r.accountActive && !r.needsEmailConfirmation).length;
+  const assignmentCount = reviewers.reduce((sum, r) => sum + (r.assignments?.assigned ?? 0), 0);
+  const stats = [
+    { label: "Reviewers", value: reviewers.length },
+    { label: "Active accounts", value: activeCount, tone: "text-green-600" },
+    { label: "Not active yet", value: reviewers.length - activeCount },
+    { label: "Abstracts assigned", value: assignmentCount },
+  ];
 
-  // Send to all: the same invitation the row's Send button sends, to everyone
-  // on the list. Nothing records who was already emailed, so it asks first.
-  const handleSendToAll = async () => {
-    try {
-      const res = await sendInvitations.mutateAsync();
-      reportSendInvitations(res, reviewers.map((r) => ({ userId: r.userId, name: formatPersonName(r.title, r.firstName, r.lastName) })));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send the invitations");
-    }
-  };
-
-  // Selection helpers
-  const allSelected = reviewers.length > 0 && reviewers.every((r) => selectedIds.has(r.userId));
-  const someSelected = reviewers.some((r) => selectedIds.has(r.userId));
+  // Selection helpers. Select all ticks the rows on screen: with a search
+  // typed, that is the people it found.
+  const allSelected = shownReviewers.length > 0 && shownReviewers.every((r) => selectedIds.has(r.userId));
+  const someSelected = shownReviewers.some((r) => selectedIds.has(r.userId));
 
   const toggleSelectAll = () => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (allSelected) {
-        reviewers.forEach((r) => next.delete(r.userId));
+        shownReviewers.forEach((r) => next.delete(r.userId));
       } else {
-        reviewers.forEach((r) => next.add(r.userId));
+        shownReviewers.forEach((r) => next.add(r.userId));
       }
       return next;
     });
@@ -279,35 +288,23 @@ function Reviewers({ eventId }: { eventId: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
-            <UserCheck className="h-6 w-6 shrink-0 text-primary" />
-            Reviewers
-            {isFetching && !isLoading && (
-              <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            )}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage abstract reviewers for this event
-          </p>
-        </div>
-
-        <div className="flex gap-2">
+      <PageHeader
+        icon={UserCheck}
+        title="Reviewers"
+        description="The people who review this event's abstracts"
+        trailing={isFetching && !isLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" /> : null}
+        actions={
+          <>
           {reviewers.length > 0 && (
-            <Button variant="outline" onClick={() => setSendAllOpen(true)} disabled={sendInvitations.isPending}>
+            <Button variant="outline" onClick={() => openEmail({ ids: [], emailType: "reviewer-invitation" })}>
               <Send className="mr-2 h-4 w-4" />
-              {sendInvitations.isPending ? "Sending..." : `Send invitation to all (${reviewers.length})`}
+              {`Send invitation to all (${reviewers.length})`}
             </Button>
           )}
           {reviewers.length > 0 && (
-            <Button
-              variant="outline"
-              onClick={() => setBulkEmailOpen(true)}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              {selectedIds.size > 0 ? `Custom email (${selectedIds.size})` : "Custom email"}
+            <Button variant="outline" onClick={() => openEmail({ ids: [], emailType: "custom" })}>
+              <PenLine className="mr-2 h-4 w-4" />
+              Custom email
             </Button>
           )}
           <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
@@ -404,185 +401,141 @@ function Reviewers({ eventId }: { eventId: string }) {
               </Tabs>
             </DialogContent>
           </Dialog>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      {/* Bulk Selection Toolbar */}
-      {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3 shadow-sm">
-          <span className="text-sm font-medium">
-            {selectedIds.size} reviewer{selectedIds.size !== 1 ? "s" : ""} selected
-          </span>
-          <div className="flex gap-2 ml-auto">
-            <Button
-              size="sm"
-              onClick={() => setBulkEmailOpen(true)}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              Send Email
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={clearSelection}
-            >
-              <X className="mr-2 h-4 w-4" />
-              Clear
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* Stats: one strip, so the list starts near the top of the page. */}
+      <Card className="py-4">
+        <CardContent className="grid grid-cols-2 gap-y-4 px-2 sm:grid-cols-4 sm:divide-x">
+          {stats.map((stat) => (
+            <div key={stat.label} className="px-4">
+              <div className={`text-2xl font-semibold tabular-nums ${stat.tone ?? ""}`}>{stat.value}</div>
+              <div className="text-xs text-muted-foreground">{stat.label}</div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* Reviewers list */}
+      {reviewers.length === 0 ? (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Reviewers
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{reviewers.length}</div>
+          <CardContent className="pt-6">
+            <p className="text-muted-foreground text-center py-8">
+              No reviewers assigned yet. Click &quot;Add Reviewer&quot; to get started.
+            </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Active Accounts
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {reviewers.filter((r) => r.accountActive && !r.needsEmailConfirmation).length}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Reviewers List */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">All Reviewers</h2>
-          {reviewers.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                checked={triStateChecked(allSelected, someSelected)}
-                onCheckedChange={toggleSelectAll}
-                aria-label="Select all reviewers"
-              />
-              <span className="text-sm text-muted-foreground">
-                Select all
-              </span>
-            </div>
-          )}
-        </div>
-        {reviewers.length === 0 ? (
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-muted-foreground text-center py-8">
-                No reviewers assigned yet. Click &quot;Add Reviewer&quot; to get started.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4">
-            {reviewers.map((reviewer) => (
-              <Card key={reviewer.userId} className={`transition-all duration-200 hover:border-primary/50 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.04)] hover:-translate-y-0.5 ${selectedIds.has(reviewer.userId) ? "border-primary bg-primary/5" : ""}`}>
-                <CardContent className="pt-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3 flex-1">
-                      <Checkbox
-                        checked={selectedIds.has(reviewer.userId)}
-                        onCheckedChange={() => toggleSelect(reviewer.userId)}
-                        aria-label={`Select ${reviewer.firstName} ${reviewer.lastName}`}
-                        className="mt-1"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-lg font-semibold">
-                            {formatPersonName(reviewer.title, reviewer.firstName, reviewer.lastName)}
-                          </h3>
-                          {reviewer.needsEmailConfirmation && (
-                            <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
-                              Must confirm email
-                            </Badge>
-                          )}
-                          {!reviewer.needsEmailConfirmation && reviewer.accountActive && (
-                            <Badge variant="outline" className="bg-green-100 text-green-800">
-                              Active
-                            </Badge>
-                          )}
-                          {!reviewer.needsEmailConfirmation && !reviewer.accountActive && (
-                            <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
-                              Pending Invitation
-                            </Badge>
-                          )}
-                          {reviewer.speakerStatus && (
-                            <Badge
-                              variant="outline"
-                              className={speakerStatusColors[reviewer.speakerStatus] || ""}
-                            >
-                              Speaker: {reviewer.speakerStatus}
-                            </Badge>
-                          )}
-                        </div>
-
-                        <div className="space-y-1 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <Mail className="h-4 w-4" />
-                            {reviewer.email}
-                          </div>
-                          {reviewer.organization && (
-                            <div className="flex items-center gap-2">
-                              <Building2 className="h-4 w-4" />
-                              {reviewer.organization}
-                              {reviewer.jobTitle && ` • ${reviewer.jobTitle}`}
-                            </div>
-                          )}
-                          <div>{assignmentSummary(reviewer.assignments)}</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 shrink-0">
-                      {/* Adding a reviewer sends nothing (Nov 10, 2026): this
-                          is how they hear. One email for everyone; a new
-                          account's copy carries the link to set a password. */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          handleResendInvitation(
-                            reviewer.userId,
-                            `${reviewer.firstName} ${reviewer.lastName}`
-                          )
-                        }
-                        disabled={resendingId === reviewer.userId || sendInvitations.isPending}
-                      >
-                        <Send className="mr-2 h-4 w-4" />
-                        {resendingId === reviewer.userId ? "Sending..." : "Send invitation"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setRemoveTarget(reviewer);
-                          setRemoveOpen(true);
-                        }}
-                        disabled={removingId === reviewer.userId}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        {removingId === reviewer.userId ? "Removing..." : "Remove"}
-                      </Button>
-                    </div>
+      ) : (
+        <Card className="gap-0 overflow-hidden py-0">
+          {/* The list's own bar: search and select all, or what to do with the ticked rows. */}
+          <div className="flex min-h-14 flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-2.5">
+            <Checkbox
+              checked={triStateChecked(allSelected, someSelected)}
+              onCheckedChange={toggleSelectAll}
+              aria-label="Select all reviewers"
+            />
+            {selectedIds.size > 0 ? (
+              <>
+                <span className="text-sm font-medium">{plural(selectedIds.size, "reviewer", "reviewers")} selected</span>
+                <div className="ml-auto flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => openEmail({ ids: Array.from(selectedIds), emailType: "reviewer-invitation" })}>
+                    <Send className="mr-2 h-4 w-4" />
+                    Send invitation
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => openEmail({ ids: Array.from(selectedIds), emailType: "custom" })}>
+                    <PenLine className="mr-2 h-4 w-4" />
+                    Custom email
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={clearSelection}>
+                    <X className="mr-2 h-4 w-4" />
+                    Clear
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="text-sm text-muted-foreground">Select all</span>
+                {reviewers.length >= SEARCH_FROM && (
+                  <div className="relative ml-auto w-full sm:w-80">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search name, email or organisation"
+                      aria-label="Search reviewers"
+                      className="h-9 pl-8"
+                    />
                   </div>
-                </CardContent>
-              </Card>
-            ))}
+                )}
+              </>
+            )}
           </div>
-        )}
-      </div>
+
+          {shownReviewers.length === 0 && (
+            <p className="px-4 py-10 text-center text-sm text-muted-foreground">No reviewer matches &ldquo;{search.trim()}&rdquo;.</p>
+          )}
+          <ul className="divide-y">
+            {shownReviewers.map((reviewer) => {
+              const name = formatPersonName(reviewer.title, reviewer.firstName, reviewer.lastName);
+              const badge = accountBadge(reviewer);
+              return (
+                <li
+                  key={reviewer.userId}
+                  className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-muted/40 ${selectedIds.has(reviewer.userId) ? "bg-primary/5" : ""}`}
+                >
+                  <Checkbox
+                    checked={selectedIds.has(reviewer.userId)}
+                    onCheckedChange={() => toggleSelect(reviewer.userId)}
+                    aria-label={`Select ${reviewer.firstName} ${reviewer.lastName}`}
+                  />
+                  <div className="min-w-0 flex-1 basis-64">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{name}</span>
+                      <Badge variant="outline" className={badge.className}>{badge.label}</Badge>
+                      {reviewer.speakerStatus && (
+                        <Badge variant="outline" className={speakerStatusColors[reviewer.speakerStatus] || ""}>
+                          Speaker: {speakerStatusLabel(reviewer.speakerStatus)}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="truncate text-sm text-muted-foreground" title={contactLine(reviewer)}>{contactLine(reviewer)}</p>
+                    <p className="text-xs text-muted-foreground">{assignmentSummary(reviewer.assignments)}</p>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1">
+                    {/* Adding a reviewer sends nothing (Nov 10, 2026): this is
+                        how they hear. It opens the email dialog on the
+                        invitation, where Preview shows this reviewer's own copy. */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openEmail({ ids: [reviewer.userId], emailType: "reviewer-invitation", name })}
+                    >
+                      <Send className="mr-2 h-4 w-4" />
+                      Send invitation
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setRemoveTarget(reviewer);
+                        setRemoveOpen(true);
+                      }}
+                      disabled={removingId === reviewer.userId}
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                      aria-label={`Remove ${reviewer.firstName} ${reviewer.lastName}`}
+                      title="Remove from this event's reviewers"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
 
       {assignedOffPool.length > 0 && (
         <Card className="border-amber-200 bg-amber-50/60">
@@ -602,22 +555,6 @@ function Reviewers({ eventId }: { eventId: string }) {
           </CardContent>
         </Card>
       )}
-
-      <AlertDialog open={sendAllOpen} onOpenChange={setSendAllOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Send the invitation to all {plural(reviewers.length, "reviewer", "reviewers")}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Everyone on this list is emailed the Reviewer Invitation, including people you have already sent it to.
-              A reviewer who has no password yet gets a new link to set one, and any earlier link stops working.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleSendToAll}>Send to all</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Remove also takes away their assignments on this event (Nov 10, 2026).
           Open and target are separate states: the target is kept while the
@@ -645,15 +582,19 @@ function Reviewers({ eventId }: { eventId: string }) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Bulk Email Dialog */}
+      {/* Every reviewer email: the invitation (one row, the ticked rows, or
+          everyone) and a custom message. Its Preview button is the reason the
+          invitation no longer sends straight from a button press. */}
       <BulkEmailDialog
-        open={bulkEmailOpen}
-        onOpenChange={setBulkEmailOpen}
+        open={emailOpen}
+        onOpenChange={setEmailOpen}
         eventId={eventId}
         recipientType="reviewers"
-        recipientIds={Array.from(selectedIds)}
-        recipientCount={selectedIds.size > 0 ? selectedIds.size : reviewers.length}
-        selectionMode={selectedIds.size > 0 ? "selected" : "all"}
+        recipientIds={emailTarget.ids}
+        recipientCount={emailTarget.ids.length > 0 ? emailTarget.ids.length : reviewers.length}
+        selectionMode={emailTarget.ids.length > 0 ? "selected" : "all"}
+        defaultEmailType={emailTarget.emailType}
+        recipientName={emailTarget.name}
       />
     </div>
   );
