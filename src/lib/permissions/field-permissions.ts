@@ -96,10 +96,12 @@ export const EVENT_SETTINGS_FIELDS = [
  * edit merges settings at the top level, so a stale copy sent back would
  * replace all of it. `dtcm` is the DET section mapping
  * (/api/events/[eventId]/dtcm-eticket, Nov 3, 2026), checked against DET's
- * live map before it is saved, which this route cannot do. No screen sends any
+ * live map before it is saved, which this route cannot do. `reviewScoreScale`
+ * is the criterion scoring scale (review-criteria/scale, Nov 19, 2026), fixed
+ * once a review is in, which only its own route checks. No screen sends any
  * of them through this route.
  */
-export const ROUTE_OWNED_SETTINGS_KEYS = ["reviewerUserIds", "handouts", "cme", "reimbursement", "webinar", "venue", "dtcm"] as const;
+export const ROUTE_OWNED_SETTINGS_KEYS = ["reviewerUserIds", "handouts", "cme", "reimbursement", "webinar", "venue", "dtcm", "reviewScoreScale"] as const;
 const ROUTE_OWNED_SETTINGS = new Set<string>(ROUTE_OWNED_SETTINGS_KEYS);
 
 /** The settings an event edit may write: everything but the route-owned keys. */

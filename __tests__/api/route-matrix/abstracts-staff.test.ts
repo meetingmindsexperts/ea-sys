@@ -43,6 +43,8 @@ import { POST as reviewerSendInvitationsPOST } from "@/app/api/events/[eventId]/
 import { GET as absReviewersGET, POST as absReviewersPOST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/route";
 import { DELETE as absReviewerDELETE } from "@/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/[userId]/route";
 import { POST as bulkReviewersPOST, DELETE as bulkReviewersDELETE } from "@/app/api/events/[eventId]/abstracts/reviewer-assignments/route";
+import { POST as bulkUpdatePOST } from "@/app/api/events/[eventId]/abstracts/bulk-update/route";
+import { GET as scoreScaleGET, PUT as scoreScalePUT } from "@/app/api/events/[eventId]/review-criteria/scale/route";
 import { POST as resendConfirmationPOST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/resend-confirmation/route";
 import { POST as presenterAgreementPOST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/presenter-agreement/email/route";
 import { GET as sharesGET, PUT as sharesPUT, POST as sharesPOST } from "@/app/api/events/[eventId]/submission-shares/route";
@@ -69,6 +71,8 @@ const CASES: HandlerCase[] = [
   { name: "POST review-criteria", handler: criteriaPOST, method: "POST", body: { name: "Novelty", weight: 30 } },
   { name: "PUT review-criteria/[criterionId]", handler: criterionPUT, method: "PUT", params: crit, body: { weight: 40 } },
   { name: "DELETE review-criteria/[criterionId]", handler: criterionDELETE, method: "DELETE", params: crit },
+  { name: "GET review-criteria/scale", handler: scoreScaleGET, method: "GET" },
+  { name: "PUT review-criteria/scale", handler: scoreScalePUT, method: "PUT", body: { scale: 10 } },
   { name: "GET reviewers", handler: reviewersGET, method: "GET" },
   { name: "POST reviewers", handler: reviewersPOST, method: "POST", body: { type: "direct", email: "rev@x.test", firstName: "R", lastName: "V" } },
   { name: "DELETE reviewers/[reviewerId]", handler: reviewerDELETE, method: "DELETE", params: rev },
@@ -77,6 +81,7 @@ const CASES: HandlerCase[] = [
   { name: "GET abstracts/[abstractId]/reviewers", handler: absReviewersGET, method: "GET", params: abs },
   { name: "POST abstracts/[abstractId]/reviewers", handler: absReviewersPOST, method: "POST", params: abs, body: { userId: "u-rev1" } },
   { name: "DELETE abstracts/[abstractId]/reviewers/[userId]", handler: absReviewerDELETE, method: "DELETE", params: { abstractId: "ab1", userId: "u-rev1" } },
+  { name: "POST abstracts/bulk-update", handler: bulkUpdatePOST, method: "POST", body: { abstractIds: ["ab1"], presentationType: "POSTER" } },
   { name: "POST abstracts/reviewer-assignments", handler: bulkReviewersPOST, method: "POST", body: { groups: [{ reviewerUserId: "u-rev1", abstractIds: ["ab1"] }] } },
   { name: "DELETE abstracts/reviewer-assignments", handler: bulkReviewersDELETE, method: "DELETE", body: { groups: [{ reviewerUserId: "u-rev1", abstractIds: ["ab1"] }] } },
   { name: "POST abstracts/[abstractId]/resend-confirmation", handler: resendConfirmationPOST, method: "POST", params: abs, body: {} },

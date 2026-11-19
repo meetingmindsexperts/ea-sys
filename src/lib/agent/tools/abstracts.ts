@@ -1,3 +1,4 @@
+import { readReviewScoreScale } from "@/lib/abstract-score";
 import { AbstractStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -62,12 +63,16 @@ const createAbstractTheme: ToolExecutor = async (input, ctx) => {
 const listReviewCriteria: ToolExecutor = async (_input, ctx) => {
   try {
     return await runWithTenant(ctx.organizationId, async () => {
-    const criteria = await db.reviewCriterion.findMany({
-      where: { eventId: ctx.eventId },
-      select: { id: true, name: true, weight: true, sortOrder: true },
-      orderBy: { sortOrder: "asc" },
-    });
-    return { criteria, total: criteria.length };
+    const [criteria, event] = await Promise.all([
+      db.reviewCriterion.findMany({
+        where: { eventId: ctx.eventId },
+        select: { id: true, name: true, weight: true, sortOrder: true },
+        orderBy: { sortOrder: "asc" },
+      }),
+      db.event.findFirst({ where: { id: ctx.eventId }, select: { settings: true } }),
+    ]);
+    // What each criterion is scored out of on this event (abstract-score.ts).
+    return { criteria, total: criteria.length, scoreScale: readReviewScoreScale(event?.settings) };
     });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_review_criteria failed");

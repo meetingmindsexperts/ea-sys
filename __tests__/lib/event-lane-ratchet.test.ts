@@ -143,7 +143,7 @@ const CALLER_LANED: Record<string, [count: number, why: string]> = {
   "src/lib/webinar/stream-watchdog.ts": [1, "Reached from a worker job that scans with the privileged client and enters the row's lane, and from routes inside theirs."],
   "src/procurement/services/budget-revenue-service.ts": [1, "Procurement routes and tools, each inside the organisation's lane."],
   "src/procurement/services/budget-service.ts": [2, "Procurement routes and tools, each inside the organisation's lane."],
-  "src/services/abstract-service.ts": [5, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
+  "src/services/abstract-service.ts": [6, "A service called by REST routes and agent tools, each inside the organisation's lane before the call (the sixth is bulkUpdateAbstracts, whose one caller, abstracts/bulk-update, enters it first)."],
   "src/services/accommodation-service.ts": [1, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
   "src/services/dtcm-eticket-service.ts": [1, "Reached from a worker job that scans with the privileged client and enters the row's lane, and from routes inside theirs."],
   "src/services/event-schedule-shift.ts": [2, "Runs on a `tx` that every caller takes from tenantTransaction, inside a lane."],

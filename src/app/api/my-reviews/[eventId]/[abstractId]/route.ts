@@ -1,3 +1,4 @@
+import { readReviewScoreScale } from "@/lib/abstract-score";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -133,6 +134,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
         canSubmit: (REVIEWABLE_ABSTRACT_STATUSES as readonly string[]).includes(abstract.status),
         formats: recommendableFormats(event.settings),
         criteria,
+        // What each criterion is scored out of on this event (abstract-score.ts).
+        scoreScale: readReviewScoreScale(event.settings),
         submission: submission
           ? { ...submission, stale: submission.updatedAt.getTime() < abstract.submittedAt.getTime() }
           : null,

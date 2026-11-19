@@ -82,6 +82,7 @@ import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers
 import { Checkbox } from "@/components/ui/checkbox";
 import { AbstractReviewerToolbar, ALL_THEMES, NO_THEME } from "@/components/abstracts/abstract-reviewer-toolbar";
 import { BulkReviewersDialog, type BulkReviewerMode } from "@/components/abstracts/bulk-reviewers-dialog";
+import { BulkStatusDialog } from "@/components/abstracts/bulk-status-dialog";
 import { ReviewerSheetDialog } from "@/components/abstracts/reviewer-sheet-dialog";
 import { SelectAbstractsByIdsDialog } from "@/components/abstracts/select-abstracts-by-ids-dialog";
 
@@ -294,6 +295,7 @@ export default function AbstractsPage() {
     setBulkMode(mode);
     setBulkOpen(true);
   };
+  const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [selectByIdsOpen, setSelectByIdsOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -1186,8 +1188,20 @@ export default function AbstractsPage() {
               onPasteSheet={() => setSheetOpen(true)}
               onAssign={() => openBulk("assign")}
               onRemove={() => openBulk("remove")}
+              onSetStatus={canManage ? () => setBulkStatusOpen(true) : undefined}
               onClear={() => setSelectedIds(new Set())}
             />
+            {canManage && (
+              <BulkStatusDialog
+                eventId={eventId}
+                eventSettings={event?.settings}
+                abstracts={selectedAbstracts}
+                open={bulkStatusOpen}
+                onOpenChange={setBulkStatusOpen}
+                // What was skipped or not reached stays ticked, to act on next.
+                onFinished={(stillTicked) => setSelectedIds(new Set(stillTicked))}
+              />
+            )}
             <BulkReviewersDialog
               eventId={eventId}
               mode={bulkMode}

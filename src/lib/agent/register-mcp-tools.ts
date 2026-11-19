@@ -11,6 +11,7 @@ import { MCP_PLACEHOLDER_USER_ID } from "@/lib/agent/mcp-placeholder-user";
 import { registerCrmMcpTools, type CrmMcpActor } from "@/crm/agent-tools"; // permitted core-side touch point (ESLint exemption)
 import { registerProcurementMcpTools } from "@/procurement/agent-tools"; // permitted core-side touch point (ESLint exemption)
 import { z } from "zod";
+import { MAX_REVIEW_SCORE_SCALE } from "@/lib/abstract-score";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -450,9 +451,9 @@ export function registerAllMcpTools(
     { name: "unassign_reviewer_from_abstract", description: "Remove a reviewer's per-abstract assignment. Any submission the reviewer already made is preserved (abstractReviewerId is set null).", params: {
       abstractId: z.string(), userId: z.string(),
     }},
-    { name: "submit_abstract_review", description: "Create or update the current reviewer's submission (upserts on abstractId+reviewerUserId). criteriaScores is a map of {criterionId: 0-10}; overallScore 0-100 auto-computed from weighted criteria if omitted. Requires an authenticated user session — NOT available via API-key MCP (returns MCP_API_KEY_NOT_SUPPORTED). Use the /my-reviews portal, the in-app AI agent, or OAuth MCP with a per-user grant.", params: {
+    { name: "submit_abstract_review", description: "Create or update the current reviewer's submission (upserts on abstractId+reviewerUserId). criteriaScores is a map of {criterionId: score}, each score from 0 to the event's scoring scale (list_review_criteria returns scoreScale: 5, 10 or 100); overallScore 0-100 auto-computed from weighted criteria if omitted. Requires an authenticated user session — NOT available via API-key MCP (returns MCP_API_KEY_NOT_SUPPORTED). Use the /my-reviews portal, the in-app AI agent, or OAuth MCP with a per-user grant.", params: {
       abstractId: z.string(),
-      criteriaScores: z.record(z.string(), z.number().int().min(0).max(10)).optional(),
+      criteriaScores: z.record(z.string(), z.number().int().min(0).max(MAX_REVIEW_SCORE_SCALE)).optional().describe("Each criterion's score: a whole number from 0 to the event's scoring scale (5, 10 or 100; list_review_criteria returns it as scoreScale)"),
       overallScore: z.number().int().min(0).max(100).optional(),
       reviewNotes: z.string().optional(),
       recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
@@ -461,7 +462,7 @@ export function registerAllMcpTools(
     { name: "admin_submit_review_on_behalf", description: "Org-admin: record a review on behalf of a specific human reviewer. Takes explicit reviewerUserId (the person whose scores these are). Available via API-key MCP because the attribution is explicit in the payload. Upserts on (abstractId, reviewerUserId) — same underlying row as submit_abstract_review. Audit trail flags the submission as source=mcp-on-behalf-of with actorUserId so 'X recorded by admin on behalf of Y' is traceable. The target reviewer must already be assigned to this abstract (assign_reviewer_to_abstract); being on the event's reviewer pool is not enough.", params: {
       abstractId: z.string(),
       reviewerUserId: z.string().describe("The User.id of the reviewer whose review you are recording"),
-      criteriaScores: z.record(z.string(), z.number().int().min(0).max(10)).optional(),
+      criteriaScores: z.record(z.string(), z.number().int().min(0).max(MAX_REVIEW_SCORE_SCALE)).optional().describe("Each criterion's score: a whole number from 0 to the event's scoring scale (5, 10 or 100; list_review_criteria returns it as scoreScale)"),
       overallScore: z.number().int().min(0).max(100).optional(),
       reviewNotes: z.string().optional(),
       recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),

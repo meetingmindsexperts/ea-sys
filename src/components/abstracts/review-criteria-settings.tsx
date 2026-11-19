@@ -12,7 +12,10 @@ import {
   useCreateReviewCriterion,
   useUpdateReviewCriterion,
   useDeleteReviewCriterion,
+  useReviewScoreScale,
+  useSetReviewScoreScale,
 } from "@/hooks/use-api";
+import { REVIEW_SCORE_SCALES, DEFAULT_REVIEW_SCORE_SCALE, type ReviewScoreScale } from "@/lib/abstract-score";
 
 interface ReviewCriteriaSettingsProps {
   eventId: string;
@@ -36,6 +39,23 @@ export function ReviewCriteriaSettings({ eventId }: ReviewCriteriaSettingsProps)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [editingWeight, setEditingWeight] = useState("");
+
+  // What each criterion is scored out of (abstract-score.ts). Fixed by the
+  // server once the first review is in; the card says so instead of offering it.
+  const scaleQuery = useReviewScoreScale(eventId);
+  const setScale = useSetReviewScoreScale(eventId);
+  const scale = scaleQuery.data?.scale ?? DEFAULT_REVIEW_SCORE_SCALE;
+  const scaleLocked = scaleQuery.data?.locked ?? false;
+
+  async function handleScale(next: ReviewScoreScale) {
+    if (next === scale) return;
+    try {
+      await setScale.mutateAsync(next);
+      toast.success(`Reviewers now score each criterion from 0 to ${next}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save the scoring scale");
+    }
+  }
 
   const totalWeight = (criteria as Criterion[]).reduce((s, c) => s + c.weight, 0);
   const isBalanced = totalWeight === 100;
@@ -88,6 +108,38 @@ export function ReviewCriteriaSettings({ eventId }: ReviewCriteriaSettingsProps)
         Define weighted scoring criteria for abstract reviews. Weights should sum to 100%.
         Reviewers will score each criterion separately and a weighted average will be computed automatically.
       </p>
+
+      {/* Scoring scale */}
+      <div className="space-y-2 rounded-lg border p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">Scoring scale</p>
+            <p className="text-xs text-muted-foreground">What a reviewer scores each criterion out of.</p>
+          </div>
+          <div className="flex gap-1 rounded-lg border p-0.5" role="radiogroup" aria-label="Scoring scale">
+            {REVIEW_SCORE_SCALES.map((option) => (
+              <Button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={scale === option}
+                variant={scale === option ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-3 text-xs"
+                disabled={scaleQuery.isLoading || setScale.isPending || (scaleLocked && scale !== option)}
+                onClick={() => handleScale(option)}
+              >
+                0 to {option}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {scaleLocked
+            ? `Fixed at 0 to ${scale}: ${scaleQuery.data?.reviewCount ?? 0} review${scaleQuery.data?.reviewCount === 1 ? " has" : "s have"} been submitted on it.`
+            : "The overall score is still a weighted figure out of 100, whatever the scale. Choose before reviewing starts: the scale is fixed once the first review is submitted."}
+        </p>
+      </div>
 
       {/* Weight total indicator */}
       {(criteria as Criterion[]).length > 0 && (

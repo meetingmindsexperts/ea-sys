@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { can } from "@/lib/permissions/can";
 import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { z } from "zod";
+import { MAX_REVIEW_SCORE_SCALE } from "@/lib/abstract-score";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { findGatedEvent, resolveEventTenant } from "@/lib/tenant/event-tenant";
@@ -33,9 +34,11 @@ interface RouteParams {
   params: Promise<{ eventId: string; abstractId: string }>;
 }
 
+// The event's own scale (5, 10 or 100) is checked by the service, which has
+// the event; the schema only bounds the number by the largest scale there is.
 const criterionScoreSchema = z.object({
   criterionId: z.string(),
-  score: z.number().int().min(0).max(10),
+  score: z.number().int().min(0).max(MAX_REVIEW_SCORE_SCALE),
 });
 
 const submissionSchema = z.object({

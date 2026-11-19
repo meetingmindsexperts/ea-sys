@@ -8,7 +8,7 @@
  *
  * Presentational: the page owns the selection and the filters.
  */
-import { ClipboardPaste, ListChecks, UserMinus, UserPlus, X } from "lucide-react";
+import { ClipboardPaste, ListChecks, Tags, UserMinus, UserPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -41,6 +41,8 @@ export interface AbstractReviewerToolbarProps {
   onPasteSheet: () => void;
   onAssign: () => void;
   onRemove: () => void;
+  /** Set a status or a presentation type on the ticked abstracts. Absent for someone who may not edit abstracts. */
+  onSetStatus?: () => void;
   onClear: () => void;
 }
 
@@ -124,6 +126,12 @@ export function AbstractReviewerToolbar(props: AbstractReviewerToolbarProps) {
             <UserMinus className="mr-2 h-4 w-4" />
             Remove reviewer
           </Button>
+          {props.onSetStatus && (
+            <Button size="sm" variant="outline" onClick={props.onSetStatus}>
+              <Tags className="mr-2 h-4 w-4" />
+              Set status or type
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={props.onClear}>
             <X className="mr-1 h-4 w-4" />
             Clear

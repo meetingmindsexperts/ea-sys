@@ -112,10 +112,11 @@ function ReviewForm({ review, eventId, abstractId }: { review: OpenReview; event
       <div className="space-y-2">
         <h2 className="text-sm font-semibold">Your score</h2>
         {usesCriteria && (
-          <p className="text-xs text-muted-foreground">Score each criterion from 0 to 10.</p>
+          <p className="text-xs text-muted-foreground">Score each criterion from 0 to {review.scoreScale}.</p>
         )}
         <CriteriaScoreEditor
           criteria={criteria}
+          scale={review.scoreScale}
           value={criteriaScores}
           onChange={setCriteriaScores}
           plainScore={overallScore}

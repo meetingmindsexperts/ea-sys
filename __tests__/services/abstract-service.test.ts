@@ -126,6 +126,35 @@ describe("changeAbstractStatus — happy path", () => {
     }
   });
 
+  // Nov 19, 2026: the bulk change applies decisions without emailing, and
+  // writes "accepted as Poster" in one claim.
+  it("notify: false changes the status and emails nobody; the audit row says the email was not sent", async () => {
+    const result = await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED", notify: false });
+    expect(result).toMatchObject({ ok: true, notificationStatus: "skipped" });
+    expect(mockNotifyAbstract).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ authorEmail: "not sent" });
+  });
+
+  it("with no notify given, the author is emailed as always and the audit row carries no such note", async () => {
+    await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED" });
+    expect(mockNotifyAbstract).toHaveBeenCalledTimes(1);
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).not.toHaveProperty("authorEmail");
+  });
+
+  it("a presentation type is written in the same claim as the status", async () => {
+    await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED", presentationType: "POSTER" });
+    expect(mockTxUpdateMany.mock.calls[0][0]).toMatchObject({
+      where: { id: "abs-1", status: "SUBMITTED" },
+      data: { status: "ACCEPTED", presentationType: "POSTER" },
+    });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes.after).toEqual({ status: "ACCEPTED", presentationType: "POSTER" });
+  });
+
+  it("without one, the claim never names the type", async () => {
+    await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED" });
+    expect(mockTxUpdateMany.mock.calls[0][0].data).not.toHaveProperty("presentationType");
+  });
+
   it("sets reviewedAt when transitioning into a review status", async () => {
     await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED" });
     const updateCall = mockTxUpdateMany.mock.calls[0][0];

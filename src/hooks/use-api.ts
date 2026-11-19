@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
+import type { ReviewScoreScale } from "@/lib/abstract-score";
 import { useIsMutating, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
@@ -388,6 +389,8 @@ export type MyReview =
       /** What this event lets a reviewer recommend (recommended-formats.ts). */
       formats: RecommendedFormat[];
       criteria: MyReviewCriterion[];
+      /** What each criterion is scored out of on this event: 5, 10 or 100 (abstract-score.ts). */
+      scoreScale: ReviewScoreScale;
       submission: {
         overallScore: number | null;
         criteriaScores: Record<string, number> | null;
@@ -1015,6 +1018,89 @@ export function useBulkAssignAbstractReviewers(eventId: string) {
         body: JSON.stringify({ groups }),
       }),
     onSuccess: () => invalidateAfterBulkReviewers(queryClient, eventId),
+  });
+}
+
+// ── Bulk status and presentation type ──────────────────────────────────────
+
+export interface BulkAbstractUpdateInput {
+  abstractIds: string[];
+  status?: "UNDER_REVIEW" | "ACCEPTED" | "REJECTED" | "REVISION_REQUESTED" | "WITHDRAWN";
+  presentationType?: string;
+  notifyAuthors?: boolean;
+  forceStatus?: boolean;
+}
+
+export interface BulkAbstractUpdateSkip {
+  abstractId: string;
+  code: string;
+  message: string;
+}
+
+/** One request's answer from abstracts/bulk-update. */
+interface BulkAbstractUpdateRound {
+  changed: string[];
+  unchanged: string[];
+  skipped: BulkAbstractUpdateSkip[];
+  remaining: string[];
+  emailed: number;
+  emailFailed: number;
+}
+
+/** What one press came to, over all its requests. */
+export interface BulkAbstractUpdateOutcome extends BulkAbstractUpdateRound {
+  /** A later request failed: what was done is counted, `remaining` was not reached. */
+  interrupted: string | null;
+}
+
+/** Far more than 500 abstracts need; a guard against a loop that never ends. */
+const MAX_BULK_UPDATE_ROUNDS = 60;
+
+/**
+ * The server works for about 25 seconds per request and answers the ids it
+ * did not reach, so a long change (authors emailed) is several requests
+ * behind one press.
+ */
+async function bulkUpdateAbstractsInRounds(eventId: string, input: BulkAbstractUpdateInput): Promise<BulkAbstractUpdateOutcome> {
+  const total: BulkAbstractUpdateOutcome = { changed: [], unchanged: [], skipped: [], remaining: input.abstractIds, emailed: 0, emailFailed: 0, interrupted: null };
+  for (let round = 0; round < MAX_BULK_UPDATE_ROUNDS && total.remaining.length > 0; round++) {
+    let page: BulkAbstractUpdateRound;
+    try {
+      page = await fetchApi<BulkAbstractUpdateRound>(`/api/events/${eventId}/abstracts/bulk-update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...input, abstractIds: total.remaining }),
+      });
+    } catch (err) {
+      // Nothing was done at all: let the caller show the error.
+      if (round === 0) throw err;
+      total.interrupted = err instanceof Error ? err.message : "The change stopped";
+      return total;
+    }
+    total.changed.push(...page.changed);
+    total.unchanged.push(...page.unchanged);
+    total.skipped.push(...page.skipped);
+    total.emailed += page.emailed;
+    total.emailFailed += page.emailFailed;
+    // A request that reached nothing would loop for ever: stop and say so.
+    if (page.remaining.length >= total.remaining.length) {
+      total.interrupted = "The change made no progress";
+      return total;
+    }
+    total.remaining = page.remaining;
+  }
+  if (total.remaining.length > 0) total.interrupted = "The change is taking unusually long";
+  return total;
+}
+
+export function useBulkUpdateAbstracts(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: BulkAbstractUpdateInput) => bulkUpdateAbstractsInRounds(eventId, input),
+    // Settled: a change that stopped part-way still changed rows.
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+    },
   });
 }
 
@@ -2352,6 +2438,41 @@ export function useDeleteSessionProposalTheme(eventId: string) {
 
 export function useReviewCriteria(eventId: string) {
   return useEventListQuery<any[]>(eventId, queryKeys.reviewCriteria(eventId), "review-criteria");
+}
+
+/** The event's criterion scoring scale, and whether a submitted review has fixed it. */
+export interface ReviewScoreScaleState {
+  scale: ReviewScoreScale;
+  /** True once the first review is in: the scale can no longer be changed. */
+  locked: boolean;
+  reviewCount: number;
+}
+
+const reviewScoreScaleKey = (eventId: string) => [...queryKeys.reviewCriteria(eventId), "scale"] as const;
+
+export function useReviewScoreScale(eventId: string) {
+  return useQuery({
+    queryKey: reviewScoreScaleKey(eventId),
+    queryFn: () => fetchApi<ReviewScoreScaleState>(`/api/events/${eventId}/review-criteria/scale`),
+    enabled: !!eventId,
+  });
+}
+
+export function useSetReviewScoreScale(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (scale: ReviewScoreScale) =>
+      fetchApi<ReviewScoreScaleState>(`/api/events/${eventId}/review-criteria/scale`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scale }),
+      }),
+    // Settled, not only on success: a refusal means the server knows something
+    // this screen did not (a review came in), and the card should show it.
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: reviewScoreScaleKey(eventId) });
+    },
+  });
 }
 
 export function useCreateReviewCriterion(eventId: string) {

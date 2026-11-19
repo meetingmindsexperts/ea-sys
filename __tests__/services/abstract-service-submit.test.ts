@@ -222,6 +222,44 @@ describe("drift unification — REST semantics win", () => {
     expect(update.reviewNotes).toBeNull(); // clear
   });
 
+  // Nov 19, 2026: the organiser chooses what a criterion is scored out of.
+  describe("the event's scoring scale", () => {
+    const submit = (scores: [number, number]) =>
+      submitAbstractReview({
+        ...base, reviewerUserId: "pool-rev", actor: { userId: "pool-rev" },
+        criteriaScores: [{ criterionId: "c1", score: scores[0] }, { criterionId: "c2", score: scores[1] }],
+      });
+    const withScale = (reviewScoreScale: unknown) => mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, reviewScoreScale } });
+    const storedOverall = () => mockDb.abstractReviewSubmission.upsert.mock.calls[0][0].create.overallScore;
+
+    it("an event that never chose scores out of 10: 11 is refused", async () => {
+      expect(await submit([11, 5])).toMatchObject({ ok: false, code: "INVALID_CRITERION_SCORE", message: expect.stringContaining("from 0 to 10") });
+      expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+    });
+
+    it("on a 0 to 5 scale, 6 is refused and a full 5 is a perfect 100", async () => {
+      withScale(5);
+      expect(await submit([6, 5])).toMatchObject({ ok: false, code: "INVALID_CRITERION_SCORE", message: expect.stringContaining("from 0 to 5") });
+      expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+
+      expect((await submit([5, 5])).ok).toBe(true);
+      expect(storedOverall()).toBe(100);
+    });
+
+    it("on a 0 to 100 scale, 80 and 60 are accepted and weigh as they would out of 10", async () => {
+      withScale(100);
+      expect((await submit([80, 60])).ok).toBe(true);
+      // 80 at weight 60 and 60 at weight 40: 72, the same as 8 and 6 out of 10.
+      expect(storedOverall()).toBe(72);
+      expect(mockDb.abstractReviewSubmission.upsert.mock.calls[0][0].create.criteriaScores).toEqual({ c1: 80, c2: 60 });
+    });
+
+    it("a scale that is not one of ours is read as 10", async () => {
+      withScale(7);
+      expect(await submit([11, 5])).toMatchObject({ ok: false, code: "INVALID_CRITERION_SCORE" });
+    });
+  });
+
   it("auto-computes the weighted overall from criteria when overallScore is omitted", async () => {
     await submitAbstractReview({
       ...base, ...self,

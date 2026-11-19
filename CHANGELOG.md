@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Abstract scoring scale, and status and type for many abstracts at once (November 19)
+
+**Scoring scale.** Each review criterion was scored out of 10, with no choice. In Settings, Abstracts, Review Criteria, the organiser now chooses 0 to 5, 0 to 10 or 0 to 100. The calculation is unchanged: the overall score is still a weighted figure out of 100, so the same judgement gives the same overall score on any scale. The scale can be changed until the first review is submitted on the event and is fixed after that, because the scores already given are on it. An event that never chooses stays on 0 to 10.
+
+**Set status or type.** On the Abstracts page, tick abstracts and press Set status or type: a status (Under review, Accepted, Rejected, Revision requested, Withdrawn), a presentation type the event offers, or both in one step. The rules are those of a single abstract. One that is short of the required reviews is skipped and named, unless "Decide even without the required reviews" is ticked. Withdrawn cannot be undone and asks for a confirmation. Authors are not emailed unless "Email the authors their decision now" is ticked, so a committee's decisions can be applied first and announced later from Communications. What was skipped stays ticked.
+
+For connected assistants: `list_review_criteria` now also returns `scoreScale`, and a criterion score may be up to that scale. Reconnect the connector to see the updated tool descriptions (package 0.4.68). No database change.
+
 ### Reviewer emails are previewed before they go, and three screens are easier to use (November 19)
 
 **Reviewer invitation.** Send invitation on a reviewer's row and Send invitation to all used to send the moment they were pressed. Both now open the email dialog on a new Reviewer Invitation type, with Preview beside Send. Previewing one reviewer shows their own copy: their name and title, and whether they get the link to set a password or only the portal button. The invitation is also in the dialog for ticked reviewers and on the Reviewers card of Communications, and it takes attachments, a CC and a BCC. It still cannot be scheduled, because a new reviewer's password link is made at the moment of sending. For the same reason a CC, a BCC or "Send me a copy" goes only with the emails of reviewers who can already sign in: a new reviewer's email carries the link that sets their password, and it is never copied to an address typed in the dialog. Attachments go to everyone.

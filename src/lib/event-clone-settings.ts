@@ -47,6 +47,8 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
   "abstractPresentationTypes",
   "abstractLimits",
   "requiredReviewCount",
+  // The criterion scoring scale (abstract-score.ts): the clone has no reviews, so it is free to change there.
+  "reviewScoreScale",
   "abstractDeadline",
   "sessionProposalDeadline",
   // Publish flags — preserved (clone.test.ts pins this; gated by event.status

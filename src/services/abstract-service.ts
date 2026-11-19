@@ -33,6 +33,9 @@ import {
   consolidateReviewNotes,
   readRequiredReviewCount,
 } from "@/lib/abstract-review";
+import { readReviewScoreScale } from "@/lib/abstract-score";
+import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
+import type { PresentationType } from "@prisma/client";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOwnAbstract, mustConfirmEmailToReview, reviewerPoolIds } from "@/lib/abstract-reviewer-access";
 import { recommendableFormats, type RecommendedFormatValue } from "@/lib/recommended-formats";
@@ -65,6 +68,19 @@ export interface ChangeAbstractStatusInput {
    * only records it in the audit trail.
    */
   forceStatus?: boolean;
+  /**
+   * False changes the status without emailing the author (the bulk change's
+   * default, Nov 19, 2026: a committee's decisions are applied first and
+   * announced later, with the organiser's own wording). Omitted, the author
+   * is emailed as always.
+   */
+  notify?: boolean;
+  /**
+   * A presentation type written WITH the status, in the same claim: "accepted
+   * as Oral" is one decision, and the email that follows reads the type back
+   * from the row. The caller has checked the event offers it.
+   */
+  presentationType?: PresentationType;
   source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 }
@@ -193,7 +209,11 @@ export async function changeAbstractStatus(
       }
       const claim = await tx.abstract.updateMany({
         where: { id: abstractId, status: previousStatus },
-        data: { status: newStatus, ...(isReview && { reviewedAt: new Date() }) },
+        data: {
+          status: newStatus,
+          ...(isReview && { reviewedAt: new Date() }),
+          ...(input.presentationType && { presentationType: input.presentationType }),
+        },
       });
       if (claim.count === 0) return { kind: "lost-race" };
       return { kind: "ok", scoredCount, aggregates };
@@ -251,8 +271,9 @@ export async function changeAbstractStatus(
         entityId: abstract.id,
         changes: {
           before: { status: previousStatus },
-          after: { status: newStatus },
+          after: { status: newStatus, ...(input.presentationType && { presentationType: input.presentationType }) },
           source: forceStatus ? "chair-override" : source,
+          ...(input.notify === false && { authorEmail: "not sent" }),
           reviewCount: aggregateResult?.aggregates.count ?? null,
           meanOverall: aggregateResult?.aggregates.meanOverall ?? null,
           ...(requestIp ? { ip: requestIp } : {}),
@@ -271,7 +292,7 @@ export async function changeAbstractStatus(
   //   - No-op transitions (e.g. ACCEPTED → ACCEPTED) are also skipped.
   // Notification failures don't mask DB success — we surface
   // notificationStatus so callers can follow up if the email dropped.
-  const shouldNotify = isReview && newStatus !== previousStatus;
+  const shouldNotify = input.notify !== false && isReview && newStatus !== previousStatus;
   let notificationStatus: "sent" | "failed" | "skipped" = "skipped";
   let notificationError: string | undefined;
   if (shouldNotify) {
@@ -319,6 +340,215 @@ export async function changeAbstractStatus(
   };
 }
 
+// ── bulkUpdateAbstracts ──────────────────────────────────────────────────────
+//
+// A status, a presentation type, or both, on many abstracts at once (Nov 19,
+// 2026): what a committee decides in one meeting ("these forty are accepted as
+// posters"), applied from the ticked rows of the Abstracts page.
+//
+// It adds NO rule of its own. Each status change is changeAbstractStatus, one
+// abstract at a time: the same review-count gate, the same override, the same
+// claim against a concurrent change, the same audit row and (when asked for)
+// the same email. An abstract it refuses is skipped with its reason and the
+// rest go on. **Never write a second status rule here.**
+//
+// Authors are NOT emailed unless `notifyAuthors` is true (owner): decisions
+// are applied first and announced with the organiser's own templates.
+//
+// One call works for `budgetMs` and returns the ids it did not reach in
+// `remaining`; the caller sends those again. With emails on, a hundred
+// decisions outlast the gateway's 60 seconds.
+
+/** The most abstracts one request may name. */
+export const MAX_BULK_ABSTRACT_UPDATES = 500;
+const BULK_UPDATE_BUDGET_MS = 25_000;
+
+export interface BulkUpdateAbstractsInput {
+  eventId: string;
+  organizationId: string;
+  userId: string;
+  abstractIds: string[];
+  status?: AbstractTransitionStatus;
+  presentationType?: PresentationType;
+  notifyAuthors?: boolean;
+  forceStatus?: boolean;
+  source: "rest" | "mcp" | "agent" | "api";
+  requestIp?: string;
+  budgetMs?: number;
+}
+
+export type BulkAbstractSkipCode =
+  | "NOT_FOUND"
+  | "NOT_SUBMITTED"
+  | ChangeAbstractStatusErrorCode;
+
+export interface BulkAbstractSkip {
+  abstractId: string;
+  code: BulkAbstractSkipCode;
+  message: string;
+}
+
+export type BulkUpdateAbstractsErrorCode = "EVENT_NOT_FOUND" | "NOTHING_TO_CHANGE" | "TYPE_NOT_OFFERED" | "TOO_MANY" | "UNKNOWN";
+
+export type BulkUpdateAbstractsResult =
+  | {
+      ok: true;
+      /** Abstracts whose status, type or both were changed. */
+      changed: string[];
+      /** Already as asked: nothing was written. */
+      unchanged: string[];
+      skipped: BulkAbstractSkip[];
+      /** Not reached within the time allowed: send these again. */
+      remaining: string[];
+      emailed: number;
+      emailFailed: number;
+    }
+  | { ok: false; code: BulkUpdateAbstractsErrorCode; message: string };
+
+type BulkAbstractRow = { id: string; status: string; presentationType: PresentationType | null };
+type BulkOneOutcome = { kind: "changed"; email: "sent" | "failed" | "skipped" } | { kind: "unchanged" } | { kind: "skipped"; skip: BulkAbstractSkip };
+
+/** One abstract of a bulk change. Status goes through changeAbstractStatus; a type alone is a plain write. */
+async function bulkUpdateOne(input: BulkUpdateAbstractsInput, row: BulkAbstractRow): Promise<BulkOneOutcome> {
+  const { eventId, organizationId, userId, status, presentationType, source, requestIp } = input;
+  const wantsStatus = status !== undefined && row.status !== status;
+  const wantsType = presentationType !== undefined && row.presentationType !== presentationType;
+  if (!wantsStatus && !wantsType) return { kind: "unchanged" };
+
+  if (wantsStatus && status) {
+    // The author has not submitted it: there is nothing yet to decide.
+    if (row.status === "DRAFT") {
+      return { kind: "skipped", skip: { abstractId: row.id, code: "NOT_SUBMITTED", message: "Still a draft: the author has not submitted it." } };
+    }
+    const result = await changeAbstractStatus({
+      eventId,
+      organizationId,
+      userId,
+      abstractId: row.id,
+      newStatus: status,
+      forceStatus: input.forceStatus === true,
+      notify: input.notifyAuthors === true,
+      ...(wantsType && { presentationType }),
+      source,
+      requestIp,
+    });
+    if (!result.ok) return { kind: "skipped", skip: { abstractId: row.id, code: result.code, message: result.message } };
+    return { kind: "changed", email: result.notificationStatus };
+  }
+
+  // The type alone. Scoped to the event again, so an id is never written across events.
+  const written = await db.abstract.updateMany({ where: { id: row.id, eventId }, data: { presentationType } });
+  if (written.count === 0) {
+    return { kind: "skipped", skip: { abstractId: row.id, code: "NOT_FOUND", message: "This abstract is no longer on the event." } };
+  }
+  db.auditLog
+    .create({
+      data: {
+        eventId,
+        userId,
+        action: "UPDATE",
+        entityType: "Abstract",
+        entityId: row.id,
+        changes: {
+          before: { presentationType: row.presentationType },
+          after: { presentationType },
+          source,
+          bulk: true,
+          ...(requestIp ? { ip: requestIp } : {}),
+        },
+      },
+    })
+    .catch((err) => apiLogger.error({ err, abstractId: row.id }, "abstract-bulk-update:audit-log-failed"));
+  return { kind: "changed", email: "skipped" };
+}
+
+export async function bulkUpdateAbstracts(input: BulkUpdateAbstractsInput): Promise<BulkUpdateAbstractsResult> {
+  const { eventId, organizationId, status, presentationType, source } = input;
+  const refuse = (code: BulkUpdateAbstractsErrorCode, message: string): BulkUpdateAbstractsResult => {
+    apiLogger.warn({ msg: "abstract-bulk-update:rejected", code, eventId, source });
+    return { ok: false, code, message };
+  };
+  try {
+    const ids = [...new Set(input.abstractIds)];
+    if (ids.length === 0 || (status === undefined && presentationType === undefined)) {
+      return refuse("NOTHING_TO_CHANGE", "Choose at least one abstract, and a status or a type to set.");
+    }
+    if (ids.length > MAX_BULK_ABSTRACT_UPDATES) {
+      return refuse("TOO_MANY", `At most ${MAX_BULK_ABSTRACT_UPDATES} abstracts at a time.`);
+    }
+    if (status !== undefined && !ABSTRACT_TRANSITION_STATUSES.includes(status)) {
+      return refuse("NOTHING_TO_CHANGE", `Status must be one of: ${ABSTRACT_TRANSITION_STATUSES.join(", ")}`);
+    }
+
+    const event = await db.event.findFirst({ where: { id: eventId, organizationId }, select: { id: true, settings: true } });
+    if (!event) return refuse("EVENT_NOT_FOUND", "Event not found");
+    if (presentationType !== undefined && !isPresentationTypeEnabled(event.settings, presentationType)) {
+      return refuse("TYPE_NOT_OFFERED", `This event does not offer ${presentationType} presentations. Offered: ${readEnabledPresentationTypes(event.settings).join(", ")}.`);
+    }
+
+    const rows = await db.abstract.findMany({
+      where: { id: { in: ids }, eventId },
+      select: { id: true, status: true, presentationType: true },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    const startedAt = Date.now();
+    const budgetMs = input.budgetMs ?? BULK_UPDATE_BUDGET_MS;
+    const changed: string[] = [];
+    const unchanged: string[] = [];
+    const skipped: BulkAbstractSkip[] = [];
+    let emailed = 0;
+    let emailFailed = 0;
+    let reached = 0;
+    // One at a time, in the order asked: each is its own claim and audit row,
+    // and the email provider has a send rate. The first is always attempted,
+    // so every request makes progress.
+    for (const id of ids) {
+      if (reached > 0 && Date.now() - startedAt >= budgetMs) break;
+      reached += 1;
+      const row = byId.get(id);
+      if (!row) {
+        skipped.push({ abstractId: id, code: "NOT_FOUND", message: "Not an abstract of this event." });
+        continue;
+      }
+      const outcome = await bulkUpdateOne(input, row);
+      if (outcome.kind === "unchanged") unchanged.push(id);
+      if (outcome.kind === "skipped") skipped.push(outcome.skip);
+      if (outcome.kind === "changed") {
+        changed.push(id);
+        if (outcome.email === "sent") emailed += 1;
+        if (outcome.email === "failed") emailFailed += 1;
+      }
+    }
+    const remaining = ids.slice(reached);
+
+    apiLogger.info({
+      msg: "abstract-bulk-update:done",
+      eventId,
+      source,
+      status: status ?? null,
+      presentationType: presentationType ?? null,
+      notifyAuthors: input.notifyAuthors === true,
+      forced: input.forceStatus === true,
+      changed: changed.length,
+      unchanged: unchanged.length,
+      skipped: skipped.length,
+      remaining: remaining.length,
+      emailed,
+      emailFailed,
+      durationMs: Date.now() - startedAt,
+    });
+    if (skipped.length > 0) {
+      apiLogger.warn({ msg: "abstract-bulk-update:some-skipped", eventId, source, skipped: skipped.map((s) => ({ abstractId: s.abstractId, code: s.code })) });
+    }
+    // A type alone moves no count; a status did, and changeAbstractStatus has refreshed it.
+    return { ok: true, changed, unchanged, skipped, remaining, emailed, emailFailed };
+  } catch (err) {
+    apiLogger.error({ err, eventId, source }, "abstract-bulk-update:failed");
+    return { ok: false, code: "UNKNOWN", message: "Failed to update the abstracts" };
+  }
+}
+
 // ── submitAbstractReview ─────────────────────────────────────────────────────
 //
 // Review H7 (July 13, 2026): the review-submission pipeline was implemented
@@ -333,7 +563,7 @@ export async function changeAbstractStatus(
 // event's organizationId, not per-caller).
 //
 // Unification decisions (REST semantics win):
-//  - scores are INTEGERS (overall 0-100, per-criterion 0-10, confidence 1-5);
+//  - scores are INTEGERS (overall 0-100, per-criterion 0 to the event's scale, confidence 1-5);
 //  - `reviewNotes: undefined` keeps the existing notes, `""` clears them;
 //  - a completely empty payload is rejected (EMPTY_REVIEW) on every path;
 //  - notes over 5000 chars are rejected (was: MCP silently truncated).
@@ -602,7 +832,9 @@ export async function submitAbstractReview(
       return { ok: false, code: "INVALID_REVIEW_NOTES", message: "reviewNotes must be at most 5000 characters" };
     }
 
-    // Criteria: every id must exist on this event, no duplicates, integer 0-10.
+    // Criteria: every id must exist on this event, no duplicates, a whole
+    // number on the event's own scale (abstract-score.ts: 5, 10 or 100).
+    const scoreScale = readReviewScoreScale(event.settings);
     let criteriaScoresJson: Record<string, number> | null = null;
     let computedOverall: number | null = null;
     if (criteriaScores && criteriaScores.length > 0) {
@@ -616,8 +848,9 @@ export async function submitAbstractReview(
         if (Object.prototype.hasOwnProperty.call(cleaned, criterionId)) {
           return { ok: false, code: "DUPLICATE_CRITERION_ID", message: `Duplicate criterion ID: ${criterionId}` };
         }
-        if (!Number.isInteger(score) || score < 0 || score > 10) {
-          return { ok: false, code: "INVALID_CRITERION_SCORE", message: `Score for criterion ${criterionId} must be an integer 0-10` };
+        if (!Number.isInteger(score) || score < 0 || score > scoreScale) {
+          apiLogger.warn({ msg: "abstract-submission:criterion-score-off-scale", eventId, abstractId, reviewerUserId, criterionId, score, scoreScale, source });
+          return { ok: false, code: "INVALID_CRITERION_SCORE", message: `Score for criterion ${criterionId} must be a whole number from 0 to ${scoreScale}` };
         }
         cleaned[criterionId] = score;
       }
@@ -632,6 +865,7 @@ export async function submitAbstractReview(
       if (overallInput === undefined) {
         computedOverall = computeWeightedOverallScore(
           Object.entries(cleaned).map(([id, score]) => ({ criterionId: id, score, weight: weightMap.get(id) ?? 0 })),
+          scoreScale,
         );
       }
     }
