@@ -25,6 +25,7 @@ import { useCan } from "@/hooks/use-can";
 import { SPEAKERS_TYPE_LABEL, isFacultyLookalikeName } from "@/lib/faculty-filter";
 import { speakerContactImportNotice, type SpeakerContactImportResult } from "@/lib/speaker-registration-messages";
 import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
+import { CONTACT_IMPORT_MAX, CONTACT_IMPORT_TOO_MANY } from "@/lib/contact-page-sizes";
 
 const PAGE_SIZE = 50;
 
@@ -70,7 +71,9 @@ export function ImportContactsDialog({
   const filters: Record<string, string> = { limit: String(PAGE_SIZE), page: String(page) };
   if (debouncedSearch) filters.search = debouncedSearch;
 
-  const { data, isLoading } = useContacts(filters);
+  // `isPlaceholderData`: the previous page is still on screen while the next
+  // one loads, so the pager and select-all wait for it (review of 387a3604).
+  const { data, isLoading, isPlaceholderData } = useContacts(filters);
   const { data: ticketsData } = useTickets(eventId);
   const importToSpeakers = useImportContactsToSpeakers(eventId);
   const importToRegistrations = useImportContactsToRegistrations(eventId);
@@ -126,6 +129,10 @@ export function ImportContactsDialog({
   };
 
   const toggleSelect = (id: string) => {
+    if (!selectedIds.has(id) && selectedIds.size >= CONTACT_IMPORT_MAX) {
+      toast.error(CONTACT_IMPORT_TOO_MANY);
+      return;
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) { next.delete(id); } else { next.add(id); }
@@ -136,6 +143,14 @@ export function ImportContactsDialog({
   // The page on screen only: picks made on other pages stay.
   const pageAllSelected = contacts.length > 0 && contacts.every((c) => selectedIds.has(c.id));
   const toggleSelectAll = () => {
+    if (isPlaceholderData) return;
+    if (!pageAllSelected) {
+      const adding = contacts.filter((c) => !selectedIds.has(c.id)).length;
+      if (selectedIds.size + adding > CONTACT_IMPORT_MAX) {
+        toast.error(CONTACT_IMPORT_TOO_MANY);
+        return;
+      }
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
       for (const c of contacts) {
@@ -328,6 +343,7 @@ export function ImportContactsDialog({
                     <input
                       type="checkbox"
                       checked={pageAllSelected}
+                      disabled={isPlaceholderData}
                       aria-label="Select every contact on this page"
                       onChange={toggleSelectAll}
                       className="cursor-pointer"
@@ -396,11 +412,11 @@ export function ImportContactsDialog({
                 {debouncedSearch ? "" : " · search by name to narrow"}
               </span>
               <div className="flex gap-1">
-                <Button variant="outline" size="sm" className="h-7" disabled={page <= 1 || isLoading} onClick={() => setPage((p) => p - 1)}>
+                <Button variant="outline" size="sm" className="h-7" disabled={page <= 1 || isLoading || isPlaceholderData} onClick={() => setPage((p) => p - 1)}>
                   <ChevronLeft className="h-4 w-4" />
                   <span className="sr-only">Previous page</span>
                 </Button>
-                <Button variant="outline" size="sm" className="h-7" disabled={page >= totalPages || isLoading} onClick={() => setPage((p) => p + 1)}>
+                <Button variant="outline" size="sm" className="h-7" disabled={page >= totalPages || isLoading || isPlaceholderData} onClick={() => setPage((p) => p + 1)}>
                   <ChevronRight className="h-4 w-4" />
                   <span className="sr-only">Next page</span>
                 </Button>

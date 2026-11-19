@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { CONTACT_IMPORT_MAX, CONTACT_IMPORT_TOO_MANY } from "@/lib/contact-page-sizes";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
@@ -12,7 +13,7 @@ import { importSpeakersFromContacts } from "@/services/speaker-service";
 type RouteParams = { params: Promise<{ eventId: string }> };
 
 const importSchema = z.object({
-  contactIds: z.array(z.string()).min(1),
+  contactIds: z.array(z.string()).min(1).max(CONTACT_IMPORT_MAX),
 });
 
 /**
@@ -39,7 +40,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       const validated = importSchema.safeParse(body);
       if (!validated.success) {
         apiLogger.warn({ msg: "events/speakers/import-contacts:zod-validation-failed", errors: validated.error.flatten() });
-        return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+        // Too many picked says so (Nov 19, 2026), rather than "Invalid input".
+        const tooMany = validated.error.issues.some((i) => i.path[0] === "contactIds" && i.code === "too_big");
+        return NextResponse.json(tooMany ? { error: CONTACT_IMPORT_TOO_MANY, code: "TOO_MANY_CONTACTS" } : { error: "Invalid input" }, { status: 400 });
       }
 
       // The grant's own event filter (an assigned-events role sees fewer).

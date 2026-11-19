@@ -43,4 +43,11 @@ describe("reimbursement document", () => {
     expect(value).toContain("filename*=UTF-8''");
     expect(value).not.toMatch(/filename="[^"]*"[^;]*"/);
   });
+
+  it("cuts a long name by character, so an emoji at the cut does not fail the download", async () => {
+    mockFindDoc.mockResolvedValue({ url: "/uploads/reimbursements/2026/11/c.pdf", filename: `${"a".repeat(119)}😀 receipt.pdf`, mimeType: "application/pdf" });
+    const res = await call("?download=1");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Disposition")).toContain("%F0%9F%98%80");
+  });
 });

@@ -25,3 +25,15 @@ export const CONTACTS_MAX_PAGE_SIZE: number = Math.max(...CONTACT_PAGE_SIZES);
  * larger page size fails until this is raised on purpose.
  */
 export const CONTACT_BULK_TAG_MAX: number = 1000;
+
+/**
+ * The most contacts one Import from Contacts takes, as registrations or as
+ * speakers (Nov 19, 2026). A SAFETY bound: the registrations import creates
+ * each person one at a time inside one transaction with Prisma's 5 second
+ * default, and since the dialog keeps picks across pages an organiser could
+ * pick hundreds and get an unexplained failure with nothing imported. The
+ * dialog refuses a pick past it, and both routes answer a clear 400.
+ */
+export const CONTACT_IMPORT_MAX = 200;
+
+export const CONTACT_IMPORT_TOO_MANY = `At most ${CONTACT_IMPORT_MAX} contacts in one import. Import them in batches.`;

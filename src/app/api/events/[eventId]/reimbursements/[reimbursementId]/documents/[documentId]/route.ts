@@ -84,12 +84,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     const contentType = CONTENT_TYPES[ext] ?? doc.mimeType ?? "application/octet-stream";
     // Inline so PDFs and images preview in the browser, or an attachment for
     // the download button (?download=1, Nov 19, 2026). contentDisposition
-    // makes the name header-safe and keeps a non-English name in filename*.
+    // makes the name header-safe and keeps a non-English name in filename*;
+    // cut by character, not UTF-16 unit, or half an emoji throws URIError.
     const disposition = new URL(req.url).searchParams.get("download") === "1" ? "attachment" : "inline";
     return new NextResponse(new Uint8Array(file), {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": contentDisposition(doc.filename.slice(0, 120) || "document", disposition),
+        "Content-Disposition": contentDisposition(Array.from(doc.filename).slice(0, 120).join("") || "document", disposition),
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'none'; script-src 'none'",

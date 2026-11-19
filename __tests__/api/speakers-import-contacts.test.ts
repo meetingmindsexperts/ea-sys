@@ -137,6 +137,15 @@ describe("POST speakers/import-contacts", () => {
     expect(mockDb.speaker.createMany.mock.calls[0][0].data).toHaveLength(1);
   });
 
+  // Nov 19, 2026: the dialog keeps picks across pages, so a pick of hundreds
+  // is easy; past the cap the answer says so instead of "Invalid input".
+  it("refuses more than the import cap with a clear message", async () => {
+    const res = await POST(req({ contactIds: Array.from({ length: 201 }, (_, i) => `c${i}`) }), { params });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "TOO_MANY_CONTACTS", error: expect.stringContaining("200") });
+    expect(mockDb.speaker.createMany).not.toHaveBeenCalled();
+  });
+
   it("reads contacts from the caller's organisation only", async () => {
     await POST(req({ contactIds: ["c1"] }), { params });
     expect(mockDb.contact.findMany.mock.calls[0][0].where).toEqual({ id: { in: ["c1"] }, organizationId: "org1" });
