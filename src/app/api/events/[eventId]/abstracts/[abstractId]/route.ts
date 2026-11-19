@@ -499,7 +499,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // The type is the author's request only while it is their draft or their own
     // edit; otherwise it is the organiser's decision and the request is kept.
-    const typeWrite = editTypeWrite(data.presentationType, existingAbstract, session.user.id);
+    const typeWrite = editTypeWrite(data.presentationType, existingAbstract);
+    const typeChanged = "presentationType" in typeWrite;
 
     // Review + terminal transitions go through the service so the gate
     // check, audit log, notification, and stats refresh are identical to
@@ -660,8 +661,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
         entityType: "Abstract",
         entityId: abstract.id,
         changes: {
-          before: { status: existingAbstract.status, ...(data.presentationType !== undefined && { presentationType: existingAbstract.presentationType }) },
-          after: { status: abstract.status, ...(data.presentationType !== undefined && { presentationType: abstract.presentationType }) },
+          before: { status: existingAbstract.status, ...(typeChanged && { presentationType: existingAbstract.presentationType }) },
+          after: { status: abstract.status, ...(typeChanged && { presentationType: abstract.presentationType }) },
           source: "api",
           fieldsChanged: Object.keys(data),
           ip: getClientIp(req),

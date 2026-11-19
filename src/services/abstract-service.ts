@@ -152,7 +152,6 @@ export async function changeAbstractStatus(
       title: true,
       status: true,
       presentationType: true,
-      requestedPresentationType: true,
       event: { select: { id: true, organizationId: true, name: true, slug: true, settings: true } },
       speaker: { select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
     },
@@ -223,7 +222,7 @@ export async function changeAbstractStatus(
           status: newStatus,
           ...(isReview && { reviewedAt: new Date() }),
           // The organiser's decision; the author's request is kept.
-          ...(input.presentationType && organiserTypeWrite(input.presentationType, abstract)),
+          ...(input.presentationType && organiserTypeWrite(input.presentationType)),
         },
       });
       if (claim.count === 0) return { kind: "lost-race" };
@@ -417,7 +416,7 @@ export type BulkUpdateAbstractsResult =
     }
   | { ok: false; code: BulkUpdateAbstractsErrorCode; message: string };
 
-type BulkAbstractRow = { id: string; status: string; presentationType: PresentationType | null; requestedPresentationType: PresentationType | null };
+type BulkAbstractRow = { id: string; status: string; presentationType: PresentationType | null };
 type BulkOneOutcome = { kind: "changed"; email: "sent" | "failed" | "skipped" } | { kind: "unchanged" } | { kind: "skipped"; skip: BulkAbstractSkip };
 
 /** One abstract of a bulk change. Status goes through changeAbstractStatus; a type alone is a plain write. */
@@ -446,7 +445,7 @@ async function bulkUpdateOne(input: BulkUpdateAbstractsInput, row: BulkAbstractR
   }
 
   // The type alone. Scoped to the event again, so an id is never written across events.
-  const written = await db.abstract.updateMany({ where: { id: row.id, eventId }, data: organiserTypeWrite(presentationType ?? null, row) });
+  const written = await db.abstract.updateMany({ where: { id: row.id, eventId }, data: organiserTypeWrite(presentationType ?? null) });
   if (written.count === 0) {
     return { kind: "skipped", skip: { abstractId: row.id, code: "NOT_FOUND", message: "This abstract is no longer on the event." } };
   }
@@ -497,7 +496,7 @@ export async function bulkUpdateAbstracts(input: BulkUpdateAbstractsInput): Prom
 
     const rows = await db.abstract.findMany({
       where: { id: { in: ids }, eventId },
-      select: { id: true, status: true, presentationType: true, requestedPresentationType: true },
+      select: { id: true, status: true, presentationType: true },
     });
     const byId = new Map(rows.map((r) => [r.id, r]));
 

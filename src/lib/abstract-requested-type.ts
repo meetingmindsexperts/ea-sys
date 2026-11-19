@@ -28,38 +28,29 @@ export function authorTypeWrite(next: PresentationType | null): TypeColumns {
 }
 
 /**
- * The organiser's choice: the decision only. A row whose request was never
- * recorded (written by an older image during a deploy) keeps the type it had
- * as the request first, so the author's choice is not lost there either.
+ * The organiser's choice: the decision only. The request is never named, so
+ * an abstract whose author never chose a type keeps no request at all; a row
+ * an older image wrote during the deploy is filled once afterwards (ROADMAP,
+ * "Abstract requested type"), never guessed here: a guess would record an
+ * organiser's earlier choice as the author's.
  */
-export function organiserTypeWrite(
-  next: PresentationType | null,
-  current: TypeColumns,
-): { presentationType: PresentationType | null; requestedPresentationType?: PresentationType } {
-  const keep = current.requestedPresentationType === null ? current.presentationType : null;
-  return { presentationType: next, ...(keep !== null && { requestedPresentationType: keep }) };
+export function organiserTypeWrite(next: PresentationType | null): { presentationType: PresentationType | null } {
+  return { presentationType: next };
 }
 
 /**
- * Whose choice an edit of the abstract is. Until it is submitted the abstract
- * is the author's draft, whoever types into it (an organiser drafting on the
- * author's behalf included); after that, only the author's own account.
- */
-export function editIsTheAuthors(abstract: { status: string; speaker: { userId: string | null } | null }, userId: string): boolean {
-  if (abstract.status === "DRAFT") return true;
-  return !!abstract.speaker?.userId && abstract.speaker.userId === userId;
-}
-
-/**
- * The columns an edit of the abstract writes for the type it names: nothing
- * when it names none, the author's choice or the organiser's otherwise.
+ * The columns an edit of the abstract writes for the type it names. Nothing
+ * when it names none or the type it already has (the edit page sends the type
+ * on every save, and an unrelated save must never move the request). A change
+ * while the abstract is still a DRAFT is the author's choice, whoever types it
+ * (an organiser drafting on the author's behalf included); after submission
+ * it is the organiser's decision, the same rule as Set status or type.
  */
 export function editTypeWrite(
   next: PresentationType | null | undefined,
-  abstract: TypeColumns & { status: string; speaker: { userId: string | null } | null },
-  userId: string,
+  abstract: { status: string; presentationType: PresentationType | null },
 ): Partial<TypeColumns> {
-  if (next === undefined) return {};
-  if (editIsTheAuthors(abstract, userId)) return authorTypeWrite(next);
-  return organiserTypeWrite(next, abstract);
+  if (next === undefined || next === abstract.presentationType) return {};
+  if (abstract.status === "DRAFT") return authorTypeWrite(next);
+  return organiserTypeWrite(next);
 }

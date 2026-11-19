@@ -189,12 +189,6 @@ describe("bulkUpdateAbstracts: presentation type", () => {
     });
   });
 
-  it("a row whose request was never recorded (an older image wrote it) keeps its old type as the request", async () => {
-    rows = [{ id: "a1", status: "UNDER_REVIEW", presentationType: "ORAL", requestedPresentationType: null }];
-    await bulkUpdateAbstracts(input({ presentationType: "POSTER", abstractIds: ["a1"] }));
-    expect(mockDb.abstract.updateMany.mock.calls[0][0].data).toEqual({ presentationType: "POSTER", requestedPresentationType: "ORAL" });
-  });
-
   it("refuses a type the event does not offer, before touching anything", async () => {
     expect(await bulkUpdateAbstracts(input({ presentationType: "VIDEO" }))).toMatchObject({ ok: false, code: "TYPE_NOT_OFFERED" });
     expect(mockDb.abstract.findMany).not.toHaveBeenCalled();

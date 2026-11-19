@@ -300,6 +300,17 @@ describe("the author's requested presentation type", () => {
     });
   });
 
+  // Review of e9760ef1 (MED): the edit page sends the type on every save.
+  it("a save that does not change the type writes neither column and records no type change", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue(submitted);
+    const res = await PUT(putReq({ title: "New title", presentationType: "ORAL" }), putParams);
+    expect(res.status).toBeLessThan(400);
+    const data = mockDb.abstract.updateMany.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty("presentationType");
+    expect(data).not.toHaveProperty("requestedPresentationType");
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes.before).not.toHaveProperty("presentationType");
+  });
+
   it("the author's own draft edit moves the request with the type", async () => {
     mockAuth.mockResolvedValue({ user: { id: "spk", role: "SUBMITTER", organizationId: null } });
     mockDb.abstract.findFirst.mockResolvedValue({ ...submitted, status: "DRAFT" });

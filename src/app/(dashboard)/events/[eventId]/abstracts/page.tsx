@@ -1274,15 +1274,18 @@ export default function AbstractsPage() {
                         aria-label={`Select abstract ${formatAbstractSerial(abstract.serialId)}`}
                       />
                     )}
-                    <div className="flex-1">
-                      {/* Wraps: a row of badges beside a long title squeezed the title into a narrow column. */}
+                    <div className="flex-1 min-w-0">
+                      {/* Number and title on one line, the badges wrapping below: a
+                          row of badges beside a long title squeezed it into a narrow column. */}
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-2">
-                        {abstract.serialId != null && (
-                          <span className="font-mono text-sm text-muted-foreground shrink-0">
-                            {formatAbstractSerial(abstract.serialId)}
-                          </span>
-                        )}
-                        <h3 className="text-lg font-semibold">{abstract.title}</h3>
+                        <div className="flex items-baseline gap-3 w-full min-w-0">
+                          {abstract.serialId != null && (
+                            <span className="font-mono text-sm text-muted-foreground shrink-0">
+                              {formatAbstractSerial(abstract.serialId)}
+                            </span>
+                          )}
+                          <h3 className="text-lg font-semibold min-w-0 break-words">{abstract.title}</h3>
+                        </div>
                         <Badge
                           className={abstractStatusColor(abstract.status)}
                           variant="outline"
@@ -1294,7 +1297,8 @@ export default function AbstractsPage() {
                             {presentationTypeLabel(abstract.presentationType)}
                           </Badge>
                         )}
-                        {abstract.requestedPresentationType && abstract.requestedPresentationType !== abstract.presentationType && (
+                        {/* Staff only: an author is not told of a type change before decisions are announced. */}
+                        {!isSubmitter && abstract.requestedPresentationType && abstract.requestedPresentationType !== abstract.presentationType && (
                           <Badge variant="outline" className="text-xs text-muted-foreground" title="The presentation type the author chose when submitting">
                             Author asked for {presentationTypeLabel(abstract.requestedPresentationType)}
                           </Badge>

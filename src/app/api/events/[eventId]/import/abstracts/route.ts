@@ -12,7 +12,10 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
 import { PresentationType } from "@prisma/client";
-import { authorTypeWrite } from "@/lib/abstract-requested-type";
+import { authorTypeWrite, organiserTypeWrite } from "@/lib/abstract-requested-type";
+
+/** Statuses that mean a decision was already made when the row was exported elsewhere. */
+const DECIDED_IMPORT_STATUSES = new Set(["ACCEPTED", "REJECTED", "REVISION_REQUESTED"]);
 
 /** Every type an abstract can have; a cell naming none of them imports with no type. */
 const PRESENTATION_TYPES = Object.values(PresentationType);
@@ -175,7 +178,9 @@ export async function POST(req: Request, { params }: RouteParams) {
               specialty: getField(fields, idx.specialty) || null,
               trackId,
               themeId,
-              ...authorTypeWrite(presentationType),
+              // A row imported as already decided carries the decision, not what the
+              // author asked for, so its request stays unrecorded.
+              ...(DECIDED_IMPORT_STATUSES.has(status) ? organiserTypeWrite(presentationType) : authorTypeWrite(presentationType)),
               status: status as "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "ACCEPTED" | "REJECTED" | "REVISION_REQUESTED",
               serialId,
               managementToken: crypto.randomBytes(32).toString("hex"),

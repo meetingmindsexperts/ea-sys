@@ -10,13 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 An abstract had one presentation type. The author chose it on the submission form, and when an organiser set the type (Set status or type, or the edit page) it replaced the author's choice, with nothing left to show what the author had asked for. Now the two are kept apart:
 
-- **Requested by the author:** written when the abstract is submitted (or imported) and by the author's own edits, never by an organiser.
+- **Requested by the author:** written when the abstract is submitted or imported, and by any change to it while it is still a draft; never by an organiser's change after submission, and never by a save that leaves the type as it was. A row imported as already accepted, rejected or sent back for revision keeps no request, since its type is the decision.
 - **Presentation type:** the organiser's decision, as before. Every screen, email, filter and the agenda still read this one.
-- **Where the request shows:** on the Abstracts list ("Author asked for Poster") and on the abstract's page, only when it differs from the type now set; in the CSV export as a "Requested Type" column; in the Word export as a line, again only when it differs; and in the assistant's abstract list.
+- **Where the request shows:** to staff, on the Abstracts list ("Author asked for Poster") and on the abstract's page, only when it differs from the type now set (an author is not shown it, so a type change is not announced early); in the CSV export as a "Requested Type" column; in the Word export as a line, again only when it differs; and in the assistant's abstract list.
 - **Existing abstracts:** filled from their current type. Checked on production first: of 172 abstracts no organiser had yet changed a type, so each is the author's own choice (one had a later staff edit that kept no old value; its type matches the one it was created with).
 - **The history now keeps the old type** when a type is changed with a status, or on the edit page; until now only Set type alone did.
 
-Also fixed: the Abstracts list labelled every "Oral or Poster" abstract "Workshop" (94 on production), and the CSV import dropped the type of a row reading ORAL_POSTER.
+Also fixed: the Abstracts list labelled every "Oral or Poster" abstract "Workshop" (94 on production), the CSV import dropped the type of a row reading ORAL_POSTER, and a list card's badges no longer squeeze a long title into a narrow column.
 
 ### The organiser chooses what each speaker's form link collects (November 19)
 
