@@ -2,7 +2,7 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** November 18, 2026. **126 tools** across 18 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
+**Last updated:** November 19, 2026. **126 tools** across 18 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
 
 ### July 29, 2026 — Optional registration type + Faculty guard (`0.4.27`)
 
@@ -18,6 +18,8 @@ EA-SYS exposes event management capabilities via the [Model Context Protocol (MC
 - No behavior change when the params are omitted — existing calls are byte-identical.
 
 ### June 25, 2026 — Speaker companion registrations, faculty-aware counts, multi-role certs
+
+**November 19, 2026: `import_speakers_from_contacts` takes at most 100 contacts a call** (it was 200), the one limit the dashboard's Import from Contacts now has too (`CONTACT_IMPORT_MAX`); more is refused with `TOO_MANY_CONTACTS`, so import in batches. Package 0.4.66 → 0.4.67: connected clients reconnect to see the new limit.
 
 **November 18, 2026: contacts become speakers with all their details.** An organiser asked the in-app agent to add three faculty "from the master contact"; it made three speakers with a name and an address, then said the contacts held no job title or country, which they did. Three gaps, all closed: `list_contacts` matched the whole search against each field, so a full name found no one (each word must now match a first name, last name, email or organisation, honorifics such as Dr and Prof and stray commas dropped, through the one builder `search_event` also uses); it returned a name, an address and the organisation only, with no id (it now returns the id and every person field, bios cut to a preview above 10 results, and `more: true` when more match than were returned); and `create_speaker` published six of the fields its executor takes (it now takes role, phone, photo, city, state, zipCode, country, specialty and customSpecialty too). New: **`import_speakers_from_contacts`** (`speakers.import`), the Speakers page's Import from Contacts through the same service (`importSpeakersFromContacts` in `speaker-service.ts`): every detail copied, a Faculty registration for each new speaker, an existing speaker skipped and left unchanged. `update_speaker` takes `role` (a stored answer is kept even once retired), `state`, `zipCode` and `customSpecialty`. A Role refusal from `create_speaker`, `update_speaker` and `create_registration` now carries `code: "ROLE_NOT_OFFERED"`, the services' code, or `ROLES_UNREADABLE` when the list could not be read. Package 0.4.65 → 0.4.66: connected clients reconnect.
 
@@ -201,7 +203,7 @@ browser session the `/logs` page needs. Revoke the connector's grant to end it.
 | `list_speakers` | Filter by status (INVITED/CONFIRMED/DECLINED/CANCELLED) and created/updated date ranges (`createdAfter`/`createdBefore`/`updatedAfter`/`updatedBefore`, ISO 8601, inclusive) |
 | `create_speaker` | Add speaker; returns `existingId` on duplicate email |
 | `create_speakers_bulk` | Up to 100 in one call, per-row `{ created, errors }` so one bad row cannot kill the batch. Pre-dedups by email within the payload. |
-| `import_speakers_from_contacts` | `contactIds` (up to 200, from `list_contacts`): makes them speakers with every detail the contact holds, each with a Faculty registration; one already a speaker is skipped and left unchanged. Same service as the Speakers page's Import from Contacts |
+| `import_speakers_from_contacts` | `contactIds` (up to 100 a call, from `list_contacts`): makes them speakers with every detail the contact holds, each with a Faculty registration; one already a speaker is skipped and left unchanged. Same service as the Speakers page's Import from Contacts |
 | `update_speaker` | Status + title/role/bio/org/jobTitle/phone/city/state/zipCode/country/specialty/customSpecialty/tags; post-update `syncToContact` |
 | `list_speaker_agreements` | `filter: signed / unsigned / all`. Reads `Speaker.agreementAcceptedAt` |
 | `upload_speaker_agreement_template` | Upload the per-event .docx mail-merge template used to generate personalized speaker agreements. 10/hr per user. |

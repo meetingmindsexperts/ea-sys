@@ -37,6 +37,14 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Import from Contacts and reimbursement downloads: what the Nov 19 reviews left (recorded Nov 19, 2026): not started
+
+From the reviews of `387a3604` and `5ff51782` (a full name finds the contact, the paged add-from-contacts dialog, one-click document download).
+
+- **MED: make the registrations import set-based, then raise the limit.** `POST registrations/import-contacts` creates each person one at a time (attendee, serial, registration) inside one transaction with Prisma's 5 second default, holding the event's `RegistrationSerialCounter` row throughout, which public registration, group registration and the CSV import also wait on. One import is therefore capped at 100 (`CONTACT_IMPORT_MAX`), and a timeout now answers `IMPORT_TIMED_OUT` instead of an unexplained failure. The fix: reserve N serials with one increment, `createManyAndReturn` the attendees, `createMany` the registrations; then measure on production and raise the cap. Do not simply lengthen the timeout: the counter row would be held longer.
+- **LOW: short common words match too much.** Each word matches anywhere in a name, email or organisation and results are newest first, so "Ali Khan" also brings "Salim" and "Global"; the person can sit a few pages deep. Put exact first-and-last-name matches first, or make a word of two letters or fewer match a whole field.
+- **LOW: the public reimbursement upload cuts a file name by UTF-16 unit** (`reimbursement/[token]/documents/route.ts`, `file.name.slice(0, 255)`). An emoji across the cut makes the row's create throw after the file is stored: a 500 and an orphan object. Needs a crafted request (file systems cap names at 255). Use `truncateFilename`.
+
 ## The agent's contacts and speakers: what the Nov 18 reviews left (recorded Nov 18, 2026): not started
 
 From the reviews of `bec582ad`, `5bbb3dfc` and `a564d103` (contacts become speakers with all their details).

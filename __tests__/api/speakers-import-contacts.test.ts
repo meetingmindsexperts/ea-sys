@@ -36,6 +36,7 @@ vi.mock("@/lib/speaker-companion", () => ({ ensureCompanionsForSpeakerEmails: mo
 import { POST } from "@/app/api/events/[eventId]/speakers/import-contacts/route";
 import { speakerContactImportNotice as notice } from "@/lib/speaker-registration-messages";
 import { importSpeakersFromContacts } from "@/services/speaker-service";
+import { CONTACT_IMPORT_MAX } from "@/lib/contact-page-sizes";
 
 const params = Promise.resolve({ eventId: "ev1" });
 const session = { user: { id: "u1", role: "ORGANIZER", organizationId: "org1" } };
@@ -140,9 +141,9 @@ describe("POST speakers/import-contacts", () => {
   // Nov 19, 2026: the dialog keeps picks across pages, so a pick of hundreds
   // is easy; past the cap the answer says so instead of "Invalid input".
   it("refuses more than the import cap with a clear message", async () => {
-    const res = await POST(req({ contactIds: Array.from({ length: 201 }, (_, i) => `c${i}`) }), { params });
+    const res = await POST(req({ contactIds: Array.from({ length: CONTACT_IMPORT_MAX + 1 }, (_, i) => `c${i}`) }), { params });
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ code: "TOO_MANY_CONTACTS", error: expect.stringContaining("200") });
+    expect(await res.json()).toMatchObject({ code: "TOO_MANY_CONTACTS", error: expect.stringContaining(String(CONTACT_IMPORT_MAX)) });
     expect(mockDb.speaker.createMany).not.toHaveBeenCalled();
   });
 

@@ -24,6 +24,7 @@ import { principalFromApiKey } from "@/lib/permissions/require-permission";
 import { dashboardPathForTool, dashboardUrl } from "@/lib/agent/dashboard-links";
 import { MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
 import { RECOMMENDED_FORMAT_VALUES } from "@/lib/recommended-formats";
+import { CONTACT_IMPORT_MAX } from "@/lib/contact-page-sizes";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -400,7 +401,7 @@ export function registerAllMcpTools(
       status: z.enum(["INVITED", "CONFIRMED"]).optional(),
     }},
     { name: "import_speakers_from_contacts", description: "Make contacts from the organisation's contact list speakers on this event, with every detail the contact holds (title, role, job title, organisation, specialty, phone, photo, city, state, zip, country, bio, tags), as the Speakers page's Import from Contacts does. Each new speaker gets a complimentary Faculty registration (badge, barcode, check-in), or, if they were already registered for the event, keeps the registration they had (the result counts these as linkedRegistrations: check its type and payment). A contact who is already a speaker on the event is skipped and left unchanged: to fill an existing speaker's details from their contact, read them with list_contacts and use update_speaker. Get the ids from list_contacts.", params: {
-      contactIds: z.array(z.string()).min(1).max(200).describe("Contact ids from list_contacts."),
+      contactIds: z.array(z.string()).min(1).max(CONTACT_IMPORT_MAX).describe(`Contact ids from list_contacts, at most ${CONTACT_IMPORT_MAX} a call.`),
     }},
     { name: "create_session", description: "Create a session or agenda break item. Set type to WORKSHOP or SYMPOSIUM for those program formats (speakers/topics/track allowed, like SESSION), or REGISTRATION/BREAK/LUNCH/NETWORKING for a break item — a plain agenda time block that cannot carry speakers or topics. On a WEBINAR event, add the talks of the webinar as topics on its existing webinar session (add_topic_to_session; list_sessions finds it), not as new sessions: the streaming page and the Zoom panelist import read only that session's speakers and its topics' speakers. Create another session on a webinar only when the user asks for a separate session.", params: {
       name: z.string(), startTime: z.string(), endTime: z.string(),

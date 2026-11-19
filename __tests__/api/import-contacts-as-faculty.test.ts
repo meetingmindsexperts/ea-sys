@@ -32,6 +32,7 @@ vi.mock("@/services/registration-service", () => ({ createRegistration: mockCrea
 vi.mock("@/lib/speaker-companion", () => ({ ensureFacultyTicketType: mockEnsureFacultyType }));
 
 import { POST } from "@/app/api/events/[eventId]/registrations/import-contacts/route";
+import { CONTACT_IMPORT_MAX } from "@/lib/contact-page-sizes";
 
 const params = Promise.resolve({ eventId: "ev1" });
 const organiser = { user: { id: "u1", firstName: "Richard", role: "ORGANIZER", organizationId: "org1" } };
@@ -123,6 +124,31 @@ describe("POST registrations/import-contacts as Faculty", () => {
       expect((await res.json()).code).toBe("FACULTY_TERMS_INVALID");
     }
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  // Nov 19, 2026: the dialog keeps picks across pages, and this route makes
+  // each person inside one transaction, so one import is capped.
+  it("refuses more contacts than one import takes, with a message that says so", async () => {
+    const res = await POST(req({ contactIds: Array.from({ length: CONTACT_IMPORT_MAX + 1 }, (_, i) => `c${i}`), asFaculty: true }), { params });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "TOO_MANY_CONTACTS", error: expect.stringContaining(String(CONTACT_IMPORT_MAX)) });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("the limit is one number: the routes, the dialog and the agent's tool share it, and a timeout says so", () => {
+    const read = (f: string) => readFileSync(join(process.cwd(), f), "utf8");
+    const route = read("src/app/api/events/[eventId]/registrations/import-contacts/route.ts");
+    expect(route).toContain(".max(CONTACT_IMPORT_MAX)");
+    expect(route).toContain('"IMPORT_TIMED_OUT"');
+    expect(read("src/app/api/events/[eventId]/speakers/import-contacts/route.ts")).toContain(".max(CONTACT_IMPORT_MAX)");
+    const dialog = read("src/components/contacts/import-contacts-dialog.tsx");
+    expect(dialog).toContain("CONTACT_IMPORT_MAX");
+    // A page of the dialog always fits in one import.
+    expect(Number(dialog.match(/const PAGE_SIZE = (\d+);/)?.[1])).toBeLessThanOrEqual(CONTACT_IMPORT_MAX);
+    for (const f of ["src/lib/agent/tools/speakers.ts", "src/lib/agent/register-mcp-tools.ts", "src/components/contacts/import-contacts-dialog.tsx"]) {
+      expect(read(f)).not.toMatch(/const (CONTACT_IMPORT_MAX|IMPORT_CONTACTS_MAX)\b/);
+    }
+    expect(read("src/lib/agent/register-mcp-tools.ts")).toContain(".max(CONTACT_IMPORT_MAX)");
   });
 
   it("is refused for an event outside the caller's reach, before anything is made", async () => {

@@ -28,12 +28,16 @@ export const CONTACT_BULK_TAG_MAX: number = 1000;
 
 /**
  * The most contacts one Import from Contacts takes, as registrations or as
- * speakers (Nov 19, 2026). A SAFETY bound: the registrations import creates
- * each person one at a time inside one transaction with Prisma's 5 second
- * default, and since the dialog keeps picks across pages an organiser could
- * pick hundreds and get an unexplained failure with nothing imported. The
- * dialog refuses a pick past it, and both routes answer a clear 400.
+ * speakers, from the dialog or the agent (Nov 19, 2026). A SAFETY bound: the
+ * registrations import creates each person one at a time (three statements a
+ * person) inside one transaction with Prisma's 5 second default, and since the
+ * dialog keeps picks across pages an organiser could pick hundreds and get an
+ * unexplained failure with nothing imported. 100, not more: 200 was about 600
+ * statements, an estimated 2 to 3 seconds through the production pooler with
+ * unknown headroom under load (review of 5ff51782). Raising it means making
+ * that import set-based first (ROADMAP). The dialog refuses a pick past it,
+ * and the routes and the agent's tool answer a clear refusal.
  */
-export const CONTACT_IMPORT_MAX = 200;
+export const CONTACT_IMPORT_MAX = 100;
 
 export const CONTACT_IMPORT_TOO_MANY = `At most ${CONTACT_IMPORT_MAX} contacts in one import. Import them in batches.`;

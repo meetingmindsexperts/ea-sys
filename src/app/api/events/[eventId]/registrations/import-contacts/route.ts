@@ -424,6 +424,16 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 409 }
       );
     }
+    // Prisma P2028: the transaction ran out of time and rolled back, so
+    // nothing was imported. Said plainly (Nov 19, 2026), instead of the
+    // "Failed to import contacts" that explained nothing.
+    if ((error as { code?: string } | null)?.code === "P2028") {
+      apiLogger.error({ err: error, msg: "import-contacts:transaction-timed-out", eventId });
+      return NextResponse.json(
+        { error: "The import took too long and nothing was imported. Try again with fewer contacts.", code: "IMPORT_TIMED_OUT" },
+        { status: 409 },
+      );
+    }
     apiLogger.error({ err: error, msg: "Error importing contacts as registrations" });
     return NextResponse.json({ error: "Failed to import contacts" }, { status: 500 });
   }

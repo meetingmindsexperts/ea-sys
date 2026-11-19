@@ -11,7 +11,7 @@
 import { NextResponse } from "next/server";
 import { storageErrorResponse } from "@/lib/api-errors";
 import { readStoredFile } from "@/lib/storage";
-import { contentDisposition } from "@/lib/download-filename";
+import { contentDisposition, truncateFilename } from "@/lib/download-filename";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -85,12 +85,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Inline so PDFs and images preview in the browser, or an attachment for
     // the download button (?download=1, Nov 19, 2026). contentDisposition
     // makes the name header-safe and keeps a non-English name in filename*;
-    // cut by character, not UTF-16 unit, or half an emoji throws URIError.
+    // truncateFilename cuts a long name by character and keeps its extension.
     const disposition = new URL(req.url).searchParams.get("download") === "1" ? "attachment" : "inline";
     return new NextResponse(new Uint8Array(file), {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": contentDisposition(Array.from(doc.filename).slice(0, 120).join("") || "document", disposition),
+        "Content-Disposition": contentDisposition(truncateFilename(doc.filename) || "document", disposition),
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'none'; script-src 'none'",

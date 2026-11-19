@@ -73,7 +73,7 @@ export function ImportContactsDialog({
 
   // `isPlaceholderData`: the previous page is still on screen while the next
   // one loads, so the pager and select-all wait for it (review of 387a3604).
-  const { data, isLoading, isPlaceholderData } = useContacts(filters);
+  const { data, isLoading, isPlaceholderData, isError, refetch } = useContacts(filters);
   const { data: ticketsData } = useTickets(eventId);
   const importToSpeakers = useImportContactsToSpeakers(eventId);
   const importToRegistrations = useImportContactsToRegistrations(eventId);
@@ -144,19 +144,24 @@ export function ImportContactsDialog({
   const pageAllSelected = contacts.length > 0 && contacts.every((c) => selectedIds.has(c.id));
   const toggleSelectAll = () => {
     if (isPlaceholderData) return;
-    if (!pageAllSelected) {
-      const adding = contacts.filter((c) => !selectedIds.has(c.id)).length;
-      if (selectedIds.size + adding > CONTACT_IMPORT_MAX) {
-        toast.error(CONTACT_IMPORT_TOO_MANY);
-        return;
-      }
+    const unpicked = contacts.filter((c) => !selectedIds.has(c.id));
+    const room = CONTACT_IMPORT_MAX - selectedIds.size;
+    // Everyone on the page is picked, or the import is full: the box clears
+    // this page's picks (at the limit it must still be able to).
+    const clearPage = pageAllSelected || (room <= 0 && unpicked.length < contacts.length);
+    if (!clearPage && room <= 0) {
+      toast.error(CONTACT_IMPORT_TOO_MANY);
+      return;
+    }
+    // Up to the limit, and say so when the page did not fit (review of 5ff51782).
+    const adding = unpicked.slice(0, Math.max(room, 0));
+    if (!clearPage && adding.length < unpicked.length) {
+      toast.info(`Picked ${adding.length} more: ${CONTACT_IMPORT_MAX} is the most in one import.`);
     }
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      for (const c of contacts) {
-        if (pageAllSelected) next.delete(c.id);
-        else next.add(c.id);
-      }
+      if (clearPage) for (const c of contacts) next.delete(c.id);
+      else for (const c of adding) next.add(c.id);
       return next;
     });
   };
@@ -361,7 +366,17 @@ export function ImportContactsDialog({
                     <td colSpan={5} className="text-center py-8 text-muted-foreground">Loading…</td>
                   </tr>
                 )}
-                {!isLoading && (contacts.length === 0 ? (
+                {!isLoading && isError && (
+                  <tr>
+                    <td colSpan={5} className="text-center py-8 text-muted-foreground">
+                      <p className="mb-2">The contacts could not be loaded. Your picks are kept.</p>
+                      <Button variant="outline" size="sm" onClick={() => refetch()}>
+                        Try again
+                      </Button>
+                    </td>
+                  </tr>
+                )}
+                {!isLoading && !isError && (contacts.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="text-center py-8 text-muted-foreground">
                       <Users className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -405,12 +420,16 @@ export function ImportContactsDialog({
               </tbody>
             </table>
           </div>
-          {totalPages > 1 && (
+          {(totalPages > 1 || page > 1) && (
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>
-                {total.toLocaleString()} match{total === 1 ? "" : "es"} · page {page} of {totalPages.toLocaleString()}
-                {debouncedSearch ? "" : " · search by name to narrow"}
-              </span>
+              {isError ? (
+                <span>Page {page}</span>
+              ) : (
+                <span>
+                  {total.toLocaleString()} match{total === 1 ? "" : "es"} · page {page} of {totalPages.toLocaleString()}
+                  {debouncedSearch ? "" : " · search by name to narrow"}
+                </span>
+              )}
               <div className="flex gap-1">
                 <Button variant="outline" size="sm" className="h-7" disabled={page <= 1 || isLoading || isPlaceholderData} onClick={() => setPage((p) => p - 1)}>
                   <ChevronLeft className="h-4 w-4" />

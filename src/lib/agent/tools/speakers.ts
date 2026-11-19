@@ -1,5 +1,6 @@
 import { loadRoleFieldForWrite, resolveWrittenRole, writtenRoleOnOffer, writtenRoleRefusal } from "@/lib/person-field-rules";
 import { answerKeyFor, looseForm } from "@/lib/person-fields";
+import { CONTACT_IMPORT_MAX, CONTACT_IMPORT_TOO_MANY } from "@/lib/contact-page-sizes";
 import { registrationSettleNotice } from "@/lib/speaker-registration-messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -701,8 +702,6 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
   }
 };
 
-const IMPORT_CONTACTS_MAX = 200;
-
 /**
  * Contacts in, speakers out, with every detail the contact holds: the
  * Speakers page's Import from Contacts, through the same service (Nov 18,
@@ -714,8 +713,8 @@ const importSpeakersFromContactsTool: ToolExecutor = async (input, ctx) => {
     const raw = Array.isArray(input.contactIds) ? (input.contactIds as unknown[]) : [];
     const contactIds = [...new Set(raw.map((v) => String(v ?? "").trim()).filter(Boolean))];
     if (contactIds.length === 0) return { error: "contactIds is required: the ids list_contacts returns", code: "MISSING_CONTACT_IDS" };
-    if (contactIds.length > IMPORT_CONTACTS_MAX) {
-      return { error: `At most ${IMPORT_CONTACTS_MAX} contacts in one call`, code: "TOO_MANY_CONTACTS" };
+    if (contactIds.length > CONTACT_IMPORT_MAX) {
+      return { error: CONTACT_IMPORT_TOO_MANY, code: "TOO_MANY_CONTACTS" };
     }
 
     const result = await importSpeakersFromContacts({

@@ -45,9 +45,17 @@ describe("reimbursement document", () => {
   });
 
   it("cuts a long name by character, so an emoji at the cut does not fail the download", async () => {
-    mockFindDoc.mockResolvedValue({ url: "/uploads/reimbursements/2026/11/c.pdf", filename: `${"a".repeat(119)}😀 receipt.pdf`, mimeType: "application/pdf" });
+    mockFindDoc.mockResolvedValue({ url: "/uploads/reimbursements/2026/11/c.pdf", filename: `${"a".repeat(115)}😀 a long receipt name.pdf`, mimeType: "application/pdf" });
     const res = await call("?download=1");
     expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Disposition")).toContain("%F0%9F%98%80");
+    // The emoji is the last character kept before the extension, whole.
+    expect(res.headers.get("Content-Disposition")).toContain("%F0%9F%98%80.pdf");
+  });
+
+  // Review of 5ff51782: the cut dropped ".pdf", so the saved file did not open.
+  it("keeps the extension of a long name", async () => {
+    mockFindDoc.mockResolvedValue({ url: "/uploads/reimbursements/2026/11/d.pdf", filename: `${"a".repeat(300)}.pdf`, mimeType: "application/pdf" });
+    const value = (await call("?download=1")).headers.get("Content-Disposition") ?? "";
+    expect(value).toMatch(/filename="a{116}\.pdf"/);
   });
 });

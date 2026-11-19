@@ -7,7 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { contentDisposition } from "@/lib/download-filename";
+import { contentDisposition, truncateFilename } from "@/lib/download-filename";
 
 describe("contentDisposition", () => {
   it("the failure it prevents: a raw non-Latin-1 name makes the response itself throw", () => {
@@ -188,5 +188,24 @@ describe("every download header in src/", () => {
       "src/app/api/registrant/registrations/[registrationId]/invoices/[invoiceId]/pdf/route.ts",
       "src/lib/webinar/handout-download.ts",
     ]);
+  });
+});
+
+describe("truncateFilename", () => {
+  it("leaves a short name alone and keeps the extension of a long one", () => {
+    expect(truncateFilename("Taxi receipt.pdf")).toBe("Taxi receipt.pdf");
+    expect(truncateFilename(`${"a".repeat(300)}.pdf`)).toBe(`${"a".repeat(116)}.pdf`);
+    expect(truncateFilename("x".repeat(300))).toHaveLength(120);
+  });
+
+  it("cuts by character, so an emoji at the cut stays whole", () => {
+    const cut = truncateFilename(`${"a".repeat(115)}😀😀😀.pdf`);
+    expect(Array.from(cut)).toHaveLength(120);
+    expect(() => encodeURIComponent(cut)).not.toThrow();
+    expect(cut.endsWith(".pdf")).toBe(true);
+  });
+
+  it("does not take a long tail after a dot for an extension", () => {
+    expect(Array.from(truncateFilename(`report.${"b".repeat(300)}`))).toHaveLength(120);
   });
 });
