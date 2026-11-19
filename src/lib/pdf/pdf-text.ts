@@ -39,9 +39,12 @@ export function sanitizePdfText(s: string): string {
     // IS in WinAnsi, so the unit survives ("5 mug" would be worse than "?").
     .replace(/μ/g, "µ");
   // Defensive sweep: codepoints outside printable ASCII + Latin-1
-  // Supplement get replaced with "?". pdfkit's default WinAnsi encoder
-  // throws on unencodable codepoints — this stops a stray emoji / CJK /
-  // box-drawing char from nuking a whole batch of PDFs.
+  // Supplement get replaced with "?". pdf-lib (the certificates) THROWS on a
+  // character its font cannot encode, which would stop a whole batch. pdfkit
+  // (everything else) does not throw: it writes a broken code that makes a
+  // PDF reader misread the REST of that line, so "Invoice for Greek-letter
+  // Summit, total AED 500" loses the amount (measured Nov 19, 2026). Either
+  // way the text must arrive here first.
   let out = "";
   for (const ch of substituted) {
     const cp = ch.codePointAt(0) ?? 0;
@@ -57,7 +60,9 @@ export function sanitizePdfText(s: string): string {
     // Outcomes in β-Thalassemia" printed "?-Thalassemia" on the speaker
     // agreement (Nov 19, 2026) and would have on its certificates. The font
     // cannot draw Greek; "beta-Thalassemia" is how the name is written without it.
-    out += safe ? ch : (greekLetterName(ch) ?? "?");
+    // An accented Greek letter (ά, ή, ώ) is named by its bare letter, as the
+    // event address rule does after taking the accent off.
+    out += safe ? ch : (greekLetterName(ch) ?? greekLetterName(ch.normalize("NFKD")[0] ?? "") ?? "?");
   }
   return out;
 }

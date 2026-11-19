@@ -38,6 +38,10 @@ describe("sanitizePdfText and Greek letters", () => {
     expect(sanitizePdfText("α, γ and δ")).toBe("alpha, gamma and delta");
   });
 
+  it("names an accented Greek letter by its bare letter", () => {
+    expect(sanitizePdfText("ά ή Ώ")).toBe("alpha eta Omega");
+  });
+
   it("capitalises an upper-case Greek letter", () => {
     expect(sanitizePdfText("Δ group, Ω")).toBe("Delta group, Omega");
   });
