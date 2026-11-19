@@ -71,12 +71,97 @@ export function profileSlotForLabel(label: string | null | undefined): ProfileDo
   return null;
 }
 
+// ── What a speaker is asked for (Nov 19, 2026) ───────────────────────────────
+/**
+ * The organiser chooses what the speaker's form link collects (owner, Nov 19,
+ * 2026: "give control to organizer just like reimbursement"). Before this
+ * every speaker was asked for the same things, and a local or webinar speaker
+ * could not submit without a passport copy they had no reason to send.
+ *
+ * ASKED OR NOT, nothing finer (owner's choice A): an item is on the form or
+ * off it, and the rules for an item that is on are the ones it always had:
+ * a photo and a passport copy are required, a bio and a cover letter are not,
+ * and a presentation never holds up the form (slides come later).
+ *
+ * Stored the way reimbursement's claim items are:
+ *   - Event default: `Event.settings.speakerProfile.items`. ABSENT (or
+ *     unreadable, or empty) means ALL FIVE, so an event that never touched
+ *     the setting behaves exactly as before.
+ *   - Per speaker: `Speaker.profileFormItems`. Null = the event default; a
+ *     saved list REPLACES it, never intersects it: asking one speaker for a
+ *     passport on an event that asks nobody is the point of the override.
+ * The form shows only the asked items, and every public door refuses an item
+ * that is not asked, so a page left open across a change cannot send what
+ * was withdrawn.
+ */
+export const PROFILE_ITEMS = [
+  { key: "photo", label: "Photo", hint: "A headshot for the programme. Required when asked, unless we already have one." },
+  { key: "bio", label: "Bio", hint: "A short biography. Optional for the speaker." },
+  { key: "passport", label: "Passport copy", hint: "For visas and travel. Required when asked." },
+  { key: "cover_letter", label: "Cover letter or CV", hint: "Optional for the speaker." },
+  { key: "presentation", label: "Presentation", hint: "Slides or a video for each talk. Can be sent later and replaced." },
+] as const;
+
+export type ProfileItemKey = (typeof PROFILE_ITEMS)[number]["key"];
+export const PROFILE_ITEM_KEYS = PROFILE_ITEMS.map((i) => i.key) as [ProfileItemKey, ...ProfileItemKey[]];
+
+/** At least one: an empty set would make a form with nothing on it and no way to tell why. In the list's own order. */
+export const profileItemsSchema = z
+  .array(z.enum(PROFILE_ITEM_KEYS))
+  .min(1)
+  .transform((keys) => PROFILE_ITEM_KEYS.filter((k) => keys.includes(k)));
+
+/** Body of the event default's PUT. */
+export const profileItemsInputSchema = z.object({ items: profileItemsSchema });
+/** Body of a speaker's own list: null goes back to the event default. */
+export const speakerProfileItemsInputSchema = z.object({ items: profileItemsSchema.nullable() });
+
+function readProfileItemList(value: unknown): ProfileItemKey[] | null {
+  if (!Array.isArray(value)) return null;
+  const keys = PROFILE_ITEM_KEYS.filter((k) => (value as unknown[]).includes(k));
+  return keys.length > 0 ? keys : null;
+}
+
+/** What the event asks its speakers for. Absent, unreadable or empty: all five. */
+export function readEventProfileItems(settings: unknown): ProfileItemKey[] {
+  const block = (settings as { speakerProfile?: { items?: unknown } } | null | undefined)?.speakerProfile;
+  return readProfileItemList(block?.items) ?? [...PROFILE_ITEM_KEYS];
+}
+
+/** A speaker's own list, or null to use the event default. */
+export function readSpeakerProfileItems(value: unknown): ProfileItemKey[] | null {
+  return readProfileItemList(value);
+}
+
+/** What one speaker is asked for: their own list when set, else the event's. */
+export function askedProfileItems(input: { eventSettings: unknown; speakerItems: unknown }): ProfileItemKey[] {
+  return readSpeakerProfileItems(input.speakerItems) ?? readEventProfileItems(input.eventSettings);
+}
+
+export function profileItemLabel(key: string): string {
+  return PROFILE_ITEMS.find((i) => i.key === key)?.label ?? key;
+}
+
+/** "Photo, Bio, Presentation". */
+export function profileItemsSummary(items: readonly ProfileItemKey[]): string {
+  return items.map(profileItemLabel).join(", ");
+}
+
+/** The part of the list that is the form to submit; a presentation is its own section, never submitted. */
+export function profileFormItems(items: readonly ProfileItemKey[]): ProfileItemKey[] {
+  return items.filter((i) => i !== "presentation");
+}
+
 /**
  * Which required slots are still missing, given the labels of the speaker's
- * existing documents. Pure — shared by the client submit guard and the
- * server's authoritative re-check.
+ * existing documents and what this speaker is asked for. Pure: shared by the
+ * client's submit guard and the server's authoritative re-check. A slot that
+ * is not asked is never missing.
  */
-export function missingProfileDocSlots(existingLabels: Array<string | null | undefined>): ProfileDocSlot[] {
+export function missingProfileDocSlots(
+  existingLabels: Array<string | null | undefined>,
+  asked: readonly ProfileItemKey[] = PROFILE_ITEM_KEYS,
+): ProfileDocSlot[] {
   const have = new Set(existingLabels.map(profileSlotForLabel).filter(Boolean));
-  return REQUIRED_PROFILE_DOC_SLOTS.filter((slot) => !have.has(slot));
+  return REQUIRED_PROFILE_DOC_SLOTS.filter((slot) => asked.includes(slot) && !have.has(slot));
 }

@@ -28,9 +28,11 @@ import {
   PROFILE_DOC_SLOT_TITLES,
   PROFILE_PHOTO_ACCEPT,
   PROFILE_PHOTO_MAX_SIZE,
+  profileFormItems,
   profileSlotForLabel,
   REQUIRED_PROFILE_DOC_SLOTS,
   type ProfileDocSlot,
+  type ProfileItemKey,
 } from "@/lib/speaker-profile/constants";
 
 interface DocumentRow {
@@ -44,6 +46,8 @@ interface DocumentRow {
 interface FormData {
   status: "PENDING" | "SUBMITTED";
   submittedAt: string | null;
+  /** What the organiser asked this speaker for; the page shows only these. */
+  items: ProfileItemKey[];
   event: {
     name: string;
     bannerImage: string | null;
@@ -168,11 +172,12 @@ export default function SpeakerProfileFormPage() {
 
   const handleSubmit = async () => {
     setFormError(null);
-    if (!photo) {
+    const asked = data?.items ?? [];
+    if (asked.includes("photo") && !photo) {
       setFormError("Please upload your photo before submitting.");
       return;
     }
-    const missing = missingProfileDocSlots(documents.map((d) => d.label ?? ""));
+    const missing = missingProfileDocSlots(documents.map((d) => d.label ?? ""), asked);
     if (missing.length > 0) {
       setFormError(`Please upload: ${missing.map((s) => PROFILE_DOC_LABELS[s]).join(", ")}.`);
       return;
@@ -182,7 +187,7 @@ export default function SpeakerProfileFormPage() {
       const res = await fetch(base, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bio: bio.trim() || undefined }),
+        body: JSON.stringify({ bio: asked.includes("bio") ? bio.trim() || undefined : undefined }),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) {
@@ -217,6 +222,12 @@ export default function SpeakerProfileFormPage() {
   }
 
   const alreadySubmitted = data.status === "SUBMITTED" && !done;
+  // The organiser's choice (Nov 19, 2026): only what this speaker is asked
+  // for. `formItems` is the part that is submitted; a presentation is its own
+  // section below and is never submitted.
+  const asks = (item: ProfileItemKey) => data.items.includes(item);
+  const formItems = profileFormItems(data.items);
+  const docSlots = (["passport", "cover_letter"] as ProfileDocSlot[]).filter(asks);
   const docFor = (slot: ProfileDocSlot) =>
     documents.find((d) => profileSlotForLabel(d.label) === slot) ?? null;
 
@@ -241,13 +252,15 @@ export default function SpeakerProfileFormPage() {
               <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm">
                 <UserRound className="h-5 w-5" />
               </span>
-              Photo &amp; documents: {data.event.name}
+              {/* Asked for a presentation only: there is no form to fill in. */}
+              {formItems.length > 0 ? "Photo & documents" : "Your presentation"}: {data.event.name}
             </h1>
             <p className="text-sm text-slate-600 mt-2">
               {data.speaker.name} ({data.speaker.email})
             </p>
           </div>
 
+          {formItems.length > 0 && (
           <div className="p-6 sm:p-10">
             {done || alreadySubmitted ? (
               <div className="text-center py-10">
@@ -265,6 +278,7 @@ export default function SpeakerProfileFormPage() {
             ) : (
               <div className="space-y-8">
                 {/* Photo */}
+                {asks("photo") && (
                 <div>
                   <Label className="text-base font-semibold text-slate-900">
                     Your photo <span className="text-red-500">*</span>
@@ -307,9 +321,10 @@ export default function SpeakerProfileFormPage() {
                     </div>
                   </div>
                 </div>
+                )}
 
                 {/* Documents */}
-                {(["passport", "cover_letter"] as ProfileDocSlot[]).map((slot) => {
+                {docSlots.map((slot) => {
                   const doc = docFor(slot);
                   const required = REQUIRED_PROFILE_DOC_SLOTS.includes(slot);
                   const inputId = `speaker-form-doc-${slot}`;
@@ -366,6 +381,7 @@ export default function SpeakerProfileFormPage() {
                 })}
 
                 {/* Bio */}
+                {asks("bio") && (
                 <div>
                   <Label className="text-base font-semibold text-slate-900" htmlFor="speaker-form-bio">
                     Your bio <span className="text-slate-400 font-normal text-sm">(optional)</span>
@@ -384,6 +400,7 @@ export default function SpeakerProfileFormPage() {
                     disabled={submitting}
                   />
                 </div>
+                )}
 
                 {formError && (
                   <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -410,6 +427,7 @@ export default function SpeakerProfileFormPage() {
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* Presentations (Nov 19, 2026). Its own card, outside the form above,

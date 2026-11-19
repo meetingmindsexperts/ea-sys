@@ -107,18 +107,37 @@ test("presentations: staff upload, a fake file refused, several files a talk, re
     // The speaker sees what was sent, not a download link.
     await expect(page.getByRole("link", { name: /Download/ })).toHaveCount(0);
 
-    // The speaker removes one of their files, then adds another.
-    page.once("dialog", (d) => void d.accept());
-    await page.getByRole("button", { name: "Remove Backup slides.pptx" }).click();
-    await expect(page.getByText("Presentation removed")).toBeVisible();
-    await expect(page.getByText("Backup slides.pptx")).toHaveCount(0);
+    // A file staff uploaded can be replaced by the speaker, never removed.
+    await expect(page.getByRole("button", { name: "Remove Backup slides.pptx" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Replace Backup slides.pptx" })).toBeVisible();
+
+    // The speaker adds a file of their own, then removes it.
     await choose(page, page.getByRole("button", { name: "Add another file" }), { name: "Final talk.pdf", mimeType: "application/pdf", buffer: PDF });
     await expect(page.getByText("Final talk.pdf")).toBeVisible();
-    const mine = await db.speakerPresentation.findMany({ where: { speakerId: speakerId!, status: "READY" }, select: { uploadedVia: true, filename: true }, orderBy: { createdAt: "asc" } });
-    expect(mine).toEqual([
-      { uploadedVia: "staff", filename: "SGLT2 deck v2.pdf" },
-      { uploadedVia: "speaker-form", filename: "Final talk.pdf" },
-    ]);
+    page.once("dialog", (d) => void d.accept());
+    await page.getByRole("button", { name: "Remove Final talk.pdf" }).click();
+    await expect(page.getByText("Presentation removed")).toBeVisible();
+    await expect(page.getByText("Final talk.pdf")).toHaveCount(0);
+    // The row is kept for staff to recover (REPLACED), not deleted.
+    const removed = await db.speakerPresentation.findFirst({ where: { speakerId: speakerId!, filename: "Final talk.pdf" }, select: { status: true, uploadedVia: true } });
+    expect(removed).toEqual({ status: "REPLACED", uploadedVia: "speaker-form" });
+
+    // ── The organiser asks this speaker for a presentation only ──
+    await loginAs(page, "ADMIN");
+    const asked = await page.request.patch(`/api/events/${EVENT_ID}/speakers/${speakerId}/profile-form-items`, { data: { items: ["presentation"] } });
+    expect(asked.status(), await asked.text()).toBe(200);
+    await page.context().clearCookies();
+    await page.goto(`/e/${EVENT_SLUG}/speaker-form/${token}`);
+    await expect(page.getByRole("heading", { name: /^Your presentation:/ })).toBeVisible();
+    await expect(page.getByText("This form has already been submitted.")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Your presentation", exact: true })).toBeVisible();
+    // And for a photo only: no presentation section, and its uploads are refused.
+    await loginAs(page, "ADMIN");
+    expect((await page.request.patch(`/api/events/${EVENT_ID}/speakers/${speakerId}/profile-form-items`, { data: { items: ["photo"] } })).status()).toBe(200);
+    await page.context().clearCookies();
+    const notAsked = await page.request.post(`/api/public/events/${EVENT_SLUG}/speaker-form/${token}/presentations`, { data: { slotKey: "general", filename: "x.pdf", size: 10 } });
+    expect(notAsked.status()).toBe(409);
+    expect((await notAsked.json()).code).toBe("NOT_ASKED");
 
     // Someone else's token cannot reach this speaker's upload.
     const other = await page.request.post(`/api/public/events/${EVENT_SLUG}/speaker-form/not-a-real-token/presentations`, { data: { slotKey: "general", filename: "x.pdf", size: 10 } });

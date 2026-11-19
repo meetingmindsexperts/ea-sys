@@ -14,7 +14,7 @@ import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
+import { askedItemsForForm, loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
 import { presentationRefusal, speakerFormPresentationLimit, startPresentationUploadSchema, startUploadResponse } from "@/lib/speaker-presentation-http";
 import { listSpeakerPresentations, startPresentationUpload } from "@/services/speaker-presentation-service";
 
@@ -38,6 +38,11 @@ export async function GET(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "This link is invalid." }, { status: 404 });
       }
       const scope = { eventId: form.eventId, organizationId: form.event.organizationId, speakerId: form.speaker.id };
+      // Not asked of this speaker: the page hides the section, as it does
+      // where presentations are switched off.
+      if (!askedItemsForForm(form).includes("presentation")) {
+        return NextResponse.json({ enabled: false, slots: [], presentations: [] });
+      }
       return NextResponse.json(await listSpeakerPresentations(scope));
     });
   } catch (error) {
@@ -70,6 +75,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (form.event.endDate && form.event.endDate.getTime() < Date.now()) {
         apiLogger.warn({ slug: p.slug, formId: form.id }, "speaker-form-presentation:event-ended");
         return NextResponse.json({ error: "This event has ended, so uploads are closed. Contact the organisers.", code: "EVENT_ENDED" }, { status: 409 });
+      }
+      if (!askedItemsForForm(form).includes("presentation")) {
+        apiLogger.warn({ slug: p.slug, formId: form.id, item: "presentation" }, "speaker-form-presentation:not-asked");
+        return NextResponse.json({ error: "A presentation is not needed for this form. Reload the page.", code: "NOT_ASKED" }, { status: 409 });
       }
       const parsed = startPresentationUploadSchema.safeParse(body);
       if (!parsed.success) {

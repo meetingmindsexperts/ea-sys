@@ -15,7 +15,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { uploadPhoto } from "@/lib/storage";
 import { PROFILE_PHOTO_MAX_SIZE } from "@/lib/speaker-profile/constants";
 import { syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
-import { loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
+import { askedItemsForForm, loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
 
@@ -73,6 +73,13 @@ export async function POST(req: Request, { params }: RouteParams) {
           { error: "This form has been submitted. Contact the organizers for changes.", code: "ALREADY_SUBMITTED" },
           { status: 409 },
         );
+      }
+
+      // A photo the organiser did not ask this speaker for is not taken
+      // (Nov 19, 2026): a page left open across a change cannot send it.
+      if (!askedItemsForForm(row).includes("photo")) {
+        apiLogger.warn({ slug, formId: row.id, item: "photo" }, "speaker-form-photo:not-asked");
+        return NextResponse.json({ error: "A photo is not needed for this form. Reload the page.", code: "NOT_ASKED" }, { status: 409 });
       }
 
       const formData = await req.formData();

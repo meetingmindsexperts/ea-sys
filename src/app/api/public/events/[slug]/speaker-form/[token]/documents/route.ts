@@ -28,7 +28,7 @@ import {
   profileSlotForLabel,
   type ProfileDocSlot,
 } from "@/lib/speaker-profile/constants";
-import { loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
+import { askedItemsForForm, loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
 
@@ -90,6 +90,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (!PROFILE_DOC_SLOTS.includes(slot)) {
         apiLogger.warn({ slug, formId: row.id, slot, stage: "bad-slot" }, "speaker-form-upload:invalid-slot");
         return NextResponse.json({ error: "Invalid document slot" }, { status: 400 });
+      }
+      // A document the organiser did not ask this speaker for is not taken
+      // (Nov 19, 2026): a page left open across a change cannot send it.
+      if (!askedItemsForForm(row).includes(slot)) {
+        apiLogger.warn({ slug, formId: row.id, slot, stage: "not-asked" }, "speaker-form-upload:not-asked");
+        return NextResponse.json({ error: "That document is not needed for this form. Reload the page.", code: "NOT_ASKED" }, { status: 409 });
       }
       const allowed = ALLOWED[file.type];
       if (!allowed) {

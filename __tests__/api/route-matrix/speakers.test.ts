@@ -47,6 +47,8 @@ import { GET as presentationsGET, POST as presentationsPOST } from "@/app/api/ev
 import { GET as presentationGET, DELETE as presentationDELETE } from "@/app/api/events/[eventId]/speakers/[speakerId]/presentations/[presentationId]/route";
 import { POST as presentationCompletePOST } from "@/app/api/events/[eventId]/speakers/[speakerId]/presentations/[presentationId]/complete/route";
 import { POST as presentationFilePOST } from "@/app/api/events/[eventId]/speakers/[speakerId]/presentations/[presentationId]/file/route";
+import { GET as profileFormSettingsGET, PUT as profileFormSettingsPUT } from "@/app/api/events/[eventId]/speakers/profile-form-settings/route";
+import { GET as profileFormItemsGET, PATCH as profileFormItemsPATCH } from "@/app/api/events/[eventId]/speakers/[speakerId]/profile-form-items/route";
 
 const sp = { speakerId: "sp1" };
 const pres = { speakerId: "sp1", presentationId: "p1" };
@@ -83,6 +85,11 @@ const CASES: HandlerCase[] = [
   { name: "DELETE speakers/[speakerId]/presentations/[presentationId]", handler: presentationDELETE, method: "DELETE", params: pres },
   { name: "POST speakers/[speakerId]/presentations/[presentationId]/complete", handler: presentationCompletePOST, method: "POST", params: pres },
   { name: "POST speakers/[speakerId]/presentations/[presentationId]/file", handler: presentationFilePOST, method: "POST", params: pres, body: {} },
+  // What the speaker form asks for (Nov 19, 2026): the event's default and one speaker's own list.
+  { name: "GET speakers/profile-form-settings", handler: profileFormSettingsGET, method: "GET" },
+  { name: "PUT speakers/profile-form-settings", handler: profileFormSettingsPUT, method: "PUT", body: { items: ["photo", "presentation"] } },
+  { name: "GET speakers/[speakerId]/profile-form-items", handler: profileFormItemsGET, method: "GET", params: sp },
+  { name: "PATCH speakers/[speakerId]/profile-form-items", handler: profileFormItemsPATCH, method: "PATCH", params: sp, body: { items: null } },
 ];
 
 describe("route status matrix: speakers", () => {

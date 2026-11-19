@@ -296,28 +296,41 @@ export async function startPresentationUpload(
   if (!slot) return refuse("INVALID_SLOT", "That talk is no longer on the agenda. Reload the page and try again.");
 
   await sweepStaleUploads({ eventId, speakerId });
-  // One upload in flight per talk: an earlier try for this talk (a dropped
-  // connection, a closed tab) is over, so it stops holding quota and its
-  // object goes (review of be777c01: each retry used to hold its stated size
-  // for a day, and six failed videos locked a speaker out).
-  await failUploads(
-    { eventId, speakerId },
-    { eventId, speakerId, status: "UPLOADING", ...slotWhere(slot) },
-    "superseded",
-  );
 
-  // A talk holds up to PRESENTATION_MAX_FILES_PER_TALK files. This upload
-  // either replaces one of them, which must be a READY file of this talk, or
-  // is added beside them, which needs room.
-  const inTalk = await db.speakerPresentation.findMany({
-    where: { eventId, speakerId, status: "READY", ...slotWhere(slot) },
-    select: { id: true },
-  });
+  // The talk's files, and what is in flight for it (oldest first). A talk
+  // holds up to PRESENTATION_MAX_FILES_PER_TALK files; this upload either
+  // replaces one of them, which must be a READY file of this talk, or is
+  // added beside them, which needs room.
+  const [inTalk, inFlight] = await Promise.all([
+    db.speakerPresentation.findMany({ where: { eventId, speakerId, status: "READY", ...slotWhere(slot) }, select: { id: true } }),
+    db.speakerPresentation.findMany({
+      where: { eventId, speakerId, status: "UPLOADING", ...slotWhere(slot) },
+      select: { id: true, replacesId: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+  // The refusals come BEFORE anything is ended: a start that is itself
+  // refused must not cost another upload (review of d6dfd99c).
   if (replaces && !inTalk.some((f) => f.id === replaces)) {
     return refuse("REPLACED_FILE_NOT_FOUND", "The file being replaced is no longer there. Reload the page and try again.");
   }
   if (!replaces && inTalk.length >= PRESENTATION_MAX_FILES_PER_TALK) {
     return refuse("TALK_FULL", `A talk can hold up to ${PRESENTATION_MAX_FILES_PER_TALK} files. Replace or remove one first.`);
+  }
+
+  // Other uploads in flight for this talk are their own files (a backup PDF
+  // beside a video ten minutes in; staff beside the speaker) and are LEFT
+  // ALONE. Only a retry of the same thing ends an earlier try, so it stops
+  // holding quota and its object goes: an earlier try to replace the same
+  // file; or, for an added file, the oldest unfinished adds once they could
+  // not all land beside this one.
+  const inFlightAdds = inFlight.filter((u) => !u.replacesId);
+  const roomForOtherAdds = PRESENTATION_MAX_FILES_PER_TALK - inTalk.length - 1;
+  const superseded = replaces
+    ? inFlight.filter((u) => u.replacesId === replaces)
+    : inFlightAdds.slice(0, Math.max(0, inFlightAdds.length - roomForOtherAdds));
+  if (superseded.length > 0) {
+    await failUploads({ eventId, speakerId }, { eventId, speakerId, id: { in: superseded.map((u) => u.id) } }, "superseded");
   }
 
   // The file this upload will replace does not count against the room for it.
@@ -452,23 +465,36 @@ export async function completePresentationUpload(
   // same moment are judged one after the other, never both against the same
   // count (review of be777c01).
   const outcome = await tenantTransaction(async (tx) => {
-    await tx.$queryRaw`SELECT "id" FROM "Speaker" WHERE "id" = ${speakerId} FOR UPDATE`;
+    // NO KEY UPDATE: enough to serialise the speaker's completions, without
+    // holding up a row that merely points at the speaker (a session role).
+    const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Speaker" WHERE "id" = ${speakerId} FOR NO KEY UPDATE`;
+    if (locked.length === 0) return { kind: "gone" as const };
     const inTalk = await tx.speakerPresentation.findMany({
       where: { eventId, speakerId, ...slotWhere(row), status: "READY", id: { not: presentationId } },
       select: { id: true, url: true },
     });
     const replaced = row.replacesId ? inTalk.filter((f) => f.id === row.replacesId) : [];
-    if (inTalk.length - replaced.length >= PRESENTATION_MAX_FILES_PER_TALK) return { full: true as const };
+    if (inTalk.length - replaced.length >= PRESENTATION_MAX_FILES_PER_TALK) return { kind: "full" as const };
+    // Only an upload still in flight becomes READY. One that was ended while
+    // its file was being checked (a newer try, the browser's abandon) stays
+    // FAILED: its object is already gone, and a READY row for it would be a
+    // file that vanishes later (review of d6dfd99c). Claimed BEFORE the file
+    // it replaces is touched.
+    const claimed = await tx.speakerPresentation.updateMany({
+      where: { id: presentationId, status: "UPLOADING" },
+      data: { status: "READY", size: BigInt(head.size), s3VersionId: head.versionId, etag: head.etag, readyAt: new Date() },
+    });
+    if (claimed.count === 0) return { kind: "gone" as const };
     if (replaced.length > 0) {
       await tx.speakerPresentation.updateMany({ where: { id: { in: replaced.map((o) => o.id) } }, data: { status: "REPLACED" } });
     }
-    await tx.speakerPresentation.update({
-      where: { id: presentationId },
-      data: { status: "READY", size: BigInt(head.size), s3VersionId: head.versionId, etag: head.etag, readyAt: new Date() },
-    });
-    return { full: false as const, replaced };
+    return { kind: "ready" as const, replaced };
   });
-  if (outcome.full) {
+  if (outcome.kind === "gone") {
+    apiLogger.warn({ msg: "speaker-presentation:complete-lost", eventId, speakerId, presentationId, source: actor.source });
+    return { ok: false, code: "NOT_FOUND", message: "This upload was cancelled by a newer one. Upload the file again." };
+  }
+  if (outcome.kind === "full") {
     return fail("TALK_FULL", `A talk can hold up to ${PRESENTATION_MAX_FILES_PER_TALK} files. Replace or remove one first.`);
   }
   const { replaced } = outcome;
@@ -514,22 +540,42 @@ export async function presentationDownload(
 export type DeletePresentationResult = { ok: true } | { ok: false; code: "NOT_FOUND"; message: string };
 
 /**
- * Remove a file: staff, or the speaker on their own link (a talk holds up to
- * three, so replacing alone was not enough). The row goes; the object is
- * hidden (see above). The caller has already tied the id to this speaker on
- * this event, which the lookup repeats.
+ * Remove a file. The two doors differ (review of d6dfd99c):
+ *
+ *   - STAFF remove any file of the speaker, for good: the row goes.
+ *   - THE SPEAKER, on their own link, removes only a file THEY sent that is
+ *     READY, and the row is KEPT (marked REPLACED, the status of a file no
+ *     longer shown): it is the only record of where the object is, and the
+ *     link is a plain URL that gets forwarded. A file staff uploaded can be
+ *     replaced by the speaker, never removed. Nothing at all while
+ *     presentations are switched off.
+ *
+ * Either way the object is hidden; on a versioned bucket it can be brought
+ * back until the lifecycle rule expires it. The caller has already tied the
+ * id to this speaker on this event, which the lookup repeats.
  */
 export async function deleteSpeakerPresentation(
   input: SpeakerScope & { presentationId: string; actor: PresentationActor },
 ): Promise<DeletePresentationResult> {
+  const bySpeaker = input.actor.source === "speaker-form";
+  if (bySpeaker && !presentationsAvailable()) return { ok: false, code: "NOT_FOUND", message: "Presentation not found" };
   const row = await db.speakerPresentation.findFirst({
-    where: { id: input.presentationId, eventId: input.eventId, speakerId: input.speakerId },
+    where: {
+      id: input.presentationId,
+      eventId: input.eventId,
+      speakerId: input.speakerId,
+      ...(bySpeaker ? { status: "READY" as const, uploadedVia: "speaker-form" } : {}),
+    },
     select: { id: true, url: true, filename: true, sessionId: true, topicId: true },
   });
   if (!row) return { ok: false, code: "NOT_FOUND", message: "Presentation not found" };
-  await db.speakerPresentation.delete({ where: { id: row.id } });
+  if (bySpeaker) {
+    await db.speakerPresentation.updateMany({ where: { id: row.id, status: "READY" }, data: { status: "REPLACED" } });
+  } else {
+    await db.speakerPresentation.delete({ where: { id: row.id } });
+  }
   await deleteStoredFile(row.url, PREFIX);
-  audit(input, input.actor, "DELETE", row.id, { filename: row.filename, slot: presentationSlotKey(row) });
+  audit(input, input.actor, "DELETE", row.id, { filename: row.filename, slot: presentationSlotKey(row), rowKept: bySpeaker });
   apiLogger.info({ msg: "speaker-presentation:deleted", eventId: input.eventId, speakerId: input.speakerId, presentationId: row.id, source: input.actor.source });
   return { ok: true };
 }

@@ -33,7 +33,10 @@ interface Props {
   /** `/api/events/{id}/speakers/{id}/presentations`, or the speaker form's `.../presentations`. */
   apiBase: string;
   canUpload: boolean;
-  /** Staff door: says who uploaded a file. Either door may replace or remove one. */
+  /**
+   * Staff door: says who uploaded a file, and may remove any. On the
+   * speaker's own door a file staff uploaded can be replaced, not removed.
+   */
   staff?: boolean;
   /** Staff holding the files permission: the download link. Never the speaker. */
   canDownload?: boolean;
@@ -165,7 +168,11 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
       setBusy({ slotKey, fraction: 1, stage: "checking" });
       const done = await fetch(`${apiBase}/${presentationId}/complete`, { method: "POST" });
       if (!done.ok) {
-        toast.error(await readError(done, "The file could not be checked."));
+        // A server error is not a refusal: the file has arrived, so it is
+        // not abandoned (that would remove it); it is cleared in time if the
+        // upload is not tried again.
+        if (done.status >= 500) startedId = null;
+        toast.error(await readError(done, "The file could not be checked. Please try again."));
         return;
       }
       startedId = null;
@@ -259,19 +266,19 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
           className={`${iconButton} text-muted-foreground hover:bg-muted hover:text-foreground`}
           title={`Replace ${file.filename}`}
           aria-label={`Replace ${file.filename}`}
-          disabled={busy !== null}
+          disabled={busy !== null || removing !== null}
           onClick={() => pick(slotKey, file.id)}
         >
           <RefreshCw className="h-4 w-4" />
         </button>
       )}
-      {canUpload && (
+      {canUpload && (staff || file.uploadedVia === "speaker-form") && (
         <button
           type="button"
-          className={`${iconButton} text-destructive hover:bg-destructive/10`}
+          className={`${iconButton} ml-1 text-destructive hover:bg-destructive/10`}
           title={`Remove ${file.filename}`}
           aria-label={`Remove ${file.filename}`}
-          disabled={removing === file.id || busy !== null}
+          disabled={removing !== null || busy !== null}
           onClick={() => void remove(file)}
         >
           {removing === file.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}

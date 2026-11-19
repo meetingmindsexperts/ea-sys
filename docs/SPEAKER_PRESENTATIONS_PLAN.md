@@ -338,6 +338,28 @@ Several files per talk (the same day, after the owner asked):
 - **Two uploads finishing at once are judged one after the other:** the
   completion locks the speaker's row before it counts the talk's files.
 
+After the review of `d6dfd99c` (the same day):
+
+- **An upload in flight is left alone** unless the new one is a retry of the
+  same thing (the same file replaced, or adds beyond the talk's room). A
+  different file starting for the same talk no longer cancels a video ten
+  minutes in. The talk's refusals come before anything is cancelled.
+- **Only an upload still in flight becomes READY**, claimed in the locked
+  transaction before the file it replaces is touched. The lock is
+  `FOR NO KEY UPDATE`, and a speaker gone meanwhile answers not found.
+- **The speaker removes only a READY file they sent**, and the row is kept
+  (REPLACED) so staff can recover it; a file staff uploaded can be replaced
+  by the speaker, not removed. Nothing while presentations are switched off.
+- **A server error on completion no longer abandons the upload** (the file
+  has arrived); docs/ROLLBACK.md says not to roll back past `d6dfd99c` while
+  a talk holds two files.
+
+The organiser chooses what the form collects (owner, Nov 19, 2026: "give
+control to organizer just like reimbursement"): photo, bio, passport copy,
+cover letter, presentation, asked or not. A presentation not asked hides the
+section and its uploads are refused (`NOT_ASKED`); a speaker asked for a
+presentation only sees just that. Rules: `src/lib/speaker-profile/constants.ts`.
+
 How it differs from the plan above:
 
 - **A switch, off by default on S3.** `SPEAKER_PRESENTATIONS_ENABLED`

@@ -22,7 +22,7 @@ import {
   profileSubmitSchema,
   PROFILE_DOC_LABELS,
 } from "@/lib/speaker-profile/constants";
-import { loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
+import { askedItemsForForm, loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
 import { syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
@@ -73,6 +73,8 @@ export async function GET(req: Request, { params }: RouteParams) {
           jobTitle: row.speaker.jobTitle,
         },
         documents: row.speaker.documents,
+        // What this speaker is asked for; the page shows only these.
+        items: askedItemsForForm(row),
       });
     });
   } catch (err) {
@@ -126,8 +128,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
 
-      // Server-side completeness gate (the form is a bypassable client).
-      if (!row.speaker.photo) {
+      // Server-side completeness gate (the form is a bypassable client), for
+      // what THIS speaker is asked for: an item that is not asked is never
+      // missing, and is never taken.
+      const asked = askedItemsForForm(row);
+      if (asked.includes("photo") && !row.speaker.photo) {
         apiLogger.warn({ slug, formId: row.id }, "speaker-form:missing-photo");
         return NextResponse.json(
           { error: "Please upload your photo before submitting.", code: "MISSING_PHOTO" },
@@ -136,6 +141,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
       const missing = missingProfileDocSlots(
         row.speaker.documents.map((d) => d.label ?? ""),
+        asked,
       );
       if (missing.length > 0) {
         apiLogger.warn({ slug, formId: row.id, missing }, "speaker-form:missing-documents");
@@ -149,7 +155,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
 
-      const bio = parsed.data.bio?.trim() || null;
+      const bio = asked.includes("bio") ? parsed.data.bio?.trim() || null : null;
       const claimed = await tenantTransaction(async (tx) => {
         // Conditional claim — two tabs submitting race to ONE submission.
         const claim = await tx.speakerProfileForm.updateMany({

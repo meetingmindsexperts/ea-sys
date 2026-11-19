@@ -9,6 +9,7 @@
  */
 
 import crypto from "crypto";
+import { askedProfileItems, type ProfileItemKey } from "@/lib/speaker-profile/constants";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
@@ -63,6 +64,9 @@ export async function loadProfileFormForSlug(req: Request, slug: string, token: 
           bio: true,
           organization: true,
           jobTitle: true,
+          // The speaker's own list of what the form asks, when it differs
+          // from the event's (askedItemsForForm below).
+          profileFormItems: true,
           documents: {
             where: { kind: "OTHER" },
             select: { id: true, label: true, filename: true, size: true, createdAt: true },
@@ -76,6 +80,9 @@ export async function loadProfileFormForSlug(req: Request, slug: string, token: 
           slug: true,
           name: true,
           organizationId: true,
+          // For `speakerProfile.items`, the event's default of what is asked.
+          // Never sent to the browser: the routes send the computed list.
+          settings: true,
           bannerImage: true,
           bannerImageMobile: true,
           startDate: true,
@@ -106,3 +113,13 @@ export async function loadProfileFormForSlug(req: Request, slug: string, token: 
     },
   };
 }
+
+/**
+ * What the speaker behind a form link is asked for (Nov 19, 2026): their own
+ * list when the organiser set one, else the event's default. Every public
+ * door of the form asks this before it shows or accepts an item.
+ */
+export function askedItemsForForm(form: { speaker: { profileFormItems: unknown }; event: { settings: unknown } }): ProfileItemKey[] {
+  return askedProfileItems({ eventSettings: form.event.settings, speakerItems: form.speaker.profileFormItems });
+}
+

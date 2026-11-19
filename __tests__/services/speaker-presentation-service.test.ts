@@ -22,7 +22,7 @@ const { mockDb, storage } = vi.hoisted(() => ({
     },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
     // The completion locks the speaker's row inside its transaction.
-    $queryRaw: vi.fn().mockResolvedValue([]),
+    $queryRaw: vi.fn(),
   },
   storage: {
     provider: "s3" as string,
@@ -55,6 +55,7 @@ vi.mock("@/lib/storage", () => ({
 import {
   abandonPresentationUpload,
   completePresentationUpload,
+  deleteSpeakerPresentation,
   listSpeakerPresentations,
   presentationDownload,
   presentationsAvailable,
@@ -82,6 +83,7 @@ beforeEach(() => {
   mockDb.speakerPresentation.findMany.mockResolvedValue([]);
   mockDb.speakerPresentation.create.mockResolvedValue({});
   mockDb.speakerPresentation.updateMany.mockResolvedValue({ count: 1 });
+  mockDb.$queryRaw.mockResolvedValue([{ id: "sp1" }]);
   storage.signDirectUpload.mockResolvedValue({ via: "s3", url: "https://bucket.example/", fields: { key: "k", Policy: "p" } });
   storage.deleteStoredFile.mockResolvedValue(undefined);
 });
@@ -147,7 +149,7 @@ describe("starting an upload", () => {
   });
 
   it("holds a speaker to a number of files and a total size, so a leaked link cannot fill the bucket", async () => {
-    // Inside start: the stale sweep, the talk's earlier tries, the talk's files, then the quota read.
+    // Inside start: the stale sweep, the talk's files, what is in flight for it, then the quota read.
     const quota = (rows: unknown[]) =>
       mockDb.speakerPresentation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(rows);
     quota(Array.from({ length: PRESENTATION_MAX_FILES_PER_SPEAKER }, () => ({ size: BigInt(1) })));
@@ -159,28 +161,67 @@ describe("starting an upload", () => {
 
   // Review of be777c01: each retry held its stated size for a day, so six
   // failed videos locked a speaker (and staff, for them) out.
-  it("ends the talk's earlier unfinished tries", async () => {
-    mockDb.speakerPresentation.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: "try1", url: "/uploads/presentations/ev1/sp1/try1.pdf" }]);
-    expect((await startPresentationUpload(input)).ok).toBe(true);
-    // The talk's own UPLOADING rows, by its topic.
-    expect(mockDb.speakerPresentation.findMany.mock.calls[1][0].where).toMatchObject({ speakerId: "sp1", status: "UPLOADING", topicId: "t1" });
-    expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["try1"] }, status: "UPLOADING" }, data: { status: "FAILED" } });
-    expect(storage.deleteStoredFile).toHaveBeenCalledWith("/uploads/presentations/ev1/sp1/try1.pdf", "/uploads/presentations/");
+  describe("an upload already in flight for the talk", () => {
+    /** stale sweep, the talk's READY files, its UPLOADING rows, then the rows to end. */
+    const reads = (ready: string[], inFlight: { id: string; replacesId: string | null }[], toEnd: { id: string; url: string }[] = []) =>
+      mockDb.speakerPresentation.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(ready.map((id) => ({ id })))
+        .mockResolvedValueOnce(inFlight)
+        .mockResolvedValueOnce(toEnd);
+
+    // Review of d6dfd99c: with several files a talk, an add and a replace are
+    // different files: ending every upload in flight lost a video ten minutes
+    // in when staff added a backup PDF.
+    it("is left alone when it is a different file and the talk has room for both", async () => {
+      reads(["a"], [{ id: "video", replacesId: null }]);
+      expect((await startPresentationUpload(input)).ok).toBe(true);
+      expect(mockDb.speakerPresentation.updateMany).not.toHaveBeenCalled();
+      expect(storage.deleteStoredFile).not.toHaveBeenCalled();
+    });
+
+    it("is ended when this is a retry of the same replacement", async () => {
+      reads(["a"], [{ id: "try1", replacesId: "a" }, { id: "other", replacesId: null }], [{ id: "try1", url: "/uploads/presentations/ev1/sp1/try1.pdf" }]);
+      expect((await startPresentationUpload({ ...input, replaces: "a" })).ok).toBe(true);
+      expect(mockDb.speakerPresentation.findMany.mock.calls[3][0].where).toMatchObject({ id: { in: ["try1"] }, status: "UPLOADING" });
+      expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["try1"] }, status: "UPLOADING" }, data: { status: "FAILED" } });
+      expect(storage.deleteStoredFile).toHaveBeenCalledWith("/uploads/presentations/ev1/sp1/try1.pdf", "/uploads/presentations/");
+    });
+
+    it("ends only the oldest added files that could not all land beside this one", async () => {
+      // Two READY, so room for one more: this add takes it, so both earlier adds end.
+      reads(["a", "b"], [{ id: "old1", replacesId: null }, { id: "old2", replacesId: null }], [{ id: "old1", url: "u1" }, { id: "old2", url: "u2" }]);
+      expect((await startPresentationUpload(input)).ok).toBe(true);
+      expect(mockDb.speakerPresentation.findMany.mock.calls[3][0].where).toMatchObject({ id: { in: ["old1", "old2"] } });
+      // One READY: room for two more, so only the older of two earlier adds ends.
+      vi.clearAllMocks();
+      mockDb.speakerPresentation.create.mockResolvedValue({});
+      mockDb.speakerPresentation.updateMany.mockResolvedValue({ count: 1 });
+      storage.signDirectUpload.mockResolvedValue({ via: "s3", url: "https://bucket.example/", fields: {} });
+      reads(["a"], [{ id: "old1", replacesId: null }, { id: "old2", replacesId: null }], [{ id: "old1", url: "u1" }]);
+      expect((await startPresentationUpload(input)).ok).toBe(true);
+      expect(mockDb.speakerPresentation.findMany.mock.calls[3][0].where).toMatchObject({ id: { in: ["old1"] } });
+    });
+
+    it("is never ended by a start that is itself refused", async () => {
+      reads(["a", "b", "c"], [{ id: "video", replacesId: null }]);
+      expect(await startPresentationUpload(input)).toMatchObject({ ok: false, code: "TALK_FULL" });
+      expect(mockDb.speakerPresentation.updateMany).not.toHaveBeenCalled();
+    });
   });
 
   // Owner, Nov 19, 2026: "can they upload multiple if needed?" Up to three a talk.
   describe("several files for one talk", () => {
+    /** stale sweep, then the talk's READY files, then nothing in flight. */
     const talkHas = (...ids: string[]) =>
-      mockDb.speakerPresentation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(ids.map((id) => ({ id })));
+      mockDb.speakerPresentation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce(ids.map((id) => ({ id }))).mockResolvedValueOnce([]);
 
     it("adds a file beside the others while the talk has room", async () => {
       talkHas("a", "b");
       expect((await startPresentationUpload(input)).ok).toBe(true);
       expect(mockDb.speakerPresentation.create.mock.calls[0][0].data.replacesId).toBeNull();
       // The talk's READY files, by its topic.
-      expect(mockDb.speakerPresentation.findMany.mock.calls[2][0].where).toEqual({ eventId: "ev1", speakerId: "sp1", status: "READY", topicId: "t1" });
+      expect(mockDb.speakerPresentation.findMany.mock.calls[1][0].where).toEqual({ eventId: "ev1", speakerId: "sp1", status: "READY", topicId: "t1" });
     });
 
     it("refuses a fourth, and says to replace or remove one", async () => {
@@ -265,10 +306,28 @@ describe("completing an upload", () => {
     expect(res).toMatchObject({ ok: true, presentation: { id: "p1", status: "READY", size: 4321, slotKey: "topic:t1" } });
     // The signature is read from the version just measured.
     expect(storage.readStoredFileStart).toHaveBeenCalledWith(uploading.url, "/uploads/presentations/", 16, "v-checked");
-    expect(mockDb.speakerPresentation.update).toHaveBeenCalledWith({
-      where: { id: "p1" },
+    // Only an upload still in flight becomes READY (review of d6dfd99c).
+    expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({
+      where: { id: "p1", status: "UPLOADING" },
       data: expect.objectContaining({ status: "READY", size: BigInt(4321), s3VersionId: "v-checked", etag: '"abc"' }),
     });
+  });
+
+  // Review of d6dfd99c: a newer try ended this upload while its file was being
+  // checked; making it READY afterwards would show a file whose object is gone.
+  it("stays failed when it was ended while its file was being checked, and replaces nothing", async () => {
+    mockDb.speakerPresentation.findFirst.mockResolvedValue({ ...uploading, replacesId: "p0" });
+    mockDb.speakerPresentation.findMany.mockResolvedValue([{ id: "p0", url: "/uploads/presentations/ev1/sp1/p0.pdf" }]);
+    mockDb.speakerPresentation.updateMany.mockResolvedValueOnce({ count: 0 });
+    expect(await completePresentationUpload(input)).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledTimes(1);
+    expect(storage.deleteStoredFile).not.toHaveBeenCalled();
+  });
+
+  it("answers not found, rather than failing, when the speaker is gone", async () => {
+    mockDb.$queryRaw.mockResolvedValueOnce([]);
+    expect(await completePresentationUpload(input)).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(mockDb.speakerPresentation.updateMany).not.toHaveBeenCalled();
   });
 
   it("adds the file beside the talk's others, touching none of them", async () => {
@@ -276,7 +335,8 @@ describe("completing an upload", () => {
     expect((await completePresentationUpload(input)).ok).toBe(true);
     // By the topic alone: a topic moved to another session is still the same talk.
     expect(mockDb.speakerPresentation.findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", speakerId: "sp1", topicId: "t1", status: "READY", id: { not: "p1" } });
-    expect(mockDb.speakerPresentation.updateMany).not.toHaveBeenCalled();
+    // The claim on this row is the one write; nothing else of the talk is touched.
+    expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledTimes(1);
     expect(storage.deleteStoredFile).not.toHaveBeenCalled();
     // The speaker's row is locked before the talk's files are counted.
     expect(mockDb.$queryRaw).toHaveBeenCalledTimes(1);
@@ -298,7 +358,7 @@ describe("completing an upload", () => {
     mockDb.speakerPresentation.findMany.mockResolvedValue([{ id: "a", url: "u/a" }, { id: "b", url: "u/b" }, { id: "c", url: "u/c" }]);
     const res = await completePresentationUpload(input);
     expect(res).toMatchObject({ ok: false, code: "TALK_FULL" });
-    expect(mockDb.speakerPresentation.update).not.toHaveBeenCalled();
+    expect(mockDb.speakerPresentation.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "READY" }) }));
     expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: "p1", status: "UPLOADING" }, data: { status: "FAILED" } });
     expect(storage.deleteStoredFile).toHaveBeenCalledWith(uploading.url, "/uploads/presentations/");
   });
@@ -309,7 +369,7 @@ describe("completing an upload", () => {
     expect(res).toMatchObject({ ok: false, code: "SIGNATURE_MISMATCH" });
     expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: "p1", status: "UPLOADING" }, data: { status: "FAILED" } });
     expect(storage.deleteStoredFile).toHaveBeenCalledWith(uploading.url, "/uploads/presentations/");
-    expect(mockDb.speakerPresentation.update).not.toHaveBeenCalled();
+    expect(mockDb.speakerPresentation.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "READY" }) }));
   });
 
   // Review of be777c01: with no version to name, every later read is unpinned
@@ -317,7 +377,7 @@ describe("completing an upload", () => {
   it("refuses to pass a file on S3 when the bucket gives no version to pin", async () => {
     storage.headStoredFile.mockResolvedValue({ size: 4321, versionId: null, etag: null });
     expect((await completePresentationUpload(input)).ok).toBe(false);
-    expect(mockDb.speakerPresentation.update).not.toHaveBeenCalled();
+    expect(mockDb.speakerPresentation.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "READY" }) }));
     // The local provider has no versions, and that is fine there.
     storage.provider = "local";
     expect((await completePresentationUpload(input)).ok).toBe(true);
@@ -336,6 +396,33 @@ describe("completing an upload", () => {
     mockDb.speakerPresentation.findFirst.mockResolvedValue(null);
     expect(await completePresentationUpload(input)).toMatchObject({ ok: false, code: "NOT_FOUND" });
     expect(mockDb.speakerPresentation.findFirst.mock.calls[0][0].where).toEqual({ id: "p1", eventId: "ev1", speakerId: "sp1" });
+  });
+});
+
+// Review of d6dfd99c: the speaker's link is a plain URL that gets forwarded.
+describe("removing a file", () => {
+  const ready = { id: "p1", url: "/uploads/presentations/ev1/sp1/p1.pdf", filename: "Deck.pdf", sessionId: "s1", topicId: "t1" };
+
+  it("on the speaker's link: only a READY file they sent, and the row is kept", async () => {
+    mockDb.speakerPresentation.findFirst.mockResolvedValue(ready);
+    expect(await deleteSpeakerPresentation({ ...scope, presentationId: "p1", actor: speakerActor })).toEqual({ ok: true });
+    expect(mockDb.speakerPresentation.findFirst.mock.calls[0][0].where).toEqual({ id: "p1", eventId: "ev1", speakerId: "sp1", status: "READY", uploadedVia: "speaker-form" });
+    expect(mockDb.speakerPresentation.delete).not.toHaveBeenCalled();
+    expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: "p1", status: "READY" }, data: { status: "REPLACED" } });
+    expect(storage.deleteStoredFile).toHaveBeenCalledWith(ready.url, "/uploads/presentations/");
+  });
+
+  it("on the speaker's link: nothing while presentations are switched off", async () => {
+    vi.stubEnv("SPEAKER_PRESENTATIONS_ENABLED", "");
+    expect(await deleteSpeakerPresentation({ ...scope, presentationId: "p1", actor: speakerActor })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(mockDb.speakerPresentation.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("by staff: any file of the speaker, for good", async () => {
+    mockDb.speakerPresentation.findFirst.mockResolvedValue(ready);
+    expect(await deleteSpeakerPresentation({ ...scope, presentationId: "p1", actor: { source: "staff", userId: "u1" } })).toEqual({ ok: true });
+    expect(mockDb.speakerPresentation.findFirst.mock.calls[0][0].where).toEqual({ id: "p1", eventId: "ev1", speakerId: "sp1" });
+    expect(mockDb.speakerPresentation.delete).toHaveBeenCalledWith({ where: { id: "p1" } });
   });
 });
 

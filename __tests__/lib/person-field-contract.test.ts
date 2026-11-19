@@ -69,6 +69,7 @@ const NOT_A_PERSON_FIELD: Record<PersonRecord, Record<string, string>> = {
     honorariumAmount: "programme money",
     honorariumCurrency: "programme money",
     reimbursementClaimItems: "programme money",
+    profileFormItems: "what the organiser asks this speaker's form for",
     agreementAcceptedAt: "speaker agreement record",
     agreementAcceptedIp: "speaker agreement record",
     agreementAcceptedBy: "speaker agreement record",

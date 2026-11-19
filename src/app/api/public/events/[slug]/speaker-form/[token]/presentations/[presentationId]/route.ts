@@ -1,9 +1,9 @@
 /**
  * One of the speaker's own presentations, on their form link (Nov 19, 2026).
  *
- *   DELETE            removes a file they sent (a talk holds up to three, so
- *                     "replace" alone was not enough); closed once the event
- *                     has ended, as uploading is
+ *   DELETE            removes a READY file THEY sent (never one staff
+ *                     uploaded; the row is kept, so staff can recover it);
+ *                     closed once the event has ended, as uploading is
  *   DELETE ?abandon=1 the upload failed in the browser: the row stops
  *                     holding quota. Only ever an upload still in flight.
  */
@@ -35,8 +35,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "This link is invalid." }, { status: 404 });
       }
       const scope = { eventId: form.eventId, organizationId: form.event.organizationId, speakerId: form.speaker.id };
-      if (new URL(req.url).searchParams.get("abandon") === "1") {
-        return NextResponse.json(await abandonPresentationUpload({ ...scope, presentationId: p.presentationId }));
+      // An upload still in flight is only ever abandoned, whatever was asked:
+      // a page open since before removal existed sends a bare DELETE to mean
+      // exactly that. Abandon touches nothing that is not UPLOADING.
+      const abandoned = await abandonPresentationUpload({ ...scope, presentationId: p.presentationId });
+      if (abandoned.abandoned || new URL(req.url).searchParams.get("abandon") === "1") {
+        return NextResponse.json(abandoned);
       }
       if (form.event.endDate && form.event.endDate.getTime() < Date.now()) {
         apiLogger.warn({ slug: p.slug, formId: form.id }, "speaker-form-presentation:event-ended");

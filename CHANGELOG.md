@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The organiser chooses what each speaker's form link collects (November 19)
+
+The speaker form used to ask every speaker for the same things, and a local or webinar speaker could not submit without a passport copy they had no reason to send. Now the organiser ticks what the link asks for: photo, bio, passport copy, cover letter or CV, presentation.
+
+- **For the event, and for one speaker:** an event-wide default, and on any speaker's page "What this speaker is asked for", with "Use the event's default" or a list of their own (the way reimbursement types work).
+- **Asked or not:** an item that is asked keeps its rules (a photo and a passport copy are required, a bio and a cover letter are not, a presentation never holds up the form). An item that is not asked is not shown and is refused if sent.
+- **A presentation only:** the page shows just "Your presentation", with nothing to submit.
+- **An event that never chose** asks for all five, exactly as before.
+
+Also from the review of the several-files change: an upload in flight is no longer cancelled by a different file starting for the same talk; an upload cancelled while its file was being checked can no longer show as received; a speaker can remove only a file they sent (one staff uploaded can be replaced, not removed), and the record is kept so staff can recover it.
+
 ### Greek letters print in PDFs (November 19)
 
 The PDFs use the built-in Helvetica font, which cannot draw Greek. The shared cleaner the speaker agreement, certificates, the reimbursement PDF and the venue PDFs pass their text through turned every Greek letter into "?", so the agreement for "Improving Outcomes in β-Thalassemia" read "?-Thalassemia". The cleaner (`src/lib/pdf/pdf-text.ts`) now writes a Greek letter out by name (β becomes "beta", Δ "Delta"), from the same table event web addresses use (`greekLetterName` in `src/lib/event-slug.ts`), and Greek mu becomes the micro sign, so "5 μg" stays "5 µg". The agreement's heading, subtitle and signature lines now go through it as well. Arabic, Chinese and emoji still print as "?": drawing them needs a font embedded in the PDF.

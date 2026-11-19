@@ -31,6 +31,7 @@ import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { usePreviewEmailBySlug } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { useCan } from "@/hooks/use-can";
+import { SpeakerProfileItemsControl } from "@/components/speakers/profile-items-control";
 
 interface Props {
   eventId: string;
@@ -171,14 +172,16 @@ export function SpeakerProfileFormCard({ eventId, speakerId }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* What the link collects (Nov 19, 2026): the organiser's choice,
+            for the event and for this speaker. */}
+        <SpeakerProfileItemsControl eventId={eventId} speakerId={speakerId} />
         {loading && (
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         )}
         {!loading && (!form ? (
           <>
             <p className="text-sm text-muted-foreground">
-              Send the speaker a personalized link to upload their photo and passport
-              photocopy (plus an optional cover letter) and review their bio.
+              Send the speaker a personalized link to send what is ticked above.
             </p>
             <Button size="sm" disabled={busy} onClick={() => setSendOpen(true)}>
               <Send className="h-4 w-4 mr-1" /> Send the form
@@ -215,7 +218,8 @@ export function SpeakerProfileFormCard({ eventId, speakerId }: Props) {
             </div>
             {form.status === "SUBMITTED" && (
               <p className="text-xs text-muted-foreground">
-                The photo is on this profile; passport/cover letter are on the Documents card.
+                The photo is on this profile; a passport copy or cover letter is on the Documents card; presentations are on the
+                Presentations card.
               </p>
             )}
           </>

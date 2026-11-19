@@ -47,7 +47,10 @@ vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: notifySpy }));
 vi.mock("@/lib/event-access", () => ({
   buildEventAccessWhere: (_u: unknown, id: string) => ({ id, organizationId: "org1" }),
 }));
-vi.mock("@/lib/speaker-profile/server", () => ({
+vi.mock("@/lib/speaker-profile/server", async (orig) => ({
+  // The real rule for what a form asks (Nov 19, 2026): a loaded row without
+  // settings or a list of its own asks for everything, as before.
+  askedItemsForForm: (await orig<typeof import("@/lib/speaker-profile/server")>()).askedItemsForForm,
   generateProfileFormToken: () => "tok_generated",
   resolveProfileFormEventOrg: (...a: unknown[]) => mockResolveOrg(...a),
   loadProfileFormForSlug: (...a: unknown[]) => mockLoad(...a),
@@ -166,6 +169,29 @@ describe("public speaker-form submit", () => {
     expect(res.status).toBe(400);
     expect(body.code).toBe("MISSING_DOCUMENTS");
     expect(body.missing).toEqual(["passport"]);
+  });
+
+  // Owner, Nov 19, 2026: the organiser chooses what the form asks. A local
+  // speaker not asked for a passport copy, or a photo, is not held up by one.
+  it("submits without the items this speaker is not asked for, and ignores a bio not asked", async () => {
+    const row = structuredClone(baseRow) as typeof baseRow & { speaker: { profileFormItems?: unknown; photo: unknown } };
+    row.speaker.documents = [] as never;
+    row.speaker.photo = null as never;
+    row.speaker.profileFormItems = ["cover_letter"];
+    mockLoad.mockResolvedValue(row);
+    const res = await PUBLIC_SUBMIT(jsonReq({ bio: "Not asked" }), publicParams);
+    expect(res.status).toBe(200);
+    expect(mockDb.speaker.update).not.toHaveBeenCalled();
+  });
+
+  it("follows the event's default when the speaker has no list of their own", async () => {
+    const row = structuredClone(baseRow) as typeof baseRow & { event: { settings?: unknown } };
+    row.speaker.documents = [] as never;
+    row.event.settings = { speakerProfile: { items: ["photo", "passport"] } };
+    mockLoad.mockResolvedValue(row);
+    const res = await PUBLIC_SUBMIT(jsonReq({}), publicParams);
+    expect(res.status).toBe(400);
+    expect((await res.json()).missing).toEqual(["passport"]);
   });
 
   it("submits: conditional PENDING claim + bio write + audit + admin notify", async () => {

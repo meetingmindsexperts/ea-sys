@@ -58,6 +58,8 @@ SWEPT=(
   "src/app/api/events/[eventId]/speakers/[speakerId]/presentations/[presentationId]/route.ts"
   "src/app/api/events/[eventId]/speakers/[speakerId]/presentations/[presentationId]/complete/route.ts"
   "src/app/api/events/[eventId]/speakers/[speakerId]/presentations/[presentationId]/file/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/profile-form-items/route.ts"
+  "src/app/api/events/[eventId]/speakers/profile-form-settings/route.ts"
   "src/app/api/events/[eventId]/speakers/[speakerId]/email/route.ts"
   "src/app/api/events/[eventId]/speakers/[speakerId]/grant-companion/route.ts"
   "src/app/api/events/[eventId]/speakers/[speakerId]/profile-form/route.ts"

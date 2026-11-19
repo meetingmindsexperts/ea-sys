@@ -93,6 +93,10 @@ From the review of `be777c01` (docs/SPEAKER_PRESENTATIONS_PLAN.md, phases 1 and 
 - **LOW: tests owed.** A SpeakerPresentation case in `tests/tenancy/speaker-rls.test.ts`, and route-level tests of the public door (a token for another event, another speaker's presentation id); today the browser test covers a bad token only.
 - **LOW: the screen.** Keyboard focus is lost when the Upload button becomes the progress bar; the cards below jump when the Presentations card appears after loading; on the local storage provider the proxy's 10.5 MB limit answers 413 while the card says 200 MB (developers only).
 
+- **LOW (review of `d6dfd99c`): two files of a talk can share a name**, so their Replace and Remove labels read the same. Add the size or time to the label.
+- **LOW: the Remove button is small and close to Replace** on a phone. A larger target, or Remove inside a menu.
+- **LOW: after the event ends the speaker still sees Replace, Remove and Add**, and each answers "closed". Hide them once the event has ended.
+- **LOW: the staff Presentations card shows for a speaker not asked for a presentation.** Staff may still upload one for them, which is intended; consider saying "not asked" on the card.
 ## Import from Contacts and reimbursement downloads: what the Nov 19 reviews left (recorded Nov 19, 2026): not started
 
 From the reviews of `387a3604` and `5ff51782` (a full name finds the contact, the paged add-from-contacts dialog, one-click document download).

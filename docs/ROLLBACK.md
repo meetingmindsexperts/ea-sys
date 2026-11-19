@@ -207,6 +207,20 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   Read-only check:
   `SELECT "sessionId", "speakerId", "customRoleKey" FROM "SessionSpeaker" WHERE "customRoleKey" IS NOT NULL;`.
 
+- **Speaker presentations, several files per talk (Nov 19, 2026; `d6dfd99c`, migration
+  `20261119160000_speaker_presentation_replaces`).** Since `d6dfd99c` a talk holds up to three
+  files and an upload replaces only the ONE file it names. An image from before it (`be777c01`
+  to `28164491`) treats every completed upload as a replacement of the talk's whole set: the
+  first upload finished on the old image marks every other READY file of that talk REPLACED
+  and hides its object, with nothing said to anyone. Before rolling back past it, either
+  confirm no talk holds two files, or switch uploads off first (`SPEAKER_PRESENTATIONS_ENABLED`
+  unset in `.env`). Read-only check:
+  `SELECT "speakerId", COALESCE("topicId", "sessionId") AS talk, count(*) FROM "SpeakerPresentation" WHERE status = 'READY' GROUP BY 1, 2 HAVING count(*) > 1;`.
+  If it happened: the rows are kept (REPLACED) with their `url` and `s3VersionId`, and the
+  bucket keeps a hidden version for 90 days; remove the object's delete marker and set the row
+  READY again. The nullable columns the newer images added (`replacesId`,
+  `Speaker.profileFormItems`) are simply ignored by an older one.
+
 - **The onsite desk source (`ONSITE_DESK`, Nov 2, 2026; migration
   `20261102120000_add_onsite_desk_source`).** Once the desk has registered a walk-in, an image
   older than this release cannot read that registration: its Prisma client throws on the

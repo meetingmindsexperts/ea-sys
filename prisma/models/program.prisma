@@ -42,6 +42,11 @@ model Speaker {
   /// (absent there = all five). On Speaker, like the honorarium, so it is
   /// settable before any reimbursement link exists.
   reimbursementClaimItems        Json?
+  /// What THIS speaker's form link asks for (photo, bio, passport, cover
+  /// letter, presentation), when it differs from the event's default in
+  /// `Event.settings.speakerProfile.items`. NULL = the event default. See
+  /// src/lib/speaker-profile/constants.ts.
+  profileFormItems               Json?
   tags                           String[]      @default([])
   socialLinks                    Json          @default("{}")
   status                         SpeakerStatus @default(INVITED)
