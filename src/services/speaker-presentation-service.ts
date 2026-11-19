@@ -38,6 +38,7 @@ import {
   PRESENTATION_MAX_BYTES,
   PRESENTATION_MAX_BYTES_PER_SPEAKER,
   PRESENTATION_MAX_FILES_PER_SPEAKER,
+  PRESENTATION_MAX_FILES_PER_TALK,
   PRESENTATION_SIGNATURE_BYTES,
   PRESENTATION_STALE_UPLOAD_MS,
   PRESENTATION_UPLOAD_SECONDS,
@@ -214,6 +215,8 @@ export async function listSpeakerPresentations(
 // ── Starting an upload ───────────────────────────────────────────────────────
 
 export type StartUploadErrorCode =
+  | "TALK_FULL"
+  | "REPLACED_FILE_NOT_FOUND"
   | "UPLOADS_UNAVAILABLE"
   | "TYPE_NOT_ALLOWED"
   | "FILE_TOO_LARGE"
@@ -267,9 +270,17 @@ export async function abandonPresentationUpload(
 }
 
 export async function startPresentationUpload(
-  input: SpeakerScope & { slotKey: string; filename: string; size: number; actor: PresentationActor },
+  input: SpeakerScope & {
+    slotKey: string;
+    filename: string;
+    size: number;
+    /** The file of this talk the upload replaces. Absent: it is added beside the others. */
+    replaces?: string | null;
+    actor: PresentationActor;
+  },
 ): Promise<StartUploadResult> {
   const { eventId, organizationId, speakerId, slotKey, size, actor } = input;
+  const replaces = input.replaces || null;
   const filename = truncateFilename(input.filename.trim(), 200);
   const refuse = (code: StartUploadErrorCode, message: string): StartUploadResult => {
     apiLogger.warn({ msg: "speaker-presentation:start-refused", code, eventId, speakerId, source: actor.source });
@@ -295,9 +306,23 @@ export async function startPresentationUpload(
     "superseded",
   );
 
+  // A talk holds up to PRESENTATION_MAX_FILES_PER_TALK files. This upload
+  // either replaces one of them, which must be a READY file of this talk, or
+  // is added beside them, which needs room.
+  const inTalk = await db.speakerPresentation.findMany({
+    where: { eventId, speakerId, status: "READY", ...slotWhere(slot) },
+    select: { id: true },
+  });
+  if (replaces && !inTalk.some((f) => f.id === replaces)) {
+    return refuse("REPLACED_FILE_NOT_FOUND", "The file being replaced is no longer there. Reload the page and try again.");
+  }
+  if (!replaces && inTalk.length >= PRESENTATION_MAX_FILES_PER_TALK) {
+    return refuse("TALK_FULL", `A talk can hold up to ${PRESENTATION_MAX_FILES_PER_TALK} files. Replace or remove one first.`);
+  }
+
   // The file this upload will replace does not count against the room for it.
   const held = await db.speakerPresentation.findMany({
-    where: { eventId, speakerId, status: { in: ["READY", "UPLOADING"] }, NOT: { status: "READY", ...slotWhere(slot) } },
+    where: { eventId, speakerId, status: { in: ["READY", "UPLOADING"] }, ...(replaces ? { id: { not: replaces } } : {}) },
     select: { size: true },
   });
   if (held.length >= PRESENTATION_MAX_FILES_PER_SPEAKER) {
@@ -336,6 +361,7 @@ export async function startPresentationUpload(
       size: BigInt(Math.floor(size)),
       uploadedVia: actor.source,
       uploadedById: actor.userId ?? null,
+      replacesId: replaces,
     },
   });
   apiLogger.info({ msg: "speaker-presentation:upload-started", eventId, speakerId, presentationId: id, ext: type.ext, size, via: upload.via, source: actor.source });
@@ -370,7 +396,7 @@ export async function receiveLocalPresentationFile(
 
 // ── Completing an upload ─────────────────────────────────────────────────────
 
-export type CompleteUploadErrorCode = "NOT_FOUND" | "UPLOAD_NOT_FOUND" | "FILE_TOO_LARGE" | "SIGNATURE_MISMATCH";
+export type CompleteUploadErrorCode = "NOT_FOUND" | "UPLOAD_NOT_FOUND" | "FILE_TOO_LARGE" | "SIGNATURE_MISMATCH" | "TALK_FULL";
 
 export type CompleteUploadResult =
   | { ok: true; presentation: PresentationView }
@@ -382,7 +408,7 @@ export async function completePresentationUpload(
   const { eventId, speakerId, presentationId, actor } = input;
   const row = await db.speakerPresentation.findFirst({
     where: { id: presentationId, eventId, speakerId },
-    select: { ...VIEW_SELECT, url: true },
+    select: { ...VIEW_SELECT, url: true, replacesId: true },
   });
   if (!row || row.status === "FAILED" || row.status === "REPLACED") {
     apiLogger.warn({ msg: "speaker-presentation:complete-not-found", eventId, speakerId, presentationId, source: actor.source });
@@ -398,7 +424,7 @@ export async function completePresentationUpload(
     return { ok: false, code: "UPLOAD_NOT_FOUND", message: "The file did not arrive. Try the upload again." };
   }
 
-  const fail = async (code: "FILE_TOO_LARGE" | "SIGNATURE_MISMATCH", message: string): Promise<CompleteUploadResult> => {
+  const fail = async (code: "FILE_TOO_LARGE" | "SIGNATURE_MISMATCH" | "TALK_FULL", message: string): Promise<CompleteUploadResult> => {
     await db.speakerPresentation.updateMany({ where: { id: presentationId, status: "UPLOADING" }, data: { status: "FAILED" } });
     await deleteStoredFile(row.url, PREFIX);
     apiLogger.warn({ msg: "speaker-presentation:rejected", code, eventId, speakerId, presentationId, ext: type.ext, size: head.size, source: actor.source });
@@ -420,22 +446,32 @@ export async function completePresentationUpload(
     return fail("SIGNATURE_MISMATCH", `That file is not a real .${type.ext} file. Export it again and upload the new copy.`);
   }
 
-  // One file per talk: the file this one replaces steps aside, in the same
-  // transaction that makes this one READY.
-  const replaced = await tenantTransaction(async (tx) => {
-    const older = await tx.speakerPresentation.findMany({
+  // The file this one was sent to replace steps aside in the same transaction
+  // that makes this one READY; an added file needs the talk to still have
+  // room. The speaker's row is locked first, so two uploads finishing at the
+  // same moment are judged one after the other, never both against the same
+  // count (review of be777c01).
+  const outcome = await tenantTransaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Speaker" WHERE "id" = ${speakerId} FOR UPDATE`;
+    const inTalk = await tx.speakerPresentation.findMany({
       where: { eventId, speakerId, ...slotWhere(row), status: "READY", id: { not: presentationId } },
       select: { id: true, url: true },
     });
-    if (older.length > 0) {
-      await tx.speakerPresentation.updateMany({ where: { id: { in: older.map((o) => o.id) } }, data: { status: "REPLACED" } });
+    const replaced = row.replacesId ? inTalk.filter((f) => f.id === row.replacesId) : [];
+    if (inTalk.length - replaced.length >= PRESENTATION_MAX_FILES_PER_TALK) return { full: true as const };
+    if (replaced.length > 0) {
+      await tx.speakerPresentation.updateMany({ where: { id: { in: replaced.map((o) => o.id) } }, data: { status: "REPLACED" } });
     }
     await tx.speakerPresentation.update({
       where: { id: presentationId },
       data: { status: "READY", size: BigInt(head.size), s3VersionId: head.versionId, etag: head.etag, readyAt: new Date() },
     });
-    return older;
+    return { full: false as const, replaced };
   });
+  if (outcome.full) {
+    return fail("TALK_FULL", `A talk can hold up to ${PRESENTATION_MAX_FILES_PER_TALK} files. Replace or remove one first.`);
+  }
+  const { replaced } = outcome;
   // After the commit, best effort: on a versioned bucket this hides the old
   // object; the bucket's lifecycle rule is what finally removes it.
   await Promise.all(replaced.map((o) => deleteStoredFile(o.url, PREFIX)));
@@ -477,7 +513,12 @@ export async function presentationDownload(
 
 export type DeletePresentationResult = { ok: true } | { ok: false; code: "NOT_FOUND"; message: string };
 
-/** Staff only: remove a file that should not be there. The row goes; the object is hidden (see above). */
+/**
+ * Remove a file: staff, or the speaker on their own link (a talk holds up to
+ * three, so replacing alone was not enough). The row goes; the object is
+ * hidden (see above). The caller has already tied the id to this speaker on
+ * this event, which the lookup repeats.
+ */
 export async function deleteSpeakerPresentation(
   input: SpeakerScope & { presentationId: string; actor: PresentationActor },
 ): Promise<DeletePresentationResult> {

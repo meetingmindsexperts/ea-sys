@@ -17,6 +17,8 @@ export const startPresentationUploadSchema = z.object({
   slotKey: z.string().min(1).max(80),
   filename: z.string().min(1).max(300),
   size: z.number().int().positive(),
+  /** The file of the same talk this upload replaces; left out to add a file beside the others. */
+  replaces: z.string().min(1).max(64).optional(),
 });
 
 /** Every refusal the service can give, and the status it travels under. */
@@ -28,6 +30,8 @@ export const PRESENTATION_STATUS: Record<string, number> = {
   FILE_TOO_LARGE: 400,
   FILE_EMPTY: 400,
   INVALID_SLOT: 409,
+  TALK_FULL: 409,
+  REPLACED_FILE_NOT_FOUND: 409,
   TOO_MANY_FILES: 409,
   QUOTA_EXCEEDED: 409,
   NOT_AVAILABLE: 404,

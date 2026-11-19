@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { CheckCircle2, Download, FileVideo, Loader2, Presentation, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, Download, FileVideo, Loader2, Presentation, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   PRESENTATION_ACCEPT,
   PRESENTATION_MAX_BYTES,
+  PRESENTATION_MAX_FILES_PER_TALK,
   PRESENTATION_TYPES_TEXT,
   formatPresentationSize,
   presentationFileProblem,
@@ -15,7 +16,7 @@ import {
 } from "@/lib/speaker-presentations";
 
 /**
- * A speaker's presentations, one file per talk (Nov 19, 2026;
+ * A speaker's presentations, up to three files per talk (Nov 19, 2026;
  * docs/SPEAKER_PRESENTATIONS_PLAN.md). ONE component for both doors: the
  * speaker's own form link and the staff's speaker page. `apiBase` is the
  * door; the flow is the same on each:
@@ -32,7 +33,7 @@ interface Props {
   /** `/api/events/{id}/speakers/{id}/presentations`, or the speaker form's `.../presentations`. */
   apiBase: string;
   canUpload: boolean;
-  /** Staff only: remove. The speaker sees what they sent, and can only replace it. */
+  /** Staff door: says who uploaded a file. Either door may replace or remove one. */
   staff?: boolean;
   /** Staff holding the files permission: the download link. Never the speaker. */
   canDownload?: boolean;
@@ -80,7 +81,8 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
   const [busy, setBusy] = useState<{ slotKey: string; fraction: number; stage: "sending" | "checking" } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const pendingSlot = useRef<string | null>(null);
+  // What the file chooser is for: the talk, and the file being replaced (none: add one).
+  const pending = useRef<{ slotKey: string; replaces: string | null } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -115,7 +117,7 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
     return () => window.removeEventListener("beforeunload", warn);
   }, [uploading]);
 
-  const upload = async (slotKey: string, file: File) => {
+  const upload = async (slotKey: string, replaces: string | null, file: File) => {
     const problem = presentationFileProblem(file.name, file.size);
     if (problem) {
       toast.error(problem.message);
@@ -130,7 +132,7 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
       const start = await fetch(apiBase, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slotKey, filename: file.name, size: file.size }),
+        body: JSON.stringify({ slotKey, filename: file.name, size: file.size, ...(replaces ? { replaces } : {}) }),
       });
       if (!start.ok) {
         toast.error(await readError(start, "The upload could not be started."));
@@ -176,8 +178,7 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
     } finally {
       if (startedId) {
         // Best effort: the server clears an unfinished upload itself in time.
-        const abandonUrl = staff ? `${apiBase}/${startedId}?abandon=1` : `${apiBase}/${startedId}`;
-        fetch(abandonUrl, { method: "DELETE" }).catch((err) => console.error("[presentations] abandon failed", err));
+        fetch(`${apiBase}/${startedId}?abandon=1`, { method: "DELETE" }).catch((err) => console.error("[presentations] abandon failed", err));
       }
       setBusy(null);
     }
@@ -203,8 +204,8 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
     }
   };
 
-  const pick = (slotKey: string) => {
-    pendingSlot.current = slotKey;
+  const pick = (slotKey: string, replaces: string | null = null) => {
+    pending.current = { slotKey, replaces };
     inputRef.current?.click();
   };
 
@@ -227,12 +228,13 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
   // was sent before the speaker had one): still shown, never lost.
   const orphans = files.filter((f) => !slotKeys.has(f.slotKey));
 
-  const fileRow = (file: PresentationView) => (
-    <div className="flex items-start gap-2 text-sm">
+  const iconButton = "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md disabled:opacity-50";
+  const fileRow = (file: PresentationView, slotKey: string | null) => (
+    <div className="flex items-start gap-1 text-sm">
       {file.kind === "video" ? (
-        <FileVideo className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <FileVideo className="mt-0.5 mr-1 h-4 w-4 shrink-0 text-muted-foreground" />
       ) : (
-        <Presentation className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <Presentation className="mt-0.5 mr-1 h-4 w-4 shrink-0 text-muted-foreground" />
       )}
       <span className="min-w-0 flex-1">
         <span className="block break-words font-medium">{file.filename}</span>
@@ -241,31 +243,39 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
           {staff && file.uploadedVia === "staff" ? " · uploaded by staff" : ""}
         </span>
       </span>
-      {staff && (
-        <>
-          {canDownload && (
-          <a
-            href={`${apiBase}/${file.id}`}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-            title={`Download ${file.filename}`}
-            aria-label={`Download ${file.filename}`}
-          >
-            <Download className="h-4 w-4" />
-          </a>
-          )}
-          {canUpload && (
-            <button
-              type="button"
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 disabled:opacity-50"
-              title={`Remove ${file.filename}`}
-              aria-label={`Remove ${file.filename}`}
-              disabled={removing === file.id}
-              onClick={() => void remove(file)}
-            >
-              {removing === file.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-            </button>
-          )}
-        </>
+      {canDownload && (
+        <a
+          href={`${apiBase}/${file.id}`}
+          className={`${iconButton} text-muted-foreground hover:bg-muted hover:text-foreground`}
+          title={`Download ${file.filename}`}
+          aria-label={`Download ${file.filename}`}
+        >
+          <Download className="h-4 w-4" />
+        </a>
+      )}
+      {canUpload && slotKey && (
+        <button
+          type="button"
+          className={`${iconButton} text-muted-foreground hover:bg-muted hover:text-foreground`}
+          title={`Replace ${file.filename}`}
+          aria-label={`Replace ${file.filename}`}
+          disabled={busy !== null}
+          onClick={() => pick(slotKey, file.id)}
+        >
+          <RefreshCw className="h-4 w-4" />
+        </button>
+      )}
+      {canUpload && (
+        <button
+          type="button"
+          className={`${iconButton} text-destructive hover:bg-destructive/10`}
+          title={`Remove ${file.filename}`}
+          aria-label={`Remove ${file.filename}`}
+          disabled={removing === file.id || busy !== null}
+          onClick={() => void remove(file)}
+        >
+          {removing === file.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+        </button>
       )}
     </div>
   );
@@ -280,15 +290,16 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
         aria-label="Choose a presentation file"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          const slotKey = pendingSlot.current;
+          const target = pending.current;
           e.target.value = "";
-          if (file && slotKey) void upload(slotKey, file);
+          if (file && target) void upload(target.slotKey, target.replaces, file);
         }}
       />
       <ul className="space-y-3">
         {slots.map((slot) => {
-          const current = files.find((f) => f.slotKey === slot.key) ?? null;
+          const current = files.filter((f) => f.slotKey === slot.key);
           const working = busy?.slotKey === slot.key ? busy : null;
+          const room = current.length < PRESENTATION_MAX_FILES_PER_TALK;
           return (
             <li key={slot.key} className="rounded-lg border p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -304,7 +315,7 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
                     <p className="text-xs text-muted-foreground">{formatWhen(slot.startTime)}</p>
                   )}
                 </div>
-                {current ? (
+                {current.length > 0 ? (
                   <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
                     <CheckCircle2 className="h-3.5 w-3.5" /> Received
                   </span>
@@ -313,7 +324,13 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
                 )}
               </div>
 
-              {current && <div className="mt-2">{fileRow(current)}</div>}
+              {current.length > 0 && (
+                <ul className="mt-2 space-y-2">
+                  {current.map((f) => (
+                    <li key={f.id}>{fileRow(f, slot.key)}</li>
+                  ))}
+                </ul>
+              )}
 
               {working ? (
                 <div className="mt-3">
@@ -332,12 +349,17 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
                   </p>
                 </div>
               ) : (
-                canUpload && (
+                canUpload &&
+                (room ? (
                   <Button type="button" variant="outline" size="sm" className="mt-3" disabled={busy !== null} onClick={() => pick(slot.key)}>
                     <Upload className="mr-2 h-4 w-4" />
-                    {current ? "Replace file" : "Upload file"}
+                    {current.length > 0 ? "Add another file" : "Upload file"}
                   </Button>
-                )
+                ) : (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    This talk has its {PRESENTATION_MAX_FILES_PER_TALK} files. Replace or remove one to send another.
+                  </p>
+                ))
               )}
             </li>
           );
@@ -347,14 +369,14 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
       {orphans.length > 0 && (
         <div className="rounded-lg border border-dashed p-3">
           <p className="mb-2 text-xs font-medium text-muted-foreground">Other files</p>
-          <div className="space-y-2">{orphans.map((f) => <div key={f.id}>{fileRow(f)}</div>)}</div>
+          <div className="space-y-2">{orphans.map((f) => <div key={f.id}>{fileRow(f, null)}</div>)}</div>
         </div>
       )}
 
       {canUpload && (
         <p className="text-xs text-muted-foreground">
           {PRESENTATION_TYPES_TEXT}. Slides up to {formatPresentationSize(PRESENTATION_MAX_BYTES.slides)}, a video up to{" "}
-          {formatPresentationSize(PRESENTATION_MAX_BYTES.video)}.
+          {formatPresentationSize(PRESENTATION_MAX_BYTES.video)}. Up to {PRESENTATION_MAX_FILES_PER_TALK} files for each talk.
         </p>
       )}
     </div>,

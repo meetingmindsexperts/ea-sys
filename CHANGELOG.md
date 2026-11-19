@@ -42,7 +42,7 @@ Not in this step (ROADMAP, "Email delivery reports"): a notice in the bulk email
 
 ### Speakers upload their presentation (November 19)
 
-A speaker can now send slides or a video for each of their talks: PDF, PowerPoint (.pptx or .ppt), Keynote, MP4 or MOV, slides up to 200 MB and a video up to 500 MB. One file per talk; a new upload replaces the old one.
+A speaker can now send slides or a video for each of their talks: PDF, PowerPoint (.pptx or .ppt), Keynote, MP4 or MOV, slides up to 200 MB and a video up to 500 MB. Up to three files per talk (slides and a separate video, say): a file can be added, replaced or removed, by the speaker or by staff.
 
 - **Where the speaker uploads:** a "Your presentation" section on the speaker profile form link they already have. It stays open after they submit their photo and passport, so slides can come later and be replaced.
 - **Where staff see them:** a Presentations card on the speaker's page, with download, remove, and upload on the speaker's behalf.

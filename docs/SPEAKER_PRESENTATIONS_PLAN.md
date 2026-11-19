@@ -228,7 +228,9 @@ row as `REPLACED`. Only the newest `READY` file per speaker and topic is shown.
 ## 7. The owner's decisions (Nov 19, 2026) and the AWS steps still owed
 
 1. **Where speakers upload:** the existing speaker profile form link.
-2. **How many files:** one per talk (per topic, else per session).
+2. **How many files:** up to three per talk (per topic, else per session).
+   First "one per talk"; raised the same day ("can they upload multiple if
+   needed?"), for slides with a separate video or a backup PDF.
 3. **Size caps:** 200 MB for slides, 500 MB for video; video rises with
    phase 4.
 4. **Who sees the files:** organisers only (whoever may read speaker
@@ -324,6 +326,17 @@ After the review of `be777c01` (the same day):
 - **After a DR promotion** the recorded version ids mean nothing in the other
   bucket: run `UPDATE "SpeakerPresentation" SET "s3VersionId" = NULL` so
   downloads read the current object.
+
+Several files per talk (the same day, after the owner asked):
+
+- **A talk holds up to three files** (`PRESENTATION_MAX_FILES_PER_TALK`). An
+  upload either adds a file beside the others or replaces ONE named file
+  (`replacesId` on the row, migration `20261119160000`, one nullable column).
+  A fourth is refused with "replace or remove one first".
+- **Either door can remove a file,** the speaker's included (until the event
+  ends): with several files, replacing alone was not enough.
+- **Two uploads finishing at once are judged one after the other:** the
+  completion locks the speaker's row before it counts the talk's files.
 
 How it differs from the plan above:
 

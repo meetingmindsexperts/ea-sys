@@ -5,7 +5,7 @@ import { loginAs } from "./fixtures/login";
 
 /**
  * Speaker presentations (Nov 19, 2026; docs/SPEAKER_PRESENTATIONS_PLAN.md):
- * one file per talk, from the staff's speaker page and from the speaker's own
+ * up to three files per talk, from the staff's speaker page and from the speaker's own
  * form link, which stays open after that form is submitted. The test server
  * runs the local storage provider, so the file goes through the door's own
  * file route; the signed-form path to S3 is covered by unit tests. Everything
@@ -29,7 +29,7 @@ async function choose(page: Page, button: ReturnType<Page["getByRole"]>, file: {
   await (await chooser).setFiles(file);
 }
 
-test("presentations: staff upload, a fake file refused, replace, download; the speaker's link stays open after submit", async ({ page }) => {
+test("presentations: staff upload, a fake file refused, several files a talk, replace one, download; the speaker's link stays open after submit", async ({ page }) => {
   await loginAs(page, "ADMIN");
   const stamp = Date.now();
   let speakerId: string | null = null;
@@ -69,22 +69,28 @@ test("presentations: staff upload, a fake file refused, replace, download; the s
     await expect(page.getByText(/file type is not accepted/)).toBeVisible();
 
     await choose(page, card.getByRole("button", { name: "Upload file" }), { name: "SGLT2 deck.pdf", mimeType: "application/pdf", buffer: PDF });
-    await expect(page.getByText("Presentation received")).toBeVisible();
+    await expect(page.getByText("Presentation received").first()).toBeVisible();
     await expect(card.getByText("SGLT2 deck.pdf")).toBeVisible();
     await expect(card.getByText("Received", { exact: true })).toBeVisible();
 
-    // Replace: one file per talk.
-    await choose(page, card.getByRole("button", { name: "Replace file" }), { name: "SGLT2 deck v2.pptx", mimeType: "", buffer: PPTX });
-    await expect(card.getByText("SGLT2 deck v2.pptx")).toBeVisible();
-    await expect(card.getByText("SGLT2 deck.pdf")).toHaveCount(0);
+    // A talk holds several files: a second one is added beside the first.
+    await choose(page, card.getByRole("button", { name: "Add another file" }), { name: "Backup slides.pptx", mimeType: "", buffer: PPTX });
+    await expect(card.getByText("Backup slides.pptx")).toBeVisible();
+    await expect(card.getByText("SGLT2 deck.pdf")).toBeVisible();
+
+    // Replace ONE named file: the other stays.
+    await choose(page, card.getByRole("button", { name: "Replace SGLT2 deck.pdf" }), { name: "SGLT2 deck v2.pdf", mimeType: "application/pdf", buffer: PDF });
+    await expect(card.getByText("SGLT2 deck v2.pdf")).toBeVisible();
+    await expect(card.getByText("SGLT2 deck.pdf", { exact: true })).toHaveCount(0);
+    await expect(card.getByText("Backup slides.pptx")).toBeVisible();
     const rows = await db.speakerPresentation.findMany({ where: { speakerId: speakerId! }, select: { id: true, status: true, filename: true, size: true }, orderBy: { createdAt: "asc" } });
-    expect(rows.map((r) => r.status)).toEqual(["FAILED", "REPLACED", "READY"]);
+    expect(rows.map((r) => `${r.filename}:${r.status}`)).toEqual(["fake.pdf:FAILED", "SGLT2 deck.pdf:REPLACED", "Backup slides.pptx:READY", "SGLT2 deck v2.pdf:READY"]);
     expect(Number(rows[2].size)).toBe(PPTX.length);
 
     // Download: the bytes that were checked, under the uploaded name.
     const dl = await page.request.get(`/api/events/${EVENT_ID}/speakers/${speakerId}/presentations/${rows[2].id}`);
     expect(dl.status()).toBe(200);
-    expect(dl.headers()["content-disposition"]).toContain('attachment; filename="SGLT2 deck v2.pptx"');
+    expect(dl.headers()["content-disposition"]).toContain('attachment; filename="Backup slides.pptx"');
     expect((await dl.body()).length).toBe(PPTX.length);
     // The replaced file is gone from reach.
     expect((await page.request.get(`/api/events/${EVENT_ID}/speakers/${speakerId}/presentations/${rows[1].id}`)).status()).toBe(404);
@@ -96,14 +102,23 @@ test("presentations: staff upload, a fake file refused, replace, download; the s
     await page.goto(`/e/${EVENT_SLUG}/speaker-form/${token}`);
     await expect(page.getByText("This form has already been submitted.")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Your presentation" })).toBeVisible();
-    await expect(page.getByText("SGLT2 deck v2.pptx")).toBeVisible();
+    await expect(page.getByText("SGLT2 deck v2.pdf")).toBeVisible();
+    await expect(page.getByText("Backup slides.pptx")).toBeVisible();
     // The speaker sees what was sent, not a download link.
     await expect(page.getByRole("link", { name: /Download/ })).toHaveCount(0);
-    await choose(page, page.getByRole("button", { name: "Replace file" }), { name: "Final talk.pdf", mimeType: "application/pdf", buffer: PDF });
-    await expect(page.getByText("Presentation received")).toBeVisible();
+
+    // The speaker removes one of their files, then adds another.
+    page.once("dialog", (d) => void d.accept());
+    await page.getByRole("button", { name: "Remove Backup slides.pptx" }).click();
+    await expect(page.getByText("Presentation removed")).toBeVisible();
+    await expect(page.getByText("Backup slides.pptx")).toHaveCount(0);
+    await choose(page, page.getByRole("button", { name: "Add another file" }), { name: "Final talk.pdf", mimeType: "application/pdf", buffer: PDF });
     await expect(page.getByText("Final talk.pdf")).toBeVisible();
-    const last = await db.speakerPresentation.findFirst({ where: { speakerId: speakerId!, status: "READY" }, select: { uploadedVia: true, filename: true } });
-    expect(last).toEqual({ uploadedVia: "speaker-form", filename: "Final talk.pdf" });
+    const mine = await db.speakerPresentation.findMany({ where: { speakerId: speakerId!, status: "READY" }, select: { uploadedVia: true, filename: true }, orderBy: { createdAt: "asc" } });
+    expect(mine).toEqual([
+      { uploadedVia: "staff", filename: "SGLT2 deck v2.pdf" },
+      { uploadedVia: "speaker-form", filename: "Final talk.pdf" },
+    ]);
 
     // Someone else's token cannot reach this speaker's upload.
     const other = await page.request.post(`/api/public/events/${EVENT_SLUG}/speaker-form/not-a-real-token/presentations`, { data: { slotKey: "general", filename: "x.pdf", size: 10 } });

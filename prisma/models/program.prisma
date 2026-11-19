@@ -1477,7 +1477,7 @@ model VenueShareLink {
 /// docs/SPEAKER_PRESENTATIONS_PLAN.md). The bytes go from the browser straight
 /// to storage (they are too large for the app), so a row has a lifecycle: it
 /// is UPLOADING until the object is checked, then READY; a failed check is
-/// FAILED; a newer file for the same talk makes the old one REPLACED.
+/// FAILED; a file another upload was sent to replace becomes REPLACED.
 enum PresentationStatus {
   UPLOADING
   READY
@@ -1513,6 +1513,9 @@ model SpeakerPresentation {
   uploadedVia    String
   /// Soft ref (no FK) to the staff user, when staff uploaded it.
   uploadedById   String?
+  /// The file of the same talk this upload replaces once it is checked; NULL
+  /// when it is added beside the others (up to three a talk). Soft ref.
+  replacesId     String?
   createdAt      DateTime           @default(now())
   readyAt        DateTime?
 

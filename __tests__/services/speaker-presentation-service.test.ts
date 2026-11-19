@@ -21,6 +21,8 @@ const { mockDb, storage } = vi.hoisted(() => ({
       delete: vi.fn(),
     },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
+    // The completion locks the speaker's row inside its transaction.
+    $queryRaw: vi.fn().mockResolvedValue([]),
   },
   storage: {
     provider: "s3" as string,
@@ -86,7 +88,7 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllEnvs());
 
-describe("the talks a speaker can upload for (one file per talk)", () => {
+describe("the talks a speaker can upload for", () => {
   it("gives a slot per topic, and per session they present in without a topic there", async () => {
     mockDb.sessionSpeaker.findMany.mockResolvedValue([
       { role: "SPEAKER", session: { id: "s1", name: "Morning session", startTime: start } },
@@ -145,8 +147,9 @@ describe("starting an upload", () => {
   });
 
   it("holds a speaker to a number of files and a total size, so a leaked link cannot fill the bucket", async () => {
-    // Inside start: the stale sweep, the talk's earlier tries, then the quota read.
-    const quota = (rows: unknown[]) => mockDb.speakerPresentation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(rows);
+    // Inside start: the stale sweep, the talk's earlier tries, the talk's files, then the quota read.
+    const quota = (rows: unknown[]) =>
+      mockDb.speakerPresentation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(rows);
     quota(Array.from({ length: PRESENTATION_MAX_FILES_PER_SPEAKER }, () => ({ size: BigInt(1) })));
     expect(await startPresentationUpload(input)).toMatchObject({ ok: false, code: "TOO_MANY_FILES" });
     quota([{ size: BigInt(PRESENTATION_MAX_BYTES_PER_SPEAKER - 1000) }]);
@@ -156,18 +159,49 @@ describe("starting an upload", () => {
 
   // Review of be777c01: each retry held its stated size for a day, so six
   // failed videos locked a speaker (and staff, for them) out.
-  it("ends the talk's earlier unfinished tries, and does not count the file it will replace", async () => {
+  it("ends the talk's earlier unfinished tries", async () => {
     mockDb.speakerPresentation.findMany
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: "try1", url: "/uploads/presentations/ev1/sp1/try1.pdf" }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([{ id: "try1", url: "/uploads/presentations/ev1/sp1/try1.pdf" }]);
     expect((await startPresentationUpload(input)).ok).toBe(true);
     // The talk's own UPLOADING rows, by its topic.
     expect(mockDb.speakerPresentation.findMany.mock.calls[1][0].where).toMatchObject({ speakerId: "sp1", status: "UPLOADING", topicId: "t1" });
     expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["try1"] }, status: "UPLOADING" }, data: { status: "FAILED" } });
     expect(storage.deleteStoredFile).toHaveBeenCalledWith("/uploads/presentations/ev1/sp1/try1.pdf", "/uploads/presentations/");
-    // The quota leaves out the READY file of this talk: replacing it frees its room.
-    expect(mockDb.speakerPresentation.findMany.mock.calls[2][0].where.NOT).toEqual({ status: "READY", topicId: "t1" });
+  });
+
+  // Owner, Nov 19, 2026: "can they upload multiple if needed?" Up to three a talk.
+  describe("several files for one talk", () => {
+    const talkHas = (...ids: string[]) =>
+      mockDb.speakerPresentation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(ids.map((id) => ({ id })));
+
+    it("adds a file beside the others while the talk has room", async () => {
+      talkHas("a", "b");
+      expect((await startPresentationUpload(input)).ok).toBe(true);
+      expect(mockDb.speakerPresentation.create.mock.calls[0][0].data.replacesId).toBeNull();
+      // The talk's READY files, by its topic.
+      expect(mockDb.speakerPresentation.findMany.mock.calls[2][0].where).toEqual({ eventId: "ev1", speakerId: "sp1", status: "READY", topicId: "t1" });
+    });
+
+    it("refuses a fourth, and says to replace or remove one", async () => {
+      talkHas("a", "b", "c");
+      const res = await startPresentationUpload(input);
+      expect(res).toMatchObject({ ok: false, code: "TALK_FULL" });
+      expect(storage.signDirectUpload).not.toHaveBeenCalled();
+    });
+
+    it("replaces one named file of the talk, even when the talk is full, and leaves it out of the quota", async () => {
+      talkHas("a", "b", "c");
+      expect((await startPresentationUpload({ ...input, replaces: "b" })).ok).toBe(true);
+      expect(mockDb.speakerPresentation.create.mock.calls[0][0].data.replacesId).toBe("b");
+      expect(mockDb.speakerPresentation.findMany.mock.calls[3][0].where).toMatchObject({ id: { not: "b" } });
+    });
+
+    it("refuses to replace a file that is not one of this talk's", async () => {
+      talkHas("a");
+      expect(await startPresentationUpload({ ...input, replaces: "someone-elses" })).toMatchObject({ ok: false, code: "REPLACED_FILE_NOT_FOUND" });
+      expect(storage.signDirectUpload).not.toHaveBeenCalled();
+    });
   });
 
   it("an upload the browser says failed stops holding quota at once", async () => {
@@ -216,7 +250,7 @@ describe("switched off until the bucket is prepared", () => {
 });
 
 describe("completing an upload", () => {
-  const uploading = { id: "p1", sessionId: "s1", topicId: "t1", filename: "Deck.pdf", size: BigInt(5), status: "UPLOADING", uploadedVia: "speaker-form", createdAt: new Date(), readyAt: null, url: "/uploads/presentations/ev1/sp1/p1.pdf" };
+  const uploading = { id: "p1", sessionId: "s1", topicId: "t1", filename: "Deck.pdf", size: BigInt(5), status: "UPLOADING", uploadedVia: "speaker-form", createdAt: new Date(), readyAt: null, url: "/uploads/presentations/ev1/sp1/p1.pdf", replacesId: null as string | null };
   const input = { ...scope, presentationId: "p1", actor: speakerActor };
 
   beforeEach(() => {
@@ -237,13 +271,36 @@ describe("completing an upload", () => {
     });
   });
 
-  it("replaces the file the talk already had: one file per talk", async () => {
+  it("adds the file beside the talk's others, touching none of them", async () => {
     mockDb.speakerPresentation.findMany.mockResolvedValue([{ id: "p0", url: "/uploads/presentations/ev1/sp1/p0.pdf" }]);
-    await completePresentationUpload(input);
+    expect((await completePresentationUpload(input)).ok).toBe(true);
     // By the topic alone: a topic moved to another session is still the same talk.
     expect(mockDb.speakerPresentation.findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", speakerId: "sp1", topicId: "t1", status: "READY", id: { not: "p1" } });
+    expect(mockDb.speakerPresentation.updateMany).not.toHaveBeenCalled();
+    expect(storage.deleteStoredFile).not.toHaveBeenCalled();
+    // The speaker's row is locked before the talk's files are counted.
+    expect(mockDb.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces the one file it was sent to replace, and only that one", async () => {
+    mockDb.speakerPresentation.findFirst.mockResolvedValue({ ...uploading, replacesId: "p0" });
+    mockDb.speakerPresentation.findMany.mockResolvedValue([
+      { id: "p0", url: "/uploads/presentations/ev1/sp1/p0.pdf" },
+      { id: "px", url: "/uploads/presentations/ev1/sp1/px.mp4" },
+    ]);
+    expect((await completePresentationUpload(input)).ok).toBe(true);
     expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["p0"] } }, data: { status: "REPLACED" } });
+    expect(storage.deleteStoredFile).toHaveBeenCalledTimes(1);
     expect(storage.deleteStoredFile).toHaveBeenCalledWith("/uploads/presentations/ev1/sp1/p0.pdf", "/uploads/presentations/");
+  });
+
+  it("fails an added file when the talk filled up meanwhile, and removes it", async () => {
+    mockDb.speakerPresentation.findMany.mockResolvedValue([{ id: "a", url: "u/a" }, { id: "b", url: "u/b" }, { id: "c", url: "u/c" }]);
+    const res = await completePresentationUpload(input);
+    expect(res).toMatchObject({ ok: false, code: "TALK_FULL" });
+    expect(mockDb.speakerPresentation.update).not.toHaveBeenCalled();
+    expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: "p1", status: "UPLOADING" }, data: { status: "FAILED" } });
+    expect(storage.deleteStoredFile).toHaveBeenCalledWith(uploading.url, "/uploads/presentations/");
   });
 
   it("fails a file that is not what its name says, and removes it", async () => {

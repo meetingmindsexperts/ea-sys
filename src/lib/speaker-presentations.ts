@@ -45,6 +45,13 @@ export const PRESENTATION_MAX_BYTES: Record<PresentationKind, number> = {
 };
 
 /**
+ * How many files one talk can hold (owner, Nov 19, 2026: "can they upload
+ * multiple if needed?"): slides and a separate video, or a deck and a backup
+ * PDF. An upload adds a file beside the others, or replaces one of them.
+ */
+export const PRESENTATION_MAX_FILES_PER_TALK = 3;
+
+/**
  * A rate limit alone lets a leaked link store tens of gigabytes an hour, so a
  * speaker's files are bounded too: this many kept (ready or uploading), and
  * this many bytes.
@@ -142,9 +149,10 @@ export function presentationSignatureMatches(ext: string, bytes: Uint8Array): bo
 }
 
 /**
- * A talk a speaker can upload a file for (owner, Nov 19, 2026: one file per
- * talk): each topic they are on, each session they present in without a
- * topic, or, while they are on no talk yet, one general slot.
+ * A talk a speaker can upload files for (up to
+ * `PRESENTATION_MAX_FILES_PER_TALK` each): each topic they are on, each
+ * session they present in without a topic, or, while they are on no talk
+ * yet, one general slot.
  */
 export interface PresentationSlot {
   /** `topic:{id}`, `session:{id}` or `general`. */

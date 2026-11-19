@@ -67,7 +67,6 @@ The first step records what the mail service reports (delivered, bounced, marked
 From the review of `be777c01` (docs/SPEAKER_PRESENTATIONS_PLAN.md, phases 1 and 2). The feature is off on production until the owner's AWS steps are done and `SPEAKER_PRESENTATIONS_ENABLED=true` is set. Phases 3 and 4 of the plan are separate and not listed here.
 
 - **MED: deleting an event leaves its presentation files in storage.** The rows go by cascade; nothing removes the objects (speaker delete does, since the review). Read the event's presentation paths before the delete and remove them after, as the speaker route does.
-- **LOW: two uploads for one talk completing at the same moment both end READY.** The replace runs in a transaction with no lock and there is no unique index. Lock the Speaker row in that transaction.
 - **LOW: someone who only moderates is offered a general slot** ("Your presentation, not received yet"), and will read as missing once the speakers list shows who has not sent a file (phase 3). Decide whether a moderator is asked for a file at all.
 - **LOW: a file sent to the general slot moves under "Other files"** once the speaker gets a talk, and cannot be moved to the talk. Staff can download it and upload it to the talk.
 - **LOW: tests owed.** A SpeakerPresentation case in `tests/tenancy/speaker-rls.test.ts`, and route-level tests of the public door (a token for another event, another speaker's presentation id); today the browser test covers a bad token only.
