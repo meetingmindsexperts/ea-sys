@@ -40,6 +40,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   templateSlug: "speaker-invitation",
   deliveryStatus: null,
   bounceType: null,
+  bounceSubType: null,
   ...over,
 });
 
@@ -64,7 +65,7 @@ describe("recordDeliveryEvent", () => {
     expect(lanes).toEqual(["org1"]);
     expect(tenantDb.emailLog.updateMany).toHaveBeenCalledWith({
       // Names what was read, so a report that landed in between is not overwritten blind.
-      where: { id: "log1", organizationId: "org1", deliveryStatus: null, bounceType: null },
+      where: { id: "log1", organizationId: "org1", deliveryStatus: null, bounceType: null, bounceSubType: null },
       data: { deliveryStatus: "BOUNCED", deliveryAt: AT, bounceType: "Permanent", bounceSubType: "General", deliveryDetail: "smtp; 550 5.1.1 user unknown" },
     });
     expect(operatorDb.emailLog.updateMany).not.toHaveBeenCalled();
@@ -78,7 +79,7 @@ describe("recordDeliveryEvent", () => {
 
     expect(tenantDb.emailLog.updateMany).not.toHaveBeenCalled();
     expect(operatorDb.emailLog.updateMany).toHaveBeenCalledWith({
-      where: { id: "log1", organizationId: null, deliveryStatus: null, bounceType: null },
+      where: { id: "log1", organizationId: null, deliveryStatus: null, bounceType: null, bounceSubType: null },
       data: { deliveryStatus: "DELIVERED", deliveryAt: AT, bounceType: null, bounceSubType: null, deliveryDetail: "250 OK" },
     });
     expect(logger.warn).not.toHaveBeenCalled();
@@ -119,7 +120,7 @@ describe("recordDeliveryEvent", () => {
   });
 
   it("leaves a bounce in place when a late 'delivered' report arrives", async () => {
-    operatorDb.emailLog.findFirst.mockResolvedValue(row({ deliveryStatus: "BOUNCED", bounceType: "Permanent" }));
+    operatorDb.emailLog.findFirst.mockResolvedValue(row({ deliveryStatus: "BOUNCED", bounceType: "Permanent", bounceSubType: "General" }));
 
     expect(await recordDeliveryEvent(event({ kind: "DELIVERED", bounceType: null }))).toBe("unchanged");
 
@@ -164,13 +165,26 @@ describe("recordDeliveryEvent", () => {
 
   it("when another report wrote the row in between, reads it again and judges afresh", async () => {
     // First read: nothing reported. The write matches nothing: a bounce landed meanwhile.
-    operatorDb.emailLog.findFirst.mockResolvedValueOnce(row()).mockResolvedValueOnce(row({ deliveryStatus: "BOUNCED", bounceType: "Permanent" }));
+    operatorDb.emailLog.findFirst.mockResolvedValueOnce(row()).mockResolvedValueOnce(row({ deliveryStatus: "BOUNCED", bounceType: "Permanent", bounceSubType: "General" }));
     tenantDb.emailLog.updateMany.mockResolvedValueOnce({ count: 0 });
 
     expect(await recordDeliveryEvent(event({ kind: "DELIVERED", bounceType: null, bounceSubType: null, detail: "250 OK", recipientDetails: [] }))).toBe("unchanged");
 
     expect(operatorDb.emailLog.findFirst).toHaveBeenCalledTimes(2);
     expect(tenantDb.emailLog.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks a delivered email as bounced when its mailbox turned out to be full (accepted, then sent back)", async () => {
+    operatorDb.emailLog.findFirst.mockResolvedValue(row({ deliveryStatus: "DELIVERED" }));
+
+    expect(await recordDeliveryEvent(event({ bounceType: "Transient", bounceSubType: "MailboxFull" }))).toBe("recorded");
+  });
+
+  it("leaves a delivered email alone when the 'bounce' is only an automatic reply", async () => {
+    operatorDb.emailLog.findFirst.mockResolvedValue(row({ deliveryStatus: "DELIVERED" }));
+
+    expect(await recordDeliveryEvent(event({ bounceType: "Transient", bounceSubType: "General" }))).toBe("unchanged");
+    expect(tenantDb.emailLog.updateMany).not.toHaveBeenCalled();
   });
 
   it("gives up after three lost races and says so", async () => {

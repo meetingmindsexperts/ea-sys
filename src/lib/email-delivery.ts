@@ -51,6 +51,7 @@ export async function recordDeliveryEvent(event: SesDeliveryEvent, attempt = 1):
       templateSlug: true,
       deliveryStatus: true,
       bounceType: true,
+      bounceSubType: true,
     },
   });
 
@@ -68,7 +69,7 @@ export async function recordDeliveryEvent(event: SesDeliveryEvent, attempt = 1):
     return "copy-only";
   }
 
-  const current = { deliveryStatus: row.deliveryStatus as DeliveryKind | null, bounceType: row.bounceType };
+  const current = { deliveryStatus: row.deliveryStatus as DeliveryKind | null, bounceType: row.bounceType, bounceSubType: row.bounceSubType };
   if (!shouldReplaceDelivery(current, event)) return "unchanged";
 
   const data = {
@@ -81,7 +82,7 @@ export async function recordDeliveryEvent(event: SesDeliveryEvent, attempt = 1):
   // The write names what was READ, so two reports for one email landing
   // together cannot both win: the slower one matches nothing and is judged
   // again against what the faster one wrote.
-  const unchangedSinceRead = { deliveryStatus: row.deliveryStatus, bounceType: row.bounceType };
+  const unchangedSinceRead = { deliveryStatus: row.deliveryStatus, bounceType: row.bounceType, bounceSubType: row.bounceSubType };
   let written: { count: number };
   if (row.organizationId) {
     const organizationId = row.organizationId;

@@ -334,9 +334,13 @@ confirmation" again.
    maximum delay **300**, backoff **exponential**. SNS's default is three
    retries twenty seconds apart, about one minute in all, after which a report
    is thrown away; a deploy or a short outage is longer than that. SNS allows
-   at most an hour of retrying in total. Optional and worth having: a
-   dead-letter queue (an SQS queue on the subscription's "Redrive policy"), so
-   a report that still fails is kept, not lost.
+   at most an hour of retrying in total. Optional: a dead-letter queue (an SQS
+   queue on the subscription's "Redrive policy"), so a report that still fails
+   is kept, not lost. Two things about it: the queue needs an access policy
+   letting `sns.amazonaws.com` send to it from this topic, or the redrive
+   fails without a word; and it is EVIDENCE only. Nothing replays it, and the
+   route refuses any message older than an hour, so a report in the queue is
+   read by a person, not fed back in.
 7. **Check.** The subscription shows **Confirmed** within a few seconds, and
    `/logs` has `ses-events:subscription-confirmed`.
 8. **Prove it with SES's own test addresses**, which never hurt the sender
@@ -352,7 +356,7 @@ confirmation" again.
 | `ses-events:wrong-topic` | A genuine-looking SNS message for another topic. Not ours; refused. |
 | `ses-events:signature-refused` | Not signed by Amazon, or older than an hour (`reason` says which check failed). A stranger probing the route. |
 | `ses-events:not-an-sns-message` | The post is not an SNS envelope (`reason` names the missing field). A stranger, or **raw message delivery switched on by mistake**: raw delivery sends the report with no envelope, so every genuine report reads `missing-Type`. |
-| `ses-events:certificate-unavailable` | Amazon's signing certificate could not be fetched just now. Answered 503, so SNS sends the report again. Many of these in a row: the box cannot reach `sns.ap-south-1.amazonaws.com`. |
+| `ses-events:certificate-unavailable` | Amazon's signing certificate could not be had just now. Answered 503, so SNS sends the report again. Two causes: the box cannot reach `sns.ap-south-1.amazonaws.com`, or a stranger is posting our topic's name with made-up certificate addresses (each sender may cause 3 fetches a minute, all senders 30, and the line is logged at most 20 times a minute per sender). A certificate already held is not affected by either. |
 | `ses-events:body-too-large-or-unreadable` | A post longer than a genuine message can be (400 KB). Not SNS. |
 | `email-delivery:lost-race` | Three reports for one email collided three times running. The row keeps what the others wrote. Rare; worth a look if it repeats. |
 | `email-delivery:bounced` | A bounce was written on an email's row. `bounceType` Permanent means later emails to that address are dropped. |
@@ -387,9 +391,11 @@ beyond a short clip: the log table keeps whole lines and is never emptied.
   removed from the suppression list in SES as well.
 - **"Delivered" means the other mail server accepted it.** It does not say the
   email reached the inbox rather than the spam folder.
-- **A temporary bounce can follow a delivery.** SES files some automatic
-  replies ("out of office") as Transient bounces of an email that was
-  delivered, so a Transient report never replaces Delivered.
+- **A bounce can follow a delivery.** "Delivered" means the other server took
+  the email; it can still send it back (a full mailbox, a refused attachment),
+  and the row then reads Bounced (temporary). The one exception: SES files
+  some automatic replies ("out of office") as a Transient bounce of sub-type
+  General, and that one never replaces Delivered, whichever arrives first.
 - **Rows from before the switch-on show "Sent"**, with no report. That is "we
   were not told", not "delivered". The 75 addresses already on the suppression
   list are not marked until an email is next sent to them (ROADMAP has the

@@ -45,7 +45,15 @@ const BARE_PUBLIC_KEY = new X509Certificate(CERT.pem).publicKey.export({ type: "
 
 const CERT_URL = "https://sns.ap-south-1.amazonaws.com/SimpleNotificationService-0123456789abcdef0123456789abcdef.pem";
 const TOPIC = "arn:aws:sns:ap-south-1:111122223333:ea-sys-ses-events";
-const NOW = new Date("2026-11-19T10:00:00.000Z");
+/**
+ * The real clock, NOT a fixed date. The certificate above is made when the
+ * tests run and is checked for being in date, so a pinned "now" passes only
+ * while the calendar happens to agree with it (the first version of this file
+ * would have started failing a day after it was written).
+ */
+const NOW = new Date();
+const minutesAgo = (n: number) => new Date(NOW.getTime() - n * 60_000).toISOString();
+const SENT_AT = minutesAgo(0.5);
 
 function signed(fields: Partial<SnsMessage>, version: "1" | "2" = "1"): SnsMessage {
   const message = {
@@ -53,7 +61,7 @@ function signed(fields: Partial<SnsMessage>, version: "1" | "2" = "1"): SnsMessa
     MessageId: "m-1",
     TopicArn: TOPIC,
     Message: '{"eventType":"Delivery"}',
-    Timestamp: "2026-11-19T09:59:30.000Z",
+    Timestamp: SENT_AT,
     SignatureVersion: version,
     Signature: "",
     SigningCertURL: CERT_URL,
@@ -137,7 +145,7 @@ describe("snsStringToSign", () => {
   it("is SNS's exact text for a notification, Subject included only when present", () => {
     const base = signed({});
     expect(snsStringToSign(base)).toBe(
-      `Message\n${base.Message}\nMessageId\nm-1\nTimestamp\n2026-11-19T09:59:30.000Z\nTopicArn\n${TOPIC}\nType\nNotification\n`,
+      `Message\n${base.Message}\nMessageId\nm-1\nTimestamp\n${SENT_AT}\nTopicArn\n${TOPIC}\nType\nNotification\n`,
     );
     expect(snsStringToSign({ ...base, Subject: "Hello" })).toContain("MessageId\nm-1\nSubject\nHello\nTimestamp\n");
   });
@@ -145,7 +153,7 @@ describe("snsStringToSign", () => {
   it("is SNS's exact text for a subscription confirmation", () => {
     const m = signed({ Type: "SubscriptionConfirmation", SubscribeURL: "https://sns.ap-south-1.amazonaws.com/?x=1", Token: "tok" });
     expect(snsStringToSign(m)).toBe(
-      `Message\n${m.Message}\nMessageId\nm-1\nSubscribeURL\nhttps://sns.ap-south-1.amazonaws.com/?x=1\nTimestamp\n2026-11-19T09:59:30.000Z\nToken\ntok\nTopicArn\n${TOPIC}\nType\nSubscriptionConfirmation\n`,
+      `Message\n${m.Message}\nMessageId\nm-1\nSubscribeURL\nhttps://sns.ap-south-1.amazonaws.com/?x=1\nTimestamp\n${SENT_AT}\nToken\ntok\nTopicArn\n${TOPIC}\nType\nSubscriptionConfirmation\n`,
     );
   });
 
@@ -163,7 +171,7 @@ describe("verifySnsMessage", () => {
   it("checks SNS's own signed text, written out here and not taken from the code", async () => {
     // Signed over a literal, so a wrong field order in snsStringToSign fails this.
     const message = signed({});
-    const literal = `Message\n${message.Message}\nMessageId\nm-1\nTimestamp\n2026-11-19T09:59:30.000Z\nTopicArn\n${TOPIC}\nType\nNotification\n`;
+    const literal = `Message\n${message.Message}\nMessageId\nm-1\nTimestamp\n${SENT_AT}\nTopicArn\n${TOPIC}\nType\nNotification\n`;
     const signer = createSign("RSA-SHA1");
     signer.update(literal, "utf8");
     const byHand = { ...message, Signature: signer.sign(privateKey, "base64") };
@@ -189,6 +197,12 @@ describe("verifySnsMessage", () => {
     expect((await verifySnsMessage(signed({}), { fetchCertificate: buried, now: NOW })).ok).toBe(false);
   });
 
+  it("refuses a certificate that is not valid yet", async () => {
+    const yesterday = new Date(NOW.getTime() - 24 * 60 * 60 * 1000);
+    const m = signed({ Timestamp: yesterday.toISOString() });
+    expect(await verifySnsMessage(m, { fetchCertificate: fetchOk, now: yesterday })).toMatchObject({ ok: false, reason: "certificate-unavailable" });
+  });
+
   it("refuses a certificate that is out of date", async () => {
     const later = new Date(NOW.getTime() + 10 * 24 * 60 * 60 * 1000);
     const m = signed({ Timestamp: later.toISOString() });
@@ -209,7 +223,7 @@ describe("verifySnsMessage", () => {
   });
 
   it("refuses a report older than an hour, so a captured one cannot be replayed", async () => {
-    const m = signed({ Timestamp: "2026-11-19T08:30:00.000Z" });
+    const m = signed({ Timestamp: minutesAgo(90) });
     expect(await verifySnsMessage(m, { fetchCertificate: fetchOk, now: NOW })).toEqual({ ok: false, reason: "too-old" });
   });
 
@@ -243,15 +257,30 @@ describe("verifySnsMessage", () => {
     expect(down).toHaveBeenCalledTimes(1);
   });
 
-  it("stops fetching after a few made-up certificate addresses in a minute", async () => {
+  it("gives each sender a small share of the certificate fetches, so a stranger cannot spend SNS's", async () => {
     const down = vi.fn(async () => {
       throw new Error("no such certificate");
     });
+    const madeUp = (i: number) => `https://sns.ap-south-1.amazonaws.com/SimpleNotificationService-${String(i).padStart(16, "0")}.pem`;
     for (let i = 0; i < 12; i++) {
-      const url = `https://sns.ap-south-1.amazonaws.com/SimpleNotificationService-${String(i).padStart(16, "0")}.pem`;
-      expect((await verifySnsMessage(signed({ SigningCertURL: url }), { fetchCertificate: down, now: NOW })).ok).toBe(false);
+      expect((await verifySnsMessage(signed({ SigningCertURL: madeUp(i) }), { fetchCertificate: down, now: NOW, caller: "198.51.100.7" })).ok).toBe(false);
     }
-    expect(down).toHaveBeenCalledTimes(6);
+    expect(down).toHaveBeenCalledTimes(3);
+
+    // A genuine report from another address still gets its certificate.
+    expect(await verifySnsMessage(signed({}), { fetchCertificate: fetchOk, now: NOW, caller: "203.0.113.20" })).toEqual({ ok: true });
+    expect(fetchOk).toHaveBeenCalledTimes(1);
+  });
+
+  it("caps the fetches of all senders together in a minute", async () => {
+    const down = vi.fn(async () => {
+      throw new Error("no such certificate");
+    });
+    for (let i = 0; i < 40; i++) {
+      const url = `https://sns.ap-south-1.amazonaws.com/SimpleNotificationService-${String(i).padStart(16, "0")}.pem`;
+      await verifySnsMessage(signed({ SigningCertURL: url }), { fetchCertificate: down, now: NOW, caller: `198.51.100.${i}` });
+    }
+    expect(down).toHaveBeenCalledTimes(30);
   });
 });
 
@@ -337,25 +366,47 @@ describe("parseSesEvent", () => {
 });
 
 describe("shouldReplaceDelivery", () => {
-  const row = (deliveryStatus: "DELIVERED" | "BOUNCED" | "COMPLAINED" | null, bounceType: string | null = null) => ({ deliveryStatus, bounceType });
+  type Status = "DELIVERED" | "BOUNCED" | "COMPLAINED" | null;
+  const row = (deliveryStatus: Status, bounceType: string | null = null, bounceSubType: string | null = null) => ({ deliveryStatus, bounceType, bounceSubType });
+  const delivered = { kind: "DELIVERED", bounceType: null, bounceSubType: null } as const;
+  const complained = { kind: "COMPLAINED", bounceType: null, bounceSubType: null } as const;
+  const bounced = (bounceType: string, bounceSubType: string | null = "General") => ({ kind: "BOUNCED", bounceType, bounceSubType }) as const;
 
   it.each([
-    ["first delivery", row(null), { kind: "DELIVERED", bounceType: null }, true],
-    ["a repeated delivery", row("DELIVERED"), { kind: "DELIVERED", bounceType: null }, false],
-    ["delivered after a bounce", row("BOUNCED", "Permanent"), { kind: "DELIVERED", bounceType: null }, false],
-    ["delivered arriving after an automatic reply filed as a transient bounce", row("BOUNCED", "Transient"), { kind: "DELIVERED", bounceType: null }, true],
-    ["delivered after an undetermined bounce", row("BOUNCED", "Undetermined"), { kind: "DELIVERED", bounceType: null }, false],
-    ["first bounce", row(null), { kind: "BOUNCED", bounceType: "Transient" }, true],
-    ["a permanent bounce after delivered", row("DELIVERED"), { kind: "BOUNCED", bounceType: "Permanent" }, true],
-    ["an automatic reply filed as a transient bounce, after delivered", row("DELIVERED"), { kind: "BOUNCED", bounceType: "Transient" }, false],
-    ["permanent over transient", row("BOUNCED", "Transient"), { kind: "BOUNCED", bounceType: "Permanent" }, true],
-    ["transient over permanent", row("BOUNCED", "Permanent"), { kind: "BOUNCED", bounceType: "Transient" }, false],
-    ["a repeated permanent bounce", row("BOUNCED", "Permanent"), { kind: "BOUNCED", bounceType: "Permanent" }, false],
-    ["a complaint after delivered", row("DELIVERED"), { kind: "COMPLAINED", bounceType: null }, true],
-    ["anything after a complaint", row("COMPLAINED"), { kind: "BOUNCED", bounceType: "Permanent" }, false],
-    ["a repeated complaint", row("COMPLAINED"), { kind: "COMPLAINED", bounceType: null }, false],
+    ["first delivery", row(null), delivered, true],
+    ["a repeated delivery", row("DELIVERED"), delivered, false],
+    ["delivered after a permanent bounce", row("BOUNCED", "Permanent", "General"), delivered, false],
+    ["delivered arriving after an automatic reply (Transient, General)", row("BOUNCED", "Transient", "General"), delivered, true],
+    ["delivered arriving after a full mailbox: the email did not arrive", row("BOUNCED", "Transient", "MailboxFull"), delivered, false],
+    ["delivered after an undetermined bounce", row("BOUNCED", "Undetermined", null), delivered, false],
+    ["first bounce", row(null), bounced("Transient", "MailboxFull"), true],
+    ["a permanent bounce after delivered", row("DELIVERED"), bounced("Permanent"), true],
+    ["an automatic reply after delivered", row("DELIVERED"), bounced("Transient", "General"), false],
+    ["a full mailbox reported after delivered (accepted, then sent back)", row("DELIVERED"), bounced("Transient", "MailboxFull"), true],
+    ["a refused attachment reported after delivered", row("DELIVERED"), bounced("Transient", "AttachmentRejected"), true],
+    ["permanent over transient", row("BOUNCED", "Transient", "MailboxFull"), bounced("Permanent"), true],
+    ["transient over permanent", row("BOUNCED", "Permanent", "General"), bounced("Transient", "MailboxFull"), false],
+    ["a repeated permanent bounce", row("BOUNCED", "Permanent", "General"), bounced("Permanent"), false],
+    ["a complaint after delivered", row("DELIVERED"), complained, true],
+    ["anything after a complaint", row("COMPLAINED"), bounced("Permanent"), false],
+    ["a repeated complaint", row("COMPLAINED"), complained, false],
   ] as const)("%s", (_name, current, incoming, expected) => {
     expect(shouldReplaceDelivery(current, incoming)).toBe(expected);
+  });
+
+  it("ends the same whichever order a delivery and its later report arrive in", () => {
+    const settle = (events: readonly { kind: "DELIVERED" | "BOUNCED" | "COMPLAINED"; bounceType: string | null; bounceSubType: string | null }[]) => {
+      let state = row(null);
+      for (const e of events) {
+        if (shouldReplaceDelivery(state, e)) state = { deliveryStatus: e.kind, bounceType: e.bounceType, bounceSubType: e.bounceSubType };
+      }
+      return state.deliveryStatus;
+    };
+    for (const later of [bounced("Transient", "General"), bounced("Transient", "MailboxFull"), bounced("Permanent"), complained]) {
+      expect(settle([delivered, later])).toBe(settle([later, delivered]));
+    }
+    expect(settle([delivered, bounced("Transient", "General")])).toBe("DELIVERED");
+    expect(settle([delivered, bounced("Transient", "MailboxFull")])).toBe("BOUNCED");
   });
 });
 

@@ -149,13 +149,26 @@ const certificateCache = new Map<string, { pem: string; at: number }>();
 const CERTIFICATE_TTL_MS = 6 * 60 * 60 * 1000;
 const CERTIFICATE_CACHE_MAX = 8;
 /**
- * At most this many certificate fetches a minute, whoever asks. A genuine
- * topic needs one every six hours; a stranger posting made-up certificate
- * addresses must not be able to turn this server into a flood of requests to
- * Amazon, and so get our own address throttled there.
+ * Certificate fetches are rationed, per caller and in all. A genuine topic
+ * needs one every six hours. A stranger posting made-up certificate addresses
+ * must not be able to turn this server into a flood of requests to Amazon, and
+ * must not be able to spend the allowance a genuine report needs: each caller
+ * (the route passes the sender's address) has its own small share, so one
+ * address cannot starve SNS's.
  */
-const CERTIFICATE_FETCHES_PER_MINUTE = 6;
-let fetchWindow = { startedAt: 0, count: 0 };
+const CERTIFICATE_FETCHES_PER_CALLER_PER_MINUTE = 3;
+const CERTIFICATE_FETCHES_PER_MINUTE = 30;
+let fetchWindow: { startedAt: number; total: number; byCaller: Map<string, number> } = { startedAt: 0, total: 0, byCaller: new Map() };
+
+/** Takes one fetch from the caller's share, or says there is none left this minute. */
+function takeFetchAllowance(caller: string, now: number): boolean {
+  if (now - fetchWindow.startedAt >= 60_000) fetchWindow = { startedAt: now, total: 0, byCaller: new Map() };
+  const used = fetchWindow.byCaller.get(caller) ?? 0;
+  if (fetchWindow.total >= CERTIFICATE_FETCHES_PER_MINUTE || used >= CERTIFICATE_FETCHES_PER_CALLER_PER_MINUTE) return false;
+  fetchWindow.total += 1;
+  fetchWindow.byCaller.set(caller, used + 1);
+  return true;
+}
 
 async function defaultFetchCertificate(url: string): Promise<string> {
   const response = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: "error" });
@@ -173,22 +186,23 @@ async function defaultFetchCertificate(url: string): Promise<string> {
 function publicKeyOfCertificate(pem: string, now: number): KeyObject | null {
   try {
     const certificate = new X509Certificate(pem.trim());
-    if (Date.parse(certificate.validFrom) > now || Date.parse(certificate.validTo) < now) return null;
+    const from = Date.parse(certificate.validFrom);
+    const to = Date.parse(certificate.validTo);
+    // An unreadable date refuses: a NaN would make both comparisons false and pass.
+    if (Number.isNaN(from) || Number.isNaN(to) || from > now || to < now) return null;
     return certificate.publicKey;
   } catch {
     return null;
   }
 }
 
-async function certificateFor(url: string, fetchCertificate: FetchCertificate, now: number): Promise<string | null> {
+async function certificateFor(url: string, fetchCertificate: FetchCertificate, now: number, caller: string): Promise<string | null> {
   const cached = certificateCache.get(url);
   if (cached && now - cached.at < CERTIFICATE_TTL_MS) return cached.pem;
 
-  if (now - fetchWindow.startedAt >= 60_000) fetchWindow = { startedAt: now, count: 0 };
-  // Over budget, or the fetch fails: a certificate we already hold is better
-  // than refusing a genuine report, even past its six hours.
-  if (fetchWindow.count >= CERTIFICATE_FETCHES_PER_MINUTE) return cached?.pem ?? null;
-  fetchWindow.count += 1;
+  // Over the allowance, or the fetch fails: a certificate we already hold is
+  // better than refusing a genuine report, even past its six hours.
+  if (!takeFetchAllowance(caller, now)) return cached?.pem ?? null;
 
   let pem: string;
   try {
@@ -205,7 +219,7 @@ async function certificateFor(url: string, fetchCertificate: FetchCertificate, n
 /** Test seam: forget every cached certificate and the fetch budget. */
 export function clearSnsCertificateCache(): void {
   certificateCache.clear();
-  fetchWindow = { startedAt: 0, count: 0 };
+  fetchWindow = { startedAt: 0, total: 0, byCaller: new Map() };
 }
 
 /**
@@ -227,7 +241,7 @@ export type SnsVerification = { ok: true } | { ok: false; reason: string; retrya
  */
 export async function verifySnsMessage(
   message: SnsMessage,
-  opts?: { fetchCertificate?: FetchCertificate; now?: Date },
+  opts?: { fetchCertificate?: FetchCertificate; now?: Date; /** Whose share of the certificate fetches this spends: the sender's address. */ caller?: string },
 ): Promise<SnsVerification> {
   // The certificate must come from the region of the topic the message names.
   const region = regionOfTopicArn(message.TopicArn);
@@ -245,7 +259,7 @@ export async function verifySnsMessage(
   if (Number.isNaN(sentAt)) return { ok: false, reason: "bad-timestamp" };
   if (Math.abs(now.getTime() - sentAt) > 60 * 60 * 1000) return { ok: false, reason: "too-old" };
 
-  const pem = await certificateFor(message.SigningCertURL, opts?.fetchCertificate ?? defaultFetchCertificate, now.getTime());
+  const pem = await certificateFor(message.SigningCertURL, opts?.fetchCertificate ?? defaultFetchCertificate, now.getTime(), opts?.caller ?? "unknown");
   if (!pem) return { ok: false, reason: "certificate-unavailable", retryable: true };
   const publicKey = publicKeyOfCertificate(pem, now.getTime());
   if (!publicKey) return { ok: false, reason: "certificate-unavailable", retryable: true };
@@ -425,31 +439,40 @@ export function isPermanentBounce(row: { deliveryStatus?: string | null; bounceT
 }
 
 /**
+ * The mail service files some automatic replies ("out of office") as a bounce
+ * of type Transient, sub-type General, of an email that WAS delivered. Every
+ * other Transient bounce (mailbox full, message too large, content refused)
+ * is a real failure, and commonly arrives AFTER a delivery report: the other
+ * server accepts the email, then sends it back.
+ */
+function isAutomaticReply(report: { bounceType: string | null; bounceSubType: string | null }): boolean {
+  return report.bounceType === "Transient" && (report.bounceSubType === null || report.bounceSubType === "General");
+}
+
+/**
  * Should this report replace what the row already says?
  *
  *   - A spam complaint always stands: it arrives after delivery and is the
  *     most serious thing a row can say.
- *   - "Delivered" and a Transient bounce of the same email: Delivered wins,
- *     whichever arrives first. The mail service files some automatic replies
- *     ("out of office") as Transient bounces of an email that WAS delivered,
- *     and SNS does not promise order. A real Transient bounce is final, so no
- *     delivery report follows one.
- *   - "Delivered" never replaces a bounce that is not Transient, or a
- *     complaint, and a repeat of the same report changes nothing (SNS delivers
- *     at least once).
+ *   - "Delivered" and an automatic reply (see above): Delivered wins,
+ *     whichever arrives first, because SNS does not promise order.
+ *   - Any other bounce replaces "Delivered": the email was accepted and then
+ *     came back, so it did not arrive.
+ *   - "Delivered" never replaces a real bounce or a complaint, and a repeat of
+ *     the same report changes nothing (SNS delivers at least once).
  */
 export function shouldReplaceDelivery(
-  current: { deliveryStatus: DeliveryKind | null; bounceType: string | null },
-  incoming: Pick<SesDeliveryEvent, "kind" | "bounceType">,
+  current: { deliveryStatus: DeliveryKind | null; bounceType: string | null; bounceSubType: string | null },
+  incoming: Pick<SesDeliveryEvent, "kind" | "bounceType" | "bounceSubType">,
 ): boolean {
   if (current.deliveryStatus === "COMPLAINED") return false;
   if (incoming.kind === "COMPLAINED") return true;
   if (incoming.kind === "DELIVERED") {
-    return current.deliveryStatus === null || (current.deliveryStatus === "BOUNCED" && current.bounceType === "Transient");
+    return current.deliveryStatus === null || (current.deliveryStatus === "BOUNCED" && isAutomaticReply(current));
   }
   // incoming BOUNCED
   if (current.deliveryStatus === null) return true;
-  if (current.deliveryStatus === "DELIVERED") return incoming.bounceType !== "Transient";
+  if (current.deliveryStatus === "DELIVERED") return !isAutomaticReply(incoming);
   // BOUNCED over BOUNCED: only a Permanent report may replace a lesser one.
   return current.bounceType !== "Permanent" && incoming.bounceType === "Permanent";
 }

@@ -19,7 +19,7 @@ vi.mock("@/lib/email-delivery", () => ({ recordDeliveryEvent: (e: unknown) => re
 vi.mock("@/lib/security", () => ({ getClientIp: () => "203.0.113.9", checkRateLimit: (args: { key: string }) => limiter(args) }));
 vi.mock("@/lib/ses-events", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/ses-events")>();
-  return { ...real, verifySnsMessage: (m: unknown) => verify(m) };
+  return { ...real, verifySnsMessage: (m: unknown, opts: unknown) => verify(m, opts) };
 });
 
 import { POST } from "@/app/api/webhooks/ses/route";
@@ -119,6 +119,20 @@ describe("POST /api/webhooks/ses", () => {
     expect(res.status).toBe(503);
     expect((await res.json()).code).toBe("CERTIFICATE_UNAVAILABLE");
     expect(record).not.toHaveBeenCalled();
+    // The sender's own address is whose certificate allowance it spends.
+    expect(verify.mock.calls[0][1]).toEqual({ caller: "203.0.113.9" });
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "ses-events:certificate-unavailable" }));
+  });
+
+  it("stops logging that line too once the address has had its refusals, and still answers 503", async () => {
+    // A stranger can name our topic and a made-up certificate address at 3,000 posts a minute.
+    verify.mockResolvedValue({ ok: false, reason: "certificate-unavailable", retryable: true });
+    limiter.mockImplementation(({ key }: { key: string }) => ({ allowed: !key.startsWith("ses-events-refused:"), retryAfterSeconds: 30 }));
+
+    const res = await post(envelope());
+
+    expect(res.status).toBe(503);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it("asks for the report again when it beat the email's own log row", async () => {

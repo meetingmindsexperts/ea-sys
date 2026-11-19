@@ -72,10 +72,13 @@ export async function POST(req: Request) {
     return refuse(ip, 403, "WRONG_TOPIC", { msg: "ses-events:wrong-topic", topicArn: clip(message.TopicArn) });
   }
 
-  const verified = await verifySnsMessage(message);
+  const verified = await verifySnsMessage(message, { caller: ip });
   if (!verified.ok && verified.retryable) {
-    // Our trouble, not the message's: ask SNS to send it again.
-    apiLogger.warn({ msg: "ses-events:certificate-unavailable", ip });
+    // Our trouble, or a made-up certificate address: either way the message is
+    // not proven, so the line counts against the sender's refusals (a stranger
+    // can name our topic, which is no secret). The answer stays 503 so that a
+    // genuine report is sent again.
+    if (withinRefusalAllowance(ip)) apiLogger.warn({ msg: "ses-events:certificate-unavailable", ip });
     return NextResponse.json({ error: "Try again", code: "CERTIFICATE_UNAVAILABLE" }, { status: 503 });
   }
   if (!verified.ok) {
@@ -134,10 +137,14 @@ function clip(value: string): string {
  * so a stranger cannot fill the log by being refused.
  */
 function refuse(ip: string, status: number, code: string, log: Record<string, unknown>) {
-  const withinAllowance = checkRateLimit({ key: `ses-events-refused:${ip}`, limit: REFUSALS_PER_MINUTE, windowMs: 60_000 }).allowed;
-  if (!withinAllowance) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  if (!withinRefusalAllowance(ip)) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   apiLogger.warn({ ...log, ip });
   return NextResponse.json({ error: status === 403 ? "Forbidden" : "Refused", code }, { status });
+}
+
+/** Counts one unproven post against the address; false once it has had its allowance of log lines for the minute. */
+function withinRefusalAllowance(ip: string): boolean {
+  return checkRateLimit({ key: `ses-events-refused:${ip}`, limit: REFUSALS_PER_MINUTE, windowMs: 60_000 }).allowed;
 }
 
 /** The body as text, or null when it is unreadable or longer than a genuine message can be. */
