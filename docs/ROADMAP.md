@@ -97,6 +97,10 @@ From the review of `be777c01` (docs/SPEAKER_PRESENTATIONS_PLAN.md, phases 1 and 
 - **LOW: the Remove button is small and close to Replace** on a phone. A larger target, or Remove inside a menu.
 - **LOW: after the event ends the speaker still sees Replace, Remove and Add**, and each answers "closed". Hide them once the event has ended.
 - **LOW: the staff Presentations card shows for a speaker not asked for a presentation.** Staff may still upload one for them, which is intended; consider saying "not asked" on the card.
+
+- **LOW (review of `b334d096`): a nearly full talk can still cancel another person's upload.** With 2 READY files (or 1 with two adds in flight) a new add ends every earlier add in flight, whoever started it: staff adding a backup PDF ends the speaker's video. Accepted for now, because the alternative is refusing the newer add. Fix if it bites: cancel only earlier adds by the same person (`uploadedVia` + `uploadedById`), else refuse with "another upload is in progress".
+- **LOW: a clone keeps the event's choice (`speakerProfile` is cloned) but not a speaker's own list** (`Speaker.profileFormItems`), so a cloned speaker follows the event default. Fails safe; copy it in the clone route if organisers ask.
+- **LOW: the request email's new wording reaches only events that never saved their own copy** of `speaker-profile-form-request`. A saved copy still says "passport required"; reset it from Email Templates, or add `{{profileFormAsks}}` to it.
 ## Import from Contacts and reimbursement downloads: what the Nov 19 reviews left (recorded Nov 19, 2026): not started
 
 From the reviews of `387a3604` and `5ff51782` (a full name finds the contact, the paged add-from-contacts dialog, one-click document download).

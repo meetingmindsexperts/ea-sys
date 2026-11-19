@@ -1969,6 +1969,10 @@ export function getSamplePreviewVariables(
     honorariumCurrency: "USD",
     // Speaker profile form placeholder — real sends use the speaker's token.
     profileFormLink: "#",
+    profileFormAsks:
+      '<ul style="margin: 0 0 16px 0; padding-left: 20px;"><li style="margin: 0 0 6px 0;">A recent headshot photo (JPG or PNG, under 500KB).</li><li style="margin: 0 0 6px 0;">Your presentation (slides or a video), which you can send later and replace.</li></ul>',
+    profileFormAsksText:
+      "- A recent headshot photo (JPG or PNG, under 500KB).\n- Your presentation (slides or a video), which you can send later and replace.",
     claimSummary:
       '<table style="width:100%;border-collapse:collapse;margin:12px 0;"><tr><td style="padding:6px 0;color:#6b7280;">Honorarium / Speaker Fee</td><td style="padding:6px 0;text-align:right;font-weight:500;">USD 1,000.00</td></tr><tr><td style="padding:6px 0;color:#6b7280;">Flight Reimbursement</td><td style="padding:6px 0;text-align:right;font-weight:500;">USD 850.00</td></tr><tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;font-weight:600;">Total</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;text-align:right;font-weight:600;">USD 1,850.00</td></tr></table>',
     claimSummaryText: "Honorarium / Speaker Fee: USD 1000.00\nFlight Reimbursement: USD 850.00",

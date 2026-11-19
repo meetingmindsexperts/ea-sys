@@ -1198,34 +1198,35 @@ Best regards,
   },
   "speaker-profile-form-request": {
     // Sent from the speaker page with the speaker's personalized
-    // {{profileFormLink}} — asks for their photo, passport photocopy,
-    // optional cover letter and bio. Editable per-event under
+    // {{profileFormLink}}. {{profileFormAsks}} lists only what THIS speaker
+    // is asked for (the organiser's choice: photo, bio, passport, cover
+    // letter, presentation), so the email never demands an item the form
+    // does not show (review of b334d096). Editable per-event under
     // Communications → Email Templates.
-    subject: "Your photo & documents — {{eventName}}",
+    subject: "Your speaker details: {{eventName}}",
     htmlContent: `<div style="padding: 24px 0;">
     <p>Dear <strong>{{speakerName}}</strong>,</p>
-    <p>To complete your speaker profile for <strong>{{eventName}}</strong>, please use the secure form below to upload your <strong>photo</strong> and <strong>passport photocopy</strong> (and a cover letter if applicable), and review your bio.</p>
+    <p>To complete your speaker profile for <strong>{{eventName}}</strong>, please use the secure form below. We are asking you for:</p>
+    {{profileFormAsks}}
     {{personalMessage}}
     <div style="text-align: center; margin: 28px 0;">
       <a href="{{profileFormLink}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600;">Complete your speaker profile</a>
     </div>
     <p style="color: #6b7280; font-size: 13px; margin: 0 0 16px 0;">Or copy this link into your browser:<br><span style="word-break: break-all; color: #00aade;">{{profileFormLink}}</span></p>
-    <div style="background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin: 0 0 16px 0;">
-      <p style="margin: 0; font-size: 14px;">Please have ready: a recent headshot photo (JPG/PNG, under 500KB) and a scan or clear phone photo of your passport photo page (PDF/JPG/PNG). The passport copy is required.</p>
-    </div>
     <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong></p>
     {{organizerSignature}}
   </div>`,
-    textContent: `Your photo & documents — {{eventName}}
+    textContent: `Your speaker details: {{eventName}}
 
 Dear {{speakerName}},
 
-To complete your speaker profile for {{eventName}}, please use the secure form to upload your photo and passport photocopy (and a cover letter if applicable), and review your bio:
+To complete your speaker profile for {{eventName}}, please use the secure form:
 {{profileFormLink}}
 
-{{personalMessage}}
+We are asking you for:
+{{profileFormAsksText}}
 
-Please have ready: a recent headshot photo (JPG/PNG, under 500KB) and a scan or clear phone photo of your passport photo page (PDF/JPG/PNG). The passport copy is required.
+{{personalMessage}}
 
 Best regards,
 {{organizerName}}

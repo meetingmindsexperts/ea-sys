@@ -16,6 +16,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
 import { readEventProfileItems, readSpeakerProfileItems, speakerProfileItemsInputSchema } from "@/lib/speaker-profile/constants";
+import { presentationsAvailable } from "@/services/speaker-presentation-service";
 
 type RouteParams = { params: Promise<{ eventId: string; speakerId: string }> };
 
@@ -27,7 +28,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     const event = await findGatedEvent(gate, { select: { id: true, organizationId: true, settings: true } });
-    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (!event) {
+      apiLogger.warn({ msg: "speaker-profile-items:event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     return await runWithTenant(event.organizationId, async () => {
       const speaker = await db.speaker.findFirst({ where: { id: speakerId, eventId }, select: { profileFormItems: true } });
@@ -35,7 +39,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
         apiLogger.warn({ msg: "speaker-profile-items:not-found", eventId, speakerId, userId: session.user.id });
         return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
       }
-      return NextResponse.json({ items: readSpeakerProfileItems(speaker.profileFormItems), eventItems: readEventProfileItems(event.settings) });
+      return NextResponse.json({
+        items: readSpeakerProfileItems(speaker.profileFormItems),
+        eventItems: readEventProfileItems(event.settings),
+        presentationsAvailable: presentationsAvailable(),
+      });
     });
   } catch (err) {
     apiLogger.error({ err }, "speaker-profile-items:get-failed");
@@ -58,7 +66,10 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!parsed.success) return zodErrorResponse(parsed, { route, eventId, userId: session.user.id });
 
     const event = await findGatedEvent(gate, { select: { id: true, organizationId: true, settings: true } });
-    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (!event) {
+      apiLogger.warn({ msg: "speaker-profile-items:event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const ip = getClientIp(req);
     return await runWithTenant(event.organizationId, async () => {
@@ -90,7 +101,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         .catch((err) => apiLogger.error({ err, speakerId }, "speaker-profile-items:audit-failed"));
 
       apiLogger.info({ msg: "speaker-profile-items:saved", eventId, speakerId, userId: session.user.id, items: after });
-      return NextResponse.json({ items: after, eventItems: readEventProfileItems(event.settings) });
+      return NextResponse.json({ items: after, eventItems: readEventProfileItems(event.settings), presentationsAvailable: presentationsAvailable() });
     });
   } catch (err) {
     apiLogger.error({ err }, "speaker-profile-items:patch-failed");

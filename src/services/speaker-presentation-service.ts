@@ -217,6 +217,7 @@ export async function listSpeakerPresentations(
 export type StartUploadErrorCode =
   | "TALK_FULL"
   | "REPLACED_FILE_NOT_FOUND"
+  | "REPLACE_NOT_PERMITTED"
   | "UPLOADS_UNAVAILABLE"
   | "TYPE_NOT_ALLOWED"
   | "FILE_TOO_LARGE"
@@ -242,10 +243,18 @@ async function failUploads(
 ): Promise<number> {
   const rows = await db.speakerPresentation.findMany({ where: { ...where, status: "UPLOADING" }, select: { id: true, url: true } });
   if (rows.length === 0) return 0;
-  await db.speakerPresentation.updateMany({ where: { id: { in: rows.map((r) => r.id) }, status: "UPLOADING" }, data: { status: "FAILED" } });
-  await Promise.all(rows.map((r) => deleteStoredFile(r.url, PREFIX)));
-  apiLogger.warn({ msg: "speaker-presentation:uploads-failed", reason, eventId: scope.eventId, speakerId: scope.speakerId, count: rows.length });
-  return rows.length;
+  // One row at a time, and an object goes only when THIS call moved its row
+  // to FAILED: a row read here may be claimed READY by a completion before
+  // the update lands, and deleting its object then would leave a READY file
+  // that vanishes later (review of b334d096). A handful of rows at most.
+  const failed: { id: string; url: string }[] = [];
+  for (const r of rows) {
+    const { count } = await db.speakerPresentation.updateMany({ where: { id: r.id, status: "UPLOADING" }, data: { status: "FAILED" } });
+    if (count === 1) failed.push(r);
+  }
+  await Promise.all(failed.map((r) => deleteStoredFile(r.url, PREFIX)));
+  apiLogger.warn({ msg: "speaker-presentation:uploads-failed", reason, eventId: scope.eventId, speakerId: scope.speakerId, count: failed.length, raced: rows.length - failed.length });
+  return failed.length;
 }
 
 /** Uploads never finished (the browser closed): cleared, with whatever they left in storage. */
@@ -302,7 +311,7 @@ export async function startPresentationUpload(
   // replaces one of them, which must be a READY file of this talk, or is
   // added beside them, which needs room.
   const [inTalk, inFlight] = await Promise.all([
-    db.speakerPresentation.findMany({ where: { eventId, speakerId, status: "READY", ...slotWhere(slot) }, select: { id: true } }),
+    db.speakerPresentation.findMany({ where: { eventId, speakerId, status: "READY", ...slotWhere(slot) }, select: { id: true, uploadedVia: true } }),
     db.speakerPresentation.findMany({
       where: { eventId, speakerId, status: "UPLOADING", ...slotWhere(slot) },
       select: { id: true, replacesId: true },
@@ -311,8 +320,15 @@ export async function startPresentationUpload(
   ]);
   // The refusals come BEFORE anything is ended: a start that is itself
   // refused must not cost another upload (review of d6dfd99c).
-  if (replaces && !inTalk.some((f) => f.id === replaces)) {
+  const replacedFile = replaces ? inTalk.find((f) => f.id === replaces) : undefined;
+  if (replaces && !replacedFile) {
     return refuse("REPLACED_FILE_NOT_FOUND", "The file being replaced is no longer there. Reload the page and try again.");
+  }
+  // The speaker's own link may replace only what came through it: replacing a
+  // file the organisers uploaded and then removing the replacement would be a
+  // removal by two steps, which that door is refused (review of b334d096).
+  if (replacedFile && actor.source === "speaker-form" && replacedFile.uploadedVia !== "speaker-form") {
+    return refuse("REPLACE_NOT_PERMITTED", "This file was added by the organisers. Add your file beside it, or ask them to replace it.");
   }
   if (!replaces && inTalk.length >= PRESENTATION_MAX_FILES_PER_TALK) {
     return refuse("TALK_FULL", `A talk can hold up to ${PRESENTATION_MAX_FILES_PER_TALK} files. Replace or remove one first.`);
@@ -468,7 +484,7 @@ export async function completePresentationUpload(
     // NO KEY UPDATE: enough to serialise the speaker's completions, without
     // holding up a row that merely points at the speaker (a session role).
     const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Speaker" WHERE "id" = ${speakerId} FOR NO KEY UPDATE`;
-    if (locked.length === 0) return { kind: "gone" as const };
+    if (locked.length === 0) return { kind: "speaker-gone" as const };
     const inTalk = await tx.speakerPresentation.findMany({
       where: { eventId, speakerId, ...slotWhere(row), status: "READY", id: { not: presentationId } },
       select: { id: true, url: true },
@@ -484,15 +500,24 @@ export async function completePresentationUpload(
       where: { id: presentationId, status: "UPLOADING" },
       data: { status: "READY", size: BigInt(head.size), s3VersionId: head.versionId, etag: head.etag, readyAt: new Date() },
     });
-    if (claimed.count === 0) return { kind: "gone" as const };
+    if (claimed.count === 0) return { kind: "lost" as const };
     if (replaced.length > 0) {
       await tx.speakerPresentation.updateMany({ where: { id: { in: replaced.map((o) => o.id) } }, data: { status: "REPLACED" } });
     }
     return { kind: "ready" as const, replaced };
   });
-  if (outcome.kind === "gone") {
-    apiLogger.warn({ msg: "speaker-presentation:complete-lost", eventId, speakerId, presentationId, source: actor.source });
-    return { ok: false, code: "NOT_FOUND", message: "This upload was cancelled by a newer one. Upload the file again." };
+  if (outcome.kind === "speaker-gone") {
+    apiLogger.warn({ msg: "speaker-presentation:complete-speaker-gone", eventId, speakerId, presentationId, source: actor.source });
+    return { ok: false, code: "NOT_FOUND", message: "Upload not found" };
+  }
+  if (outcome.kind === "lost") {
+    // Another completion of this same row may have won (a retried request):
+    // then the file is fine and answers as the first did. Otherwise it was
+    // ended while being checked (review of b334d096).
+    const now = await db.speakerPresentation.findFirst({ where: { id: presentationId, eventId, speakerId }, select: VIEW_SELECT });
+    if (now?.status === "READY") return { ok: true, presentation: toView(now) };
+    apiLogger.warn({ msg: "speaker-presentation:complete-lost", eventId, speakerId, presentationId, status: now?.status ?? null, source: actor.source });
+    return { ok: false, code: "NOT_FOUND", message: "This upload was cancelled before it finished, by a newer upload or by closing the page. Upload the file again." };
   }
   if (outcome.kind === "full") {
     return fail("TALK_FULL", `A talk can hold up to ${PRESENTATION_MAX_FILES_PER_TALK} files. Replace or remove one first.`);

@@ -3,6 +3,7 @@ import {
   askedProfileItems,
   missingProfileDocSlots,
   PROFILE_ITEM_KEYS,
+  profileFormAsksVars,
   profileFormItems,
   profileItemsSchema,
   readEventProfileItems,
@@ -51,5 +52,22 @@ describe("what a speaker is asked for", () => {
     // A local speaker not asked for one is never held up by it.
     expect(missingProfileDocSlots([], ["photo", "bio", "presentation"])).toEqual([]);
     expect(missingProfileDocSlots(["Passport copy"], ["passport"])).toEqual([]);
+  });
+});
+
+// Review of b334d096: the request email listed a passport as required
+// whatever the organiser chose.
+describe("what the request email asks the speaker for", () => {
+  it("names only the asked items, in both parts", () => {
+    const { profileFormAsks, profileFormAsksText } = profileFormAsksVars(["photo", "presentation"]);
+    expect(profileFormAsks).toContain("headshot");
+    expect(profileFormAsks).toContain("presentation");
+    expect(profileFormAsks).not.toMatch(/passport/i);
+    expect(profileFormAsksText.split("\n")).toHaveLength(2);
+    expect(profileFormAsksText).not.toMatch(/passport/i);
+  });
+
+  it("says the passport is required only when it is asked", () => {
+    expect(profileFormAsksVars(["passport"]).profileFormAsksText).toMatch(/passport photo page.*required/i);
   });
 });

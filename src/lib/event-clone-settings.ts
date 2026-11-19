@@ -40,6 +40,9 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
   "maxAttendees",
   "groupRegistration",
   "presenterRegistration",
+  // What speakers' form links ask for (speaker-profile/constants.ts): plain
+  // config with nothing event-specific in it (review of b334d096).
+  "speakerProfile",
   // Abstracts / review config + the date-specific deadlines (preserved — the
   // old copy carried them; whether a clone wants fresh dates is the organizer's
   // edit, not ours to force by dropping them).

@@ -22,11 +22,14 @@ export function ProfileItemsPicker({
   onChange,
   disabled,
   idPrefix,
+  presentationsOff = false,
 }: {
   value: ProfileItemKey[];
   onChange: (next: ProfileItemKey[]) => void;
   disabled?: boolean;
   idPrefix: string;
+  /** Uploads are off on this server: Presentation cannot be newly ticked (an asked item the form cannot show leaves the speaker nothing). */
+  presentationsOff?: boolean;
 }) {
   const toggle = (key: ProfileItemKey, on: boolean) => {
     const next = on ? [...value, key] : value.filter((k) => k !== key);
@@ -38,18 +41,22 @@ export function ProfileItemsPicker({
       {PROFILE_ITEMS.map((item) => {
         const checked = value.includes(item.key);
         const id = `${idPrefix}-${item.key}`;
+        const unavailable = presentationsOff && item.key === "presentation";
+        const lockedOff = disabled || (unavailable && !checked);
         return (
           <label
             key={item.key}
             htmlFor={id}
-            className={`flex items-start gap-2.5 rounded-md border px-3 py-2 text-sm ${disabled ? "opacity-60" : "cursor-pointer hover:bg-muted/40"} ${
+            className={`flex items-start gap-2.5 rounded-md border px-3 py-2 text-sm ${lockedOff ? "opacity-60" : "cursor-pointer hover:bg-muted/40"} ${
               checked ? "border-primary/40 bg-primary/[0.04]" : "border-border"
             }`}
           >
-            <Checkbox id={id} className="mt-0.5" checked={checked} disabled={disabled} onCheckedChange={(v) => toggle(item.key, v === true)} />
+            <Checkbox id={id} className="mt-0.5" checked={checked} disabled={lockedOff} onCheckedChange={(v) => toggle(item.key, v === true)} />
             <span className="min-w-0">
               <span className="block font-medium">{item.label}</span>
-              <span className="block text-xs text-muted-foreground">{item.hint}</span>
+              <span className="block text-xs text-muted-foreground">
+                {unavailable ? "Presentation uploads are not switched on for this server yet." : item.hint}
+              </span>
             </span>
           </label>
         );
@@ -65,7 +72,9 @@ export function SpeakerProfileItemsControl({ eventId, speakerId }: { eventId: st
   const eventUrl = `/api/events/${eventId}/speakers/profile-form-settings`;
 
   /** The speaker's own list (null: the event's default) and the default itself, as saved. */
-  const [saved, setSaved] = useState<{ items: ProfileItemKey[] | null; eventItems: ProfileItemKey[] } | null>(null);
+  const [saved, setSaved] = useState<{ items: ProfileItemKey[] | null; eventItems: ProfileItemKey[]; presentationsAvailable: boolean } | null>(null);
+  /** Unticked "use the event's default" but not saved yet: the server still holds null. */
+  const [startingOwn, setStartingOwn] = useState(false);
   const [draft, setDraft] = useState<ProfileItemKey[]>([...PROFILE_ITEM_KEYS]);
   const [busy, setBusy] = useState(false);
   const [defaultOpen, setDefaultOpen] = useState(false);
@@ -79,8 +88,9 @@ export function SpeakerProfileItemsControl({ eventId, speakerId }: { eventId: st
         console.error("profile-items:load-failed", res.status, json?.error);
         return;
       }
-      setSaved({ items: json.items ?? null, eventItems: json.eventItems });
+      setSaved({ items: json.items ?? null, eventItems: json.eventItems, presentationsAvailable: json.presentationsAvailable !== false });
       setDraft(json.items ?? json.eventItems);
+      setStartingOwn(false);
     } catch (err) {
       console.error("profile-items:load-error", err);
     }
@@ -99,8 +109,9 @@ export function SpeakerProfileItemsControl({ eventId, speakerId }: { eventId: st
         toast.error(json?.error || "Could not save what this speaker is asked for");
         return;
       }
-      setSaved({ items: json.items ?? null, eventItems: json.eventItems });
+      setSaved({ items: json.items ?? null, eventItems: json.eventItems, presentationsAvailable: json.presentationsAvailable !== false });
       setDraft(json.items ?? json.eventItems);
+      setStartingOwn(false);
       toast.success(items === null ? "This speaker follows the event's default" : `This speaker is asked for: ${profileItemsSummary(items)}`);
     } catch (err) {
       console.error("profile-items:save-error", err);
@@ -131,8 +142,10 @@ export function SpeakerProfileItemsControl({ eventId, speakerId }: { eventId: st
   };
 
   if (!saved) return null;
-  const own = saved.items !== null;
-  const dirty = own && !sameList(draft, saved.items ?? []);
+  const own = saved.items !== null || startingOwn;
+  // A list equal to today's default is still worth pinning: it keeps this
+  // speaker's form as it is when the default changes later.
+  const dirty = startingOwn || (saved.items !== null && !sameList(draft, saved.items));
 
   return (
     <div className="space-y-2 rounded-md border bg-muted/20 p-3">
@@ -148,7 +161,7 @@ export function SpeakerProfileItemsControl({ eventId, speakerId }: { eventId: st
             // their own list, starting from the default, saved with the button.
             if (v === true) void saveSpeaker(null);
             else {
-              setSaved({ ...saved, items: saved.eventItems });
+              setStartingOwn(true);
               setDraft(saved.eventItems);
             }
           }}
@@ -160,7 +173,13 @@ export function SpeakerProfileItemsControl({ eventId, speakerId }: { eventId: st
       </label>
       {own && (
         <div className="space-y-2">
-          <ProfileItemsPicker idPrefix="speaker-profile-item" value={draft} onChange={setDraft} disabled={busy} />
+          <ProfileItemsPicker
+            idPrefix="speaker-profile-item"
+            value={draft}
+            onChange={setDraft}
+            disabled={busy}
+            presentationsOff={!saved.presentationsAvailable}
+          />
           <Button size="sm" disabled={busy || !dirty} onClick={() => void saveSpeaker(draft)}>
             {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             Save for this speaker
@@ -184,11 +203,17 @@ export function SpeakerProfileItemsControl({ eventId, speakerId }: { eventId: st
           <DialogHeader>
             <DialogTitle>What this event asks its speakers for</DialogTitle>
             <DialogDescription>
-              Every speaker follows this unless they have their own list. A change shows on a speaker&apos;s form the next time they open their
-              link.
+              Every speaker follows this unless they have their own list. A change shows the next time a speaker opens their link; a form
+              already submitted stays as it was sent until you reopen it.
             </DialogDescription>
           </DialogHeader>
-          <ProfileItemsPicker idPrefix="event-profile-item" value={defaultDraft} onChange={setDefaultDraft} disabled={busy} />
+          <ProfileItemsPicker
+            idPrefix="event-profile-item"
+            value={defaultDraft}
+            onChange={setDefaultDraft}
+            disabled={busy}
+            presentationsOff={!saved.presentationsAvailable}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setDefaultOpen(false)} disabled={busy}>
               Cancel

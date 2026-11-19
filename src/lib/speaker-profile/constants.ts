@@ -147,6 +147,24 @@ export function profileItemsSummary(items: readonly ProfileItemKey[]): string {
   return items.map(profileItemLabel).join(", ");
 }
 
+/** What the request email asks the speaker to have ready, one line per asked item. Fixed text: nothing typed by anyone. */
+const PROFILE_ITEM_EMAIL_LINES: Record<ProfileItemKey, string> = {
+  photo: "A recent headshot photo (JPG or PNG, under 500KB).",
+  bio: "Your short biography, to review or write.",
+  passport: "A scan or clear phone photo of your passport photo page (PDF, JPG or PNG). This is required.",
+  cover_letter: "A cover letter or CV, if applicable.",
+  presentation: "Your presentation (slides or a video), which you can send later and replace.",
+};
+
+/** `{{profileFormAsks}}` (HTML list) and `{{profileFormAsksText}}` for the request email: only what this speaker is asked for. */
+export function profileFormAsksVars(items: readonly ProfileItemKey[]): { profileFormAsks: string; profileFormAsksText: string } {
+  const lines = items.map((k) => PROFILE_ITEM_EMAIL_LINES[k]);
+  return {
+    profileFormAsks: `<ul style="margin: 0 0 16px 0; padding-left: 20px;">${lines.map((l) => `<li style="margin: 0 0 6px 0;">${l}</li>`).join("")}</ul>`,
+    profileFormAsksText: lines.map((l) => `- ${l}`).join("\n"),
+  };
+}
+
 /** The part of the list that is the form to submit; a presentation is its own section, never submitted. */
 export function profileFormItems(items: readonly ProfileItemKey[]): ProfileItemKey[] {
   return items.filter((i) => i !== "presentation");

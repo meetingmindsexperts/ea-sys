@@ -33,6 +33,7 @@ import {
 import { formatPersonName } from "@/lib/utils";
 import { honorariumVars, readHonorarium } from "@/lib/reimbursement/constants";
 import { generateProfileFormToken } from "@/lib/speaker-profile/server";
+import { askedProfileItems, profileFormAsksVars } from "@/lib/speaker-profile/constants";
 
 const TEMPLATE_SLUG = "speaker-profile-form-request";
 
@@ -110,7 +111,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await findGatedEvent(gate, {
-      select: { id: true, slug: true, name: true, organizationId: true, organization: { select: { name: true } } },
+      select: { id: true, slug: true, name: true, organizationId: true, settings: true, organization: { select: { name: true } } },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
@@ -125,6 +126,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           email: true,
           honorariumAmount: true,
           honorariumCurrency: true,
+          profileFormItems: true,
         },
       });
       if (!speaker) {
@@ -177,7 +179,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         event.organization?.name ||
         `${sender?.firstName ?? ""} ${sender?.lastName ?? ""}`.trim() ||
         "Event Organizer";
-      const rawHtmlKeys = new Set(["personalMessage", "profileFormLink", "organizerSignature"]);
+      const rawHtmlKeys = new Set(["personalMessage", "profileFormLink", "organizerSignature", "profileFormAsks"]);
 
       const vars: Record<string, string> = {
         firstName: speaker.firstName,
@@ -188,6 +190,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         ...honorariumVars(readHonorarium(speaker)),
         eventName: event.name,
         profileFormLink,
+        // Only what this speaker is asked for, so the email never demands an
+        // item the form does not show (review of b334d096).
+        ...profileFormAsksVars(askedProfileItems({ eventSettings: event.settings, speakerItems: speaker.profileFormItems })),
         personalMessage,
         organizerName,
         organizerSignature: sender?.emailSignature || "",

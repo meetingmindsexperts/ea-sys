@@ -107,9 +107,10 @@ test("presentations: staff upload, a fake file refused, several files a talk, re
     // The speaker sees what was sent, not a download link.
     await expect(page.getByRole("link", { name: /Download/ })).toHaveCount(0);
 
-    // A file staff uploaded can be replaced by the speaker, never removed.
+    // A file staff uploaded is neither removed nor replaced by the speaker
+    // (review of b334d096: replacing, then removing the replacement, was a removal).
     await expect(page.getByRole("button", { name: "Remove Backup slides.pptx" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Replace Backup slides.pptx" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Replace Backup slides.pptx" })).toHaveCount(0);
 
     // The speaker adds a file of their own, then removes it.
     await choose(page, page.getByRole("button", { name: "Add another file" }), { name: "Final talk.pdf", mimeType: "application/pdf", buffer: PDF });

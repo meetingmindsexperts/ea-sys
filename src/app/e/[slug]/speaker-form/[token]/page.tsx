@@ -27,6 +27,7 @@ import {
   PROFILE_DOC_MAX_SIZE,
   PROFILE_DOC_SLOT_TITLES,
   PROFILE_PHOTO_ACCEPT,
+  PROFILE_ITEM_KEYS,
   PROFILE_PHOTO_MAX_SIZE,
   profileFormItems,
   profileSlotForLabel,
@@ -47,7 +48,8 @@ interface FormData {
   status: "PENDING" | "SUBMITTED";
   submittedAt: string | null;
   /** What the organiser asked this speaker for; the page shows only these. */
-  items: ProfileItemKey[];
+  /** Absent from an older server, which asked for everything. */
+  items?: ProfileItemKey[];
   event: {
     name: string;
     bannerImage: string | null;
@@ -172,7 +174,7 @@ export default function SpeakerProfileFormPage() {
 
   const handleSubmit = async () => {
     setFormError(null);
-    const asked = data?.items ?? [];
+    const asked = data?.items ?? [...PROFILE_ITEM_KEYS];
     if (asked.includes("photo") && !photo) {
       setFormError("Please upload your photo before submitting.");
       return;
@@ -225,8 +227,12 @@ export default function SpeakerProfileFormPage() {
   // The organiser's choice (Nov 19, 2026): only what this speaker is asked
   // for. `formItems` is the part that is submitted; a presentation is its own
   // section below and is never submitted.
-  const asks = (item: ProfileItemKey) => data.items.includes(item);
-  const formItems = profileFormItems(data.items);
+  // An older server answers no list: it asked for everything.
+  const items = data.items ?? [...PROFILE_ITEM_KEYS];
+  const asks = (item: ProfileItemKey) => items.includes(item);
+  const formItems = profileFormItems(items);
+  const nothingToSend = items.length === 0;
+  const heading = pageHeading(formItems.length > 0, nothingToSend);
   const docSlots = (["passport", "cover_letter"] as ProfileDocSlot[]).filter(asks);
   const docFor = (slot: ProfileDocSlot) =>
     documents.find((d) => profileSlotForLabel(d.label) === slot) ?? null;
@@ -252,13 +258,20 @@ export default function SpeakerProfileFormPage() {
               <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm">
                 <UserRound className="h-5 w-5" />
               </span>
-              {/* Asked for a presentation only: there is no form to fill in. */}
-              {formItems.length > 0 ? "Photo & documents" : "Your presentation"}: {data.event.name}
+              {heading}: {data.event.name}
             </h1>
             <p className="text-sm text-slate-600 mt-2">
               {data.speaker.name} ({data.speaker.email})
             </p>
           </div>
+
+          {nothingToSend && (
+            <div className="p-6 sm:p-10">
+              <p className="text-sm text-slate-600">
+                There is nothing to send on this page at the moment. The organisers will be in touch if they need anything from you.
+              </p>
+            </div>
+          )}
 
           {formItems.length > 0 && (
           <div className="p-6 sm:p-10">
@@ -433,6 +446,7 @@ export default function SpeakerProfileFormPage() {
         {/* Presentations (Nov 19, 2026). Its own card, outside the form above,
             because it stays open after that form is submitted and locked:
             slides come weeks after the passport, and can be replaced. */}
+        {asks("presentation") && (
         <PresentationUploads
           apiBase={`${base}/presentations`}
           canUpload
@@ -454,7 +468,15 @@ export default function SpeakerProfileFormPage() {
             </div>
           )}
         />
+        )}
       </div>
     </div>
   );
+}
+
+/** Asked for a presentation only, there is no form to fill in; asked for nothing this server can take, nothing at all. */
+function pageHeading(hasForm: boolean, nothingToSend: boolean): string {
+  if (hasForm) return "Photo & documents";
+  if (nothingToSend) return "Speaker profile";
+  return "Your presentation";
 }

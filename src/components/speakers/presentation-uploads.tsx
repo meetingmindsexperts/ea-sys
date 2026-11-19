@@ -34,8 +34,9 @@ interface Props {
   apiBase: string;
   canUpload: boolean;
   /**
-   * Staff door: says who uploaded a file, and may remove any. On the
-   * speaker's own door a file staff uploaded can be replaced, not removed.
+   * Staff door: says who uploaded a file, and may replace or remove any. On
+   * the speaker's own door a file staff uploaded is neither replaced nor
+   * removed (the service refuses both).
    */
   staff?: boolean;
   /** Staff holding the files permission: the download link. Never the speaker. */
@@ -260,7 +261,7 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
           <Download className="h-4 w-4" />
         </a>
       )}
-      {canUpload && slotKey && (
+      {canUpload && slotKey && (staff || file.uploadedVia === "speaker-form") && (
         <button
           type="button"
           className={`${iconButton} text-muted-foreground hover:bg-muted hover:text-foreground`}
@@ -364,7 +365,9 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, canDown
                   </Button>
                 ) : (
                   <p className="mt-3 text-xs text-muted-foreground">
-                    This talk has its {PRESENTATION_MAX_FILES_PER_TALK} files. Replace or remove one to send another.
+                    {staff
+                      ? `This talk has its ${PRESENTATION_MAX_FILES_PER_TALK} files. Replace or remove one to send another.`
+                      : `This talk has its ${PRESENTATION_MAX_FILES_PER_TALK} files. Replace or remove one of yours to send another, or contact the organisers.`}
                   </p>
                 ))
               )}

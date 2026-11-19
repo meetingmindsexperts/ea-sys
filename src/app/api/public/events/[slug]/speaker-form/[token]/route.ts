@@ -23,6 +23,7 @@ import {
   PROFILE_DOC_LABELS,
 } from "@/lib/speaker-profile/constants";
 import { askedItemsForForm, loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
+import { presentationsAvailable } from "@/services/speaker-presentation-service";
 import { syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
@@ -74,7 +75,10 @@ export async function GET(req: Request, { params }: RouteParams) {
         },
         documents: row.speaker.documents,
         // What this speaker is asked for; the page shows only these.
-        items: askedItemsForForm(row),
+        // A presentation asked on a server where uploads are off is left out,
+        // so the page says plainly there is nothing to send rather than
+        // showing a heading over nothing (review of b334d096).
+        items: askedItemsForForm(row).filter((k) => k !== "presentation" || presentationsAvailable()),
       });
     });
   } catch (err) {
