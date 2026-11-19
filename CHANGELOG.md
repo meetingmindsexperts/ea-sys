@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The author's requested presentation type is kept (November 19)
+
+An abstract had one presentation type. The author chose it on the submission form, and when an organiser set the type (Set status or type, or the edit page) it replaced the author's choice, with nothing left to show what the author had asked for. Now the two are kept apart:
+
+- **Requested by the author:** written when the abstract is submitted (or imported) and by the author's own edits, never by an organiser.
+- **Presentation type:** the organiser's decision, as before. Every screen, email, filter and the agenda still read this one.
+- **Where the request shows:** on the Abstracts list ("Author asked for Poster") and on the abstract's page, only when it differs from the type now set; in the CSV export as a "Requested Type" column; in the Word export as a line, again only when it differs; and in the assistant's abstract list.
+- **Existing abstracts:** filled from their current type. Checked on production first: of 172 abstracts no organiser had yet changed a type, so each is the author's own choice (one had a later staff edit that kept no old value; its type matches the one it was created with).
+- **The history now keeps the old type** when a type is changed with a status, or on the edit page; until now only Set type alone did.
+
+Also fixed: the Abstracts list labelled every "Oral or Poster" abstract "Workshop" (94 on production), and the CSV import dropped the type of a row reading ORAL_POSTER.
+
 ### The organiser chooses what each speaker's form link collects (November 19)
 
 The speaker form used to ask every speaker for the same things, and a local or webinar speaker could not submit without a passport copy they had no reason to send. Now the organiser ticks what the link asks for: photo, bio, passport copy, cover letter or CV, presentation.

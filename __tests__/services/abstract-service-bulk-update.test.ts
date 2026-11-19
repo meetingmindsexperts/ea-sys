@@ -38,7 +38,7 @@ vi.mock("@/lib/event-stats", () => ({ refreshEventStats: refreshStats }));
 
 import { bulkUpdateAbstracts, MAX_BULK_ABSTRACT_UPDATES } from "@/services/abstract-service";
 
-type Row = { id: string; status: string; presentationType: string | null };
+type Row = { id: string; status: string; presentationType: string | null; requestedPresentationType?: string | null };
 const EVENT = { id: "ev1", name: "MedCon", slug: "medcon", organizationId: "org1", settings: { abstractPresentationTypes: ["ORAL", "POSTER"] } };
 const SPEAKER = { id: "sp1", email: "a@x.com", additionalEmail: null, firstName: "A", lastName: "B", title: null };
 /** Scored reviews per abstract: the review-count rule needs one. */
@@ -55,15 +55,17 @@ const claims = () => txUpdateMany.mock.calls.map(([args]) => ({ id: args.where.i
 beforeEach(() => {
   vi.clearAllMocks();
   rows = [
-    { id: "a1", status: "UNDER_REVIEW", presentationType: "ORAL" },
-    { id: "a2", status: "UNDER_REVIEW", presentationType: "ORAL" },
-    { id: "a3", status: "ACCEPTED", presentationType: "ORAL" },
+    { id: "a1", status: "UNDER_REVIEW", presentationType: "ORAL", requestedPresentationType: "ORAL" },
+    { id: "a2", status: "UNDER_REVIEW", presentationType: "ORAL", requestedPresentationType: "ORAL" },
+    { id: "a3", status: "ACCEPTED", presentationType: "ORAL", requestedPresentationType: "ORAL" },
   ];
   mockDb.event.findFirst.mockResolvedValue(EVENT);
   mockDb.abstract.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => rows.filter((r) => where.id.in.includes(r.id)));
   mockDb.abstract.findFirst.mockImplementation(async ({ where }: { where: { id: string } }) => {
     const row = rows.find((r) => r.id === where.id);
-    return row ? { id: row.id, title: `Title ${row.id}`, status: row.status, event: EVENT, speaker: SPEAKER } : null;
+    return row
+      ? { id: row.id, title: `Title ${row.id}`, status: row.status, presentationType: row.presentationType, requestedPresentationType: row.requestedPresentationType ?? null, event: EVENT, speaker: SPEAKER }
+      : null;
   });
   mockDb.abstract.updateMany.mockResolvedValue({ count: 1 });
   txUpdateMany.mockResolvedValue({ count: 1 });
@@ -172,6 +174,25 @@ describe("bulkUpdateAbstracts: presentation type", () => {
     // a1: status and type together. a2: refused, nothing written. a3: already accepted, the type alone.
     expect(claims()).toEqual([{ id: "a1", data: expect.objectContaining({ status: "ACCEPTED", presentationType: "POSTER" }) }]);
     expect(mockDb.abstract.updateMany.mock.calls.map(([a]) => a.where.id)).toEqual(["a3"]);
+  });
+
+  // Nov 19, 2026 (owner: "we need it for records"): the author's choice is kept.
+  it("the organiser's type never overwrites what the author asked for, alone or with a status", async () => {
+    await bulkUpdateAbstracts(input({ status: "ACCEPTED", presentationType: "POSTER" }));
+    // a1 through the status claim, a3 by the type alone: neither names the request.
+    expect(claims()[0].data).not.toHaveProperty("requestedPresentationType");
+    expect(mockDb.abstract.updateMany.mock.calls[0][0].data).toEqual({ presentationType: "POSTER" });
+    // And the status change's history keeps the type it replaced.
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({
+      before: { status: "UNDER_REVIEW", presentationType: "ORAL" },
+      after: { status: "ACCEPTED", presentationType: "POSTER" },
+    });
+  });
+
+  it("a row whose request was never recorded (an older image wrote it) keeps its old type as the request", async () => {
+    rows = [{ id: "a1", status: "UNDER_REVIEW", presentationType: "ORAL", requestedPresentationType: null }];
+    await bulkUpdateAbstracts(input({ presentationType: "POSTER", abstractIds: ["a1"] }));
+    expect(mockDb.abstract.updateMany.mock.calls[0][0].data).toEqual({ presentationType: "POSTER", requestedPresentationType: "ORAL" });
   });
 
   it("refuses a type the event does not offer, before touching anything", async () => {

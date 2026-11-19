@@ -77,6 +77,7 @@ import {
   enabledPresentationTypeOptions,
   abstractStatusColor,
   abstractStatusLabel,
+  PRESENTATION_TYPE_LABELS,
 } from "./abstract-enums";
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -86,11 +87,9 @@ import { BulkStatusDialog } from "@/components/abstracts/bulk-status-dialog";
 import { ReviewerSheetDialog } from "@/components/abstracts/reviewer-sheet-dialog";
 import { SelectAbstractsByIdsDialog } from "@/components/abstracts/select-abstracts-by-ids-dialog";
 
+/** The shared labels; this page's own list once called every Oral or Poster abstract "Workshop". */
 function presentationTypeLabel(type: string): string {
-  if (type === "ORAL") return "Oral";
-  if (type === "POSTER") return "Poster";
-  if (type === "VIDEO") return "Video";
-  return "Workshop";
+  return PRESENTATION_TYPE_LABELS[type as keyof typeof PRESENTATION_TYPE_LABELS] ?? type;
 }
 
 /**
@@ -190,6 +189,8 @@ interface Abstract {
   content: string;
   specialty: string | null;
   presentationType: string | null;
+  /** What the author asked for; the badge says so when the organiser set something else. */
+  requestedPresentationType: string | null;
   status: string;
   submittedAt: string;
   reviewedAt: string | null;
@@ -1274,7 +1275,8 @@ export default function AbstractsPage() {
                       />
                     )}
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
+                      {/* Wraps: a row of badges beside a long title squeezed the title into a narrow column. */}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-2">
                         {abstract.serialId != null && (
                           <span className="font-mono text-sm text-muted-foreground shrink-0">
                             {formatAbstractSerial(abstract.serialId)}
@@ -1290,6 +1292,11 @@ export default function AbstractsPage() {
                         {abstract.presentationType && (
                           <Badge variant="secondary" className="text-xs">
                             {presentationTypeLabel(abstract.presentationType)}
+                          </Badge>
+                        )}
+                        {abstract.requestedPresentationType && abstract.requestedPresentationType !== abstract.presentationType && (
+                          <Badge variant="outline" className="text-xs text-muted-foreground" title="The presentation type the author chose when submitting">
+                            Author asked for {presentationTypeLabel(abstract.requestedPresentationType)}
                           </Badge>
                         )}
                         {abstract.theme && (

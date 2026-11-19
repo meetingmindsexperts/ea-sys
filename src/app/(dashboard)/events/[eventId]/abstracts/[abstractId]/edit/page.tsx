@@ -485,6 +485,12 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                     ))}
                   </SelectContent>
                 </Select>
+                {/* The author's own choice stays on record whatever the organiser sets. */}
+                {(abstract.requestedPresentationType as string | null) && abstract.requestedPresentationType !== abstract.presentationType && (
+                  <p className="text-xs text-muted-foreground">
+                    The author asked for {PRESENTATION_TYPE_LABELS[abstract.requestedPresentationType as keyof typeof PRESENTATION_TYPE_LABELS] ?? (abstract.requestedPresentationType as string)}.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5 overflow-visible">
@@ -603,6 +609,7 @@ export default function EditAbstractPage() {
     status: string;
     specialty: string | null;
     presentationType: string | null;
+    requestedPresentationType: string | null;
     trackId: string | null;
     themeId: string | null;
   }>({

@@ -278,3 +278,50 @@ describe("profile hard gate — PROFILE_INCOMPLETE", () => {
     expect(mockDb.abstract.updateMany).toHaveBeenCalled();
   });
 });
+
+/**
+ * The author's requested type is kept for the record (owner, Nov 19, 2026):
+ * an organiser's type changes the decision only.
+ */
+describe("the author's requested presentation type", () => {
+  const submitted = { id: "ab1", eventId: "ev1", status: "SUBMITTED", presentationType: "ORAL", requestedPresentationType: "ORAL", speaker: { userId: "spk" } };
+
+  it("a staff edit of a submitted abstract changes the type and keeps the request, and the history keeps the old type", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue(submitted);
+    mockDb.abstract.findUniqueOrThrow.mockResolvedValue({ id: "ab1", status: "SUBMITTED", presentationType: "POSTER", speaker: null, event: { name: "Ev" } });
+    const res = await PUT(putReq({ presentationType: "POSTER" }), putParams);
+    expect(res.status).toBeLessThan(400);
+    const data = mockDb.abstract.updateMany.mock.calls[0][0].data;
+    expect(data.presentationType).toBe("POSTER");
+    expect(data).not.toHaveProperty("requestedPresentationType");
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({
+      before: { presentationType: "ORAL" },
+      after: { presentationType: "POSTER" },
+    });
+  });
+
+  it("the author's own draft edit moves the request with the type", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "spk", role: "SUBMITTER", organizationId: null } });
+    mockDb.abstract.findFirst.mockResolvedValue({ ...submitted, status: "DRAFT" });
+    const res = await PUT(putReq({ presentationType: "POSTER" }), putParams);
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstract.updateMany.mock.calls[0][0].data).toMatchObject({ presentationType: "POSTER", requestedPresentationType: "POSTER" });
+  });
+
+  it("a type sent with a decision goes to the status service, which records it; the route does not write it again", async () => {
+    changeStatusSpy.mockResolvedValue({ ok: true });
+    mockDb.abstract.findFirst.mockResolvedValueOnce({ ...submitted, status: "UNDER_REVIEW" }).mockResolvedValue({ id: "ab1", status: "ACCEPTED" });
+    const res = await PUT(putReq({ status: "ACCEPTED", presentationType: "POSTER" }), putParams);
+    expect(res.status).toBeLessThan(400);
+    expect(changeStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ newStatus: "ACCEPTED", presentationType: "POSTER" }));
+    expect(mockDb.abstract.update).not.toHaveBeenCalled();
+  });
+
+  it("a new abstract records the type it was submitted with as the request", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk", userId: "u", eventId: "ev1" });
+    mockDb.abstract.create.mockResolvedValue({ id: "new", status: "DRAFT" });
+    const res = await CREATE(createReq({ speakerId: "spk", title: "T", content: "C", presentationType: "ORAL", status: "DRAFT" }), createParams);
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstract.create.mock.calls[0][0].data).toMatchObject({ presentationType: "ORAL", requestedPresentationType: "ORAL" });
+  });
+});

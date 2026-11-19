@@ -168,7 +168,14 @@ model Abstract {
   // — a theme with none submits exactly as before.
   subThemeId       String?
   specialty        String?
+  /// The DECISION: what the organiser has the author present. Starts as the
+  /// author's choice and is changed by Bulk set type, Set status with a type
+  /// and staff edits.
   presentationType PresentationType?
+  /// What the AUTHOR asked for (Nov 19, 2026, for the record): written at
+  /// submission and by the author's own edits, never by an organiser's.
+  /// Write both through src/lib/abstract-requested-type.ts.
+  requestedPresentationType PresentationType?
   // Co-authors entered by the submitter — array of
   // { name, email, phone, jobTitle, organization, country }. Stored as JSON
   // (contact info only, not accounts). See src/lib/abstract-coauthors.ts.

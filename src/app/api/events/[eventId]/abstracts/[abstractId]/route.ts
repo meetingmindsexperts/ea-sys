@@ -26,6 +26,7 @@ import {
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { editTypeWrite } from "@/lib/abstract-requested-type";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 import { loadEventPersonFieldRules } from "@/lib/person-field-rules";
@@ -496,6 +497,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // that) but still need the service's terminal-state bookkeeping.
     const isTerminal = data.status === "WITHDRAWN" && existingAbstract.status !== "WITHDRAWN";
 
+    // The type is the author's request only while it is their draft or their own
+    // edit; otherwise it is the organiser's decision and the request is kept.
+    const typeWrite = editTypeWrite(data.presentationType, existingAbstract, session.user.id);
+
     // Review + terminal transitions go through the service so the gate
     // check, audit log, notification, and stats refresh are identical to
     // the MCP agent path. Field-only updates (title/content/trackId/etc.)
@@ -512,6 +517,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
         abstractId,
         newStatus: data.status as AbstractTransitionStatus,
         forceStatus: data.forceStatus === true,
+        // A type set with the decision is written and recorded by the service
+        // in the same claim, so the history keeps the type it replaced.
+        ...(data.presentationType && { presentationType: data.presentationType }),
         source: "rest",
         requestIp: getClientIp(req),
       });
@@ -535,7 +543,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.themeId !== undefined && { themeId: data.themeId }),
         ...subThemeUpdate(data.subThemeId, clearStaleSubTheme),
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
-        ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
+        ...(data.presentationType === null && typeWrite),
         ...(data.coAuthors !== undefined && { coAuthors: normalizeCoAuthors(data.coAuthors) }),
       };
       const hasFieldUpdates = Object.keys(fieldUpdates).length > 0;
@@ -606,7 +614,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.themeId !== undefined && { themeId: data.themeId }),
         ...subThemeUpdate(data.subThemeId, clearStaleSubTheme),
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
-        ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
+        ...typeWrite,
         ...(data.coAuthors !== undefined && { coAuthors: normalizeCoAuthors(data.coAuthors) }),
         ...(data.status && { status: data.status }),
         ...(isSubmission && { submittedAt: new Date() }),
@@ -652,8 +660,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
         entityType: "Abstract",
         entityId: abstract.id,
         changes: {
-          before: { status: existingAbstract.status },
-          after: { status: abstract.status },
+          before: { status: existingAbstract.status, ...(data.presentationType !== undefined && { presentationType: existingAbstract.presentationType }) },
+          after: { status: abstract.status, ...(data.presentationType !== undefined && { presentationType: abstract.presentationType }) },
           source: "api",
           fieldsChanged: Object.keys(data),
           ip: getClientIp(req),

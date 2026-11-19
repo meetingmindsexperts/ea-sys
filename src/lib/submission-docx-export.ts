@@ -36,6 +36,8 @@ export interface AbstractDocxRow {
   title: string;
   content: string;
   presentationType: string | null;
+  /** What the author asked for; printed only when the organiser's type differs. */
+  requestedPresentationType?: string | null;
   coAuthors: unknown;
   theme: { name: string } | null;
   subTheme: { name: string } | null;
@@ -92,6 +94,12 @@ function presentationTypeLine(type: string | null): string {
   return PRESENTATION_TYPE_LABELS[type as PresentationType] ?? type;
 }
 
+/** Blank (so the line is left out) unless the author asked for something other than the type now set. */
+function requestedTypeLine(type: string | null, requested: string | null): string {
+  if (!requested || requested === type) return "";
+  return presentationTypeLine(requested);
+}
+
 export function abstractToDocxEntry(row: AbstractDocxRow): DocxEntry {
   return {
     heading: `${formatAbstractSerial(row.serialId)}  ${row.title}`,
@@ -100,6 +108,7 @@ export function abstractToDocxEntry(row: AbstractDocxRow): DocxEntry {
       { label: "Presenting Author", value: personLine(row.speaker) },
       { label: "Co-authors", value: coAuthorsLine(row.coAuthors) },
       { label: "Presentation Type", value: presentationTypeLine(row.presentationType) },
+      { label: "Requested by the author", value: requestedTypeLine(row.presentationType, row.requestedPresentationType ?? null) },
     ],
     body: row.content,
   };

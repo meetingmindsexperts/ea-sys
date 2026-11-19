@@ -75,6 +75,13 @@ describe("abstractToDocxEntry", () => {
     );
   });
 
+  // Nov 19, 2026: the author's own choice, printed only when the organiser set something else.
+  it("prints what the author asked for only when it differs from the type now set", () => {
+    expect(field(abstractToDocxEntry({ ...abstract, requestedPresentationType: "POSTER" }), "Requested by the author")).toBe("Poster");
+    expect(field(abstractToDocxEntry({ ...abstract, requestedPresentationType: "ORAL_POSTER" }), "Requested by the author")).toBe("");
+    expect(field(abstractToDocxEntry(abstract), "Requested by the author")).toBe("");
+  });
+
   it("renders the presentation type as its label, never the raw enum", () => {
     // "ORAL_POSTER" on a page an organiser hands to a committee reads as a bug.
     expect(field(abstractToDocxEntry(abstract), "Presentation Type")).toBe("Oral or Poster");

@@ -11,6 +11,11 @@ import { recordImport } from "@/lib/audit-data-transfer";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
+import { PresentationType } from "@prisma/client";
+import { authorTypeWrite } from "@/lib/abstract-requested-type";
+
+/** Every type an abstract can have; a cell naming none of them imports with no type. */
+const PRESENTATION_TYPES = Object.values(PresentationType);
 
 const ABSTRACT_STATUS_VALUES = new Set([
   "DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED",
@@ -152,9 +157,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
 
       // Resolve presentation type
-      const PRESENTATION_TYPES = new Set(["ORAL", "POSTER", "VIDEO", "WORKSHOP"]);
       const ptRaw = getField(fields, idx.presentationType)?.toUpperCase();
-      const presentationType = ptRaw && PRESENTATION_TYPES.has(ptRaw) ? ptRaw : null;
+      const presentationType = PRESENTATION_TYPES.find((t) => t === ptRaw) ?? null;
 
       try {
         // Serial + create in one tx so a failed row rolls the counter back
@@ -171,7 +175,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               specialty: getField(fields, idx.specialty) || null,
               trackId,
               themeId,
-              presentationType: presentationType as "ORAL" | "POSTER" | "VIDEO" | "WORKSHOP" | null,
+              ...authorTypeWrite(presentationType),
               status: status as "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "ACCEPTED" | "REJECTED" | "REVISION_REQUESTED",
               serialId,
               managementToken: crypto.randomBytes(32).toString("hex"),

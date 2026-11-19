@@ -29,6 +29,7 @@ import {
   exceedsAbstractLimit,
   readAbstractLimits,
 } from "@/lib/abstract-limits";
+import { authorTypeWrite } from "@/lib/abstract-requested-type";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 import { linkedRoleAbstractFilter } from "@/lib/abstract-reviewer-access";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
@@ -83,6 +84,7 @@ interface ExportRow {
   title: string;
   status: string;
   presentationType: string | null;
+  requestedPresentationType: string | null;
   specialty: string | null;
   content: string;
   coAuthors: unknown;
@@ -165,7 +167,7 @@ async function exportAbstractsDocx(req: Request, args: ExportArgs): Promise<Next
  */
 function exportAbstractsCsv(req: Request, args: ExportArgs): NextResponse {
   const header = toCsvRow([
-    "Abstract #", "Title", "Status", "Presentation Type", "Theme", "Sub-theme", "Track",
+    "Abstract #", "Title", "Status", "Presentation Type", "Requested Type", "Theme", "Sub-theme", "Track",
     "Author Title", "Author First Name", "Author Last Name", "Email", "Additional Email", "Organization", "Country", "Specialty", "Co-authors",
     "Submitted At", "Reviews", "Mean Score", "Abstract",
   ]);
@@ -175,6 +177,7 @@ function exportAbstractsCsv(req: Request, args: ExportArgs): NextResponse {
       a.title,
       a.status,
       a.presentationType ?? "",
+      a.requestedPresentationType ?? "",
       a.theme?.name ?? "",
       a.subTheme?.name ?? "",
       a.track?.name ?? "",
@@ -589,7 +592,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           title,
           content,
           specialty: specialty || null,
-          presentationType: presentationType || null,
+          ...authorTypeWrite(presentationType || null),
           trackId: trackId || null,
           themeId: themeId || null,
           subThemeId: subThemeId || null,

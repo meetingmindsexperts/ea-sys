@@ -175,7 +175,7 @@ const listAbstracts: ToolExecutor = async (input, ctx) => {
         ...(input.themeId ? { themeId: String(input.themeId) } : {}),
       },
       select: {
-        id: true, serialId: true, title: true, status: true, specialty: true, presentationType: true,
+        id: true, serialId: true, title: true, status: true, specialty: true, presentationType: true, requestedPresentationType: true,
         submittedAt: true,
         speaker: { select: { firstName: true, lastName: true, email: true } },
         theme: { select: { name: true } },
