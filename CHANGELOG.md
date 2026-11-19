@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Greek letters print in PDFs (November 19)
+
+The PDFs use the built-in Helvetica font, which cannot draw Greek. The shared cleaner the speaker agreement, certificates, the reimbursement PDF and the venue PDFs pass their text through turned every Greek letter into "?", so the agreement for "Improving Outcomes in β-Thalassemia" read "?-Thalassemia". The cleaner (`src/lib/pdf/pdf-text.ts`) now writes a Greek letter out by name (β becomes "beta", Δ "Delta"), from the same table event web addresses use (`greekLetterName` in `src/lib/event-slug.ts`), and Greek mu becomes the micro sign, so "5 μg" stays "5 µg". The agreement's heading, subtitle and signature lines now go through it as well. Arabic, Chinese and emoji still print as "?": drawing them needs a font embedded in the PDF.
+
+Not changed: invoices, receipts, credit notes, quotes and the purchase order PDF do not use the cleaner at all, and there a Greek letter is left out without a mark ("Improving Outcomes in -Thalassemia").
+
 ### Abstract scoring scale, and status and type for many abstracts at once (November 19)
 
 **Scoring scale.** Each review criterion was scored out of 10, with no choice. In Settings, Abstracts, Review Criteria, the organiser now chooses 0 to 5, 0 to 10 or 0 to 100. The calculation is unchanged: the overall score is still a weighted figure out of 100, so the same judgement gives the same overall score on any scale. The scale can be changed until the first review is submitted on the event and is fixed after that, because the scores already given are on it. An event that never chooses stays on 0 to 10.

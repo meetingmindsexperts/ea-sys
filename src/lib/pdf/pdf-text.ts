@@ -8,11 +8,18 @@
  * one unencodable character must not fail the whole document.
  */
 
+import { greekLetterName } from "@/lib/event-slug";
+
 /**
  * Substitute glyphs that aren't in Helvetica's WinAnsi encoding so they
  * render as legible ASCII in the PDF rather than missing-glyph boxes.
  * Applied only at PDF emission — the acceptance HTML view keeps the
  * original Unicode since browsers render it fine.
+ *
+ * Greek letters are written out by name (β becomes "beta", Δ "Delta") and
+ * Greek mu becomes the micro sign. Everything else the font cannot draw
+ * (Arabic, CJK, emoji) still becomes "?": drawing those needs a Unicode font
+ * embedded in the PDF, which no PDF here has.
  */
 export function sanitizePdfText(s: string): string {
   const substituted = s
@@ -27,7 +34,10 @@ export function sanitizePdfText(s: string): string {
     .replace(/[‘’]/g, "'") // smart single quotes
     .replace(/[“”]/g, '"') // smart double quotes
     .replace(/•/g, "•") // bullet (this IS in WinAnsi but belt-and-suspenders)
-    .replace(/ /g, " "); // nbsp
+    .replace(/ /g, " ") // nbsp
+    // Greek mu is the unit prefix in "5 μg". The micro sign looks the same and
+    // IS in WinAnsi, so the unit survives ("5 mug" would be worse than "?").
+    .replace(/μ/g, "µ");
   // Defensive sweep: codepoints outside printable ASCII + Latin-1
   // Supplement get replaced with "?". pdfkit's default WinAnsi encoder
   // throws on unencodable codepoints — this stops a stray emoji / CJK /
@@ -43,7 +53,11 @@ export function sanitizePdfText(s: string): string {
       cp === 0x2022 || // bullet
       cp === 0x20ac || // euro
       cp === 0x2122; // trademark
-    out += safe ? ch : "?";
+    // A Greek letter is spelled out, not lost: an event named "Improving
+    // Outcomes in β-Thalassemia" printed "?-Thalassemia" on the speaker
+    // agreement (Nov 19, 2026) and would have on its certificates. The font
+    // cannot draw Greek; "beta-Thalassemia" is how the name is written without it.
+    out += safe ? ch : (greekLetterName(ch) ?? "?");
   }
   return out;
 }

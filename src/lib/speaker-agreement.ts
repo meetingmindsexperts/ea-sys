@@ -2155,10 +2155,10 @@ export async function renderAgreementHtmlToPdf(opts: AgreementPdfOptions): Promi
   // start straight at the merged agreement HTML).
   if (opts.headingTitle) {
     doc.font("Helvetica-Bold").fontSize(22).fillColor("black");
-    doc.text(opts.headingTitle, { align: "center" });
+    doc.text(sanitizePdfText(opts.headingTitle), { align: "center" });
     if (opts.headingSubtitle) {
       doc.font("Helvetica").fontSize(12).fillColor("#555");
-      doc.text(opts.headingSubtitle, { align: "center" });
+      doc.text(sanitizePdfText(opts.headingSubtitle), { align: "center" });
     }
     doc.fillColor("black").moveDown(1.2);
   }
@@ -2190,9 +2190,9 @@ export async function renderAgreementHtmlToPdf(opts: AgreementPdfOptions): Promi
     const sigY = doc.y;
 
     doc.font("Helvetica-Bold").fontSize(11);
-    doc.text(opts.signatureLabel ?? "", leftX, sigY, { width: halfWidth });
+    doc.text(sanitizePdfText(opts.signatureLabel ?? ""), leftX, sigY, { width: halfWidth });
     doc.font("Helvetica").fontSize(11);
-    doc.text(opts.signatureName ?? "", leftX, doc.y, { width: halfWidth });
+    doc.text(sanitizePdfText(opts.signatureName ?? ""), leftX, doc.y, { width: halfWidth });
 
     const lineY = doc.y + E_SIGN_GAP;
     doc

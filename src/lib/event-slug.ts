@@ -90,14 +90,21 @@ const COMBINING_MARKS = /[̀-ͯ]/g;
  */
 export function toAsciiLetters(text: string): string {
   return Array.from(text.normalize("NFKD").replace(COMBINING_MARKS, ""))
-    .map((ch) => {
-      if (LATIN_EXTRA[ch]) return LATIN_EXTRA[ch];
-      const lower = ch.toLowerCase();
-      const greek = GREEK[lower];
-      if (!greek) return ch;
-      return ch === lower ? greek : greek[0].toUpperCase() + greek.slice(1);
-    })
+    .map((ch) => LATIN_EXTRA[ch] ?? greekLetterName(ch) ?? ch)
     .join("");
+}
+
+/**
+ * A Greek letter's English name, or null for anything else: β is "beta", an
+ * upper-case one is capitalised (Β is "Beta"). The ONE table of these, shared
+ * by the slug rule above and by the PDF text cleaner (src/lib/pdf/pdf-text.ts),
+ * whose font cannot draw Greek.
+ */
+export function greekLetterName(ch: string): string | null {
+  const lower = ch.toLowerCase();
+  const name = GREEK[lower];
+  if (!name) return null;
+  return ch === lower ? name : name[0].toUpperCase() + name.slice(1);
 }
 
 /**
