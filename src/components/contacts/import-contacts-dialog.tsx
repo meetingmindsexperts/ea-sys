@@ -24,7 +24,9 @@ import { toast } from "sonner";
 import { useCan } from "@/hooks/use-can";
 import { SPEAKERS_TYPE_LABEL, isFacultyLookalikeName } from "@/lib/faculty-filter";
 import { speakerContactImportNotice, type SpeakerContactImportResult } from "@/lib/speaker-registration-messages";
-import { Search, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
+
+const PAGE_SIZE = 50;
 
 interface ImportContactsDialogProps {
   open: boolean;
@@ -61,7 +63,11 @@ export function ImportContactsDialog({
   const [pricingTierId, setPricingTierId] = useState("");
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const filters: Record<string, string> = { limit: "50" };
+  // A page of matches at a time (Nov 19, 2026): it showed the 50 newest and no
+  // more, so a common surname ("Khan" matches 538 contacts) hid the person.
+  // Picks are kept across pages.
+  const [page, setPage] = useState(1);
+  const filters: Record<string, string> = { limit: String(PAGE_SIZE), page: String(page) };
   if (debouncedSearch) filters.search = debouncedSearch;
 
   const { data, isLoading } = useContacts(filters);
@@ -75,6 +81,7 @@ export function ImportContactsDialog({
   const contacts: Contact[] = (data?.contacts ?? []) as Contact[];
   const tickets: Ticket[] = (ticketsData ?? []) as Ticket[];
   const total: number = data?.total ?? 0;
+  const totalPages: number = data?.totalPages ?? 1;
 
   // Sentinel for the explicit "import without a type" choice — a Radix Select
   // can't carry an empty-string value, and an untouched picker must NOT
@@ -112,7 +119,10 @@ export function ImportContactsDialog({
   const handleSearchChange = (value: string) => {
     setSearch(value);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => setDebouncedSearch(value), 400);
+    searchTimeout.current = setTimeout(() => {
+      setDebouncedSearch(value);
+      setPage(1);
+    }, 400);
   };
 
   const toggleSelect = (id: string) => {
@@ -123,12 +133,17 @@ export function ImportContactsDialog({
     });
   };
 
+  // The page on screen only: picks made on other pages stay.
+  const pageAllSelected = contacts.length > 0 && contacts.every((c) => selectedIds.has(c.id));
   const toggleSelectAll = () => {
-    if (selectedIds.size === contacts.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(contacts.map((c) => c.id)));
-    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const c of contacts) {
+        if (pageAllSelected) next.delete(c.id);
+        else next.add(c.id);
+      }
+      return next;
+    });
   };
 
   const handleImport = async () => {
@@ -312,7 +327,8 @@ export function ImportContactsDialog({
                   <th className="w-10 px-3 py-2.5">
                     <input
                       type="checkbox"
-                      checked={contacts.length > 0 && selectedIds.size === contacts.length}
+                      checked={pageAllSelected}
+                      aria-label="Select every contact on this page"
                       onChange={toggleSelectAll}
                       className="cursor-pointer"
                     />
@@ -373,6 +389,24 @@ export function ImportContactsDialog({
               </tbody>
             </table>
           </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                {total.toLocaleString()} match{total === 1 ? "" : "es"} · page {page} of {totalPages.toLocaleString()}
+                {debouncedSearch ? "" : " · search by name to narrow"}
+              </span>
+              <div className="flex gap-1">
+                <Button variant="outline" size="sm" className="h-7" disabled={page <= 1 || isLoading} onClick={() => setPage((p) => p - 1)}>
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="sr-only">Previous page</span>
+                </Button>
+                <Button variant="outline" size="sm" className="h-7" disabled={page >= totalPages || isLoading} onClick={() => setPage((p) => p + 1)}>
+                  <ChevronRight className="h-4 w-4" />
+                  <span className="sr-only">Next page</span>
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="mt-4">

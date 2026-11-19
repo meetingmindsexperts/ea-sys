@@ -118,6 +118,16 @@ describe("contactFiltersWhere", () => {
     expect(w.AND).toEqual([{ OR: [{ role: null }, { role: "" }] }, { OR: [{ country: null }, { country: "" }] }]);
   });
 
+  // Nov 19, 2026: the whole text against each field found no one for a full
+  // name, in the Contacts page, its export and the add-from-contacts dialog.
+  it("matches each word of a name, honorifics and commas aside", () => {
+    const w = contactFiltersWhere("org1", { ...base, search: "Prof. Wali, Yasser" });
+    expect(w.AND).toHaveLength(2);
+    const words = (w.AND as { OR: { firstName: { contains: string } }[] }[]).map((c) => c.OR[0].firstName.contains);
+    expect(words).toEqual(["Wali", "Yasser"]);
+    expect(Object.keys((w.AND as { OR: object[] }[])[0].OR[1])).toEqual(["lastName"]);
+  });
+
   it("keeps the organisation on every shape", () => {
     const w = contactFiltersWhere("org1", { ...base, search: "x", tags: ["vip"], role: "PHYSICIAN" });
     expect(w.organizationId).toBe("org1");

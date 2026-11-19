@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { MAX_PERSON_FIELD_ANSWER, type PersonFieldConfig } from "@/lib/person-fields";
+import { contactSearchClauses } from "@/lib/person-search";
 
 /**
  * The "Not recorded" choice for specialty, country and role. A sentinel no real
@@ -129,16 +130,10 @@ export function contactFiltersWhere(organizationId: string, f: ContactFilters): 
   // A facet counts under every OTHER filter, so this also serves the options
   // route with one field emptied (`{ ...f, specialty: [] }`).
   const and: Prisma.ContactWhereInput[] = [];
-  if (f.search) {
-    and.push({
-      OR: [
-        { firstName: { contains: f.search, mode: "insensitive" } },
-        { lastName: { contains: f.search, mode: "insensitive" } },
-        { email: { contains: f.search, mode: "insensitive" } },
-        { organization: { contains: f.search, mode: "insensitive" } },
-      ],
-    });
-  }
+  // Each word of the search must match a first name, last name, email or
+  // organisation (Nov 19, 2026): the whole text against each field found no
+  // one for "Yasser Wali" or "Wali, Yasser". The agent's rule (person-search.ts).
+  if (f.search) and.push(...contactSearchClauses(f.search));
   if (f.tags.length > 0) and.push({ tags: { hasSome: f.tags } });
   // Role is text since Nov 16, 2026: an empty one is no answer, as null is.
   if (f.role === NOT_SET) and.push({ OR: [{ role: null }, { role: "" }] });

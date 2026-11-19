@@ -69,6 +69,7 @@ import {
   type ReimbursementCurrency,
 } from "@/lib/reimbursement/constants";
 import { downloadExport } from "@/lib/export-download";
+import { DocumentDownloadLink } from "@/components/reimbursement/document-download-link";
 import { formatFileSize } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -407,12 +408,12 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
                 </p>
                 <ul className="space-y-1">
                   {row.documents.map((doc) => (
-                    <li key={doc.id}>
+                    <li key={doc.id} className="flex items-start gap-1">
                       <a
                         href={`/api/events/${eventId}/reimbursements/${row.id}/documents/${doc.id}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="flex items-start gap-2 text-primary hover:underline"
+                        className="flex min-w-0 flex-1 items-start gap-2 text-primary hover:underline"
                       >
                         <FileText className="mt-0.5 h-4 w-4 shrink-0" />
                         {/* Stacked, not inline: the card sits in a narrow sidebar
@@ -424,6 +425,10 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
                           </span>
                         </span>
                       </a>
+                      <DocumentDownloadLink
+                        href={`/api/events/${eventId}/reimbursements/${row.id}/documents/${doc.id}`}
+                        filename={doc.filename}
+                      />
                     </li>
                   ))}
                 </ul>

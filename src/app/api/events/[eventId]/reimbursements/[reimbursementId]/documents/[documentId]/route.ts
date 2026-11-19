@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { storageErrorResponse } from "@/lib/api-errors";
 import { readStoredFile } from "@/lib/storage";
+import { contentDisposition } from "@/lib/download-filename";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -30,7 +31,7 @@ const CONTENT_TYPES: Record<string, string> = {
   png: "image/png",
 };
 
-export async function GET(_req: Request, { params }: RouteParams) {
+export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, reimbursementId, documentId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -81,13 +82,14 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const ext = (doc.url.split(".").pop() ?? "").toLowerCase();
     const contentType = CONTENT_TYPES[ext] ?? doc.mimeType ?? "application/octet-stream";
-    // ASCII-sanitized filename for the header (a crafted filename must not
-    // inject header characters); inline so PDFs/images preview in-browser.
-    const safeName = doc.filename.replace(/[^\w.\- ]+/g, "_").slice(0, 120) || "document";
+    // Inline so PDFs and images preview in the browser, or an attachment for
+    // the download button (?download=1, Nov 19, 2026). contentDisposition
+    // makes the name header-safe and keeps a non-English name in filename*.
+    const disposition = new URL(req.url).searchParams.get("download") === "1" ? "attachment" : "inline";
     return new NextResponse(new Uint8Array(file), {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${safeName}"`,
+        "Content-Disposition": contentDisposition(doc.filename.slice(0, 120) || "document", disposition),
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'none'; script-src 'none'",

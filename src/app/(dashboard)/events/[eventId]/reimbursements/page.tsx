@@ -67,6 +67,7 @@ import {
   type ReimbursementCurrency,
 } from "@/lib/reimbursement/constants";
 import { downloadExport } from "@/lib/export-download";
+import { DocumentDownloadLink } from "@/components/reimbursement/document-download-link";
 import { toast } from "sonner";
 
 interface DocumentRow {
@@ -1160,7 +1161,7 @@ export default function ReimbursementsPage() {
                     ) : (
                       <ul className="space-y-1.5">
                         {detail.documents.map((doc) => (
-                          <li key={doc.id}>
+                          <li key={doc.id} className="flex items-center gap-1">
                             <a
                               href={`/api/events/${eventId}/reimbursements/${detail.id}/documents/${doc.id}`}
                               target="_blank"
@@ -1173,6 +1174,10 @@ export default function ReimbursementsPage() {
                                 {doc.filename} · {(doc.size / 1024).toFixed(0)} KB
                               </span>
                             </a>
+                            <DocumentDownloadLink
+                              href={`/api/events/${eventId}/reimbursements/${detail.id}/documents/${doc.id}`}
+                              filename={doc.filename}
+                            />
                           </li>
                         ))}
                       </ul>
