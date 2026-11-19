@@ -345,6 +345,8 @@ export async function signDirectUpload(opts: {
   storedPath: string;
   requirePrefix: string;
   contentType: string;
+  /** The body S3 will take, in bytes. Pass the same number twice for an exact size. */
+  minBytes: number;
   maxBytes: number;
   expiresSeconds: number;
 }): Promise<DirectUploadTarget> {
@@ -354,6 +356,7 @@ export async function signDirectUpload(opts: {
     const signed = await s3SignUpload({
       key: storedPathToKey(opts.storedPath),
       contentType: opts.contentType,
+      minBytes: opts.minBytes,
       maxBytes: opts.maxBytes,
       expiresSeconds: opts.expiresSeconds,
     });

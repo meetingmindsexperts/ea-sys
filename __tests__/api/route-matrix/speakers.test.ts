@@ -43,7 +43,13 @@ import { POST as emailPOST, PATCH as emailPATCH } from "@/app/api/events/[eventI
 import { POST as grantCompanionPOST } from "@/app/api/events/[eventId]/speakers/[speakerId]/grant-companion/route";
 import { GET as profileFormGET, POST as profileFormPOST, PATCH as profileFormPATCH } from "@/app/api/events/[eventId]/speakers/[speakerId]/profile-form/route";
 
+import { GET as presentationsGET, POST as presentationsPOST } from "@/app/api/events/[eventId]/speakers/[speakerId]/presentations/route";
+import { GET as presentationGET, DELETE as presentationDELETE } from "@/app/api/events/[eventId]/speakers/[speakerId]/presentations/[presentationId]/route";
+import { POST as presentationCompletePOST } from "@/app/api/events/[eventId]/speakers/[speakerId]/presentations/[presentationId]/complete/route";
+import { POST as presentationFilePOST } from "@/app/api/events/[eventId]/speakers/[speakerId]/presentations/[presentationId]/file/route";
+
 const sp = { speakerId: "sp1" };
+const pres = { speakerId: "sp1", presentationId: "p1" };
 const doc = { speakerId: "sp1", documentId: "d1" };
 
 const CASES: HandlerCase[] = [
@@ -68,6 +74,15 @@ const CASES: HandlerCase[] = [
   { name: "GET speakers/[speakerId]/profile-form", handler: profileFormGET, method: "GET", params: sp },
   { name: "POST speakers/[speakerId]/profile-form", handler: profileFormPOST, method: "POST", params: sp, body: {} },
   { name: "PATCH speakers/[speakerId]/profile-form (reopen)", handler: profileFormPATCH, method: "PATCH", params: sp, body: { reopen: true } },
+  // Speaker presentations (Nov 19, 2026). The download asks the FILES key
+  // (.open), not the list's (.read): a read-only Member sees that a file was
+  // received and cannot download it.
+  { name: "GET speakers/[speakerId]/presentations", handler: presentationsGET, method: "GET", params: sp },
+  { name: "POST speakers/[speakerId]/presentations", handler: presentationsPOST, method: "POST", params: sp, body: { slotKey: "general", filename: "deck.pdf", size: 1000 } },
+  { name: "GET speakers/[speakerId]/presentations/[presentationId] (download)", handler: presentationGET, method: "GET", params: pres },
+  { name: "DELETE speakers/[speakerId]/presentations/[presentationId]", handler: presentationDELETE, method: "DELETE", params: pres },
+  { name: "POST speakers/[speakerId]/presentations/[presentationId]/complete", handler: presentationCompletePOST, method: "POST", params: pres },
+  { name: "POST speakers/[speakerId]/presentations/[presentationId]/file", handler: presentationFilePOST, method: "POST", params: pres, body: {} },
 ];
 
 describe("route status matrix: speakers", () => {

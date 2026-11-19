@@ -3,7 +3,8 @@
  *
  *   GET    answers a redirect to a short-lived signed link for the version
  *          that was checked; the bucket itself is never public
- *   DELETE removes a file that should not be there
+ *   DELETE removes a file that should not be there; with `?abandon=1`, marks
+ *          an upload that failed in the browser as over
  */
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
@@ -14,7 +15,7 @@ import { storageErrorResponse } from "@/lib/api-errors";
 import { contentDisposition } from "@/lib/download-filename";
 import { readStoredFile } from "@/lib/storage";
 import { presentationRefusal } from "@/lib/speaker-presentation-http";
-import { deleteSpeakerPresentation, presentationDownload } from "@/services/speaker-presentation-service";
+import { abandonPresentationUpload, deleteSpeakerPresentation, presentationDownload } from "@/services/speaker-presentation-service";
 import { loadStaffSpeaker } from "../_staff";
 
 interface RouteParams {
@@ -26,7 +27,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const [p, session] = await Promise.all([params, auth()]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const route = "events/[eventId]/speakers/[speakerId]/presentations/[presentationId]:GET";
-    const gate = requirePermission(session, "speakers.documents.read", { route, eventId: p.eventId });
+    // The files themselves need `speakers.documents.open`, not the list's
+    // `.read` (owner, Oct 2, 2026: a read-only Member sees that a file
+    // exists and cannot download it), as the speaker's other documents do.
+    const gate = requirePermission(session, "speakers.documents.open", { route, eventId: p.eventId });
     if (!gate.ok) return gate.response;
     const userId = session.user.id;
 
@@ -68,7 +72,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(_req: Request, { params }: RouteParams) {
+export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     const [p, session] = await Promise.all([params, auth()]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -82,6 +86,11 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
       if (!scope) {
         apiLogger.warn({ msg: "speaker-presentations:not-found", route, eventId: p.eventId, speakerId: p.speakerId, userId });
         return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
+      }
+      // The browser's upload failed: the row stops holding quota. Not a
+      // removal, so no audit row and nothing READY is ever touched.
+      if (new URL(req.url).searchParams.get("abandon") === "1") {
+        return NextResponse.json(await abandonPresentationUpload({ ...scope, presentationId: p.presentationId }));
       }
       const result = await deleteSpeakerPresentation({ ...scope, presentationId: p.presentationId, actor: { source: "staff", userId } });
       if (!result.ok) {

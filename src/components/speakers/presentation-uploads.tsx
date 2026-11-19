@@ -32,8 +32,10 @@ interface Props {
   /** `/api/events/{id}/speakers/{id}/presentations`, or the speaker form's `.../presentations`. */
   apiBase: string;
   canUpload: boolean;
-  /** Staff only: download and remove. The speaker sees what they sent, not a link to it. */
+  /** Staff only: remove. The speaker sees what they sent, and can only replace it. */
   staff?: boolean;
+  /** Staff holding the files permission: the download link. Never the speaker. */
+  canDownload?: boolean;
   /** Told after a file is received or removed (the staff page refreshes its counts). */
   onChange?: () => void;
   /**
@@ -58,7 +60,8 @@ function sendForm(url: string, form: FormData, onProgress: (fraction: number) =>
       if (e.lengthComputable) onProgress(e.loaded / e.total);
     };
     xhr.onload = () => resolve(xhr.status);
-    xhr.onerror = () => reject(new Error("The upload was interrupted. Check your connection and try again."));
+    // A dropped connection, or storage that cannot be reached at all.
+    xhr.onerror = () => reject(new Error("The upload did not go through. Check your connection and try again; if it keeps failing, contact the organisers."));
     xhr.send(form);
   });
 }
@@ -68,7 +71,7 @@ function formatWhen(iso: string | null): string {
   return new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-export function PresentationUploads({ apiBase, canUpload, staff = false, onChange, shell }: Props) {
+export function PresentationUploads({ apiBase, canUpload, staff = false, canDownload = false, onChange, shell }: Props) {
   const [slots, setSlots] = useState<PresentationSlot[]>([]);
   const [files, setFiles] = useState<PresentationView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,6 +106,15 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, onChang
     void load();
   }, [load]);
 
+  // Leaving mid-upload loses it: the browser asks first.
+  const uploading = busy !== null;
+  useEffect(() => {
+    if (!uploading) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [uploading]);
+
   const upload = async (slotKey: string, file: File) => {
     const problem = presentationFileProblem(file.name, file.size);
     if (problem) {
@@ -110,6 +122,10 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, onChang
       return;
     }
     setBusy({ slotKey, fraction: 0, stage: "sending" });
+    // Set once the server has allowed the upload, cleared once it is received:
+    // anything in between that fails is told to the server, so the try stops
+    // holding the speaker's quota.
+    let startedId: string | null = null;
     try {
       const start = await fetch(apiBase, {
         method: "POST",
@@ -125,6 +141,7 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, onChang
         upload: UploadTarget;
         contentType: string;
       };
+      startedId = presentationId;
 
       const form = new FormData();
       if (target.via === "s3") {
@@ -149,6 +166,7 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, onChang
         toast.error(await readError(done, "The file could not be checked."));
         return;
       }
+      startedId = null;
       toast.success("Presentation received");
       await load();
       onChange?.();
@@ -156,6 +174,11 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, onChang
       console.error("[presentations] upload failed", err);
       toast.error(err instanceof Error ? err.message : "The upload failed. Please try again.");
     } finally {
+      if (startedId) {
+        // Best effort: the server clears an unfinished upload itself in time.
+        const abandonUrl = staff ? `${apiBase}/${startedId}?abandon=1` : `${apiBase}/${startedId}`;
+        fetch(abandonUrl, { method: "DELETE" }).catch((err) => console.error("[presentations] abandon failed", err));
+      }
       setBusy(null);
     }
   };
@@ -200,7 +223,8 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, onChang
   }
 
   const slotKeys = new Set(slots.map((s) => s.key));
-  // A file whose talk has since left the agenda: still shown, never lost.
+  // A file not tied to a talk on the agenda now (the talk was removed, or it
+  // was sent before the speaker had one): still shown, never lost.
   const orphans = files.filter((f) => !slotKeys.has(f.slotKey));
 
   const fileRow = (file: PresentationView) => (
@@ -219,6 +243,7 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, onChang
       </span>
       {staff && (
         <>
+          {canDownload && (
           <a
             href={`${apiBase}/${file.id}`}
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -227,6 +252,7 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, onChang
           >
             <Download className="h-4 w-4" />
           </a>
+          )}
           {canUpload && (
             <button
               type="button"
@@ -290,8 +316,15 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, onChang
               {current && <div className="mt-2">{fileRow(current)}</div>}
 
               {working ? (
-                <div className="mt-3" role="status" aria-live="polite">
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div className="mt-3">
+                  <div
+                    className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                    role="progressbar"
+                    aria-label={`Uploading for ${slot.title}`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(working.fraction * 100)}
+                  >
                     <div className="h-full bg-primary transition-[width]" style={{ width: `${Math.round(working.fraction * 100)}%` }} />
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -313,7 +346,7 @@ export function PresentationUploads({ apiBase, canUpload, staff = false, onChang
 
       {orphans.length > 0 && (
         <div className="rounded-lg border border-dashed p-3">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">For a talk no longer on the agenda</p>
+          <p className="mb-2 text-xs font-medium text-muted-foreground">Other files</p>
           <div className="space-y-2">{orphans.map((f) => <div key={f.id}>{fileRow(f)}</div>)}</div>
         </div>
       )}

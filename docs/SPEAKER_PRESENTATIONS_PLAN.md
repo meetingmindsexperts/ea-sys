@@ -159,8 +159,9 @@ JSON edge.
 
 The migration is additive: a new table and a new enum, nothing changed, safe
 for blue/green. The table gets a row policy in `prisma/rls/` with the others
-(written, never applied by migration). Deleting a speaker deletes their rows;
-the objects are cleared by the lifecycle rule. Replacing a file keeps the old
+(written, never applied by migration). Deleting a speaker deletes their rows by
+cascade, which runs no code, so the speaker delete route removes the files
+itself; a lifecycle rule alone would not, because nothing marks them deleted. Replacing a file keeps the old
 row as `REPLACED`. Only the newest `READY` file per speaker and topic is shown.
 
 ## 5. The screens
@@ -242,7 +243,18 @@ row as `REPLACED`. Only the newest `READY` file per speaker and topic is shown.
      (`docs/FROM_SCRATCH_REBUILD.md`), so a download can name the checked
      version. Phase 4 adds the multipart actions.
    - A lifecycle rule on `presentations/`: expire noncurrent versions after a
-     set number of days, and abort incomplete multipart uploads after 7.
+     set number of days, remove expired delete markers
+     (`ExpiredObjectDeleteMarker`: clearing an upload that never arrived
+     writes a marker for a key with no object), and abort incomplete multipart
+     uploads after 7 days.
+   - The same kind of rule on the DR bucket's `uploads/presentations/`: the
+     hourly copy to Singapore has no `--delete`, so a file removed here stays
+     there until a rule expires it.
+   - A bucket-size alarm is worth having: replaced files and re-used upload
+     forms add old versions that only the lifecycle rule's days bound.
+   - Before telling speakers: one upload on a throttled connection that takes
+     longer than a few minutes (the signed form lasts two hours, but how S3
+     judges its expiry on a slow upload is not documented).
    - Checking whether the bucket policy demands the
      `x-amz-server-side-encryption` header on uploads. If it does, the POST
      form and its policy carry those fields; if not, the bucket's default
@@ -283,6 +295,29 @@ its own.
   it; they get no download link.
 - **Tests:** unit tests for the rules, the service and what is signed for S3;
   a browser test of both doors (`e2e/speaker-presentations.spec.ts`).
+
+After the review of `be777c01` (the same day):
+
+- **Download needs the files key.** `speakers.documents.open`, not the list's
+  `.read`: a read-only Member sees that a file was received and cannot
+  download it, as with the speaker's other documents.
+- **The signed form is for the exact size stated**, both ends of the range, so
+  a client cannot state one byte for the quota and send 500 MB. It lasts two
+  hours, for a slow connection.
+- **One upload in flight per talk.** Starting an upload ends that talk's
+  earlier unfinished tries, the browser tells the server when an upload fails
+  (`abandon`), and unfinished uploads are cleared after three hours. A failed
+  try no longer holds the speaker's quota for a day.
+- **On S3 a file passes only with a version to pin.** A bucket with versioning
+  off is refused, loudly.
+- **Deleting a speaker removes their files** (the rows go by cascade, which
+  runs no code). Deleting an EVENT does not yet: see ROADMAP.
+- **The speaker's door closes when the event has ended.** Staff can still
+  upload from the speaker page.
+- **A password-protected .pptx is accepted** (it is an OLE2 file, not a zip).
+- **After a DR promotion** the recorded version ids mean nothing in the other
+  bucket: run `UPDATE "SpeakerPresentation" SET "s3VersionId" = NULL` so
+  downloads read the current object.
 
 How it differs from the plan above:
 

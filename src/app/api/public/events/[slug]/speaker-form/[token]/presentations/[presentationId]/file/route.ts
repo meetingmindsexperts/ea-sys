@@ -9,7 +9,7 @@ import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
 import { presentationRefusal, readUploadedFile, speakerFormPresentationLimit } from "@/lib/speaker-presentation-http";
-import { receiveLocalPresentationFile } from "@/services/speaker-presentation-service";
+import { presentationFileRouteAvailable, receiveLocalPresentationFile } from "@/services/speaker-presentation-service";
 
 type RouteParams = { params: Promise<{ slug: string; token: string; presentationId: string }> };
 
@@ -31,6 +31,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "This link is invalid." }, { status: 404 });
       }
       const scope = { eventId: form.eventId, organizationId: form.event.organizationId, speakerId: form.speaker.id };
+      // Before the body is read: on S3 the app never buffers a file.
+      if (!presentationFileRouteAvailable()) {
+        apiLogger.warn({ slug: p.slug, formId: form.id }, "speaker-form-presentation:file-route-off");
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
       const bytes = await readUploadedFile(req);
       if (!bytes) {
         apiLogger.warn({ slug: p.slug, formId: form.id }, "speaker-form-presentation:no-file");

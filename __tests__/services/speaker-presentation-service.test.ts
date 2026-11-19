@@ -51,6 +51,7 @@ vi.mock("@/lib/storage", () => ({
 }));
 
 import {
+  abandonPresentationUpload,
   completePresentationUpload,
   listSpeakerPresentations,
   presentationDownload,
@@ -111,20 +112,23 @@ describe("the talks a speaker can upload for (one file per talk)", () => {
 describe("starting an upload", () => {
   const input = { ...scope, slotKey: "topic:t1", filename: "Deck.pdf", size: 5_000_000, actor: speakerActor };
 
-  it("signs a form for one key under the speaker, with the server's type and the cap for that kind", async () => {
+  it("signs a form for one key under the speaker, with the server's type and exactly the size stated", async () => {
     const res = await startPresentationUpload(input);
     expect(res.ok).toBe(true);
     const signed = storage.signDirectUpload.mock.calls[0][0];
     expect(signed.storedPath).toMatch(/^\/uploads\/presentations\/ev1\/sp1\/[0-9a-f]{32}\.pdf$/);
-    expect(signed).toMatchObject({ requirePrefix: "/uploads/presentations/", contentType: "application/pdf", maxBytes: 200 * 1024 * 1024, expiresSeconds: 900 });
+    // Review of be777c01: the range was the kind's cap, so a client could state
+    // 1 byte for the quota and send 500 MB. It is the stated size, both ends.
+    expect(signed).toMatchObject({ requirePrefix: "/uploads/presentations/", contentType: "application/pdf", minBytes: 5_000_000, maxBytes: 5_000_000, expiresSeconds: 7200 });
     const row = mockDb.speakerPresentation.create.mock.calls[0][0].data;
     expect(row).toMatchObject({ eventId: "ev1", organizationId: "org1", speakerId: "sp1", sessionId: "s1", topicId: "t1", filename: "Deck.pdf", mimeType: "application/pdf", uploadedVia: "speaker-form" });
     expect(row.url).toBe(signed.storedPath);
   });
 
-  it("gives a video its larger cap", async () => {
-    await startPresentationUpload({ ...input, filename: "talk.mp4", size: 300 * 1024 * 1024 });
-    expect(storage.signDirectUpload.mock.calls[0][0].maxBytes).toBe(500 * 1024 * 1024);
+  it("takes a video larger than slides may be, and answers its cap", async () => {
+    const res = await startPresentationUpload({ ...input, filename: "talk.mp4", size: 300 * 1024 * 1024 });
+    expect(res).toMatchObject({ ok: true, maxBytes: 500 * 1024 * 1024 });
+    expect(storage.signDirectUpload.mock.calls[0][0].maxBytes).toBe(300 * 1024 * 1024);
   });
 
   it("refuses before anything is signed or written: a type, a size, a talk that is not theirs", async () => {
@@ -141,17 +145,46 @@ describe("starting an upload", () => {
   });
 
   it("holds a speaker to a number of files and a total size, so a leaked link cannot fill the bucket", async () => {
-    // First call inside start is the stale sweep, the second the quota read.
-    mockDb.speakerPresentation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce(Array.from({ length: PRESENTATION_MAX_FILES_PER_SPEAKER }, () => ({ size: BigInt(1) })));
+    // Inside start: the stale sweep, the talk's earlier tries, then the quota read.
+    const quota = (rows: unknown[]) => mockDb.speakerPresentation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(rows);
+    quota(Array.from({ length: PRESENTATION_MAX_FILES_PER_SPEAKER }, () => ({ size: BigInt(1) })));
     expect(await startPresentationUpload(input)).toMatchObject({ ok: false, code: "TOO_MANY_FILES" });
-    mockDb.speakerPresentation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ size: BigInt(PRESENTATION_MAX_BYTES_PER_SPEAKER - 1000) }]);
+    quota([{ size: BigInt(PRESENTATION_MAX_BYTES_PER_SPEAKER - 1000) }]);
     expect(await startPresentationUpload(input)).toMatchObject({ ok: false, code: "QUOTA_EXCEEDED" });
     expect(storage.signDirectUpload).not.toHaveBeenCalled();
   });
 
+  // Review of be777c01: each retry held its stated size for a day, so six
+  // failed videos locked a speaker (and staff, for them) out.
+  it("ends the talk's earlier unfinished tries, and does not count the file it will replace", async () => {
+    mockDb.speakerPresentation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "try1", url: "/uploads/presentations/ev1/sp1/try1.pdf" }])
+      .mockResolvedValueOnce([]);
+    expect((await startPresentationUpload(input)).ok).toBe(true);
+    // The talk's own UPLOADING rows, by its topic.
+    expect(mockDb.speakerPresentation.findMany.mock.calls[1][0].where).toMatchObject({ speakerId: "sp1", status: "UPLOADING", topicId: "t1" });
+    expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["try1"] }, status: "UPLOADING" }, data: { status: "FAILED" } });
+    expect(storage.deleteStoredFile).toHaveBeenCalledWith("/uploads/presentations/ev1/sp1/try1.pdf", "/uploads/presentations/");
+    // The quota leaves out the READY file of this talk: replacing it frees its room.
+    expect(mockDb.speakerPresentation.findMany.mock.calls[2][0].where.NOT).toEqual({ status: "READY", topicId: "t1" });
+  });
+
+  it("an upload the browser says failed stops holding quota at once", async () => {
+    mockDb.speakerPresentation.findMany.mockResolvedValueOnce([{ id: "p9", url: "/uploads/presentations/ev1/sp1/p9.pdf" }]);
+    expect(await abandonPresentationUpload({ ...scope, presentationId: "p9" })).toEqual({ ok: true, abandoned: true });
+    // Only ever an upload still in flight, of this speaker on this event.
+    expect(mockDb.speakerPresentation.findMany.mock.calls[0][0].where).toEqual({ id: "p9", eventId: "ev1", speakerId: "sp1", status: "UPLOADING" });
+    mockDb.speakerPresentation.findMany.mockResolvedValueOnce([]);
+    expect(await abandonPresentationUpload({ ...scope, presentationId: "ready-one" })).toEqual({ ok: true, abandoned: false });
+  });
+
   it("clears uploads never finished, with what they left in storage", async () => {
-    mockDb.speakerPresentation.findMany.mockResolvedValueOnce([{ id: "old", url: "/uploads/presentations/ev1/sp1/old.pdf" }]).mockResolvedValueOnce([]);
+    mockDb.speakerPresentation.findMany.mockResolvedValueOnce([{ id: "old", url: "/uploads/presentations/ev1/sp1/old.pdf" }]);
     await startPresentationUpload(input);
+    // Older than the signed upload's life, so one in flight is never cleared under it.
+    const cutoff = mockDb.speakerPresentation.findMany.mock.calls[0][0].where.createdAt.lt as Date;
+    expect(Date.now() - cutoff.getTime()).toBeGreaterThan(7200 * 1000);
     expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["old"] }, status: "UPLOADING" }, data: { status: "FAILED" } });
     expect(storage.deleteStoredFile).toHaveBeenCalledWith("/uploads/presentations/ev1/sp1/old.pdf", "/uploads/presentations/");
   });
@@ -207,7 +240,8 @@ describe("completing an upload", () => {
   it("replaces the file the talk already had: one file per talk", async () => {
     mockDb.speakerPresentation.findMany.mockResolvedValue([{ id: "p0", url: "/uploads/presentations/ev1/sp1/p0.pdf" }]);
     await completePresentationUpload(input);
-    expect(mockDb.speakerPresentation.findMany.mock.calls[0][0].where).toMatchObject({ speakerId: "sp1", sessionId: "s1", topicId: "t1", status: "READY", id: { not: "p1" } });
+    // By the topic alone: a topic moved to another session is still the same talk.
+    expect(mockDb.speakerPresentation.findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", speakerId: "sp1", topicId: "t1", status: "READY", id: { not: "p1" } });
     expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["p0"] } }, data: { status: "REPLACED" } });
     expect(storage.deleteStoredFile).toHaveBeenCalledWith("/uploads/presentations/ev1/sp1/p0.pdf", "/uploads/presentations/");
   });
@@ -219,6 +253,17 @@ describe("completing an upload", () => {
     expect(mockDb.speakerPresentation.updateMany).toHaveBeenCalledWith({ where: { id: "p1", status: "UPLOADING" }, data: { status: "FAILED" } });
     expect(storage.deleteStoredFile).toHaveBeenCalledWith(uploading.url, "/uploads/presentations/");
     expect(mockDb.speakerPresentation.update).not.toHaveBeenCalled();
+  });
+
+  // Review of be777c01: with no version to name, every later read is unpinned
+  // and a re-post could swap the file after the check.
+  it("refuses to pass a file on S3 when the bucket gives no version to pin", async () => {
+    storage.headStoredFile.mockResolvedValue({ size: 4321, versionId: null, etag: null });
+    expect((await completePresentationUpload(input)).ok).toBe(false);
+    expect(mockDb.speakerPresentation.update).not.toHaveBeenCalled();
+    // The local provider has no versions, and that is fine there.
+    storage.provider = "local";
+    expect((await completePresentationUpload(input)).ok).toBe(true);
   });
 
   it("leaves the upload open when the file has not arrived, so it can be tried again", async () => {

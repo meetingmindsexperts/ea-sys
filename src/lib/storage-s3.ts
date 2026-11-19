@@ -158,6 +158,8 @@ export async function s3List(
 export async function s3SignUpload(opts: {
   key: string;
   contentType: string;
+  /** The smallest and largest body S3 will take. Equal for an exact size. */
+  minBytes: number;
   maxBytes: number;
   expiresSeconds: number;
 }): Promise<{ url: string; fields: Record<string, string> }> {
@@ -167,7 +169,7 @@ export async function s3SignUpload(opts: {
     Bucket: bucket(),
     Key: opts.key,
     Conditions: [
-      ["content-length-range", 1, opts.maxBytes],
+      ["content-length-range", opts.minBytes, opts.maxBytes],
       ["eq", "$Content-Type", opts.contentType],
       ["eq", "$key", opts.key],
     ],

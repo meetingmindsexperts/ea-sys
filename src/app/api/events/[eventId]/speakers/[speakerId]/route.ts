@@ -7,6 +7,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { presentationFilePathsForSpeaker, removePresentationFiles } from "@/services/speaker-presentation-service";
 import { speakerApiRegistrationType } from "@/lib/speaker-registration-type";
 import { normalizeTag } from "@/lib/utils";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -389,10 +390,16 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // while RoomType.bookedRooms kept counting it forever. Release the room in
     // the same transaction as the delete. No-op when the speaker has no booking
     // (or it's already cancelled).
+    // The speaker's presentation rows go with them by cascade, which fires
+    // no application code, so their files would stay in storage with nothing
+    // pointing at them. Read the paths first, remove the files once the
+    // delete has committed (best effort: never fails the delete).
+    const presentationFiles = await presentationFilePathsForSpeaker(eventId, speakerId);
     await tenantTransaction(async (tx) => {
       await releaseRoomForDeletedPerson(tx, { speakerId });
       await tx.speaker.delete({ where: { id: speakerId } });
     });
+    await removePresentationFiles(presentationFiles);
 
     // Companion cleanup (speaker-as-attendee Fix A) — if this speaker had an
     // auto-created Faculty companion registration, delete it too so it doesn't

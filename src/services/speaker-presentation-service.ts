@@ -126,10 +126,20 @@ function audit(scope: SpeakerScope, actor: PresentationActor, action: "CREATE" |
         action,
         entityType: "SpeakerPresentation",
         entityId,
-        changes: { source: actor.source, speakerId: scope.speakerId, ...changes },
+        // `source` is the services' word for the caller (README); which of the
+        // two doors it came through is `door`.
+        changes: { source: "rest", door: actor.source, speakerId: scope.speakerId, ...changes },
       },
     })
     .catch((err) => apiLogger.error({ err, msg: "speaker-presentation:audit-log-failed", eventId: scope.eventId }));
+}
+
+/**
+ * Whether the door's own `file` route may take the file: the local provider
+ * only. Asked BEFORE the body is read, so on S3 the app never buffers one.
+ */
+export function presentationFileRouteAvailable(): boolean {
+  return storageProvider === "local";
 }
 
 // ── The talks a speaker can upload for ───────────────────────────────────────
@@ -216,21 +226,44 @@ export type StartUploadResult =
   | { ok: true; presentationId: string; upload: DirectUploadTarget; contentType: string; maxBytes: number }
   | { ok: false; code: StartUploadErrorCode; message: string };
 
+/** A talk's rows: by its topic when it has one (a topic can move to another session), else by its session. */
+function slotWhere(slot: { sessionId: string | null; topicId: string | null }) {
+  return slot.topicId ? { topicId: slot.topicId } : { sessionId: slot.sessionId, topicId: null };
+}
+
+/** Mark uploads FAILED and remove what they left in storage. Only ever UPLOADING rows. */
+async function failUploads(
+  scope: Pick<SpeakerScope, "eventId" | "speakerId">,
+  where: Record<string, unknown>,
+  reason: "stale" | "superseded" | "abandoned",
+): Promise<number> {
+  const rows = await db.speakerPresentation.findMany({ where: { ...where, status: "UPLOADING" }, select: { id: true, url: true } });
+  if (rows.length === 0) return 0;
+  await db.speakerPresentation.updateMany({ where: { id: { in: rows.map((r) => r.id) }, status: "UPLOADING" }, data: { status: "FAILED" } });
+  await Promise.all(rows.map((r) => deleteStoredFile(r.url, PREFIX)));
+  apiLogger.warn({ msg: "speaker-presentation:uploads-failed", reason, eventId: scope.eventId, speakerId: scope.speakerId, count: rows.length });
+  return rows.length;
+}
+
 /** Uploads never finished (the browser closed): cleared, with whatever they left in storage. */
 async function sweepStaleUploads(scope: Pick<SpeakerScope, "eventId" | "speakerId">): Promise<void> {
-  const stale = await db.speakerPresentation.findMany({
-    where: {
-      eventId: scope.eventId,
-      speakerId: scope.speakerId,
-      status: "UPLOADING",
-      createdAt: { lt: new Date(Date.now() - PRESENTATION_STALE_UPLOAD_MS) },
-    },
-    select: { id: true, url: true },
-  });
-  if (stale.length === 0) return;
-  await db.speakerPresentation.updateMany({ where: { id: { in: stale.map((r) => r.id) }, status: "UPLOADING" }, data: { status: "FAILED" } });
-  await Promise.all(stale.map((r) => deleteStoredFile(r.url, PREFIX)));
-  apiLogger.info({ msg: "speaker-presentation:stale-uploads-cleared", eventId: scope.eventId, speakerId: scope.speakerId, count: stale.length });
+  await failUploads(
+    scope,
+    { eventId: scope.eventId, speakerId: scope.speakerId, createdAt: { lt: new Date(Date.now() - PRESENTATION_STALE_UPLOAD_MS) } },
+    "stale",
+  );
+}
+
+/**
+ * The browser says its upload failed (the connection dropped, storage refused
+ * it). The row stops holding quota at once, and the server has a line saying
+ * so: without this it only ever heard of uploads that worked.
+ */
+export async function abandonPresentationUpload(
+  input: Pick<SpeakerScope, "eventId" | "speakerId"> & { presentationId: string },
+): Promise<{ ok: true; abandoned: boolean }> {
+  const count = await failUploads(input, { id: input.presentationId, eventId: input.eventId, speakerId: input.speakerId }, "abandoned");
+  return { ok: true, abandoned: count > 0 };
 }
 
 export async function startPresentationUpload(
@@ -252,8 +285,19 @@ export async function startPresentationUpload(
   if (!slot) return refuse("INVALID_SLOT", "That talk is no longer on the agenda. Reload the page and try again.");
 
   await sweepStaleUploads({ eventId, speakerId });
+  // One upload in flight per talk: an earlier try for this talk (a dropped
+  // connection, a closed tab) is over, so it stops holding quota and its
+  // object goes (review of be777c01: each retry used to hold its stated size
+  // for a day, and six failed videos locked a speaker out).
+  await failUploads(
+    { eventId, speakerId },
+    { eventId, speakerId, status: "UPLOADING", ...slotWhere(slot) },
+    "superseded",
+  );
+
+  // The file this upload will replace does not count against the room for it.
   const held = await db.speakerPresentation.findMany({
-    where: { eventId, speakerId, status: { in: ["READY", "UPLOADING"] } },
+    where: { eventId, speakerId, status: { in: ["READY", "UPLOADING"] }, NOT: { status: "READY", ...slotWhere(slot) } },
     select: { size: true },
   });
   if (held.length >= PRESENTATION_MAX_FILES_PER_SPEAKER) {
@@ -271,7 +315,10 @@ export async function startPresentationUpload(
     storedPath: url,
     requirePrefix: PREFIX,
     contentType: type.mimeType,
-    maxBytes,
+    // Exactly the size that was stated and counted against the quota: S3
+    // refuses any other, so a client cannot state 1 byte and send 500 MB.
+    minBytes: Math.floor(size),
+    maxBytes: Math.floor(size),
     expiresSeconds: PRESENTATION_UPLOAD_SECONDS,
   });
   await db.speakerPresentation.create({
@@ -358,6 +405,13 @@ export async function completePresentationUpload(
     return { ok: false, code, message };
   };
 
+  // On S3 the checked version must be nameable, or every later read is
+  // unpinned and a re-post could swap the file after this check. A bucket
+  // with versioning off is a misconfiguration, said loudly.
+  if (storageProvider === "s3" && !head.versionId) {
+    apiLogger.error({ msg: "speaker-presentation:bucket-not-versioned", eventId, speakerId, presentationId });
+    return { ok: false, code: "UPLOAD_NOT_FOUND", message: "The file could not be checked just now. Please contact the organisers." };
+  }
   // S3's own policy already refuses a larger file; this is the same rule for the local provider.
   if (head.size > PRESENTATION_MAX_BYTES[type.kind]) return fail("FILE_TOO_LARGE", "That file is too large.");
   // The version just measured is the one read, recorded and served from here on.
@@ -370,7 +424,7 @@ export async function completePresentationUpload(
   // transaction that makes this one READY.
   const replaced = await tenantTransaction(async (tx) => {
     const older = await tx.speakerPresentation.findMany({
-      where: { eventId, speakerId, sessionId: row.sessionId, topicId: row.topicId, status: "READY", id: { not: presentationId } },
+      where: { eventId, speakerId, ...slotWhere(row), status: "READY", id: { not: presentationId } },
       select: { id: true, url: true },
     });
     if (older.length > 0) {
@@ -438,3 +492,19 @@ export async function deleteSpeakerPresentation(
   apiLogger.info({ msg: "speaker-presentation:deleted", eventId: input.eventId, speakerId: input.speakerId, presentationId: row.id, source: input.actor.source });
   return { ok: true };
 }
+
+/**
+ * A speaker is being deleted: the stored paths of every file they have, read
+ * BEFORE the delete (the rows go with the speaker by cascade). Hand the
+ * result to `removePresentationFiles` once the delete has committed.
+ */
+export async function presentationFilePathsForSpeaker(eventId: string, speakerId: string): Promise<string[]> {
+  const rows = await db.speakerPresentation.findMany({ where: { eventId, speakerId }, select: { url: true } });
+  return rows.map((r) => r.url);
+}
+
+/** Best effort, never throws: a file left behind is cheap, a failed delete of a speaker is not. */
+export async function removePresentationFiles(paths: string[]): Promise<void> {
+  await Promise.all(paths.map((p) => deleteStoredFile(p, PREFIX)));
+}
+

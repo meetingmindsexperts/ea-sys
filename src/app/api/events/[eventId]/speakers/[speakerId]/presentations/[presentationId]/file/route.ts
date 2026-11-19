@@ -9,7 +9,7 @@ import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { presentationRefusal, readUploadedFile } from "@/lib/speaker-presentation-http";
-import { receiveLocalPresentationFile } from "@/services/speaker-presentation-service";
+import { presentationFileRouteAvailable, receiveLocalPresentationFile } from "@/services/speaker-presentation-service";
 import { loadStaffSpeaker } from "../../_staff";
 
 interface RouteParams {
@@ -30,6 +30,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (!scope) {
         apiLogger.warn({ msg: "speaker-presentations:not-found", route, eventId: p.eventId, speakerId: p.speakerId, userId });
         return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
+      }
+      // Before the body is read: on S3 the app never buffers a file.
+      if (!presentationFileRouteAvailable()) {
+        apiLogger.warn({ msg: "speaker-presentations:file-route-off", eventId: scope.eventId, speakerId: scope.speakerId });
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
       const bytes = await readUploadedFile(req);
       if (!bytes) {

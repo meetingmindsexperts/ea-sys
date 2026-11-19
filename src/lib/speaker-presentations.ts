@@ -52,12 +52,22 @@ export const PRESENTATION_MAX_BYTES: Record<PresentationKind, number> = {
 export const PRESENTATION_MAX_FILES_PER_SPEAKER = 20;
 export const PRESENTATION_MAX_BYTES_PER_SPEAKER = 3 * 1024 * MB;
 
-/** How long a signed upload is good for. */
-export const PRESENTATION_UPLOAD_SECONDS = 15 * 60;
+/**
+ * How long a signed upload is good for. Two hours, not minutes: 500 MB takes
+ * over 15 minutes below about 4.4 Mbit/s, and whether S3 judges a POST
+ * policy's expiry when the request starts or when the body has arrived is not
+ * documented (review of be777c01). The policy is for one key, one type and
+ * one exact size, and the version that is checked is pinned, so a long life
+ * gives a holder nothing more.
+ */
+export const PRESENTATION_UPLOAD_SECONDS = 2 * 60 * 60;
 /** How long a signed download is good for. */
 export const PRESENTATION_DOWNLOAD_SECONDS = 5 * 60;
-/** An upload never finished is cleared after this long. */
-export const PRESENTATION_STALE_UPLOAD_MS = 24 * 60 * 60 * 1000;
+/**
+ * An upload never finished is cleared after this long. Longer than the signed
+ * upload's life, so one still in flight is never cleared under it.
+ */
+export const PRESENTATION_STALE_UPLOAD_MS = 3 * 60 * 60 * 1000;
 
 /** For a file input's `accept`. */
 export const PRESENTATION_ACCEPT = PRESENTATION_TYPES.map((t) => `.${t.ext}`).join(",");
@@ -93,6 +103,9 @@ export function presentationFileProblem(filename: string, size: number): Present
 const startsWith = (bytes: Uint8Array, sig: number[], at = 0) => bytes.length >= at + sig.length && sig.every((b, i) => bytes[at + i] === b);
 const ascii = (text: string) => Array.from(text, (c) => c.charCodeAt(0));
 
+const ZIP = [0x50, 0x4b, 0x03, 0x04];
+const OLE2 = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+
 /** QuickTime's classic top-level atoms: an older .mov starts with one of these, with no `ftyp`. */
 const QUICKTIME_ATOMS = ["ftyp", "moov", "mdat", "wide", "free", "skip"];
 
@@ -111,11 +124,14 @@ export function presentationSignatureMatches(ext: string, bytes: Uint8Array): bo
     case "pdf":
       return startsWith(bytes, ascii("%PDF-"));
     case "pptx":
+      // A zip; or OLE2 when the deck is password-protected (Office wraps an
+      // encrypted .pptx in a compound file).
+      return startsWith(bytes, ZIP) || startsWith(bytes, OLE2);
     case "key":
-      return startsWith(bytes, [0x50, 0x4b, 0x03, 0x04]);
+      return startsWith(bytes, ZIP);
     case "ppt":
       // Legacy PowerPoint is an OLE2 compound file, not a zip.
-      return startsWith(bytes, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+      return startsWith(bytes, OLE2);
     case "mp4":
       return startsWith(bytes, ascii("ftyp"), 4);
     case "mov":

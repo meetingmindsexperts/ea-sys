@@ -42,13 +42,13 @@ describe("the signed upload form", () => {
   it("pins the key, the content type and the size in the policy itself", async () => {
     const { s3SignUpload } = await loadS3();
     postMock.mockResolvedValue({ url: "https://ea-sys-uploads.s3.amazonaws.com/", fields: { key: "k" } });
-    const out = await s3SignUpload({ key: "presentations/ev1/sp1/p1.pdf", contentType: "application/pdf", maxBytes: 200 * 1024 * 1024, expiresSeconds: 900 });
+    const out = await s3SignUpload({ key: "presentations/ev1/sp1/p1.pdf", contentType: "application/pdf", minBytes: 5_000_000, maxBytes: 5_000_000, expiresSeconds: 7200 });
     expect(out).toEqual({ url: "https://ea-sys-uploads.s3.amazonaws.com/", fields: { key: "k" } });
     const opts = postMock.mock.calls[0][1];
-    expect(opts).toMatchObject({ Bucket: "ea-sys-uploads", Key: "presentations/ev1/sp1/p1.pdf", Expires: 900, Fields: { "Content-Type": "application/pdf" } });
-    // S3 refuses a file over the cap, another key or another type, whatever the browser told us.
+    expect(opts).toMatchObject({ Bucket: "ea-sys-uploads", Key: "presentations/ev1/sp1/p1.pdf", Expires: 7200, Fields: { "Content-Type": "application/pdf" } });
+    // S3 refuses any other size, another key or another type, whatever the browser sends.
     expect(opts.Conditions).toEqual([
-      ["content-length-range", 1, 200 * 1024 * 1024],
+      ["content-length-range", 5_000_000, 5_000_000],
       ["eq", "$Content-Type", "application/pdf"],
       ["eq", "$key", "presentations/ev1/sp1/p1.pdf"],
     ]);

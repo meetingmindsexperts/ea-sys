@@ -21,7 +21,9 @@ export const startPresentationUploadSchema = z.object({
 
 /** Every refusal the service can give, and the status it travels under. */
 export const PRESENTATION_STATUS: Record<string, number> = {
-  UPLOADS_UNAVAILABLE: 503,
+  // 409, not 503: it is switched off on this deployment, not broken, and a
+  // 5xx on a public door would ring the alarms.
+  UPLOADS_UNAVAILABLE: 409,
   TYPE_NOT_ALLOWED: 400,
   FILE_TOO_LARGE: 400,
   FILE_EMPTY: 400,

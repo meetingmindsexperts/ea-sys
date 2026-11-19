@@ -65,6 +65,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "This link is invalid." }, { status: 404 });
       }
       const scope = { eventId: form.eventId, organizationId: form.event.organizationId, speakerId: form.speaker.id };
+      // The door closes with the event: a link forwarded or leaked is not a
+      // way to store files for ever. Staff can still upload from the speaker page.
+      if (form.event.endDate && form.event.endDate.getTime() < Date.now()) {
+        apiLogger.warn({ slug: p.slug, formId: form.id }, "speaker-form-presentation:event-ended");
+        return NextResponse.json({ error: "This event has ended, so uploads are closed. Contact the organisers.", code: "EVENT_ENDED" }, { status: 409 });
+      }
       const parsed = startPresentationUploadSchema.safeParse(body);
       if (!parsed.success) {
         apiLogger.warn({ slug: p.slug, formId: form.id, errors: parsed.error.flatten() }, "speaker-form-presentation:zod-validation-failed");

@@ -51,6 +51,12 @@ describe("whether a file is what its name says", () => {
     }
   });
 
+  // A password-protected .pptx is an OLE2 container, not a zip (review of be777c01).
+  it("takes a password-protected .pptx, and still not a .key that is not a zip", () => {
+    expect(presentationSignatureMatches("pptx", bytes([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))).toBe(true);
+    expect(presentationSignatureMatches("key", bytes([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))).toBe(false);
+  });
+
   it("refuses text under a slide's name, a short file, and an unknown extension", () => {
     expect(presentationSignatureMatches("pdf", bytes("just some text"))).toBe(false);
     expect(presentationSignatureMatches("mp4", bytes("ftyp"))).toBe(false);
