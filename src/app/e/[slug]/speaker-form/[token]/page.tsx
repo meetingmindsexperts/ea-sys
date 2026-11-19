@@ -17,7 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { PublicEventNotice } from "@/components/public/event-notice";
-import { Camera, Check, FileText, Loader2, Upload, UserRound } from "lucide-react";
+import { Camera, Check, FileText, Loader2, Presentation as PresentationIcon, Upload, UserRound } from "lucide-react";
+import { PresentationUploads } from "@/components/speakers/presentation-uploads";
 import {
   MAX_PROFILE_BIO_LENGTH,
   missingProfileDocSlots,
@@ -410,6 +411,31 @@ export default function SpeakerProfileFormPage() {
             )}
           </div>
         </div>
+
+        {/* Presentations (Nov 19, 2026). Its own card, outside the form above,
+            because it stays open after that form is submitted and locked:
+            slides come weeks after the passport, and can be replaced. */}
+        <PresentationUploads
+          apiBase={`${base}/presentations`}
+          canUpload
+          shell={(content) => (
+            <div className="bg-white rounded-2xl mt-6 overflow-hidden ring-1 ring-slate-900/10 shadow-[0_1px_2px_rgb(15_23_42/0.06),0_12px_24px_-8px_rgb(15_23_42/0.10)]">
+              <div className="px-6 sm:px-10 pt-7 pb-5 border-b border-slate-200">
+                <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2.5">
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <PresentationIcon className="h-4 w-4" />
+                  </span>
+                  Your presentation
+                </h2>
+                <p className="text-sm text-slate-600 mt-2">
+                  Upload your slides or a video for each talk. You can come back to this page and replace a file at any
+                  time before the event.
+                </p>
+              </div>
+              <div className="p-6 sm:p-10">{content}</div>
+            </div>
+          )}
+        />
       </div>
     </div>
   );

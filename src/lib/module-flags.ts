@@ -133,3 +133,22 @@ export function isVenueEnabledFor(event: { id: string; slug: string }): boolean 
   if (list.includes(event.id)) return true;
   return process.env.TENANCY_ENFORCE_HOST !== "1" && list.includes(event.slug);
 }
+
+/**
+ * True when speaker presentation uploads are switched on for a deployment
+ * that stores files on S3 (Nov 19, 2026; docs/SPEAKER_PRESENTATIONS_PLAN.md).
+ *
+ * The browser uploads straight to the bucket, which works only after three
+ * steps on the bucket that are the owner's to make (a CORS rule,
+ * `s3:GetObjectVersion` for the server's role, a lifecycle rule). Until they
+ * are done a speaker would see an upload that fails, so the feature ships
+ * dark and this is set to "true" once they are. FAILS CLOSED: unset is off.
+ *
+ * Read through `presentationsAvailable()` in the presentation service, which
+ * also knows the storage provider: on the local provider (a developer's
+ * machine, the test server) there is no bucket to prepare, so it is on.
+ */
+export function isSpeakerPresentationsEnabled(): boolean {
+  return process.env.SPEAKER_PRESENTATIONS_ENABLED === "true";
+}
+

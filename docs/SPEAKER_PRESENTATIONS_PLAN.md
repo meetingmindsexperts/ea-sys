@@ -1,11 +1,11 @@
 # Speakers upload their presentation: plan
 
-**Status: PLANNED, NOT BUILT (Nov 19, 2026).** Asked by the owner on Nov 19, 2026:
-"an option for speaker to upload their presentation, be it ppt, pdf or video".
-Section 7 lists the decisions the build waits on. Revised the same day after a
-review of the first draft: the facts about today's system held, and six points
-of the design changed (the form staying open, the missing package, pinning the
-checked version, the file signatures, the size column, the storage module).
+**Status: PHASES 1 AND 2 BUILT (Nov 19, 2026); phases 3 and 4 not started.**
+Asked by the owner on Nov 19, 2026: "an option for speaker to upload their
+presentation, be it ppt, pdf or video". Section 7 holds the owner's decisions
+and section 9 what was built and how it differs from the plan. **It ships
+switched off on production:** nobody sees it until the owner has done the AWS
+steps in section 7 and set `SPEAKER_PRESENTATIONS_ENABLED=true`.
 
 ## 1. Why
 
@@ -223,23 +223,17 @@ row as `REPLACED`. Only the newest `READY` file per speaker and topic is shown.
 - **Retention:** an owner decision (section 7). The default is to keep the
   files as long as the event.
 
-## 7. Decisions the build waits on
+## 7. The owner's decisions (Nov 19, 2026) and the AWS steps still owed
 
-1. **Where speakers upload.**
-   - **Recommended:** the existing speaker profile form link, so speakers get
-     one link only.
-   - Alternatives: the account portal, or a separate link of its own.
-2. **One file per speaker, or one per session or topic?**
-   - **Recommended:** per topic when the speaker has topics, else per session.
-     A speaker on two panels then has two slots.
-3. **Size caps.**
-   - **Recommended:** 200 MB for slides and 2 GB for video.
-   - The 2 GB cap waits on phase 4 (multipart); until then video is capped at
-     500 MB.
-4. **Who sees the files:** organisers only, or also an AV role
-   (`presentations.read`)?
-5. **Is a deadline and reminder wanted, and how many days before?**
-6. **How long the files are kept after the event.**
+1. **Where speakers upload:** the existing speaker profile form link.
+2. **How many files:** one per talk (per topic, else per session).
+3. **Size caps:** 200 MB for slides, 500 MB for video; video rises with
+   phase 4.
+4. **Who sees the files:** organisers only (whoever may read speaker
+   documents). No AV role.
+5. **A deadline and reminder:** not decided; phase 3.
+6. **How long files are kept after the event:** not decided; the lifecycle
+   rule below is where it is set.
 7. **AWS steps that are the owner's to run.** These are instructions, not
    something I execute:
    - A CORS rule on `ea-sys-uploads` allowing `POST` from the production
@@ -255,6 +249,9 @@ row as `REPLACED`. Only the newest `READY` file per speaker and topic is shown.
      encryption applies with nothing extra. (KMS access is not per prefix, and
      the role's key permissions already cover the bucket.)
    - Optionally, GuardDuty Malware Protection for S3.
+   - Last, once the steps above are done: `SPEAKER_PRESENTATIONS_ENABLED=true`
+     in the production `.env`, then a deploy. Then try one upload on a test
+     speaker before telling anyone.
 
 ## 8. Order of work
 
@@ -268,3 +265,45 @@ row as `REPLACED`. Only the newest `READY` file per speaker and topic is shown.
 Phase 1 needs the owner's CORS, `s3:GetObjectVersion` and lifecycle steps
 (decision 7) before it can be tried on production. Every phase gets the full gate and one review, and each ships on
 its own.
+
+## 9. What was built (phases 1 and 2, Nov 19, 2026)
+
+- **Table and storage:** `SpeakerPresentation` (migration
+  `20261119120000_speaker_presentation`, additive), the `presentations` upload
+  prefix, and four primitives in the storage module (`signDirectUpload`,
+  `headStoredFile`, `readStoredFileStart`, `signStoredFileDownload`).
+- **The rules:** `src/lib/speaker-presentations.ts` (types, caps, signatures)
+  and `src/services/speaker-presentation-service.ts` (slots, start, complete,
+  download, delete), one implementation for both doors.
+- **Staff:** a Presentations card on the speaker page: upload on the
+  speaker's behalf, replace, download, remove. Permission keys
+  `speakers.documents.read` and `speakers.documents.write`.
+- **The speaker:** a "Your presentation" section on their profile form link,
+  open after the form is submitted. They see what they sent and can replace
+  it; they get no download link.
+- **Tests:** unit tests for the rules, the service and what is signed for S3;
+  a browser test of both doors (`e2e/speaker-presentations.spec.ts`).
+
+How it differs from the plan above:
+
+- **A switch, off by default on S3.** `SPEAKER_PRESENTATIONS_ENABLED`
+  (`src/lib/module-flags.ts`, read through `presentationsAvailable()`). Until
+  the bucket is prepared a speaker would see an upload that fails, so while it
+  is unset both screens hide the section and an upload is refused. On the
+  local storage provider (a developer's machine, the test server) there is no
+  bucket to prepare, so it is on.
+
+- **No AV role** (owner's decision 4), so no `presentations.read` key.
+- **No worker job for unfinished uploads.** They are cleared when the same
+  speaker next starts an upload, which needs no new job; the bucket's
+  lifecycle rule covers a speaker who never comes back.
+- **A general slot.** A speaker on no talk yet gets one slot, so slides that
+  arrive before the agenda have somewhere to go. A role that runs a session
+  (moderator, chair) brings no slot.
+- **A file whose talk leaves the agenda** is kept and shown under its own
+  heading; staff can download or remove it.
+- **Not yet built:** the `{{presentationLink}}` email token (the existing
+  `{{profileFormLink}}` opens the same page), the speakers list column and
+  filter, the agenda and AV views, the reminder (phase 3), resumable video
+  uploads and the agent tools (phase 4).
+

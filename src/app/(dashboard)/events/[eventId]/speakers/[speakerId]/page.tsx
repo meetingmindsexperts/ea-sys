@@ -81,6 +81,7 @@ import { EmailAttachmentPicker } from "@/components/email/email-attachment-picke
 import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { SpeakerDocumentsCard } from "@/components/speakers/speaker-documents-card";
+import { SpeakerPresentationsCard } from "@/components/speakers/speaker-presentations-card";
 import { SpeakerProfileFormCard } from "@/components/speakers/speaker-profile-form-card";
 import { GrantRegistrationDialog } from "@/components/speakers/grant-registration-dialog";
 import { SpeakerReimbursementCard } from "@/components/speakers/speaker-reimbursement-card";
@@ -1345,6 +1346,7 @@ export default function SpeakerDetailPage() {
           </Card>
 
           <SpeakerDocumentsCard eventId={eventId} speakerId={speakerId} />
+          <SpeakerPresentationsCard eventId={eventId} speakerId={speakerId} />
 
           {/* Photo & Documents form — send the speaker their public link to
               upload photo/passport/cover letter + review bio. Staff-only. */}

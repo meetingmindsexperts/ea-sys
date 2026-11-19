@@ -142,3 +142,94 @@ export async function s3List(
 
   return out;
 }
+
+// ── Direct uploads (Nov 19, 2026; docs/SPEAKER_PRESENTATIONS_PLAN.md) ───────
+//
+// A file too large for the app goes from the browser straight to the bucket
+// by a signed form, and is read back by a short-lived signed link. The app
+// never holds its bytes.
+
+/**
+ * A signed POST form for ONE key. A POST policy, not a signed PUT: only a
+ * policy carries `content-length-range`, which makes S3 itself refuse a file
+ * over the cap, whatever the browser told us. The key and the content type
+ * are pinned too.
+ */
+export async function s3SignUpload(opts: {
+  key: string;
+  contentType: string;
+  maxBytes: number;
+  expiresSeconds: number;
+}): Promise<{ url: string; fields: Record<string, string> }> {
+  const { createPresignedPost } = await import("@aws-sdk/s3-presigned-post");
+  const s3 = await getClient();
+  return createPresignedPost(s3, {
+    Bucket: bucket(),
+    Key: opts.key,
+    Conditions: [
+      ["content-length-range", 1, opts.maxBytes],
+      ["eq", "$Content-Type", opts.contentType],
+      ["eq", "$key", opts.key],
+    ],
+    Fields: { "Content-Type": opts.contentType },
+    Expires: opts.expiresSeconds,
+  });
+}
+
+/** Size, version and ETag of an object, or null when there is none. */
+export async function s3Head(
+  key: string,
+  versionId?: string | null,
+): Promise<{ size: number; versionId: string | null; etag: string | null } | null> {
+  const { HeadObjectCommand } = await import("@aws-sdk/client-s3");
+  const s3 = await getClient();
+  try {
+    const res = await s3.send(new HeadObjectCommand({ Bucket: bucket(), Key: key, ...(versionId ? { VersionId: versionId } : {}) }));
+    return { size: res.ContentLength ?? 0, versionId: res.VersionId ?? null, etag: res.ETag ?? null };
+  } catch (err) {
+    if (isNotFound(err)) return null;
+    throw err;
+  }
+}
+
+/** The first `bytes` of an object: enough to read its signature, never the whole file. */
+export async function s3ReadStart(key: string, bytes: number, versionId?: string | null): Promise<Buffer> {
+  const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const s3 = await getClient();
+  try {
+    const res = await s3.send(
+      new GetObjectCommand({ Bucket: bucket(), Key: key, Range: `bytes=0-${bytes - 1}`, ...(versionId ? { VersionId: versionId } : {}) }),
+    );
+    if (!res.Body) throw new StorageError("not-found", `Empty body for key: ${key}`);
+    return Buffer.from(await res.Body.transformToByteArray());
+  } catch (err) {
+    if (err instanceof StorageError) throw err;
+    if (isNotFound(err)) throw new StorageError("not-found", `No such object: ${key}`);
+    throw err;
+  }
+}
+
+/** A signed link to read one object (one version of it, when given), with the name it downloads under. */
+export async function s3SignDownload(opts: {
+  key: string;
+  versionId?: string | null;
+  expiresSeconds: number;
+  contentDisposition: string;
+  contentType: string;
+}): Promise<string> {
+  const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+  const s3 = await getClient();
+  return getSignedUrl(
+    s3,
+    new GetObjectCommand({
+      Bucket: bucket(),
+      Key: opts.key,
+      ...(opts.versionId ? { VersionId: opts.versionId } : {}),
+      ResponseContentDisposition: opts.contentDisposition,
+      ResponseContentType: opts.contentType,
+    }),
+    { expiresIn: opts.expiresSeconds },
+  );
+}
+

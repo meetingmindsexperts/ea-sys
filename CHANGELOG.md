@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Speakers upload their presentation (November 19)
+
+A speaker can now send slides or a video for each of their talks: PDF, PowerPoint (.pptx or .ppt), Keynote, MP4 or MOV, slides up to 200 MB and a video up to 500 MB. One file per talk; a new upload replaces the old one.
+
+- **Where the speaker uploads:** a "Your presentation" section on the speaker profile form link they already have. It stays open after they submit their photo and passport, so slides can come later and be replaced.
+- **Where staff see them:** a Presentations card on the speaker's page, with download, remove, and upload on the speaker's behalf.
+- **How it is safe:** the file goes from the browser straight to storage (the server refuses anything over 10 MB), is checked once it lands (size, and that it really is the type its name says), and is read only through a link that lasts five minutes.
+
+**Switched off on production for now.** The upload goes straight to the storage bucket, which first needs three AWS steps (docs/SPEAKER_PRESENTATIONS_PLAN.md, section 7): a CORS rule on the uploads bucket, `s3:GetObjectVersion` for the server's role, and a lifecycle rule for old files. Until those are done and `SPEAKER_PRESENTATIONS_ENABLED=true` is set, nobody sees the new section.
+
+Not built yet: a "received or missing" column on the speakers list, a per-session view for the AV team, a deadline reminder, and resumable uploads for larger videos.
+
 ### Contacts: 100, 500 or 1,000 a page, and paging no longer repeats or skips (November 18)
 
 The Contacts page showed 20, 50 or 100 at a time. It now shows 100, 500 or 1,000 and opens on 100 (owner). The server's ceiling for `GET /api/contacts` rose from 100 to 1,000 with it (the API reference says so); a caller that names no size still gets 50. The sizes live in one list, `src/lib/contact-page-sizes.ts`, shared by the page and the route.

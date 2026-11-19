@@ -179,6 +179,7 @@ describe("every download header in src/", () => {
       "src/app/api/events/[eventId]/invoices/export/route.ts",
       "src/app/api/events/[eventId]/registrations/route.ts",
       "src/app/api/events/[eventId]/reimbursements/[reimbursementId]/documents/[documentId]/route.ts",
+      "src/app/api/events/[eventId]/speakers/[speakerId]/presentations/[presentationId]/route.ts",
       "src/app/api/events/[eventId]/venue/plan-pdf/route.ts",
       "src/app/api/events/[eventId]/venue/room-sheet/route.ts",
       "src/app/api/events/[eventId]/webinar/presence/route.ts",

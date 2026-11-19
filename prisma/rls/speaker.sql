@@ -45,3 +45,15 @@ CREATE POLICY speakerprofileform_tenant_isolation ON "SpeakerProfileForm"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- Added Nov 19, 2026 (docs/SPEAKER_PRESENTATIONS_PLAN.md). A speaker's slides
+-- and videos: tenant data like the speaker they belong to. Every writer
+-- stamps organizationId from the event.
+
+ALTER TABLE "SpeakerPresentation" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS speakerpresentation_tenant_isolation ON "SpeakerPresentation";
+CREATE POLICY speakerpresentation_tenant_isolation ON "SpeakerPresentation"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+

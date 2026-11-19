@@ -84,6 +84,15 @@ export const UPLOAD_SEGMENT = {
    * event, through the venue drawing route, from `venue-drawings/{eventId}/`.
    */
   venueDrawings: "venue-drawings",
+  /**
+   * Speaker presentations (Nov 19, 2026; docs/SPEAKER_PRESENTATIONS_PLAN.md):
+   * slides and videos, often unpublished work. Private: the browser uploads
+   * them straight to storage by a signed form, and they are read only through
+   * a short-lived signed link an authenticated route hands out. From
+   * `presentations/{eventId}/{speakerId}/`. Never read with `readStoredFile`
+   * on S3: it buffers the whole object, and these run to hundreds of MB.
+   */
+  presentations: "presentations",
 } as const;
 
 export type UploadSegment = (typeof UPLOAD_SEGMENT)[keyof typeof UPLOAD_SEGMENT];
@@ -108,6 +117,7 @@ export const UPLOAD_PREFIX = {
   procurementQuotes: uploadPrefix(UPLOAD_SEGMENT.procurementQuotes),
   webinarHandouts: uploadPrefix(UPLOAD_SEGMENT.webinarHandouts),
   venueDrawings: uploadPrefix(UPLOAD_SEGMENT.venueDrawings),
+  presentations: uploadPrefix(UPLOAD_SEGMENT.presentations),
 } as const;
 
 /**

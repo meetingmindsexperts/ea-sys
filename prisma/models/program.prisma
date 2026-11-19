@@ -90,6 +90,7 @@ model Speaker {
   certificateIssueRunItems CertificateIssueRunItem[]
   certificateAssignments   CertificateAssignment[]
   documents                SpeakerDocument[]
+  presentations            SpeakerPresentation[]
   reimbursement            SpeakerReimbursement?
   travelGrant              TravelGrant?
   profileForm              SpeakerProfileForm?
@@ -494,6 +495,7 @@ model EventSession {
   topics           SessionTopic[]
   zoomMeeting      ZoomMeeting?
   externalStream   ExternalStream?
+  presentations    SpeakerPresentation[]
   zoomAttendances  ZoomAttendance[]
   webinarPresences WebinarPresence[]
   webinarViewerQuestions WebinarViewerQuestion[]
@@ -574,6 +576,7 @@ model SessionTopic {
   session  EventSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   abstract Abstract?      @relation(fields: [abstractId], references: [id])
   speakers TopicSpeaker[]
+  presentations SpeakerPresentation[]
 
   @@index([sessionId])
   @@index([organizationId])
@@ -1467,5 +1470,58 @@ model VenueShareLink {
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
+}
+
+/// A file a speaker gives us for a talk: slides or a video (Nov 19, 2026;
+/// docs/SPEAKER_PRESENTATIONS_PLAN.md). The bytes go from the browser straight
+/// to storage (they are too large for the app), so a row has a lifecycle: it
+/// is UPLOADING until the object is checked, then READY; a failed check is
+/// FAILED; a newer file for the same talk makes the old one REPLACED.
+enum PresentationStatus {
+  UPLOADING
+  READY
+  FAILED
+  REPLACED
+}
+
+model SpeakerPresentation {
+  id             String             @id @default(cuid())
+  eventId        String
+  /// Denormalized tenant key (sweep convention): nullable, no FK, stamped by
+  /// every writer from the event's organisation. See prisma/rls/speaker.sql.
+  organizationId String?
+  speakerId      String
+  /// The talk the file is for: the topic when the speaker has one, else the
+  /// session. Both null only for a talk since removed from the agenda.
+  sessionId      String?
+  topicId        String?
+  /// Stored path, `/uploads/presentations/{eventId}/{speakerId}/{id}.{ext}`.
+  url            String
+  /// The object version that was checked. Every read names it, so what was
+  /// checked is what is served (a POST policy can be reused until it expires).
+  s3VersionId    String?
+  etag           String?
+  /// As uploaded: shown, and used as the download's name.
+  filename       String
+  /// Decided by the server from the extension, never the browser's claim.
+  mimeType       String
+  /// Bytes. BigInt: a 32-bit integer stops one byte short of 2 GiB.
+  size           BigInt?
+  status         PresentationStatus @default(UPLOADING)
+  /// "speaker-form" or "staff".
+  uploadedVia    String
+  /// Soft ref (no FK) to the staff user, when staff uploaded it.
+  uploadedById   String?
+  createdAt      DateTime           @default(now())
+  readyAt        DateTime?
+
+  event   Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker Speaker       @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  session EventSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  topic   SessionTopic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, status])
+  @@index([speakerId])
   @@index([organizationId])
 }

@@ -329,6 +329,109 @@ export async function deleteStoredFile(
   }
 }
 
+// ── Direct uploads: files too large for the app ──────────────────────────
+//
+// Speaker presentations (Nov 19, 2026; docs/SPEAKER_PRESENTATIONS_PLAN.md)
+// run to hundreds of MB; nginx refuses a body over 10 MB and a large one
+// would hold a web container for minutes. So on S3 the browser uploads by a
+// signed form and reads by a signed link, and the app never holds the bytes.
+// On the local provider (development, the test server) there is no bucket:
+// the caller's own route takes the file, bounded by the proxy's upload limit.
+
+/** Where the browser sends the file: a signed form to the bucket, or the caller's own route. */
+export type DirectUploadTarget = { via: "s3"; url: string; fields: Record<string, string> } | { via: "app" };
+
+export async function signDirectUpload(opts: {
+  storedPath: string;
+  requirePrefix: string;
+  contentType: string;
+  maxBytes: number;
+  expiresSeconds: number;
+}): Promise<DirectUploadTarget> {
+  assertStoredPathWithin(opts.storedPath, opts.requirePrefix);
+  if (PROVIDER === "s3") {
+    const { s3SignUpload } = await import("./storage-s3");
+    const signed = await s3SignUpload({
+      key: storedPathToKey(opts.storedPath),
+      contentType: opts.contentType,
+      maxBytes: opts.maxBytes,
+      expiresSeconds: opts.expiresSeconds,
+    });
+    return { via: "s3", url: signed.url, fields: signed.fields };
+  }
+  if (PROVIDER === "local") return { via: "app" };
+  throw new Error("Direct uploads need STORAGE_PROVIDER s3 or local");
+}
+
+/** A stored file's size, and on S3 its version and ETag. Null when there is no such file. */
+export async function headStoredFile(
+  storedPath: string,
+  requirePrefix: string,
+  versionId?: string | null,
+): Promise<{ size: number; versionId: string | null; etag: string | null } | null> {
+  if (PROVIDER === "s3") {
+    assertStoredPathWithin(storedPath, requirePrefix);
+    const { s3Head } = await import("./storage-s3");
+    return s3Head(storedPathToKey(storedPath), versionId);
+  }
+  const { stat } = await import("fs/promises");
+  try {
+    const real = await resolveLocalReadPath(storedPath, requirePrefix);
+    return { size: (await stat(real)).size, versionId: null, etag: null };
+  } catch (err) {
+    if (err instanceof StorageError && err.reason === "not-found") return null;
+    throw err;
+  }
+}
+
+/** The first `bytes` of a stored file: its signature, never the whole file. */
+export async function readStoredFileStart(
+  storedPath: string,
+  requirePrefix: string,
+  bytes: number,
+  versionId?: string | null,
+): Promise<Buffer> {
+  if (PROVIDER === "s3") {
+    assertStoredPathWithin(storedPath, requirePrefix);
+    const { s3ReadStart } = await import("./storage-s3");
+    return s3ReadStart(storedPathToKey(storedPath), bytes, versionId);
+  }
+  const { open } = await import("fs/promises");
+  const real = await resolveLocalReadPath(storedPath, requirePrefix);
+  const handle = await open(real, "r");
+  try {
+    const buffer = Buffer.alloc(bytes);
+    const { bytesRead } = await handle.read(buffer, 0, bytes, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * A short-lived link to download a stored file, or null on the local
+ * provider, where the caller streams it itself (small files only there).
+ */
+export async function signStoredFileDownload(opts: {
+  storedPath: string;
+  requirePrefix: string;
+  versionId?: string | null;
+  expiresSeconds: number;
+  contentDisposition: string;
+  contentType: string;
+}): Promise<string | null> {
+  assertStoredPathWithin(opts.storedPath, opts.requirePrefix);
+  if (PROVIDER !== "s3") return null;
+  const { s3SignDownload } = await import("./storage-s3");
+  return s3SignDownload({
+    key: storedPathToKey(opts.storedPath),
+    versionId: opts.versionId,
+    expiresSeconds: opts.expiresSeconds,
+    contentDisposition: opts.contentDisposition,
+    contentType: opts.contentType,
+  });
+}
+
 /**
  * List every stored file beneath `subdirectory`, newest-agnostic, recursive.
  *

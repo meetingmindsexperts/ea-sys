@@ -14,6 +14,20 @@ carries pre-existing failures and a bare failure count proves nothing.
 
 ---
 
+## DEP-007: `@aws-sdk/s3-presigned-post` added, for speaker presentation uploads
+
+| | |
+|---|---|
+| **Date** | 2026-11-19 |
+| **Trigger** | Speakers upload their slides or a video (docs/SPEAKER_PRESENTATIONS_PLAN.md). The files run to hundreds of MB and nginx refuses a body over 10 MB, so the browser uploads straight to the S3 bucket by a signed form |
+| **What moved** | `@aws-sdk/s3-presigned-post` 3.1086.0 added to `dependencies`, pinned exact, the version `@aws-sdk/s3-request-presigner` is already pinned at. The lockfile gained that one package (19 lines); its own dependencies were already in the tree through `@aws-sdk/client-s3` |
+| **Why a dependency at all** | The installed presigner signs GET and PUT URLs only. A presigned PUT cannot carry `content-length-range`; only a POST policy can, and that condition is what makes S3 itself refuse a file over the cap whatever the browser told our server |
+| **Exposure** | Server-only (imported dynamically from `src/lib/storage-s3.ts`, never in a client bundle). It computes a signature locally with the instance role's credentials and makes no network call of its own. `npm audit`: no advisory names it |
+| **Verification** | `npm run gate` on the commit. `__tests__/lib/storage-s3-direct.test.ts` asserts what is signed (the key, the content type and the size range in the policy). The browser suite runs the local storage provider, so the signed form itself is first exercised on production after the owner's bucket CORS step |
+| **Rollback** | Revert the commit. Presentation uploads stop working (the routes answer an error); nothing else imports the package |
+
+---
+
 ## DEP-006: `decimal.js` promoted to a direct dependency, for the budget module's money rules
 
 | | |

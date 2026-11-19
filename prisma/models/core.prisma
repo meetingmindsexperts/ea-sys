@@ -626,6 +626,7 @@ model Event {
   billingAccounts              EventBillingAccount[]
   zoomMeetings                 ZoomMeeting[]
   externalStreams               ExternalStream[]
+  speakerPresentations          SpeakerPresentation[]
   zoomAttendances              ZoomAttendance[]
   webinarPresences             WebinarPresence[]
   webinarViewerQuestions       WebinarViewerQuestion[]
