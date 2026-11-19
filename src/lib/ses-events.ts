@@ -18,7 +18,7 @@
  * certificate of their own and sign with it, so only Amazon's own SNS hosts are
  * accepted, over https.
  */
-import { createVerify } from "node:crypto";
+import { X509Certificate, createVerify, type KeyObject } from "node:crypto";
 
 /** The envelope SNS posts. Every field is a string in SNS's JSON. */
 export interface SnsMessage {
@@ -77,11 +77,19 @@ export function regionOfTopicArn(topicArn: string): string | null {
 }
 
 /**
- * True only for an https address on one of Amazon's SNS hosts. With `region`,
- * only that region's host: a topic's messages are signed and confirmed by its
- * own region, so nothing else has a reason to be fetched.
+ * SNS's signing certificates live at exactly this kind of path. The same host
+ * is also the SNS API, which answers queries with text the caller chose, so a
+ * certificate address is accepted only in this shape and with no query.
  */
-export function isAmazonSnsUrl(value: string | undefined, opts?: { pemOnly?: boolean; region?: string | null }): boolean {
+const CERTIFICATE_PATH = /^\/SimpleNotificationService-[0-9a-f]{8,64}\.pem$/;
+
+/**
+ * True only for an https address on one of Amazon's SNS hosts. With `region`,
+ * only that region's host, compared whole: a topic's messages are signed and
+ * confirmed by its own region, so nothing else has a reason to be fetched.
+ * `certificate` further demands the certificate path and refuses any query.
+ */
+export function isAmazonSnsUrl(value: string | undefined, opts?: { certificate?: boolean; region?: string | null }): boolean {
   if (!value) return false;
   let url: URL;
   try {
@@ -90,10 +98,10 @@ export function isAmazonSnsUrl(value: string | undefined, opts?: { pemOnly?: boo
     return false;
   }
   if (url.protocol !== "https:") return false;
-  if (url.username || url.password || url.port) return false;
+  if (url.username || url.password || url.port || url.hash) return false;
   if (!SNS_HOST.test(url.hostname)) return false;
-  if (opts?.region && !url.hostname.startsWith(`sns.${opts.region}.amazonaws.com`)) return false;
-  if (opts?.pemOnly && !url.pathname.endsWith(".pem")) return false;
+  if (opts?.region && url.hostname !== `sns.${opts.region}.amazonaws.com` && url.hostname !== `sns.${opts.region}.amazonaws.com.cn`) return false;
+  if (opts?.certificate && (url.search !== "" || !CERTIFICATE_PATH.test(url.pathname))) return false;
   return true;
 }
 
@@ -140,30 +148,72 @@ export type FetchCertificate = (url: string) => Promise<string>;
 const certificateCache = new Map<string, { pem: string; at: number }>();
 const CERTIFICATE_TTL_MS = 6 * 60 * 60 * 1000;
 const CERTIFICATE_CACHE_MAX = 8;
+/**
+ * At most this many certificate fetches a minute, whoever asks. A genuine
+ * topic needs one every six hours; a stranger posting made-up certificate
+ * addresses must not be able to turn this server into a flood of requests to
+ * Amazon, and so get our own address throttled there.
+ */
+const CERTIFICATE_FETCHES_PER_MINUTE = 6;
+let fetchWindow = { startedAt: 0, count: 0 };
 
 async function defaultFetchCertificate(url: string): Promise<string> {
   const response = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: "error" });
   if (!response.ok) throw new Error(`certificate fetch answered ${response.status}`);
   const pem = await response.text();
-  if (!pem.includes("BEGIN CERTIFICATE") || pem.length > 20_000) throw new Error("not a certificate");
+  if (pem.length > 20_000) throw new Error("not a certificate");
   return pem;
 }
 
-async function certificateFor(url: string, fetchCertificate: FetchCertificate, now: number): Promise<string> {
+/**
+ * The public key of an X.509 certificate that is in date. A bare public key,
+ * or a key buried in some other text, is refused: `createVerify` alone would
+ * accept either, which is how a reflected page could have passed for one.
+ */
+function publicKeyOfCertificate(pem: string, now: number): KeyObject | null {
+  try {
+    const certificate = new X509Certificate(pem.trim());
+    if (Date.parse(certificate.validFrom) > now || Date.parse(certificate.validTo) < now) return null;
+    return certificate.publicKey;
+  } catch {
+    return null;
+  }
+}
+
+async function certificateFor(url: string, fetchCertificate: FetchCertificate, now: number): Promise<string | null> {
   const cached = certificateCache.get(url);
   if (cached && now - cached.at < CERTIFICATE_TTL_MS) return cached.pem;
-  const pem = await fetchCertificate(url);
-  if (certificateCache.size >= CERTIFICATE_CACHE_MAX) certificateCache.clear();
+
+  if (now - fetchWindow.startedAt >= 60_000) fetchWindow = { startedAt: now, count: 0 };
+  // Over budget, or the fetch fails: a certificate we already hold is better
+  // than refusing a genuine report, even past its six hours.
+  if (fetchWindow.count >= CERTIFICATE_FETCHES_PER_MINUTE) return cached?.pem ?? null;
+  fetchWindow.count += 1;
+
+  let pem: string;
+  try {
+    pem = await fetchCertificate(url);
+  } catch {
+    return cached?.pem ?? null;
+  }
+  if (!publicKeyOfCertificate(pem, now)) return cached?.pem ?? null;
+  if (certificateCache.size >= CERTIFICATE_CACHE_MAX && !certificateCache.has(url)) certificateCache.clear();
   certificateCache.set(url, { pem, at: now });
   return pem;
 }
 
-/** Test seam: forget every cached certificate. */
+/** Test seam: forget every cached certificate and the fetch budget. */
 export function clearSnsCertificateCache(): void {
   certificateCache.clear();
+  fetchWindow = { startedAt: 0, count: 0 };
 }
 
-export type SnsVerification = { ok: true } | { ok: false; reason: string };
+/**
+ * `retryable` marks the one refusal that is OUR trouble, not the message's:
+ * the certificate could not be had just now. The route answers that with a
+ * 5xx so SNS sends the report again; every other refusal is final.
+ */
+export type SnsVerification = { ok: true } | { ok: false; reason: string; retryable?: true };
 
 /**
  * Is this message signed by Amazon SNS?
@@ -172,7 +222,8 @@ export type SnsVerification = { ok: true } | { ok: false; reason: string };
  * message type we do not know how to check, an unknown signature version, a
  * certificate we cannot fetch, and a signature that does not match. A message
  * older than an hour is refused too, so a captured report cannot be replayed
- * months later (SNS retries for at most an hour by default).
+ * months later (an hour is the longest SNS can be set to keep retrying; its
+ * default is three retries twenty seconds apart).
  */
 export async function verifySnsMessage(
   message: SnsMessage,
@@ -181,7 +232,7 @@ export async function verifySnsMessage(
   // The certificate must come from the region of the topic the message names.
   const region = regionOfTopicArn(message.TopicArn);
   if (!region) return { ok: false, reason: "bad-topic" };
-  if (!isAmazonSnsUrl(message.SigningCertURL, { pemOnly: true, region })) return { ok: false, reason: "certificate-address-not-amazon" };
+  if (!isAmazonSnsUrl(message.SigningCertURL, { certificate: true, region })) return { ok: false, reason: "certificate-address-not-amazon" };
 
   const text = snsStringToSign(message);
   if (text === null) return { ok: false, reason: "unknown-message-type" };
@@ -194,17 +245,15 @@ export async function verifySnsMessage(
   if (Number.isNaN(sentAt)) return { ok: false, reason: "bad-timestamp" };
   if (Math.abs(now.getTime() - sentAt) > 60 * 60 * 1000) return { ok: false, reason: "too-old" };
 
-  let pem: string;
-  try {
-    pem = await certificateFor(message.SigningCertURL, opts?.fetchCertificate ?? defaultFetchCertificate, now.getTime());
-  } catch {
-    return { ok: false, reason: "certificate-unavailable" };
-  }
+  const pem = await certificateFor(message.SigningCertURL, opts?.fetchCertificate ?? defaultFetchCertificate, now.getTime());
+  if (!pem) return { ok: false, reason: "certificate-unavailable", retryable: true };
+  const publicKey = publicKeyOfCertificate(pem, now.getTime());
+  if (!publicKey) return { ok: false, reason: "certificate-unavailable", retryable: true };
 
   try {
     const verifier = createVerify(algorithm);
     verifier.update(text, "utf8");
-    if (!verifier.verify(pem, message.Signature, "base64")) return { ok: false, reason: "signature-mismatch" };
+    if (!verifier.verify(publicKey, message.Signature, "base64")) return { ok: false, reason: "signature-mismatch" };
   } catch {
     return { ok: false, reason: "signature-unreadable" };
   }
@@ -226,8 +275,16 @@ export interface SesDeliveryEvent {
   /** "Permanent" | "Transient" | "Undetermined" for a bounce, else null. */
   bounceType: string | null;
   bounceSubType: string | null;
-  /** The other mail server's words, or the kind of complaint. Capped. */
+  /** The delivery's answer or the kind of complaint. For a bounce see `recipientDetails`. Capped. */
   detail: string | null;
+  /**
+   * A bounce's words from the other mail server, per address. Kept apart
+   * because that text usually names the address: the row is given only the
+   * words about the person the email was FOR, never a copied address's.
+   */
+  recipientDetails: { address: string; detail: string }[];
+  /** When the mail service took the email, when the report says. */
+  mailAt: Date | null;
 }
 
 export type ParsedSesEvent =
@@ -293,6 +350,8 @@ export function parseSesEvent(rawMessage: string, receivedAt: Date = new Date())
 
   const messageId = asText(asRecord(body.mail)?.messageId);
   if (!messageId) return { ok: false, ignored: "no-message-id" };
+  const mailTimestamp = Date.parse(asText(asRecord(body.mail)?.timestamp) ?? "");
+  const mailAt = Number.isNaN(mailTimestamp) ? null : new Date(mailTimestamp);
 
   if (kindName === "Delivery") {
     const delivery = asRecord(body.delivery);
@@ -307,6 +366,8 @@ export function parseSesEvent(rawMessage: string, receivedAt: Date = new Date())
         bounceType: null,
         bounceSubType: null,
         detail: cap(asText(delivery.smtpResponse)),
+        recipientDetails: [],
+        mailAt,
       },
     };
   }
@@ -314,9 +375,12 @@ export function parseSesEvent(rawMessage: string, receivedAt: Date = new Date())
   if (kindName === "Bounce") {
     const bounce = asRecord(body.bounce);
     if (!bounce) return { ok: false, ignored: "bounce-without-body" };
-    const reasons = Array.isArray(bounce.bouncedRecipients)
-      ? bounce.bouncedRecipients.map((r) => asText(asRecord(r)?.diagnosticCode)).filter((r): r is string => !!r)
-      : [];
+    const recipientDetails: { address: string; detail: string }[] = [];
+    for (const item of Array.isArray(bounce.bouncedRecipients) ? bounce.bouncedRecipients : []) {
+      const address = asText(asRecord(item)?.emailAddress);
+      const words = cap(asText(asRecord(item)?.diagnosticCode));
+      if (address && words) recipientDetails.push({ address: bareAddress(address), detail: words });
+    }
     return {
       ok: true,
       event: {
@@ -326,7 +390,9 @@ export function parseSesEvent(rawMessage: string, receivedAt: Date = new Date())
         recipients: addressesOf(bounce.bouncedRecipients),
         bounceType: asText(bounce.bounceType) ?? "Undetermined",
         bounceSubType: asText(bounce.bounceSubType),
-        detail: cap([...new Set(reasons)].join(" | ") || null),
+        detail: null,
+        recipientDetails,
+        mailAt,
       },
     };
   }
@@ -344,6 +410,8 @@ export function parseSesEvent(rawMessage: string, receivedAt: Date = new Date())
         bounceType: null,
         bounceSubType: null,
         detail: cap(asText(complaint.complaintFeedbackType)),
+        recipientDetails: [],
+        mailAt,
       },
     };
   }
@@ -361,11 +429,14 @@ export function isPermanentBounce(row: { deliveryStatus?: string | null; bounceT
  *
  *   - A spam complaint always stands: it arrives after delivery and is the
  *     most serious thing a row can say.
- *   - A bounce replaces "delivered" only when it is not Transient. The mail
- *     service files some automatic replies ("out of office") as Transient
- *     bounces of an email that WAS delivered.
- *   - "Delivered" never replaces a bounce or a complaint, and a repeat of the
- *     same report changes nothing (SNS delivers at least once).
+ *   - "Delivered" and a Transient bounce of the same email: Delivered wins,
+ *     whichever arrives first. The mail service files some automatic replies
+ *     ("out of office") as Transient bounces of an email that WAS delivered,
+ *     and SNS does not promise order. A real Transient bounce is final, so no
+ *     delivery report follows one.
+ *   - "Delivered" never replaces a bounce that is not Transient, or a
+ *     complaint, and a repeat of the same report changes nothing (SNS delivers
+ *     at least once).
  */
 export function shouldReplaceDelivery(
   current: { deliveryStatus: DeliveryKind | null; bounceType: string | null },
@@ -373,7 +444,9 @@ export function shouldReplaceDelivery(
 ): boolean {
   if (current.deliveryStatus === "COMPLAINED") return false;
   if (incoming.kind === "COMPLAINED") return true;
-  if (incoming.kind === "DELIVERED") return current.deliveryStatus === null;
+  if (incoming.kind === "DELIVERED") {
+    return current.deliveryStatus === null || (current.deliveryStatus === "BOUNCED" && current.bounceType === "Transient");
+  }
   // incoming BOUNCED
   if (current.deliveryStatus === null) return true;
   if (current.deliveryStatus === "DELIVERED") return incoming.bounceType !== "Transient";

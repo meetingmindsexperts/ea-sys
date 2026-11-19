@@ -31,8 +31,11 @@ type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
 /** The table's one "status" control filters on either column, by which word it is. */
 function statusWhere(status: "SENT" | "FAILED" | DeliveryStatus | undefined): Prisma.EmailLogWhereInput {
   if (!status) return {};
-  if (status === "SENT" || status === "FAILED") return { status };
-  return { deliveryStatus: status };
+  if (status === "FAILED") return { status };
+  // "Sent" is the badge of an email the mail service has not reported on, so
+  // the filter means that too; a delivered or bounced one has its own word.
+  if (status === "SENT") return { status, deliveryStatus: null };
+  return { status: "SENT", deliveryStatus: status };
 }
 
 const querySchema = z.object({

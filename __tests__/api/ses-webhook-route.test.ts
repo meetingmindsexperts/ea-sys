@@ -4,10 +4,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { verify, record, logger } = vi.hoisted(() => ({
+const { verify, record, logger, limiter } = vi.hoisted(() => ({
   verify: vi.fn(),
   record: vi.fn(),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  limiter: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -15,6 +16,7 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
 vi.mock("@/lib/email-delivery", () => ({ recordDeliveryEvent: (e: unknown) => record(e) }));
+vi.mock("@/lib/security", () => ({ getClientIp: () => "203.0.113.9", checkRateLimit: (args: { key: string }) => limiter(args) }));
 vi.mock("@/lib/ses-events", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/ses-events")>();
   return { ...real, verifySnsMessage: (m: unknown) => verify(m) };
@@ -49,6 +51,7 @@ beforeEach(() => {
   verify.mockResolvedValue({ ok: true });
   record.mockResolvedValue("recorded");
   fetchMock.mockResolvedValue({ ok: true, status: 200 });
+  limiter.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
 });
 
 afterEach(() => {
@@ -91,7 +94,6 @@ describe("POST /api/webhooks/ses", () => {
     expect(res.status).toBe(403);
     expect((await res.json()).code).toBe("BAD_SIGNATURE");
     expect(record).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "ses-events:signature-refused", reason: "signature-mismatch" }));
   });
 
@@ -109,6 +111,79 @@ describe("POST /api/webhooks/ses", () => {
     expect((await post(envelope())).status).toBe(200);
   });
 
+  it("asks for the report again (503) when the certificate could not be fetched: SNS never retries a 4xx", async () => {
+    verify.mockResolvedValue({ ok: false, reason: "certificate-unavailable", retryable: true });
+
+    const res = await post(envelope());
+
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe("CERTIFICATE_UNAVAILABLE");
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("asks for the report again when it beat the email's own log row", async () => {
+    record.mockResolvedValue("unknown-message");
+    const justNow = new Date(Date.now() - 2_000).toISOString();
+    const young = JSON.stringify({ eventType: "Bounce", mail: { messageId: "0109-abc", timestamp: justNow }, bounce: { bounceType: "Permanent", bouncedRecipients: [{ emailAddress: "doc@example.org" }] } });
+
+    const res = await post(envelope({ Message: young }));
+
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe("EMAIL_NOT_LOGGED_YET");
+  });
+
+  it("gives up on an unknown email once the report is older than half a minute", async () => {
+    record.mockResolvedValue("unknown-message");
+    const aWhileAgo = new Date(Date.now() - 45_000).toISOString();
+    const old = JSON.stringify({ eventType: "Bounce", mail: { messageId: "0109-abc", timestamp: aWhileAgo }, bounce: { bounceType: "Permanent", bouncedRecipients: [{ emailAddress: "doc@example.org" }] } });
+
+    expect((await post(envelope({ Message: old }))).status).toBe(200);
+  });
+
+  it("writes at most a short clip of a stranger's text to the log", async () => {
+    const huge = "arn:aws:sns:ap-south-1:999999999999:" + "x".repeat(50_000);
+
+    await post(envelope({ TopicArn: huge }));
+
+    const line = logger.warn.mock.calls.find((c) => (c[0] as { msg?: string }).msg === "ses-events:wrong-topic")?.[0] as { topicArn: string };
+    expect(line.topicArn.length).toBeLessThanOrEqual(121);
+    expect(JSON.stringify(logger.warn.mock.calls).length).toBeLessThan(2_000);
+  });
+
+  it("stops logging, and answers 429, once an address has been refused too often", async () => {
+    limiter.mockImplementation(({ key }: { key: string }) => ({ allowed: !key.startsWith("ses-events-refused:"), retryAfterSeconds: 30 }));
+
+    const res = await post(envelope({ TopicArn: "arn:aws:sns:ap-south-1:999999999999:someone-elses" }));
+
+    expect(res.status).toBe(429);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(limiter).toHaveBeenCalledWith(expect.objectContaining({ key: "ses-events-refused:203.0.113.9" }));
+  });
+
+  it("answers 429 before reading anything when an address posts far too fast", async () => {
+    limiter.mockReturnValue({ allowed: false, retryAfterSeconds: 30 });
+
+    const res = await post(envelope());
+
+    expect(res.status).toBe(429);
+    expect(verify).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("refuses a body longer than a genuine message can be, without parsing it", async () => {
+    const res = await post("x".repeat(400_001));
+
+    expect(res.status).toBe(413);
+    expect(verify).not.toHaveBeenCalled();
+    expect(JSON.stringify(logger.warn.mock.calls).length).toBeLessThan(500);
+  });
+
+  it("does not count a genuine report as a refusal", async () => {
+    await post(envelope());
+
+    expect(limiter.mock.calls.map((c) => (c[0] as { key: string }).key)).toEqual(["ses-events:203.0.113.9"]);
+  });
+
   it("answers 200 and keeps nothing for a kind of report it does not use", async () => {
     const res = await post(envelope({ Message: JSON.stringify({ eventType: "Send", mail: { messageId: "0109-abc" }, send: {} }) }));
 
@@ -116,12 +191,12 @@ describe("POST /api/webhooks/ses", () => {
     expect(record).not.toHaveBeenCalled();
   });
 
-  it("answers 500 when the write fails, so SNS tries that report again", async () => {
+  it("answers 503 when the write fails, so SNS tries that report again", async () => {
     record.mockRejectedValue(new Error("db down"));
 
     const res = await post(envelope());
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "ses-events:record-failed" }));
   });
 

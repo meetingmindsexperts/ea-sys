@@ -1233,6 +1233,7 @@ export default function SpeakerDetailPage() {
               endpoint={`/api/events/${eventId}/speakers/${speaker.id}/activity`}
               anchor="speaker"
               queryKey={[eventId, "speaker", speaker.id]}
+              currentEmails={[speaker.email, speaker.additionalEmail]}
             />
           </div>
         </div>

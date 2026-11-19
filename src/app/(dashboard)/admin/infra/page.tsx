@@ -547,7 +547,7 @@ export default function InfraPage() {
                       { label: "Payments 24h", value: snap.heartbeat.info.payments24h, sub: "captured" },
                       { label: "Check-ins 24h", value: snap.heartbeat.info.checkIns24h, sub: "scanned in" },
                       { label: "Abstracts 24h", value: snap.heartbeat.info.abstracts24h, sub: "submitted" },
-                      { label: "Emails sent 24h", value: snap.heartbeat.info.emailsSent24h, sub: "delivered" },
+                      { label: "Emails sent 24h", value: snap.heartbeat.info.emailsSent24h, sub: "accepted by the mail service" },
                       { label: "Live events", value: snap.heartbeat.info.liveEvents, sub: "running now" },
                     ].map((k) => (
                       <div key={k.label} className="rounded border p-3">

@@ -37,6 +37,8 @@ interface Props {
   /** React Query key suffix so speaker + registration caches don't collide. */
   queryKey: (string | undefined)[];
   title?: string;
+  /** The person's address(es) as they are now. The bounce warning is shown for these only. */
+  currentEmails?: (string | null | undefined)[];
 }
 
 const AUDIT_LABELS: Record<string, string> = {
@@ -148,7 +150,7 @@ function emailRow(item: ActivityItem): EmailOutcomeInput {
   };
 }
 
-export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Activity" }: Props) {
+export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Activity", currentEmails = [] }: Props) {
   const { data, isLoading, isError } = useQuery<ActivityFeed>({
     queryKey: ["activity", ...queryKey],
     queryFn: async () => {
@@ -164,6 +166,7 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
   // Addresses whose newest reported email was a permanent bounce (src/lib/email-outcome.ts).
   const bouncing = bouncingAddresses(
     items.filter((item) => item.kind === "email" && !!item.to).map((item) => ({ ...emailRow(item), to: item.to as string, createdAt: item.at, deliveryAt: item.deliveryAt })),
+    currentEmails,
   );
 
   // "View email" — the stored audit copy of a sent email's final HTML (every

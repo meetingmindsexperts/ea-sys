@@ -174,6 +174,52 @@ describe("email-activity GET — payload", () => {
     expect(mockDb.emailLog.groupBy.mock.calls.at(-1)?.[0]?.where).toEqual({ eventId: "ev1" });
   });
 
+  it("the status filter means what the badge says: Sent is 'no report yet', the rest are the mail service's reports (Nov 19, 2026)", async () => {
+    mockAuth.mockResolvedValue({ user: ADMIN });
+    const whereFor = async (status: string) => {
+      mockDb.emailLog.findMany.mockClear();
+      const res = await GET(url(`?status=${status}`), params);
+      expect(res.status).toBe(200);
+      return rowsFindManyWhere();
+    };
+
+    expect(await whereFor("SENT")).toMatchObject({ status: "SENT", deliveryStatus: null });
+    expect(await whereFor("DELIVERED")).toMatchObject({ status: "SENT", deliveryStatus: "DELIVERED" });
+    expect(await whereFor("BOUNCED")).toMatchObject({ status: "SENT", deliveryStatus: "BOUNCED" });
+    expect(await whereFor("COMPLAINED")).toMatchObject({ status: "SENT", deliveryStatus: "COMPLAINED" });
+    const failed = await whereFor("FAILED");
+    expect(failed).toMatchObject({ status: "FAILED" });
+    expect(failed).not.toHaveProperty("deliveryStatus");
+
+    expect((await GET(url("?status=OPENED"), params)).status).toBe(400);
+  });
+
+  it("counts delivered, bounced and marked-as-spam beside sent, per sender, and never in place of it", async () => {
+    mockAuth.mockResolvedValue({ user: ADMIN });
+    mockDb.emailLog.groupBy.mockResolvedValue([
+      { triggeredByUserId: "u1", status: "SENT", deliveryStatus: null, _count: { _all: 2 } },
+      { triggeredByUserId: "u1", status: "SENT", deliveryStatus: "DELIVERED", _count: { _all: 5 } },
+      { triggeredByUserId: "u1", status: "SENT", deliveryStatus: "BOUNCED", _count: { _all: 1 } },
+      { triggeredByUserId: "u1", status: "FAILED", deliveryStatus: null, _count: { _all: 1 } },
+      { triggeredByUserId: null, status: "SENT", deliveryStatus: "COMPLAINED", _count: { _all: 1 } },
+    ]);
+
+    const body = await (await GET(url(), params)).json();
+
+    expect(mockDb.emailLog.groupBy.mock.calls.at(-1)?.[0]?.by).toEqual(["triggeredByUserId", "status", "deliveryStatus"]);
+    const krishna = body.summary.find((s: { userId: string | null }) => s.userId === "u1");
+    expect(krishna).toMatchObject({ sent: 8, failed: 1, delivered: 5, bounced: 1, complained: 0 });
+    const system = body.summary.find((s: { userId: string | null }) => s.userId === null);
+    expect(system).toMatchObject({ sent: 1, failed: 0, delivered: 0, bounced: 0, complained: 1 });
+  });
+
+  it("the rows query reads the mail service's report for each email", async () => {
+    mockAuth.mockResolvedValue({ user: ADMIN });
+    await GET(url(), params);
+    const select = mockDb.emailLog.findMany.mock.calls.find((c) => c[0]?.skip !== undefined)?.[0]?.select ?? {};
+    expect(select).toMatchObject({ deliveryStatus: true, deliveryAt: true, bounceType: true, bounceSubType: true, deliveryDetail: true });
+  });
+
   it("the rows query reads who was copied, cc and bcc, for the line under To (Nov 12, 2026)", async () => {
     mockAuth.mockResolvedValue({ user: ADMIN });
     await GET(url(), params);

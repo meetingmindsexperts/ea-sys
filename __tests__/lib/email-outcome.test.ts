@@ -31,7 +31,7 @@ describe("emailOutcome", () => {
 
   it("says the email was never sent when the address was already on the bounce list", () => {
     const dropped = emailOutcome({ status: "SENT", deliveryStatus: "BOUNCED", bounceType: "Permanent", bounceSubType: "OnAccountSuppressionList" });
-    expect(dropped.explanation).toContain("bounced before, so the mail service did not send this email");
+    expect(dropped.explanation).toContain("blocked by the mail service after an earlier bounce or spam complaint");
   });
 
   it("a failed send stays Failed whatever else the row carries", () => {
@@ -50,58 +50,78 @@ describe("bouncingAddresses", () => {
   });
 
   it("flags an address whose newest reported email bounced for good", () => {
-    const found = bouncingAddresses([
-      row("Doc@Example.org", "2026-10-02T12:00:00.000Z", "BOUNCED", "Permanent"),
-      row("doc@example.org", "2026-11-04T06:00:00.000Z", "BOUNCED", "Permanent"),
-    ]);
+    const found = bouncingAddresses(
+      [row("Doc@Example.org", "2026-10-02T12:00:00.000Z", "BOUNCED", "Permanent"), row("doc@example.org", "2026-11-04T06:00:00.000Z", "BOUNCED", "Permanent")],
+      [" DOC@example.org "],
+    );
     // Since the FIRST bounce of the run, not the latest: unreachable since October.
     expect(found).toEqual([{ address: "doc@example.org", since: "2026-10-02T12:00:00.000Z" }]);
   });
 
   it("dates the run from after the address last worked", () => {
-    const found = bouncingAddresses([
-      row("doc@example.org", "2026-09-01T06:00:00.000Z", "BOUNCED", "Permanent"),
-      row("doc@example.org", "2026-09-10T06:00:00.000Z", "DELIVERED"),
-      row("doc@example.org", "2026-10-02T12:00:00.000Z", "BOUNCED", "Permanent"),
-      row("doc@example.org", "2026-11-04T06:00:00.000Z", "BOUNCED", "Permanent"),
-    ]);
+    const found = bouncingAddresses(
+      [
+        row("doc@example.org", "2026-09-01T06:00:00.000Z", "BOUNCED", "Permanent"),
+        row("doc@example.org", "2026-09-10T06:00:00.000Z", "DELIVERED"),
+        row("doc@example.org", "2026-10-02T12:00:00.000Z", "BOUNCED", "Permanent"),
+        row("doc@example.org", "2026-11-04T06:00:00.000Z", "BOUNCED", "Permanent"),
+      ],
+      ["doc@example.org"],
+    );
     expect(found).toEqual([{ address: "doc@example.org", since: "2026-10-02T12:00:00.000Z" }]);
   });
 
   it("stops flagging once a later email is delivered (the address was put right)", () => {
     expect(
-      bouncingAddresses([
-        row("doc@example.org", "2026-10-02T12:00:00.000Z", "BOUNCED", "Permanent"),
-        row("doc@example.org", "2026-11-04T06:00:00.000Z", "DELIVERED"),
-      ]),
+      bouncingAddresses(
+        [row("doc@example.org", "2026-10-02T12:00:00.000Z", "BOUNCED", "Permanent"), row("doc@example.org", "2026-11-04T06:00:00.000Z", "DELIVERED")],
+        ["doc@example.org"],
+      ),
     ).toEqual([]);
   });
 
   it("ignores emails the mail service said nothing about, in any order", () => {
     expect(
-      bouncingAddresses([
-        row("doc@example.org", "2026-11-18T06:00:00.000Z", null),
-        row("doc@example.org", "2026-10-02T12:00:00.000Z", "BOUNCED", "Permanent"),
-      ]),
+      bouncingAddresses(
+        [row("doc@example.org", "2026-11-18T06:00:00.000Z", null), row("doc@example.org", "2026-10-02T12:00:00.000Z", "BOUNCED", "Permanent")],
+        ["doc@example.org"],
+      ),
     ).toEqual([{ address: "doc@example.org", since: "2026-10-02T12:00:00.000Z" }]);
   });
 
   it("does not flag a temporary bounce, a failed send, or an address that never bounced", () => {
     expect(
-      bouncingAddresses([
-        row("full@example.org", "2026-11-01T06:00:00.000Z", "BOUNCED", "Transient"),
-        { ...row("failed@example.org", "2026-11-01T06:00:00.000Z", "BOUNCED", "Permanent"), status: "FAILED" as const },
-        row("fine@example.org", "2026-11-01T06:00:00.000Z", "DELIVERED"),
-      ]),
+      bouncingAddresses(
+        [
+          row("full@example.org", "2026-11-01T06:00:00.000Z", "BOUNCED", "Transient"),
+          { ...row("failed@example.org", "2026-11-01T06:00:00.000Z", "BOUNCED", "Permanent"), status: "FAILED" as const },
+          row("fine@example.org", "2026-11-01T06:00:00.000Z", "DELIVERED"),
+        ],
+        ["full@example.org", "failed@example.org", "fine@example.org"],
+      ),
     ).toEqual([]);
   });
 
-  it("flags each bouncing address when a person has been emailed at two", () => {
-    const found = bouncingAddresses([
-      row("b@example.org", "2026-11-01T06:00:00.000Z", "BOUNCED", "Permanent"),
-      row("a@example.org", "2026-11-02T06:00:00.000Z", "BOUNCED", "Permanent"),
-      row("c@example.org", "2026-11-02T06:00:00.000Z", "DELIVERED"),
-    ]);
+  it("flags both of a person's current addresses when both bounce (the main and the additional one)", () => {
+    const found = bouncingAddresses(
+      [
+        row("b@example.org", "2026-11-01T06:00:00.000Z", "BOUNCED", "Permanent"),
+        row("a@example.org", "2026-11-02T06:00:00.000Z", "BOUNCED", "Permanent"),
+        row("c@example.org", "2026-11-02T06:00:00.000Z", "DELIVERED"),
+      ],
+      ["a@example.org", "b@example.org", null, undefined, ""],
+    );
     expect(found.map((f) => f.address)).toEqual(["a@example.org", "b@example.org"]);
+  });
+
+  it("stops warning about an old address once the person's address has been corrected", () => {
+    const history = [row("old@example.org", "2026-10-02T12:00:00.000Z", "BOUNCED", "Permanent")];
+    expect(bouncingAddresses(history, ["old@example.org"])).toHaveLength(1);
+    // Staff corrected the address: the old rows keep the old address, the warning must not.
+    expect(bouncingAddresses(history, ["new@example.org"])).toEqual([]);
+  });
+
+  it("flags nothing when it is not told the person's address", () => {
+    expect(bouncingAddresses([row("doc@example.org", "2026-10-02T12:00:00.000Z", "BOUNCED", "Permanent")], [])).toEqual([]);
   });
 });

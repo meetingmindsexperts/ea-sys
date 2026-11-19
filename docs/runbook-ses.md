@@ -329,6 +329,14 @@ confirmation" again.
    endpoint `https://events.meetingmindsgroup.com/api/webhooks/ses`, and leave
    **"Enable raw message delivery" OFF**. Raw delivery strips the envelope that
    carries the signature, and the route would refuse every message.
+   Then, on the subscription, **set its delivery policy** (Edit, "Delivery
+   policy (HTTP/S)"): number of retries **20**, minimum delay **20** seconds,
+   maximum delay **300**, backoff **exponential**. SNS's default is three
+   retries twenty seconds apart, about one minute in all, after which a report
+   is thrown away; a deploy or a short outage is longer than that. SNS allows
+   at most an hour of retrying in total. Optional and worth having: a
+   dead-letter queue (an SQS queue on the subscription's "Redrive policy"), so
+   a report that still fails is kept, not lost.
 7. **Check.** The subscription shows **Confirmed** within a few seconds, and
    `/logs` has `ses-events:subscription-confirmed`.
 8. **Prove it with SES's own test addresses**, which never hurt the sender
@@ -342,15 +350,36 @@ confirmation" again.
 |---|---|
 | `ses-events:not-configured` | Something posted to the route while `SES_EVENTS_TOPIC_ARN` is unset. |
 | `ses-events:wrong-topic` | A genuine-looking SNS message for another topic. Not ours; refused. |
-| `ses-events:signature-refused` | Not signed by Amazon, or older than an hour. A stranger probing the route, or raw message delivery switched on by mistake (`reason` says which check failed). |
+| `ses-events:signature-refused` | Not signed by Amazon, or older than an hour (`reason` says which check failed). A stranger probing the route. |
+| `ses-events:not-an-sns-message` | The post is not an SNS envelope (`reason` names the missing field). A stranger, or **raw message delivery switched on by mistake**: raw delivery sends the report with no envelope, so every genuine report reads `missing-Type`. |
+| `ses-events:certificate-unavailable` | Amazon's signing certificate could not be fetched just now. Answered 503, so SNS sends the report again. Many of these in a row: the box cannot reach `sns.ap-south-1.amazonaws.com`. |
+| `ses-events:body-too-large-or-unreadable` | A post longer than a genuine message can be (400 KB). Not SNS. |
+| `email-delivery:lost-race` | Three reports for one email collided three times running. The row keeps what the others wrote. Rare; worth a look if it repeats. |
 | `email-delivery:bounced` | A bounce was written on an email's row. `bounceType` Permanent means later emails to that address are dropped. |
 | `email-delivery:complaint` | Someone marked an email as spam. Error level on purpose: each one counts against the whole account. |
 | `email-delivery:copy-recipient` | A copied address (cc or bcc) bounced. The row is not marked, because it describes the person the email was for. |
 | `email-delivery:unknown-message` | A report for an email with no row: the app's own alert emails, which are sent without one. Expected. |
 | `ses-events:unsubscribed` | The subscription was removed in AWS. Reports stop arriving. |
 
+### What SNS does with the route's answer
+
+SNS sends a report again only after a **5xx or a 429**, never after any other
+4xx (AWS, "Amazon SNS message delivery retries"). The route therefore answers
+4xx only for a message that is not genuine, and **503** for trouble that is
+ours and may pass: the certificate could not be fetched, the database write
+failed, or the report arrived before the email's own log row was written
+(the row is written just after the send; a bounce of an already blocked
+address can come back within the second).
+
+A stranger who keeps being refused is answered 429 after 20 refusals a minute
+and no longer logged, and nothing a stranger sends is written to the log
+beyond a short clip: the log table keeps whole lines and is never emptied.
+
 ### Foot guns
 
+- **The warning on a person follows their CURRENT address.** Correcting the
+  address on the person removes the warning at once; the old emails keep the
+  old address and their Bounced badge, as history.
 - **A permanent bounce is sticky at SES, not only in the app.** The address
   goes on the account's suppression list and SES drops everything sent to it
   from then on, answering "accepted" each time. Correcting the person's email

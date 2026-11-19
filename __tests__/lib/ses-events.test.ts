@@ -4,7 +4,11 @@
  * a real signature is checked, not a mocked "true".
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createSign, generateKeyPairSync } from "node:crypto";
+import { X509Certificate, createSign } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   bareAddress,
   clearSnsCertificateCache,
@@ -19,11 +23,27 @@ import {
   type SnsMessage,
 } from "@/lib/ses-events";
 
-const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const PUBLIC_PEM = publicKey.export({ type: "spki", format: "pem" }).toString();
-const OTHER_PEM = generateKeyPairSync("rsa", { modulusLength: 2048 }).publicKey.export({ type: "spki", format: "pem" }).toString();
+/**
+ * A real X.509 certificate and its key, made by openssl for this run. The code
+ * under test accepts a certificate only, so a bare public key will not do.
+ */
+function makeCertificate(days: string): { pem: string; key: string } {
+  const dir = mkdtempSync(join(tmpdir(), "sns-cert-"));
+  try {
+    execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(dir, "k.pem"), "-out", join(dir, "c.pem"), "-days", days, "-subj", "/CN=sns.amazonaws.com"], { stdio: "ignore" });
+    return { pem: readFileSync(join(dir, "c.pem"), "utf8"), key: readFileSync(join(dir, "k.pem"), "utf8") };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const CERT = makeCertificate("2");
+const OTHER_CERT = makeCertificate("2");
+const privateKey = CERT.key;
+const CERT_PEM = CERT.pem;
+/** The same key with no certificate around it: what the first version wrongly accepted. */
+const BARE_PUBLIC_KEY = new X509Certificate(CERT.pem).publicKey.export({ type: "spki", format: "pem" }).toString();
 
-const CERT_URL = "https://sns.ap-south-1.amazonaws.com/SimpleNotificationService-abc123.pem";
+const CERT_URL = "https://sns.ap-south-1.amazonaws.com/SimpleNotificationService-0123456789abcdef0123456789abcdef.pem";
 const TOPIC = "arn:aws:sns:ap-south-1:111122223333:ea-sys-ses-events";
 const NOW = new Date("2026-11-19T10:00:00.000Z");
 
@@ -44,7 +64,7 @@ function signed(fields: Partial<SnsMessage>, version: "1" | "2" = "1"): SnsMessa
   return { ...message, Signature: signer.sign(privateKey, "base64") };
 }
 
-const fetchOk = vi.fn(async () => PUBLIC_PEM);
+const fetchOk = vi.fn(async () => CERT_PEM);
 
 beforeEach(() => {
   clearSnsCertificateCache();
@@ -69,32 +89,37 @@ describe("readSnsMessage", () => {
 });
 
 describe("isAmazonSnsUrl", () => {
-  it.each([
-    "https://sns.ap-south-1.amazonaws.com/SimpleNotificationService-x.pem",
-    "https://sns.us-east-1.amazonaws.com/x.pem",
-    "https://sns.cn-north-1.amazonaws.com.cn/x.pem",
-  ])("accepts %s", (url) => {
-    expect(isAmazonSnsUrl(url, { pemOnly: true })).toBe(true);
-  });
+  const OK = "/SimpleNotificationService-0123456789abcdef0123456789abcdef.pem";
+
+  it.each([`https://sns.ap-south-1.amazonaws.com${OK}`, `https://sns.us-east-1.amazonaws.com${OK}`, `https://sns.cn-north-1.amazonaws.com.cn${OK}`])(
+    "accepts the certificate address %s",
+    (url) => {
+      expect(isAmazonSnsUrl(url, { certificate: true })).toBe(true);
+    },
+  );
 
   it.each([
-    ["plain http", "http://sns.ap-south-1.amazonaws.com/x.pem"],
-    ["a look-alike host", "https://sns.ap-south-1.amazonaws.com.evil.example/x.pem"],
-    ["Amazon's name as a folder", "https://evil.example/sns.ap-south-1.amazonaws.com/x.pem"],
-    ["another Amazon service", "https://s3.ap-south-1.amazonaws.com/bucket/x.pem"],
-    ["a name before the host", "https://sns.ap-south-1.amazonaws.com@evil.example/x.pem"],
-    ["a port", "https://sns.ap-south-1.amazonaws.com:8443/x.pem"],
+    ["plain http", `http://sns.ap-south-1.amazonaws.com${OK}`],
+    ["a look-alike host", `https://sns.ap-south-1.amazonaws.com.evil.example${OK}`],
+    ["Amazon's name as a folder", `https://evil.example/sns.ap-south-1.amazonaws.com${OK}`],
+    ["another Amazon service", `https://s3.ap-south-1.amazonaws.com/bucket${OK}`],
+    ["a name before the host", `https://sns.ap-south-1.amazonaws.com@evil.example${OK}`],
+    ["a port", `https://sns.ap-south-1.amazonaws.com:8443${OK}`],
     ["not a certificate file", "https://sns.ap-south-1.amazonaws.com/x.txt"],
+    ["any other .pem path (the host is also an API that answers with the caller's text)", "https://sns.ap-south-1.amazonaws.com/x.pem"],
+    ["a certificate path in a folder", `https://sns.ap-south-1.amazonaws.com/a${OK}`],
+    ["a query string", `https://sns.ap-south-1.amazonaws.com${OK}?Action=GetEndpointAttributes`],
+    ["a fragment", `https://sns.ap-south-1.amazonaws.com${OK}#x`],
     ["nothing", undefined],
     ["not an address", "sns.ap-south-1.amazonaws.com"],
   ])("refuses %s", (_name, url) => {
-    expect(isAmazonSnsUrl(url, { pemOnly: true })).toBe(false);
+    expect(isAmazonSnsUrl(url, { certificate: true })).toBe(false);
   });
 
-  it("with a region, accepts that region's host only", () => {
-    expect(isAmazonSnsUrl("https://sns.ap-south-1.amazonaws.com/x.pem", { pemOnly: true, region: "ap-south-1" })).toBe(true);
-    expect(isAmazonSnsUrl("https://sns.us-east-1.amazonaws.com/x.pem", { pemOnly: true, region: "ap-south-1" })).toBe(false);
-    expect(isAmazonSnsUrl("https://sns.ap-south-10.amazonaws.com/x.pem", { pemOnly: true, region: "ap-south-1" })).toBe(false);
+  it("with a region, accepts that region's host only, compared whole", () => {
+    expect(isAmazonSnsUrl(`https://sns.ap-south-1.amazonaws.com${OK}`, { certificate: true, region: "ap-south-1" })).toBe(true);
+    expect(isAmazonSnsUrl(`https://sns.us-east-1.amazonaws.com${OK}`, { certificate: true, region: "ap-south-1" })).toBe(false);
+    expect(isAmazonSnsUrl(`https://sns.ap-south-10.amazonaws.com${OK}`, { certificate: true, region: "ap-south-1" })).toBe(false);
   });
 
   it("reads the region out of a topic's ARN", () => {
@@ -103,7 +128,7 @@ describe("isAmazonSnsUrl", () => {
     expect(regionOfTopicArn("not-an-arn")).toBeNull();
   });
 
-  it("does not ask for a certificate file when told not to (the confirmation link)", () => {
+  it("the confirmation link may carry a query, and needs no certificate path", () => {
     expect(isAmazonSnsUrl("https://sns.ap-south-1.amazonaws.com/?Action=ConfirmSubscription&Token=t")).toBe(true);
   });
 });
@@ -135,24 +160,49 @@ describe("verifySnsMessage", () => {
     expect(await verifySnsMessage(signed({}, version), { fetchCertificate: fetchOk, now: NOW })).toEqual({ ok: true });
   });
 
+  it("checks SNS's own signed text, written out here and not taken from the code", async () => {
+    // Signed over a literal, so a wrong field order in snsStringToSign fails this.
+    const message = signed({});
+    const literal = `Message\n${message.Message}\nMessageId\nm-1\nTimestamp\n2026-11-19T09:59:30.000Z\nTopicArn\n${TOPIC}\nType\nNotification\n`;
+    const signer = createSign("RSA-SHA1");
+    signer.update(literal, "utf8");
+    const byHand = { ...message, Signature: signer.sign(privateKey, "base64") };
+    expect(await verifySnsMessage(byHand, { fetchCertificate: fetchOk, now: NOW })).toEqual({ ok: true });
+  });
+
   it("refuses a message changed after it was signed", async () => {
     const m = { ...signed({}), Message: '{"eventType":"Bounce"}' };
     expect(await verifySnsMessage(m, { fetchCertificate: fetchOk, now: NOW })).toEqual({ ok: false, reason: "signature-mismatch" });
   });
 
   it("refuses a message signed with somebody else's key", async () => {
-    const other = vi.fn(async () => OTHER_PEM);
+    const other = vi.fn(async () => OTHER_CERT.pem);
     expect(await verifySnsMessage(signed({}), { fetchCertificate: other, now: NOW })).toEqual({ ok: false, reason: "signature-mismatch" });
   });
 
+  it("refuses the right key when it is not inside a certificate", async () => {
+    const bare = vi.fn(async () => BARE_PUBLIC_KEY);
+    expect(await verifySnsMessage(signed({}), { fetchCertificate: bare, now: NOW })).toMatchObject({ ok: false, reason: "certificate-unavailable" });
+    // ...and when it is buried in other text that mentions a certificate.
+    clearSnsCertificateCache();
+    const buried = vi.fn(async () => `<Response>BEGIN CERTIFICATE\n${BARE_PUBLIC_KEY}</Response>`);
+    expect((await verifySnsMessage(signed({}), { fetchCertificate: buried, now: NOW })).ok).toBe(false);
+  });
+
+  it("refuses a certificate that is out of date", async () => {
+    const later = new Date(NOW.getTime() + 10 * 24 * 60 * 60 * 1000);
+    const m = signed({ Timestamp: later.toISOString() });
+    expect(await verifySnsMessage(m, { fetchCertificate: fetchOk, now: later })).toMatchObject({ ok: false, reason: "certificate-unavailable" });
+  });
+
   it("never fetches a certificate from an address that is not Amazon's", async () => {
-    const m = signed({ SigningCertURL: "https://evil.example/cert.pem" });
+    const m = signed({ SigningCertURL: "https://evil.example/SimpleNotificationService-0123456789abcdef.pem" });
     expect(await verifySnsMessage(m, { fetchCertificate: fetchOk, now: NOW })).toEqual({ ok: false, reason: "certificate-address-not-amazon" });
     expect(fetchOk).not.toHaveBeenCalled();
   });
 
   it("never fetches a certificate from another region than the topic's", async () => {
-    const m = signed({ SigningCertURL: "https://sns.us-east-1.amazonaws.com/SimpleNotificationService-abc123.pem" });
+    const m = signed({ SigningCertURL: "https://sns.us-east-1.amazonaws.com/SimpleNotificationService-0123456789abcdef.pem" });
     expect(await verifySnsMessage(m, { fetchCertificate: fetchOk, now: NOW })).toEqual({ ok: false, reason: "certificate-address-not-amazon" });
     expect(await verifySnsMessage(signed({ TopicArn: "nonsense" }), { fetchCertificate: fetchOk, now: NOW })).toEqual({ ok: false, reason: "bad-topic" });
     expect(fetchOk).not.toHaveBeenCalled();
@@ -169,14 +219,11 @@ describe("verifySnsMessage", () => {
     expect(await verifySnsMessage({ ...signed({}), Timestamp: "soon" }, { fetchCertificate: fetchOk, now: NOW })).toEqual({ ok: false, reason: "bad-timestamp" });
   });
 
-  it("fails closed when the certificate cannot be fetched, or is not one", async () => {
+  it("when the certificate cannot be fetched, says so as OUR trouble, to be tried again", async () => {
     const down = vi.fn(async () => {
       throw new Error("network");
     });
-    expect(await verifySnsMessage(signed({}), { fetchCertificate: down, now: NOW })).toEqual({ ok: false, reason: "certificate-unavailable" });
-    const junk = vi.fn(async () => "not a key");
-    clearSnsCertificateCache();
-    expect((await verifySnsMessage(signed({}), { fetchCertificate: junk, now: NOW })).ok).toBe(false);
+    expect(await verifySnsMessage(signed({}), { fetchCertificate: down, now: NOW })).toEqual({ ok: false, reason: "certificate-unavailable", retryable: true });
   });
 
   it("fetches a certificate once and reuses it", async () => {
@@ -184,16 +231,38 @@ describe("verifySnsMessage", () => {
     await verifySnsMessage(signed({ MessageId: "m-2" }), { fetchCertificate: fetchOk, now: NOW });
     expect(fetchOk).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps using the certificate it holds when a refetch fails after six hours", async () => {
+    await verifySnsMessage(signed({}), { fetchCertificate: fetchOk, now: NOW });
+    const sevenHoursOn = new Date(NOW.getTime() + 7 * 60 * 60 * 1000);
+    const down = vi.fn(async () => {
+      throw new Error("network");
+    });
+    const m = signed({ Timestamp: sevenHoursOn.toISOString() });
+    expect(await verifySnsMessage(m, { fetchCertificate: down, now: sevenHoursOn })).toEqual({ ok: true });
+    expect(down).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops fetching after a few made-up certificate addresses in a minute", async () => {
+    const down = vi.fn(async () => {
+      throw new Error("no such certificate");
+    });
+    for (let i = 0; i < 12; i++) {
+      const url = `https://sns.ap-south-1.amazonaws.com/SimpleNotificationService-${String(i).padStart(16, "0")}.pem`;
+      expect((await verifySnsMessage(signed({ SigningCertURL: url }), { fetchCertificate: down, now: NOW })).ok).toBe(false);
+    }
+    expect(down).toHaveBeenCalledTimes(6);
+  });
 });
 
 describe("parseSesEvent", () => {
-  const mail = { messageId: "0109-abc", destination: ["Doc@Example.org"] };
+  const mail = { messageId: "0109-abc", destination: ["Doc@Example.org"], timestamp: "2026-11-19T08:59:58.000Z" };
 
   it("reads a delivery", () => {
     const parsed = parseSesEvent(JSON.stringify({ eventType: "Delivery", mail, delivery: { timestamp: "2026-11-19T09:00:00.000Z", recipients: ["Doc@Example.org"], smtpResponse: "250 2.0.0 OK" } }));
     expect(parsed).toEqual({
       ok: true,
-      event: { kind: "DELIVERED", messageId: "0109-abc", at: new Date("2026-11-19T09:00:00.000Z"), recipients: ["doc@example.org"], bounceType: null, bounceSubType: null, detail: "250 2.0.0 OK" },
+      event: { kind: "DELIVERED", messageId: "0109-abc", at: new Date("2026-11-19T09:00:00.000Z"), recipients: ["doc@example.org"], bounceType: null, bounceSubType: null, detail: "250 2.0.0 OK", recipientDetails: [], mailAt: new Date("2026-11-19T08:59:58.000Z") },
     });
   });
 
@@ -210,7 +279,34 @@ describe("parseSesEvent", () => {
         },
       }),
     );
-    expect(parsed.ok && parsed.event).toMatchObject({ kind: "BOUNCED", recipients: ["doc@example.org"], bounceType: "Permanent", bounceSubType: "General", detail: "smtp; 550 5.1.1 user unknown" });
+    expect(parsed.ok && parsed.event).toMatchObject({
+      kind: "BOUNCED",
+      recipients: ["doc@example.org"],
+      bounceType: "Permanent",
+      bounceSubType: "General",
+      detail: null,
+      recipientDetails: [{ address: "doc@example.org", detail: "smtp; 550 5.1.1 user unknown" }],
+    });
+  });
+
+  it("keeps each bounced address's words apart, so a copied address's are never put on the row", () => {
+    const parsed = parseSesEvent(
+      JSON.stringify({
+        eventType: "Bounce",
+        mail,
+        bounce: {
+          bounceType: "Permanent",
+          bouncedRecipients: [
+            { emailAddress: "doc@example.org", diagnosticCode: "550 doc@example.org unknown" },
+            { emailAddress: "hidden-bcc@example.org", diagnosticCode: "550 hidden-bcc@example.org unknown" },
+          ],
+        },
+      }),
+    );
+    expect(parsed.ok && parsed.event.recipientDetails).toEqual([
+      { address: "doc@example.org", detail: "550 doc@example.org unknown" },
+      { address: "hidden-bcc@example.org", detail: "550 hidden-bcc@example.org unknown" },
+    ]);
   });
 
   it("reads a spam complaint", () => {
@@ -220,12 +316,12 @@ describe("parseSesEvent", () => {
 
   it("reads the older notification shape as well", () => {
     const parsed = parseSesEvent(JSON.stringify({ notificationType: "Bounce", mail, bounce: { bounceType: "Transient", bounceSubType: "MailboxFull", bouncedRecipients: [{ emailAddress: "doc@example.org" }] } }));
-    expect(parsed.ok && parsed.event).toMatchObject({ kind: "BOUNCED", bounceType: "Transient", bounceSubType: "MailboxFull", detail: null });
+    expect(parsed.ok && parsed.event).toMatchObject({ kind: "BOUNCED", bounceType: "Transient", bounceSubType: "MailboxFull", detail: null, recipientDetails: [] });
   });
 
   it("caps a long diagnostic", () => {
     const parsed = parseSesEvent(JSON.stringify({ eventType: "Bounce", mail, bounce: { bounceType: "Permanent", bouncedRecipients: [{ emailAddress: "doc@example.org", diagnosticCode: "x".repeat(900) }] } }));
-    expect(parsed.ok && parsed.event.detail?.length).toBe(501);
+    expect(parsed.ok && parsed.event.recipientDetails[0].detail.length).toBe(501);
   });
 
   it.each([
@@ -247,6 +343,8 @@ describe("shouldReplaceDelivery", () => {
     ["first delivery", row(null), { kind: "DELIVERED", bounceType: null }, true],
     ["a repeated delivery", row("DELIVERED"), { kind: "DELIVERED", bounceType: null }, false],
     ["delivered after a bounce", row("BOUNCED", "Permanent"), { kind: "DELIVERED", bounceType: null }, false],
+    ["delivered arriving after an automatic reply filed as a transient bounce", row("BOUNCED", "Transient"), { kind: "DELIVERED", bounceType: null }, true],
+    ["delivered after an undetermined bounce", row("BOUNCED", "Undetermined"), { kind: "DELIVERED", bounceType: null }, false],
     ["first bounce", row(null), { kind: "BOUNCED", bounceType: "Transient" }, true],
     ["a permanent bounce after delivered", row("DELIVERED"), { kind: "BOUNCED", bounceType: "Permanent" }, true],
     ["an automatic reply filed as a transient bounce, after delivered", row("DELIVERED"), { kind: "BOUNCED", bounceType: "Transient" }, false],

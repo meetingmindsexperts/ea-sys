@@ -1092,7 +1092,7 @@ export function SpeakerDetailSheet({
               </div>
 
               {/* ── Email history ─────────────────────────────────────── */}
-              <EmailLogCard entityType="SPEAKER" entityId={speaker.id} />
+              <EmailLogCard entityType="SPEAKER" entityId={speaker.id} currentEmails={[speaker.email, speaker.additionalEmail]} />
             </>
           ) : null}
         </SheetContent>

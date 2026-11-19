@@ -41,7 +41,7 @@ const TEMPORARY_REASONS: Record<string, string> = {
 function bounceExplanation(row: EmailOutcomeInput): string {
   if (row.bounceType === "Permanent") {
     if (row.bounceSubType === "OnAccountSuppressionList" || row.bounceSubType === "Suppressed") {
-      return "This address bounced before, so the mail service did not send this email. Correct the address and send again.";
+      return "This address is blocked by the mail service after an earlier bounce or spam complaint, so this email was not sent. Correct the address and send again.";
     }
     return "The address was rejected. Emails to it are not delivered until the address is corrected.";
   }
@@ -80,14 +80,21 @@ type HistoryRow = EmailOutcomeInput & { to: string; createdAt: string | Date; de
  * address that bounced in October and was emailed three more times has been
  * unreachable since October, and that is the date staff need.
  *
+ * Only the addresses in `currentAddresses` (the person's own, as they are on
+ * the record now) are flagged; with none given, nothing is.
+ *
  * `rows` may be in any order.
  */
-export function bouncingAddresses(rows: HistoryRow[]): BouncedAddress[] {
+export function bouncingAddresses(rows: HistoryRow[], currentAddresses: (string | null | undefined)[]): BouncedAddress[] {
+  const current = new Set(currentAddresses.map((a) => (a ?? "").trim().toLowerCase()).filter((a) => a !== ""));
   const byAddress = new Map<string, HistoryRow[]>();
   for (const row of rows) {
     // Only emails the mail service reported on say anything about the address.
     if (row.status !== "SENT" || !row.deliveryStatus) continue;
     const address = row.to.trim().toLowerCase();
+    // An address the person no longer uses is history, not a warning: once
+    // staff correct it, "correct the address" must stop being said.
+    if (!current.has(address)) continue;
     const list = byAddress.get(address);
     if (list) list.push(row);
     else byAddress.set(address, [row]);

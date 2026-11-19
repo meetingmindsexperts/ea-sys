@@ -41,6 +41,8 @@ interface EmailLogCardProps {
   entityId: string;
   /** Optional override for the card heading. */
   title?: string;
+  /** The person's address(es) as they are now. The bounce warning is shown for these only. */
+  currentEmails?: (string | null | undefined)[];
 }
 
 /** "Today" / "Yesterday" / "12 Mar 2026" for a day-group heading. */
@@ -67,7 +69,7 @@ function senderInitials(u: { firstName: string; lastName: string }): string {
   return `${u.firstName.charAt(0)}${u.lastName.charAt(0)}`.toUpperCase() || "?";
 }
 
-export function EmailLogCard({ entityType, entityId, title = "Email History" }: EmailLogCardProps) {
+export function EmailLogCard({ entityType, entityId, title = "Email History", currentEmails = [] }: EmailLogCardProps) {
   const [viewEmailId, setViewEmailId] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery<{ logs: EmailLogRow[] }>({
@@ -85,7 +87,7 @@ export function EmailLogCard({ entityType, entityId, title = "Email History" }: 
   const groups = groupByDay(logs);
   // Addresses whose newest reported email was a permanent bounce: everything
   // sent to them since has been dropped by the mail service, silently.
-  const bouncing = bouncingAddresses(logs);
+  const bouncing = bouncingAddresses(logs, currentEmails);
 
   return (
     <div className="rounded-lg border bg-card p-4">

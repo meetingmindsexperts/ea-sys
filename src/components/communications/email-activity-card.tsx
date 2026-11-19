@@ -248,12 +248,12 @@ function EmailActivityCardBody({ eventId }: { eventId: string }) {
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={resetPageSet(setStatus)}>
-            <SelectTrigger className="w-[150px]">
+            <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>Any status</SelectItem>
-              <SelectItem value="SENT">Sent</SelectItem>
+              <SelectItem value="SENT">Sent, no report</SelectItem>
               <SelectItem value="FAILED">Failed</SelectItem>
               <SelectItem value="DELIVERED">Delivered</SelectItem>
               <SelectItem value="BOUNCED">Bounced</SelectItem>

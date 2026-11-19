@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { tenantDb, operatorDb, lanes, logger } = vi.hoisted(() => ({
-  tenantDb: { emailLog: { update: vi.fn(), findFirst: vi.fn() } },
+  tenantDb: { emailLog: { updateMany: vi.fn(), findFirst: vi.fn() } },
   operatorDb: { emailLog: { findFirst: vi.fn(), updateMany: vi.fn() } },
   lanes: [] as string[],
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -27,7 +27,9 @@ const event = (over: Partial<SesDeliveryEvent> = {}): SesDeliveryEvent => ({
   recipients: ["doc@example.org"],
   bounceType: "Permanent",
   bounceSubType: "General",
-  detail: "smtp; 550 5.1.1 user unknown",
+  detail: null,
+  recipientDetails: [{ address: "doc@example.org", detail: "smtp; 550 5.1.1 user unknown" }],
+  mailAt: AT,
   ...over,
 });
 const row = (over: Record<string, unknown> = {}) => ({
@@ -44,9 +46,9 @@ const row = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   lanes.length = 0;
-  tenantDb.emailLog.update.mockImplementation(async () => {
+  tenantDb.emailLog.updateMany.mockImplementation(async () => {
     lanes.push(getTenantOrgId() ?? "");
-    return {};
+    return { count: 1 };
   });
   operatorDb.emailLog.updateMany.mockResolvedValue({ count: 1 });
 });
@@ -60,8 +62,9 @@ describe("recordDeliveryEvent", () => {
     expect(operatorDb.emailLog.findFirst.mock.calls[0][0].where).toEqual({ providerMessageId: "0109-abc" });
     expect(tenantDb.emailLog.findFirst).not.toHaveBeenCalled();
     expect(lanes).toEqual(["org1"]);
-    expect(tenantDb.emailLog.update).toHaveBeenCalledWith({
-      where: { id: "log1", organizationId: "org1" },
+    expect(tenantDb.emailLog.updateMany).toHaveBeenCalledWith({
+      // Names what was read, so a report that landed in between is not overwritten blind.
+      where: { id: "log1", organizationId: "org1", deliveryStatus: null, bounceType: null },
       data: { deliveryStatus: "BOUNCED", deliveryAt: AT, bounceType: "Permanent", bounceSubType: "General", deliveryDetail: "smtp; 550 5.1.1 user unknown" },
     });
     expect(operatorDb.emailLog.updateMany).not.toHaveBeenCalled();
@@ -71,11 +74,11 @@ describe("recordDeliveryEvent", () => {
   it("writes an email that belongs to no organisation on the privileged client, without reading it back", async () => {
     operatorDb.emailLog.findFirst.mockResolvedValue(row({ organizationId: null }));
 
-    expect(await recordDeliveryEvent(event({ kind: "DELIVERED", bounceType: null, bounceSubType: null, detail: "250 OK" }))).toBe("recorded");
+    expect(await recordDeliveryEvent(event({ kind: "DELIVERED", bounceType: null, bounceSubType: null, detail: "250 OK", recipientDetails: [] }))).toBe("recorded");
 
-    expect(tenantDb.emailLog.update).not.toHaveBeenCalled();
+    expect(tenantDb.emailLog.updateMany).not.toHaveBeenCalled();
     expect(operatorDb.emailLog.updateMany).toHaveBeenCalledWith({
-      where: { id: "log1", organizationId: null },
+      where: { id: "log1", organizationId: null, deliveryStatus: null, bounceType: null },
       data: { deliveryStatus: "DELIVERED", deliveryAt: AT, bounceType: null, bounceSubType: null, deliveryDetail: "250 OK" },
     });
     expect(logger.warn).not.toHaveBeenCalled();
@@ -87,7 +90,7 @@ describe("recordDeliveryEvent", () => {
 
     expect(await recordDeliveryEvent(event())).toBe("unknown-message");
 
-    expect(tenantDb.emailLog.update).not.toHaveBeenCalled();
+    expect(tenantDb.emailLog.updateMany).not.toHaveBeenCalled();
     expect(operatorDb.emailLog.updateMany).not.toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "email-delivery:unknown-message" }));
   });
@@ -97,7 +100,7 @@ describe("recordDeliveryEvent", () => {
 
     expect(await recordDeliveryEvent(event({ recipients: ["colleague@example.org"] }))).toBe("copy-only");
 
-    expect(tenantDb.emailLog.update).not.toHaveBeenCalled();
+    expect(tenantDb.emailLog.updateMany).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "email-delivery:copy-recipient", recipients: ["colleague@example.org"] }));
   });
 
@@ -120,7 +123,7 @@ describe("recordDeliveryEvent", () => {
 
     expect(await recordDeliveryEvent(event({ kind: "DELIVERED", bounceType: null }))).toBe("unchanged");
 
-    expect(tenantDb.emailLog.update).not.toHaveBeenCalled();
+    expect(tenantDb.emailLog.updateMany).not.toHaveBeenCalled();
   });
 
   it("records a spam complaint over 'delivered' and raises it at error level", async () => {
@@ -128,13 +131,61 @@ describe("recordDeliveryEvent", () => {
 
     expect(await recordDeliveryEvent(event({ kind: "COMPLAINED", bounceType: null, bounceSubType: null, detail: "abuse" }))).toBe("recorded");
 
-    expect(tenantDb.emailLog.update.mock.calls[0][0].data.deliveryStatus).toBe("COMPLAINED");
+    expect(tenantDb.emailLog.updateMany.mock.calls[0][0].data.deliveryStatus).toBe("COMPLAINED");
     expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "email-delivery:complaint", detail: "abuse" }));
+  });
+
+  it("puts only the main recipient's bounce words on the row, never a copied address's", async () => {
+    operatorDb.emailLog.findFirst.mockResolvedValue(row());
+
+    await recordDeliveryEvent(
+      event({
+        recipients: ["doc@example.org", "hidden-bcc@example.org"],
+        recipientDetails: [
+          { address: "doc@example.org", detail: "550 doc@example.org unknown" },
+          { address: "hidden-bcc@example.org", detail: "550 hidden-bcc@example.org unknown" },
+        ],
+      }),
+    );
+
+    const detail = tenantDb.emailLog.updateMany.mock.calls[0][0].data.deliveryDetail as string;
+    expect(detail).toBe("550 doc@example.org unknown");
+    expect(detail).not.toContain("hidden-bcc");
+  });
+
+  it("raises a spam complaint from a copied address at error level too, without marking the row", async () => {
+    operatorDb.emailLog.findFirst.mockResolvedValue(row());
+
+    expect(await recordDeliveryEvent(event({ kind: "COMPLAINED", recipients: ["colleague@example.org"], bounceType: null, bounceSubType: null, detail: "abuse", recipientDetails: [] }))).toBe("copy-only");
+
+    expect(tenantDb.emailLog.updateMany).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "email-delivery:complaint", copyRecipient: true }));
+  });
+
+  it("when another report wrote the row in between, reads it again and judges afresh", async () => {
+    // First read: nothing reported. The write matches nothing: a bounce landed meanwhile.
+    operatorDb.emailLog.findFirst.mockResolvedValueOnce(row()).mockResolvedValueOnce(row({ deliveryStatus: "BOUNCED", bounceType: "Permanent" }));
+    tenantDb.emailLog.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    expect(await recordDeliveryEvent(event({ kind: "DELIVERED", bounceType: null, bounceSubType: null, detail: "250 OK", recipientDetails: [] }))).toBe("unchanged");
+
+    expect(operatorDb.emailLog.findFirst).toHaveBeenCalledTimes(2);
+    expect(tenantDb.emailLog.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives up after three lost races and says so", async () => {
+    operatorDb.emailLog.findFirst.mockResolvedValue(row());
+    tenantDb.emailLog.updateMany.mockResolvedValue({ count: 0 });
+
+    expect(await recordDeliveryEvent(event())).toBe("unchanged");
+
+    expect(tenantDb.emailLog.updateMany).toHaveBeenCalledTimes(3);
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "email-delivery:lost-race" }));
   });
 
   it("lets a failed write reach the caller, so the report is retried", async () => {
     operatorDb.emailLog.findFirst.mockResolvedValue(row());
-    tenantDb.emailLog.update.mockRejectedValue(new Error("db down"));
+    tenantDb.emailLog.updateMany.mockRejectedValue(new Error("db down"));
 
     await expect(recordDeliveryEvent(event())).rejects.toThrow("db down");
   });

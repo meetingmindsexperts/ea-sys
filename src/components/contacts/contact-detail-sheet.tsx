@@ -630,7 +630,7 @@ export function ContactDetailSheet({
 
           {/* ── Email history ─────────────────────────────────────── */}
           {contact && canReadContactEmails && (
-            <EmailLogCard entityType="CONTACT" entityId={contact.id} />
+            <EmailLogCard entityType="CONTACT" entityId={contact.id} currentEmails={[contact.email]} />
           )}
         </div>
       </SheetContent>

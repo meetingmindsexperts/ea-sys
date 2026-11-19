@@ -23,6 +23,7 @@
 | Domain | `events.meetingmindsgroup.com` → A record to the Elastic IP (no CDN/proxy — deliberate, see AWS_OPERATIONS §4) |
 | Database | Supabase Postgres (external — survives the box; `DATABASE_URL`/`DIRECT_URL` in `.env`) |
 | Email | SES `ap-south-1`, sender `meetingmindsexperts.com`, creds via instance role (no keys in `.env`) |
+| Email delivery reports | SES configuration set `my-first-configuration-set` publishes bounces, complaints and deliveries to an SNS topic, which is subscribed (HTTPS, raw delivery off) to `/api/webhooks/ses`. The restored `.env` carries `SES_EVENTS_TOPIC_ARN`. The topic and its subscription live in AWS, not on the box, so a rebuilt box inherits them; a new DOMAIN needs a new subscription. Steps: [runbook-ses.md](runbook-ses.md), "Bounce and delivery reports". |
 | Images | ECR `803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys` (`:<git-sha>` web, `:worker-<sha>` worker) |
 | DR bucket | `s3://ea-sys-dr-singapore` (`ap-southeast-1`) — `.env` snapshots, uploads mirror, pg dumps |
 | Containers | `ea-sys-blue`/`ea-sys-green` (web), `ea-sys-worker`, `ea-sys-mediamtx` — all from `docker-compose.prod.yml` |

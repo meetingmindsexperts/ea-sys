@@ -3563,6 +3563,7 @@ export function RegistrationDetailSheet({
                   endpoint={`/api/events/${eventId}/registrations/${selectedRegistration.id}/activity`}
                   anchor="registration"
                   queryKey={[eventId, "registration", selectedRegistration.id]}
+                  currentEmails={[selectedRegistration.attendee.email, selectedRegistration.attendee.additionalEmail]}
                 />
               </div>
             </div>
