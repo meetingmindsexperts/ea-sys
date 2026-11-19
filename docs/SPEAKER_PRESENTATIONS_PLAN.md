@@ -256,16 +256,17 @@ row as `REPLACED`. Only the newest `READY` file per speaker and topic is shown.
    - **Versioning is on,** which completion requires.
    - **`SPEAKER_PRESENTATIONS_ENABLED=true`** is set in the production `.env`
      and read by the running containers.
+   - **The DR bucket** (`ea-sys-dr-singapore`): a rule
+     `presentations-1-year-expiry` on `uploads/presentations/` (current
+     objects expire after 365 days, old versions after 90). The hourly copy to
+     Singapore never deletes, so without it a file removed here stayed there
+     for good; a file still live here is copied back by the next sync. The
+     bucket's two existing rules (`db/`, `mirror-archives/`) are unchanged.
 
    Still open:
    - **The first real upload.** The signed form to S3 had only been
      unit-tested; one small file on a test speaker (upload, download, remove),
      then one larger file on a slow connection, before speakers are told.
-   - **The DR bucket** (`ea-sys-dr-singapore`) has no rule for
-     `uploads/presentations/`: the hourly copy never deletes, so a file
-     removed here stays there. A one-year expiry on that prefix was offered
-     (files still live here are copied back by the next sync); the owner left
-     it for now.
    - A bucket-size alarm is worth having: replaced files and re-used upload
      forms add old versions that only the lifecycle rule's 90 days bound.
    - Optionally, GuardDuty Malware Protection for S3.
