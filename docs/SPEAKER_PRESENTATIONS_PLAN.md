@@ -3,9 +3,10 @@
 **Status: PHASES 1 AND 2 BUILT (Nov 19, 2026); phases 3 and 4 not started.**
 Asked by the owner on Nov 19, 2026: "an option for speaker to upload their
 presentation, be it ppt, pdf or video". Section 7 holds the owner's decisions
-and section 9 what was built and how it differs from the plan. **It ships
-switched off on production:** nobody sees it until the owner has done the AWS
-steps in section 7 and set `SPEAKER_PRESENTATIONS_ENABLED=true`.
+and section 9 what was built and how it differs from the plan. **Switched on
+in production on Nov 19, 2026:** the owner did the AWS steps in section 7 and
+set `SPEAKER_PRESENTATIONS_ENABLED=true`. The first real upload through S3 is
+still to be tried.
 
 ## 1. Why
 
@@ -235,35 +236,39 @@ row as `REPLACED`. Only the newest `READY` file per speaker and topic is shown.
 5. **A deadline and reminder:** not decided; phase 3.
 6. **How long files are kept after the event:** not decided; the lifecycle
    rule below is where it is set.
-7. **AWS steps that are the owner's to run.** These are instructions, not
-   something I execute:
-   - A CORS rule on `ea-sys-uploads` allowing `POST` from the production
-     origin (phase 4 adds `PUT` and `ExposeHeaders: ETag` for multipart).
-   - `s3:GetObjectVersion` on the instance role, which it lacks today
-     (`docs/FROM_SCRATCH_REBUILD.md`), so a download can name the checked
-     version. Phase 4 adds the multipart actions.
-   - A lifecycle rule on `presentations/`: expire noncurrent versions after a
-     set number of days, remove expired delete markers
-     (`ExpiredObjectDeleteMarker`: clearing an upload that never arrived
-     writes a marker for a key with no object), and abort incomplete multipart
-     uploads after 7 days.
-   - The same kind of rule on the DR bucket's `uploads/presentations/`: the
-     hourly copy to Singapore has no `--delete`, so a file removed here stays
-     there until a rule expires it.
+7. **The AWS steps: done on Nov 19, 2026, by the owner.** Checked the same
+   day, read-only (a live preflight from the site, an IAM simulation):
+   - **CORS on `ea-sys-uploads`:** `POST` from
+     `https://events.meetingmindsgroup.com`, any header, `ETag` exposed. The
+     bucket had no CORS rule before. Another origin, or `PUT`, is refused.
+     Phase 4 (multipart) adds `PUT`.
+   - **The server's role:** a separate inline policy,
+     `UploadsS3PresentationVersions`, on `ea-sys-mumbai-ec2-role`:
+     `s3:GetObjectVersion` on `ea-sys-uploads/presentations/*` only, so a
+     download can name the checked version. It is in
+     `docs/FROM_SCRATCH_REBUILD.md`. Phase 4 adds the multipart actions.
+   - **The lifecycle rule was already there,** bucket-wide
+     (`expire-noncurrent-versions`): old versions go after 90 days, expired
+     delete markers are removed, incomplete multipart uploads are aborted
+     after 30 days. Nothing was added.
+   - **No bucket policy exists,** so an upload needs no encryption header: the
+     bucket's default SSE-KMS applies.
+   - **Versioning is on,** which completion requires.
+   - **`SPEAKER_PRESENTATIONS_ENABLED=true`** is set in the production `.env`
+     and read by the running containers.
+
+   Still open:
+   - **The first real upload.** The signed form to S3 had only been
+     unit-tested; one small file on a test speaker (upload, download, remove),
+     then one larger file on a slow connection, before speakers are told.
+   - **The DR bucket** (`ea-sys-dr-singapore`) has no rule for
+     `uploads/presentations/`: the hourly copy never deletes, so a file
+     removed here stays there. A one-year expiry on that prefix was offered
+     (files still live here are copied back by the next sync); the owner left
+     it for now.
    - A bucket-size alarm is worth having: replaced files and re-used upload
-     forms add old versions that only the lifecycle rule's days bound.
-   - Before telling speakers: one upload on a throttled connection that takes
-     longer than a few minutes (the signed form lasts two hours, but how S3
-     judges its expiry on a slow upload is not documented).
-   - Checking whether the bucket policy demands the
-     `x-amz-server-side-encryption` header on uploads. If it does, the POST
-     form and its policy carry those fields; if not, the bucket's default
-     encryption applies with nothing extra. (KMS access is not per prefix, and
-     the role's key permissions already cover the bucket.)
+     forms add old versions that only the lifecycle rule's 90 days bound.
    - Optionally, GuardDuty Malware Protection for S3.
-   - Last, once the steps above are done: `SPEAKER_PRESENTATIONS_ENABLED=true`
-     in the production `.env`, then a deploy. Then try one upload on a test
-     speaker before telling anyone.
 
 ## 8. Order of work
 

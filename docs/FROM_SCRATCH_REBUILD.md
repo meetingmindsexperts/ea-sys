@@ -74,13 +74,13 @@ Everything on the box silently depends on this role: ECR pulls in `deploy.sh`, a
 }
 ```
 
-**Inline policy `UploadsS3Storage`** (added 2026-09-07; without it every photo is AccessDenied, because uploads live in S3 since MAINT-002):
+**Inline policy `UploadsS3Storage`** (added 2026-09-07; without it every photo is AccessDenied, because uploads live in S3 since MAINT-002; re-read from the live role on 2026-11-19, which also carries `s3:GetObjectTagging`, missing from this copy until then):
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     { "Sid": "UploadsObjects", "Effect": "Allow",
-      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:GetObjectTagging"],
       "Resource": "arn:aws:s3:::ea-sys-uploads/*" },
     { "Sid": "UploadsList", "Effect": "Allow",
       "Action": ["s3:ListBucket"],
@@ -91,6 +91,20 @@ Everything on the box silently depends on this role: ECR pulls in `deploy.sh`, a
   ]
 }
 ```
+
+**Inline policy `UploadsS3PresentationVersions`** (added 2026-11-19, for speaker presentation uploads, docs/SPEAKER_PRESENTATIONS_PLAN.md; without it a presentation is uploaded and then fails its check, because the app reads and serves the exact version it checked):
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "ReadCheckedPresentationVersion", "Effect": "Allow",
+      "Action": ["s3:GetObjectVersion"],
+      "Resource": "arn:aws:s3:::ea-sys-uploads/presentations/*" }
+  ]
+}
+```
+
+The same feature needs one property of the **bucket**, which a rebuilt box inherits but a rebuilt bucket does not: a CORS rule on `ea-sys-uploads` allowing `POST` from `https://events.meetingmindsgroup.com` (any header, `ETag` exposed), since the browser uploads straight to it. The bucket must also keep versioning on. And the box's `.env` carries `SPEAKER_PRESENTATIONS_ENABLED=true`.
 
 **Inline policy `ecr-pull`:**
 ```json
