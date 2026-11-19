@@ -318,9 +318,13 @@ see **zero rows** from any tenant lane under platform RLS:
 >    attendee accounts, which is the Aug 21 decision below, as written. The rule
 >    that holds both: **accounts are shared inside a network and never across
 >    networks, and an organiser is in at most one network.**
-> 3. **Staff belong to one organisation.** A named few are universal (the owner,
->    Medhat, Lina, Vivek): they are platform operators, which is the model
->    already built (§5, and the operator's door further down this section).
+> 3. **Staff belong to one organisation.** A few are universal and work across
+>    every organiser. **The owner alone decides who they are** (owner, Nov 19:
+>    "I will decide who are universal people, give me control to that"); the
+>    names first given were the owner, Medhat, Lina and Vivek. The nearest thing
+>    built is the platform operator (§5, and the operator's door further down
+>    this section), which today is the SUPER_ADMIN role and is held by one
+>    account, the owner's. The control itself is not built; see the foot guns.
 > 4. **Reaching across organisers is by our permission only** (owner, Nov 19:
 >    "only those who we give permission to can access all events across all
 >    organizers"). *Reading to confirm with the owner:* an organiser joins the
@@ -359,9 +363,70 @@ see **zero rows** from any tenant lane under platform RLS:
 > - A stronger sign-in for doctors is worth offering, since one password now
 >   opens every organiser's records for that person.
 >
+> **Foot guns** (owner, Nov 19: "document the footguns too"):
+>
+> *Universal people*
+> 1. **A universal account is the most valuable one to steal.** One password
+>    crosses every organiser. Keep the list short, give these accounts a second
+>    sign-in step, and remove a leaver the same day.
+> 2. **A universal person must not be able to make another.** Only the owner
+>    grants and removes. The owner's identity belongs in server settings, not in
+>    a field a screen can edit, or the first universal person can add a second.
+>    Every grant and removal is recorded and emailed to the owner.
+> 3. **"Universal" is not the same as SUPER_ADMIN.** SUPER_ADMIN today also
+>    opens the logs, the infrastructure page, backups, the docs viewer, each
+>    organisation's module switches and HR (43 files test for it). Making Lina
+>    or Vivek universal by making them SUPER_ADMIN hands them all of that.
+>    Decide whether universal is its own switch before building the control.
+> 4. **The check is on the server, on every request.** Hiding a menu protects
+>    nothing. Each time a universal person enters an organisation it is logged:
+>    who, which organisation, when.
+> 5. **Row security does not catch a wrong organisation id; it serves it.** The
+>    `x-org-id` override is honoured only through `resolveActingOrgId`, for a
+>    named universal person. A new place that reads that header on a role check
+>    alone fails OPEN (the Aug 21 sweep found six).
+> 6. **Universal accounts sign in at the platform's own address only**, never at
+>    an organiser's. The same email can exist there as a doctor, and the lookup
+>    prefers the organiser's own row.
+>
+> *The network*
+> 7. **Leaving the network is easy; joining it late is hard.** Moving an
+>    organiser's doctors out of the shared pool is a copy. Admitting an organiser
+>    that already has separate doctor accounts means merging accounts. Decide at
+>    onboarding.
+> 8. **An organiser is admitted explicitly, and it is in their contract**: their
+>    doctors share an account with other organisers' doctors. One network per
+>    organiser, never two.
+> 9. **Do not make it per doctor.** "Some doctors shared, some tied to one
+>    organiser" means two kinds of doctor account side by side inside one
+>    organiser: every by-email lookup would have to know which kind it wants.
+>    (Advice; the owner has not ruled on this reading.)
+> 10. **With one organisation none of this shows.** Everything works today
+>    whichever model the code assumes, so a new feature can quietly assume "all
+>    doctors share one pool" or "an email is one person". The gate
+>    `scripts/check-user-email-scope.sh` holds the lookup; nothing yet holds the
+>    rest.
+>
+> *Doctors' shared accounts*
+> 11. **One password opens that doctor's records at every organiser** in the
+>    network. The login throttle is keyed on the email across the system, which
+>    suits a shared account.
+> 12. **One organiser's staff must not be able to change what another relies on**:
+>    the sign-in email, the password, whether the account is enabled. Today the
+>    registration email change does reach the account.
+> 13. **Never tell an organiser that an email is known elsewhere.** It says
+>    which doctors are a competitor's customers.
+> 14. **The cross-organiser list is the one deliberate hole in the wall.** Keep
+>    it one function, keyed on the signed-in person's own id, returning that
+>    person's records and nothing else. Every further "just this once" read
+>    across organisations is a leak waiting.
+> 15. **The platform becomes answerable for the account's data**, not each
+>    organiser. A legal check, not an engineering one.
+>
 > **Open:** the network's name; how an organiser is admitted; the network
 > grouping itself is not designed (no table, no column). It is needed only when
-> the first organiser outside the network is real.
+> the first organiser outside the network is real. How the owner controls who is
+> universal (a screen or a command, and whether universal is its own switch).
 
 **Decision: per-tenant accounts, enforced by a column.** `User.organizationId`
 becomes **required**, and email uniqueness moves from global to
