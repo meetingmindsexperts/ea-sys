@@ -4,10 +4,11 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import { Mail, AlertCircle, Loader2, Award, Eye, Paperclip } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
 import { EmailCopies } from "@/components/communications/email-copies";
 import { formatTemplateLabel } from "@/lib/email-template-slugs";
+import { bouncingAddresses, emailOutcome, type EmailDeliveryStatus } from "@/lib/email-outcome";
+import { EmailOutcomeBadge } from "@/components/communications/email-outcome-badge";
 
 type EmailLogEntityType = "REGISTRATION" | "SPEAKER" | "CONTACT" | "USER" | "OTHER";
 
@@ -22,6 +23,12 @@ interface EmailLogRow {
   providerMessageId: string | null;
   status: "SENT" | "FAILED";
   errorMessage: string | null;
+  /** What the mail service reported afterwards; null when it reported nothing. */
+  deliveryStatus: EmailDeliveryStatus | null;
+  deliveryAt: string | null;
+  bounceType: string | null;
+  bounceSubType: string | null;
+  deliveryDetail: string | null;
   createdAt: string;
   hasBody: boolean;
   /** Attachment filenames on this send (empty for pre-Aug-2026 rows). */
@@ -76,6 +83,9 @@ export function EmailLogCard({ entityType, entityId, title = "Email History" }: 
 
   const logs = data?.logs ?? [];
   const groups = groupByDay(logs);
+  // Addresses whose newest reported email was a permanent bounce: everything
+  // sent to them since has been dropped by the mail service, silently.
+  const bouncing = bouncingAddresses(logs);
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -84,6 +94,23 @@ export function EmailLogCard({ entityType, entityId, title = "Email History" }: 
         <h3 className="text-sm font-semibold">{title}</h3>
         {logs.length > 0 && <span className="text-xs text-muted-foreground">({logs.length})</span>}
       </div>
+
+      {bouncing.map((b) => (
+        <div
+          key={b.address}
+          role="alert"
+          className="mb-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-medium break-all">Emails to {b.address} are not being delivered.</p>
+            <p className="mt-0.5 text-xs">
+              The address has been bouncing since {format(new Date(b.since), "d MMM yyyy")}. Anything sent to it after that
+              was dropped by the mail service, even where it shows as sent. Correct the address, then send again.
+            </p>
+          </div>
+        </div>
+      ))}
 
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -114,12 +141,7 @@ export function EmailLogCard({ entityType, entityId, title = "Email History" }: 
                   key={log.id}
                   className="group flex items-start gap-3 rounded-md border border-transparent p-2 transition-colors hover:border-border hover:bg-muted/40"
                 >
-                  <Badge
-                    variant={log.status === "SENT" ? "secondary" : "destructive"}
-                    className="mt-0.5 shrink-0"
-                  >
-                    {log.status === "SENT" ? "Sent" : "Failed"}
-                  </Badge>
+                  <EmailOutcomeBadge row={log} className="mt-0.5 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
                       <p className="truncate text-sm font-medium">{log.subject}</p>
@@ -159,6 +181,12 @@ export function EmailLogCard({ entityType, entityId, title = "Email History" }: 
                     )}
                     {log.status === "FAILED" && log.errorMessage && (
                       <p className="mt-1 text-xs text-red-500">{log.errorMessage}</p>
+                    )}
+                    {log.status === "SENT" && log.deliveryStatus && log.deliveryStatus !== "DELIVERED" && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {emailOutcome(log).explanation}
+                        {log.deliveryDetail && <span className="block break-all text-red-500/80">{log.deliveryDetail}</span>}
+                      </p>
                     )}
                   </div>
                   {log.hasBody && (

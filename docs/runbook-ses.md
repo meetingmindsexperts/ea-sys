@@ -274,6 +274,104 @@ row carries the AWS error name + requestId in `errorMessage` (post-May
 
 ---
 
+## Bounce and delivery reports (Nov 19, 2026)
+
+**What it is.** The app only ever knew "sent" (handed to SES) or "failed" (SES
+refused it). A bounce comes later, and SES told nobody: a speaker's address
+bounced on Oct 2 and three more emails to him were logged as sent while SES
+dropped each one. Now SES reports back, and each email's row shows Delivered,
+Bounced, Bounced (temporary) or Marked as spam, in Communications (Email
+Activity) and on the person's Email History, which also carries a red warning
+while their newest reported email is a permanent bounce.
+
+**How it flows.** SES configuration set, event destination, SNS topic, HTTPS
+subscription, `POST /api/webhooks/ses`, `EmailLog.deliveryStatus`. The route
+believes a message only when it names our topic AND carries Amazon's
+signature (`src/lib/ses-events.ts`); the one writer is
+`src/lib/email-delivery.ts`.
+
+**It is inert until switched on.** With `SES_EVENTS_TOPIC_ARN` unset the route
+answers 503 and records nothing, so the code can be deployed first.
+
+### Switching it on (the owner's steps, in this order)
+
+The order matters: SNS asks the address to confirm ONCE when the subscription
+is created. If the app is not ready, that request is refused and the
+subscription stays "Pending confirmation" until you press "Request
+confirmation" again.
+
+1. **Deploy the code** (a normal push). Nothing changes yet.
+2. **Create the topic.** SNS, region `ap-south-1`, type **Standard**, name
+   `ea-sys-ses-events`. Copy its ARN.
+3. **Let SES publish to it.** In the topic's access policy add:
+   ```json
+   {
+     "Sid": "AllowSesToPublish",
+     "Effect": "Allow",
+     "Principal": { "Service": "ses.amazonaws.com" },
+     "Action": "SNS:Publish",
+     "Resource": "<the topic ARN>",
+     "Condition": {
+       "StringEquals": { "AWS:SourceAccount": "<the account id>" },
+       "StringLike": { "AWS:SourceArn": "arn:aws:ses:ap-south-1:<the account id>:configuration-set/my-first-configuration-set" }
+     }
+   }
+   ```
+4. **Tell the app which topic to believe.** On the box, add
+   `SES_EVENTS_TOPIC_ARN=<the topic ARN>` to `/home/ubuntu/ea-sys/.env` and run
+   `scripts/deploy.sh`, so both web containers start with it.
+5. **Point SES at the topic.** SES, Configuration sets,
+   `my-first-configuration-set`, Event destinations, Add destination. Event
+   types: **Hard bounces, Complaints, Deliveries** (the API names are `BOUNCE`,
+   `COMPLAINT`, `DELIVERY`). Destination: Amazon SNS, the topic above. Leave
+   the existing `cloudwatch-metrics` destination as it is.
+6. **Subscribe the app.** On the topic: Create subscription, protocol **HTTPS**,
+   endpoint `https://events.meetingmindsgroup.com/api/webhooks/ses`, and leave
+   **"Enable raw message delivery" OFF**. Raw delivery strips the envelope that
+   carries the signature, and the route would refuse every message.
+7. **Check.** The subscription shows **Confirmed** within a few seconds, and
+   `/logs` has `ses-events:subscription-confirmed`.
+8. **Prove it with SES's own test addresses**, which never hurt the sender
+   reputation: send any email from the app to
+   `success@simulator.amazonses.com`, then to `bounce@simulator.amazonses.com`.
+   Within a minute the first row reads Delivered and the second Bounced.
+
+### Reading it
+
+| Log line | Meaning |
+|---|---|
+| `ses-events:not-configured` | Something posted to the route while `SES_EVENTS_TOPIC_ARN` is unset. |
+| `ses-events:wrong-topic` | A genuine-looking SNS message for another topic. Not ours; refused. |
+| `ses-events:signature-refused` | Not signed by Amazon, or older than an hour. A stranger probing the route, or raw message delivery switched on by mistake (`reason` says which check failed). |
+| `email-delivery:bounced` | A bounce was written on an email's row. `bounceType` Permanent means later emails to that address are dropped. |
+| `email-delivery:complaint` | Someone marked an email as spam. Error level on purpose: each one counts against the whole account. |
+| `email-delivery:copy-recipient` | A copied address (cc or bcc) bounced. The row is not marked, because it describes the person the email was for. |
+| `email-delivery:unknown-message` | A report for an email with no row: the app's own alert emails, which are sent without one. Expected. |
+| `ses-events:unsubscribed` | The subscription was removed in AWS. Reports stop arriving. |
+
+### Foot guns
+
+- **A permanent bounce is sticky at SES, not only in the app.** The address
+  goes on the account's suppression list and SES drops everything sent to it
+  from then on, answering "accepted" each time. Correcting the person's email
+  in the app is the fix. If the SAME address is working again, it has to be
+  removed from the suppression list in SES as well.
+- **"Delivered" means the other mail server accepted it.** It does not say the
+  email reached the inbox rather than the spam folder.
+- **A temporary bounce can follow a delivery.** SES files some automatic
+  replies ("out of office") as Transient bounces of an email that was
+  delivered, so a Transient report never replaces Delivered.
+- **Rows from before the switch-on show "Sent"**, with no report. That is "we
+  were not told", not "delivered". The 75 addresses already on the suppression
+  list are not marked until an email is next sent to them (ROADMAP has the
+  backfill).
+- **Only emails sent through the configuration set are reported**
+  (`AWS_SES_CONFIGURATION_SET`). Another system sending through the same SES
+  account without it is invisible here.
+- **Never accept a report on any other evidence than the signature**: not the
+  sender's IP, not a secret in the URL. A forged bounce puts a false warning on
+  a doctor's record.
+
 ## What NOT to do
 
 - **Do NOT** retry on `UnrecognizedClientException` in code. It's

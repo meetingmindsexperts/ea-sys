@@ -221,6 +221,16 @@ enum EmailLogStatus {
   FAILED
 }
 
+/// What the mail service reported AFTER it accepted an email (Nov 19, 2026).
+/// `EmailLog.status` SENT only ever meant "handed to the mail service"; this is
+/// what happened next. Null = nothing reported (every row before the bounce
+/// recorder was switched on, and any email the service has not reported on).
+enum EmailDeliveryStatus {
+  DELIVERED
+  BOUNCED
+  COMPLAINED
+}
+
 model EmailLog {
   id                String              @id @default(cuid())
   organizationId    String?
@@ -246,12 +256,27 @@ model EmailLog {
   // Empty for rows logged before Aug 3, 2026 (not backfillable).
   attachmentNames   String[]            @default([])
   triggeredByUserId String?
+  // What the mail service reported for the address in `to`, written only by
+  // src/lib/email-delivery.ts from the service's own signed reports
+  // (POST /api/webhooks/ses). A bounce of a copied address (cc / bcc) does not
+  // set these: they describe the person the email was FOR.
+  deliveryStatus    EmailDeliveryStatus?
+  deliveryAt        DateTime?
+  // "Permanent" | "Transient" | "Undetermined", and the service's sub-type
+  // (General, NoEmail, Suppressed, OnAccountSuppressionList, MailboxFull, ...).
+  // A Permanent bounce means later emails to that address are dropped.
+  bounceType        String?
+  bounceSubType     String?
+  // The other mail server's own words, when it gave any. Never shown raw to an
+  // attendee; staff see it on the email's row.
+  deliveryDetail    String?             @db.Text
   createdAt         DateTime            @default(now())
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   event        Event?        @relation(fields: [eventId], references: [id], onDelete: SetNull)
   triggeredBy  User?         @relation(fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
+  @@index([providerMessageId])
   @@index([entityType, entityId])
   @@index([organizationId])
   @@index([eventId])

@@ -6,7 +6,6 @@ import { useRef, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { Activity, Eye, Loader2, Mail, Paperclip, Search, Users } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -34,6 +33,8 @@ import {
 import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
 import { EmailCopies } from "@/components/communications/email-copies";
 import { formatTemplateLabel } from "@/lib/email-template-slugs";
+import { emailOutcome, type EmailDeliveryStatus } from "@/lib/email-outcome";
+import { EmailOutcomeBadge } from "@/components/communications/email-outcome-badge";
 
 interface SummaryRow {
   userId: string | null;
@@ -41,6 +42,10 @@ interface SummaryRow {
   email: string | null;
   sent: number;
   failed: number;
+  /** What the mail service reported afterwards; 0 until the bounce recorder is on. */
+  delivered: number;
+  bounced: number;
+  complained: number;
 }
 
 interface ActivityRow {
@@ -52,6 +57,10 @@ interface ActivityRow {
   templateSlug: string | null;
   status: "SENT" | "FAILED";
   errorMessage: string | null;
+  deliveryStatus: EmailDeliveryStatus | null;
+  bounceType: string | null;
+  bounceSubType: string | null;
+  deliveryDetail: string | null;
   createdAt: string;
   hasBody: boolean;
   /** Attachment filenames on this send (empty for pre-Aug-2026 rows). */
@@ -128,6 +137,9 @@ function EmailActivityCardBody({ eventId }: { eventId: string }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const totalSent = summary.reduce((n, s) => n + s.sent, 0);
   const totalFailed = summary.reduce((n, s) => n + s.failed, 0);
+  const totalDelivered = summary.reduce((n, s) => n + (s.delivered ?? 0), 0);
+  const totalBounced = summary.reduce((n, s) => n + (s.bounced ?? 0), 0);
+  const totalComplained = summary.reduce((n, s) => n + (s.complained ?? 0), 0);
 
   const resetPageSet = (setter: (v: string) => void) => (v: string) => {
     setter(v);
@@ -146,6 +158,14 @@ function EmailActivityCardBody({ eventId }: { eventId: string }) {
           landed. {totalSent + totalFailed > 0 && (
             <span className="font-medium text-foreground">
               {totalSent} sent{totalFailed > 0 ? `, ${totalFailed} failed` : ""}.
+            </span>
+          )}
+          {totalDelivered + totalBounced + totalComplained > 0 && (
+            <span className="font-medium text-foreground">
+              {" "}
+              {totalDelivered} delivered
+              {totalBounced > 0 && <span className="text-red-600">, {totalBounced} bounced</span>}
+              {totalComplained > 0 && <span className="text-red-600">, {totalComplained} marked as spam</span>}.
             </span>
           )}
         </CardDescription>
@@ -181,6 +201,7 @@ function EmailActivityCardBody({ eventId }: { eventId: string }) {
                     <span className="block truncate text-sm font-medium leading-tight">{s.name}</span>
                     <span className="block text-xs text-muted-foreground leading-tight">
                       {s.sent} sent{s.failed > 0 ? ` · ${s.failed} failed` : ""}
+                      {(s.bounced ?? 0) > 0 && <span className="text-red-600"> · {s.bounced} bounced</span>}
                     </span>
                   </span>
                 </button>
@@ -227,13 +248,16 @@ function EmailActivityCardBody({ eventId }: { eventId: string }) {
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={resetPageSet(setStatus)}>
-            <SelectTrigger className="w-[130px]">
+            <SelectTrigger className="w-[150px]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>Any status</SelectItem>
               <SelectItem value="SENT">Sent</SelectItem>
               <SelectItem value="FAILED">Failed</SelectItem>
+              <SelectItem value="DELIVERED">Delivered</SelectItem>
+              <SelectItem value="BOUNCED">Bounced</SelectItem>
+              <SelectItem value="COMPLAINED">Marked as spam</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -290,6 +314,11 @@ function EmailActivityCardBody({ eventId }: { eventId: string }) {
                     {row.status === "FAILED" && row.errorMessage && (
                       <span className="block truncate text-xs text-red-500">{row.errorMessage}</span>
                     )}
+                    {row.status === "SENT" && row.deliveryStatus && row.deliveryStatus !== "DELIVERED" && (
+                      <span className="block text-xs text-red-600" title={row.deliveryDetail ?? undefined}>
+                        {emailOutcome(row).explanation}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="hidden max-w-[180px] md:table-cell">
                     <span className="block truncate text-sm text-muted-foreground">{row.to}</span>
@@ -314,9 +343,7 @@ function EmailActivityCardBody({ eventId }: { eventId: string }) {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={row.status === "SENT" ? "secondary" : "destructive"}>
-                      {row.status === "SENT" ? "Sent" : "Failed"}
-                    </Badge>
+                    <EmailOutcomeBadge row={row} />
                   </TableCell>
                   <TableCell className="hidden whitespace-nowrap text-sm text-muted-foreground md:table-cell">
                     {formatDistanceToNow(new Date(row.createdAt), { addSuffix: true })}

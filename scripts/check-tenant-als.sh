@@ -479,6 +479,7 @@ OPERATOR_LANE_ALLOWLIST=(
   "src/lib/quickbooks/health-worker.ts" # which orgs hold a QuickBooks connection (the probe itself runs in the org's lane)
   "src/crm/reminders-worker.ts"              # due-task scan
   "src/crm/inbound-email-worker.ts"          # reply-token → thread resolve (the tenant is the ANSWER)
+  "src/lib/email-delivery.ts"                # the mail service names an email by its message id only: find it across tenants, write in its own lane (Nov 19, 2026)
   "src/crm/contact-score-worker.ts"          # which-orgs-have-contacts scan; each repair runs in that org's lane (Oct 29, 2026)
   "src/crm/retention-worker.ts"              # which-orgs-set-a-period scan; each deletion runs in that org's lane (Nov 6, 2026)
   # Added Aug 11, 2026 after review. Both were MISSED in the first pass because

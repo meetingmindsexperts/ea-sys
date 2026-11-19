@@ -229,6 +229,12 @@ export async function getEmailLogsFor(
       providerMessageId: true,
       status: true,
       errorMessage: true,
+      // What the mail service reported afterwards (src/lib/email-delivery.ts).
+      deliveryStatus: true,
+      deliveryAt: true,
+      bounceType: true,
+      bounceSubType: true,
+      deliveryDetail: true,
       // Presence flag only — mapped to `hasBody` below and stripped so the
       // (potentially large) audit HTML never rides along in list payloads.
       htmlBody: true,

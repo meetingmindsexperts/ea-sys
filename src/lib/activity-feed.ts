@@ -194,6 +194,17 @@ async function collect(
         status: r.status,
         templateSlug: r.templateSlug,
         errorMessage: r.errorMessage,
+        // What the mail service reported afterwards. Only when it reported
+        // something, so an item from before the recorder stays as it was.
+        ...(r.deliveryStatus
+          ? {
+              deliveryStatus: r.deliveryStatus,
+              deliveryAt: r.deliveryAt ? r.deliveryAt.toISOString() : null,
+              bounceType: r.bounceType,
+              bounceSubType: r.bounceSubType,
+              deliveryDetail: r.deliveryDetail,
+            }
+          : {}),
         hasBody: r.hasBody,
         ...(r.attachmentNames.length ? { attachmentNames: r.attachmentNames } : {}),
       });

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import {
   Activity,
   Mail,
@@ -25,6 +25,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
 import { EmailCopies } from "@/components/communications/email-copies";
+import { EmailOutcomeBadge } from "@/components/communications/email-outcome-badge";
+import { bouncingAddresses, emailOutcome, type EmailOutcomeInput } from "@/lib/email-outcome";
 import type { ActivitySource, ActivityItem, ActivityFeed } from "@/lib/activity-feed-types";
 
 interface Props {
@@ -134,6 +136,18 @@ function primaryText(item: ActivityItem): string {
   return auditLabel(item.action);
 }
 
+/** A timeline email item in the shape the shared outcome reading takes. */
+function emailRow(item: ActivityItem): EmailOutcomeInput {
+  return {
+    status: item.status === "FAILED" ? "FAILED" : "SENT",
+    deliveryStatus: item.deliveryStatus ?? null,
+    bounceType: item.bounceType ?? null,
+    bounceSubType: item.bounceSubType ?? null,
+    deliveryDetail: item.deliveryDetail ?? null,
+    errorMessage: item.errorMessage ?? null,
+  };
+}
+
 export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Activity" }: Props) {
   const { data, isLoading, isError } = useQuery<ActivityFeed>({
     queryKey: ["activity", ...queryKey],
@@ -147,6 +161,10 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
 
   const items = data?.items ?? [];
   const linked = data?.linked ?? null;
+  // Addresses whose newest reported email was a permanent bounce (src/lib/email-outcome.ts).
+  const bouncing = bouncingAddresses(
+    items.filter((item) => item.kind === "email" && !!item.to).map((item) => ({ ...emailRow(item), to: item.to as string, createdAt: item.at, deliveryAt: item.deliveryAt })),
+  );
 
   // "View email" — the stored audit copy of a sent email's final HTML (every
   // send since July 16, 2026; older rows opt-in). Item ids are
@@ -168,6 +186,23 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
           {linked.linkedBy === "email" ? " (matched by email)" : ""}.
         </p>
       )}
+
+      {bouncing.map((b) => (
+        <div
+          key={b.address}
+          role="alert"
+          className="mb-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-medium break-all">Emails to {b.address} are not being delivered.</p>
+            <p className="mt-0.5 text-xs">
+              The address has been bouncing since {format(new Date(b.since), "d MMM yyyy")}. Anything sent to it after that
+              was dropped by the mail service, even where it shows as sent. Correct the address, then send again.
+            </p>
+          </div>
+        </div>
+      ))}
 
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-slate-400">
@@ -203,14 +238,7 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                     <p className="text-sm font-medium text-slate-800 truncate">{primaryText(item)}</p>
-                    {item.kind === "email" && (
-                      <Badge
-                        variant={item.status === "SENT" ? "secondary" : "destructive"}
-                        className="shrink-0"
-                      >
-                        {item.status === "SENT" ? "Sent" : "Failed"}
-                      </Badge>
-                    )}
+                    {item.kind === "email" && <EmailOutcomeBadge row={emailRow(item)} className="shrink-0" />}
                     {item.kind === "certificate" && item.revoked && (
                       <Badge variant="destructive" className="shrink-0">
                         Revoked
@@ -272,6 +300,12 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
                   )}
                   {item.kind === "email" && item.status !== "SENT" && item.errorMessage && (
                     <p className="text-xs text-red-500 mt-1">{item.errorMessage}</p>
+                  )}
+                  {item.kind === "email" && item.status === "SENT" && item.deliveryStatus && item.deliveryStatus !== "DELIVERED" && (
+                    <p className="text-xs text-red-600 mt-1">
+                      {emailOutcome(emailRow(item)).explanation}
+                      {item.deliveryDetail && <span className="block break-all text-red-500/80">{item.deliveryDetail}</span>}
+                    </p>
                   )}
                 </div>
               </li>

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Emails now show whether they were delivered or bounced (November 19)
+
+The app only ever knew "sent" (handed to the mail service) or "failed" (the service refused it). A bounce arrives later and the app never heard of it. One speaker's address bounced on October 2 on his faculty invitation; three more emails to him were logged as sent while the mail service dropped each one, and the copies to colleagues arrived, so nobody noticed. Communications could not show a bounce because it was never told about one.
+
+- **The mail service now reports back.** Each email's row shows **Delivered**, **Bounced**, **Bounced (temporary)** or **Marked as spam**, with a plain sentence on what it means and the other mail server's own words. Shown on the event's Email Activity (which also totals delivered and bounced, per sender too, and can be filtered by them), on the Activity timeline of a speaker's page and a registration's sheet, and on a contact's Email History. One reading for all of them: `src/lib/email-outcome.ts`.
+- **A red warning on the person** while the newest email the service reported on for their address was a permanent bounce: "Emails to (address) are not being delivered", with the date the address STARTED bouncing. A later delivered email clears it by itself. Staff can still send (owner's choice: warn, do not block).
+- **The tiles above Email Activity no longer say "Delivered".** They counted what the mail service accepted: the speaker's bounced invitation was one of "30/30 delivered". They now read **Recipients sent**, **Send rate** and "30/30 sent".
+- **How it is trusted.** The reports arrive at `POST /api/webhooks/ses` and are believed only when they name our topic and carry Amazon's signature; the certificate is fetched from Amazon's own hosts only, and a report older than an hour is refused. One writer, `src/lib/email-delivery.ts`.
+- **Inert until switched on**: nothing is recorded until `SES_EVENTS_TOPIC_ARN` is set and the topic is subscribed. The owner's steps, in order, are in `docs/runbook-ses.md`, "Bounce and delivery reports".
+- Database: five nullable columns and an index on `EmailLog` (migration `20261119140000_email_delivery_status`, additive).
+
+Not in this step (ROADMAP, "Email delivery reports"): a notice in the bulk email dialog, marking the 75 addresses that had already bounced, and a bounce of a copied address.
+
 ### Speakers upload their presentation (November 19)
 
 A speaker can now send slides or a video for each of their talks: PDF, PowerPoint (.pptx or .ppt), Keynote, MP4 or MOV, slides up to 200 MB and a video up to 500 MB. One file per talk; a new upload replaces the old one.

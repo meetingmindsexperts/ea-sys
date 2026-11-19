@@ -41,6 +41,12 @@ export interface ActivityItem {
   status?: string;
   templateSlug?: string | null;
   errorMessage?: string | null;
+  /** What the mail service reported after it accepted the email (src/lib/email-delivery.ts); absent when it reported nothing. */
+  deliveryStatus?: "DELIVERED" | "BOUNCED" | "COMPLAINED" | null;
+  deliveryAt?: string | null;
+  bounceType?: string | null;
+  bounceSubType?: string | null;
+  deliveryDetail?: string | null;
   /** True when the final rendered HTML was stored (certificate deliveries)
    *  — unlocks the "View email" action (GET /api/email-logs/[id]/body). */
   hasBody?: boolean;

@@ -37,6 +37,18 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Email delivery reports: what the first step left (recorded Nov 19, 2026): not started
+
+The first step records what the mail service reports (delivered, bounced, marked as spam) on each email and shows it in Communications and on the person's Email History, with a warning while their address is bouncing (CHANGELOG, Nov 19; owner's switch-on steps in `docs/runbook-ses.md`). Owner's choices: record deliveries as well as bounces; warn about a bounced address and still allow the send.
+
+1. **The bulk email dialog says nothing yet.** The owner's choice was a warning with the count of bounced addresses before a bulk send. The dialog counts recipients in the browser and holds ids, not addresses, so this needs a small endpoint (the event's addresses whose newest reported email is a permanent bounce, with the person's name) and a notice in the dialog linking to Email Activity filtered to Bounced. Until then a bounced person is found on their own page or in that filter, not at the moment of sending.
+2. **The 75 addresses that bounced before the switch-on are not marked.** SES holds them on the account's suppression list, each with the message id of the email that bounced, which matches `EmailLog.providerMessageId` (checked for one: the speaker of Oct 2). A one-off script that takes those ids and dates and marks the rows would make the warning appear for them at once. Without it, each is marked the next time someone emails them (SES reports a bounce of sub-type `OnAccountSuppressionList`). The script needs `ses:ListSuppressedDestinations`, which the box's role does not hold.
+3. **A bounce of a copied address (cc or bcc) is logged, not shown.** The row describes the person the email was for. A colleague's dead mailbox reads only in `/logs` (`email-delivery:copy-recipient`).
+4. **No list shows who is bouncing.** The Speakers and Registrations lists carry no mark; a filter "address bounced" would need a join from each row's address to its newest reported email.
+5. **The CRM's emails are not covered.** `CrmEmailMessage` is a separate table with its own sender; a report for one of those is `email-delivery:unknown-message`.
+6. **Automated tests sent real email to made-up addresses until Nov 17** (the browser suite inherited the machine's AWS credentials; closed in `398ddca9`). That is the most likely source of the account's 493 bounces in 90 days against 6,590 sends, found while checking this. The sender reputation is healthy (0.69%). Worth a second look once reports are recorded: any bounce on a row with no event and a test-looking address means another path still does it.
+7. **`deliveryStatus` is not in the tenancy harness.** The recorder finds a row across organisations on the privileged client and writes in the row's own lane; unit tests pin that, a real-Postgres case under row security does not exist yet.
+
 ## Speaker presentations: what the Nov 19 review left (recorded Nov 19, 2026): not started
 
 From the review of `be777c01` (docs/SPEAKER_PRESENTATIONS_PLAN.md, phases 1 and 2). The feature is off on production until the owner's AWS steps are done and `SPEAKER_PRESENTATIONS_ENABLED=true` is set. Phases 3 and 4 of the plan are separate and not listed here.

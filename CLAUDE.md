@@ -307,6 +307,7 @@ STORAGE_PROVIDER="s3"                 # "local" (default) | "supabase" | "s3". P
 NEXT_PUBLIC_SENTRY_DSN="..."          # Sentry DSN for client error tracking
 ANTHROPIC_API_KEY="..."               # Required for AI Agent feature
 SPEAKER_PRESENTATIONS_ENABLED="true"  # production (s3) only: speakers' presentation uploads; set AFTER the bucket steps in docs/SPEAKER_PRESENTATIONS_PLAN.md §7 (unset = hidden; always on with local storage)
+SES_EVENTS_TOPIC_ARN="arn:aws:sns:..." # production only: the SNS topic whose signed bounce and delivery reports POST /api/webhooks/ses believes (unset = the route is shut; docs/runbook-ses.md)
 ENABLE_ADMIN_ALERTS="true"            # local only: email admin alerts from a copy of the app on this machine (off by default; a deployed image always alerts)
 ```
 

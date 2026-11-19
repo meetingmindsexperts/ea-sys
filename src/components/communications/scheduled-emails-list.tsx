@@ -119,8 +119,11 @@ function SummaryStrip({ rows }: { rows: ScheduledEmailItem[] }) {
     { label: "Sent", value: String(sent), icon: <CheckCircle2 className="h-4 w-4" />, className: "text-green-600" },
     { label: "Pending", value: String(pending), icon: <Clock className="h-4 w-4" />, className: "text-amber-600" },
     { label: "Failed", value: String(failed), icon: <AlertCircle className="h-4 w-4" />, className: "text-red-600" },
-    { label: "Delivered", value: delivered.toLocaleString(), icon: <Users className="h-4 w-4" />, className: "text-[#00aade]" },
-    { label: "Delivery rate", value: rate != null ? `${rate}%` : "—", icon: <TrendingUp className="h-4 w-4" />, className: "text-green-600" },
+    // "Sent", not "Delivered" (Nov 19, 2026): these count what the mail service
+    // ACCEPTED. One of 30 "delivered" faculty invitations had bounced. Whether
+    // an email arrived is on Email Activity below, from the service's reports.
+    { label: "Recipients sent", value: delivered.toLocaleString(), icon: <Users className="h-4 w-4" />, className: "text-[#00aade]" },
+    { label: "Send rate", value: rate != null ? `${rate}%` : "—", icon: <TrendingUp className="h-4 w-4" />, className: "text-green-600" },
   ];
 
   return (
@@ -159,7 +162,7 @@ function ResultsCell({
     return (
       <div className="flex flex-col text-xs">
         <span className="font-medium text-green-700">
-          {success.toLocaleString()}/{total.toLocaleString()} delivered
+          {success.toLocaleString()}/{total.toLocaleString()} sent
         </span>
         {failed > 0 &&
           (hasFailureList ? (

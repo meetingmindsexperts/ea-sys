@@ -25,9 +25,21 @@ import type { Prisma } from "@prisma/client";
 
 const PAGE_SIZE = 30;
 
+const DELIVERY_STATUSES = ["DELIVERED", "BOUNCED", "COMPLAINED"] as const;
+type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
+/** The table's one "status" control filters on either column, by which word it is. */
+function statusWhere(status: "SENT" | "FAILED" | DeliveryStatus | undefined): Prisma.EmailLogWhereInput {
+  if (!status) return {};
+  if (status === "SENT" || status === "FAILED") return { status };
+  return { deliveryStatus: status };
+}
+
 const querySchema = z.object({
   senderId: z.string().min(1).max(100).optional(),
-  status: z.enum(["SENT", "FAILED"]).optional(),
+  // SENT and FAILED are what the app knew when it sent; the other three are
+  // what the mail service reported afterwards (Nov 19, 2026).
+  status: z.enum(["SENT", "FAILED", ...DELIVERY_STATUSES]).optional(),
   templateSlug: z.string().min(1).max(120).optional(),
   q: z.string().min(1).max(200).optional(),
   page: z.coerce.number().int().min(1).max(1000).optional(),
@@ -82,7 +94,7 @@ export async function GET(
     const rowWhere: Prisma.EmailLogWhereInput = {
       eventId,
       ...(senderId ? { triggeredByUserId: senderId } : {}),
-      ...(status ? { status } : {}),
+      ...statusWhere(status),
       ...(templateSlug ? { templateSlug } : {}),
       ...(q
         ? {
@@ -113,6 +125,11 @@ export async function GET(
           templateSlug: true,
           status: true,
           errorMessage: true,
+          deliveryStatus: true,
+          deliveryAt: true,
+          bounceType: true,
+          bounceSubType: true,
+          deliveryDetail: true,
           htmlBody: true, // presence flag only — mapped to hasBody + stripped
           attachmentNames: true,
           createdAt: true,
@@ -122,7 +139,7 @@ export async function GET(
       // Per-sender rollup across the WHOLE event (not the row filters), so the
       // team board is a stable "who sent what" regardless of table drilling.
       db.emailLog.groupBy({
-        by: ["triggeredByUserId", "status"],
+        by: ["triggeredByUserId", "status", "deliveryStatus"],
         where: { eventId },
         _count: { _all: true },
       }),
@@ -151,7 +168,7 @@ export async function GET(
     // Fold (userId, status) groups into one row per sender.
     const summaryMap = new Map<
       string,
-      { userId: string | null; name: string; email: string | null; sent: number; failed: number }
+      { userId: string | null; name: string; email: string | null; sent: number; failed: number; delivered: number; bounced: number; complained: number }
     >();
     for (const g of summaryGroups) {
       const key = g.triggeredByUserId ?? "__system__";
@@ -165,9 +182,16 @@ export async function GET(
           email: u?.email ?? null,
           sent: 0,
           failed: 0,
+          delivered: 0,
+          bounced: 0,
+          complained: 0,
         };
       if (g.status === "SENT") entry.sent += g._count._all;
       else if (g.status === "FAILED") entry.failed += g._count._all;
+      // The mail service's later report, counted beside "sent", never in place of it.
+      if (g.deliveryStatus === "DELIVERED") entry.delivered += g._count._all;
+      else if (g.deliveryStatus === "BOUNCED") entry.bounced += g._count._all;
+      else if (g.deliveryStatus === "COMPLAINED") entry.complained += g._count._all;
       summaryMap.set(key, entry);
     }
     const summary = [...summaryMap.values()].sort(
