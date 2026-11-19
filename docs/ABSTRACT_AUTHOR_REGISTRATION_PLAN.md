@@ -87,8 +87,36 @@ person. The move itself is the existing bulk Change type, which moves a
 registration OFF Faculty and keeps a Complimentary one free. No script writes
 anything.
 
+**Step 6. Make a speaker's registration Faculty.**
+For the person who submitted first and was invited later (section 4a). On
+the registration sheet, a "Make Faculty" action, offered only for a registration
+linked to a speaker record (`Speaker.sourceRegistrationId`), never for an
+ordinary delegate. It moves the registration onto the event's Faculty type,
+Complimentary, through the same seat planner as every type move (the Faculty
+type holds no seat, so the delegate seat is released), and is audited. What
+it does with money is decision P5. Moving back off Faculty is the existing
+Change type. Tests: a registration with no speaker is refused; one with a
+payment is refused until refunded; an owing one moves only with the
+confirmation; the speaker's badge and barcode carry over.
+
 **Step 5. Copy and docs.** The sign-up page and welcome email say what the
 person registered as; CLAUDE.md, the user guide, ROADMAP, CHANGELOG.
+
+## 4a. One person, one registration: which one wins
+
+A person holds one registration per event, and every path links the one that
+already exists rather than making a second (`ALREADY_REGISTERED` is turned into
+a link; the Grant button refuses a speaker who has one). So **the first
+registration wins**, in either order:
+
+| Order | Result |
+|---|---|
+| Invited as a speaker first, submits later | Their **Faculty** registration stays. The presenter rate picked on the form is never charged. Correct. |
+| Submits first, invited later | The **sign-up registration** stays (e.g. Physician on the presenter rate, possibly owing). Adding them as a speaker again is refused (their speaker record exists from the submission); confirming the speaker settles only a Faculty registration; Grant refuses; the sheet refuses Faculty. **Stuck.** |
+
+The second row is the case found on MEHF2027 on Nov 19, 2026
+(skourihadi73@gmail.com: invited speaker, Physician, Complimentary, created
+by abstract sign-up). Step 6 is the way out.
 
 ## 5. Decisions needed
 
@@ -128,6 +156,20 @@ plan says nothing happens automatically; this plan keeps that.)
 Invited), so the Speakers page lists them beside invited faculty. Separate
 them there too, or leave the Speakers page as it is?
 
+**P5. Make Faculty on a registration with money on it.**
+
+- **No money** (Complimentary, or a free rate, nothing paid, no invoice):
+  moves at once.
+- **Owing** (Unassigned or Unpaid, an amount due): moves only after a
+  confirmation that names the fee being waived ("Physician, Presenter, AED
+  400 will no longer be owed"). An unpaid invoice on it is cancelled with a
+  note, never deleted.
+- **Paid, partly or in full**: refused until it is refunded (the existing
+  refund and credit note flow), so a payment never disappears silently.
+- **Recommendation: as above.** The alternative, keeping the payment on a
+  Faculty registration, would leave money attached to a type every finance
+  report treats as free.
+
 ## 6. What exists and needs nothing
 
 - **Bulk Change type** on Registrations (`registrations/bulk-type`): refuses
@@ -157,6 +199,13 @@ them there too, or leave the Speakers page as it is?
   that way would land on Faculty again.
 - **Emails already sent** (the welcome, a badge) said Faculty; nothing recalls
   them.
+- **Make Faculty is a fee waiver in one click** (step 6). On MEHF2027 about
+  100 speaker records are abstract authors on delegate types; the action must
+  stay on the single registration sheet, never in a bulk tool, and the
+  confirmation must name the amount.
+- **An invited speaker who submitted first and owes a presenter fee** is not
+  marked anywhere today (ROADMAP, the Nov 12 postmortem). Step 2's filter
+  should be able to show "a speaker, on a delegate type, owing".
 
 ## 8. Not in scope
 
