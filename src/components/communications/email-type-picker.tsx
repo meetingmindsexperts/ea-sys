@@ -10,8 +10,12 @@
  * as a warning (in this theme `--accent` is the orange, see globals.css).
  *
  * Here the list opens under the field at the field's width, is grouped
- * (built-in emails, then saved templates), can be searched once it is long,
- * and marks the row under the pointer in the quiet brand blue.
+ * (built-in emails, then saved templates), can be searched, and marks the row
+ * under the pointer in the quiet brand blue.
+ *
+ * The search field is always there, even for two options: it is what takes the
+ * keyboard focus, and without it nothing in the popover did, so the arrow keys
+ * and Enter never reached the list (review of dacfaafd).
  *
  * Popover + Command, the app's combobox pattern (searchable-select.tsx), and
  * `modal` because it always opens from inside a dialog: without it the
@@ -34,9 +38,6 @@ export interface EmailTypePickerGroup {
   heading: string;
   options: EmailTypePickerOption[];
 }
-
-/** A list this long is searched, not scanned. */
-const SEARCH_FROM = 8;
 
 function matches(option: EmailTypePickerOption, query: string): boolean {
   return option.label.toLowerCase().includes(query) || option.description.toLowerCase().includes(query);
@@ -104,9 +105,7 @@ export function EmailTypePicker({
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[280px] p-0" align="start">
         <Command shouldFilter={false}>
-          {all.length >= SEARCH_FROM && (
-            <CommandInput placeholder="Search emails and templates..." value={search} onValueChange={setSearch} />
-          )}
+          <CommandInput placeholder="Search emails and templates..." value={search} onValueChange={setSearch} />
           <CommandList className="max-h-[min(22rem,var(--radix-popover-content-available-height))]">
             {shown.length === 0 && <CommandEmpty>No email matches.</CommandEmpty>}
             {shown.map((group) => (

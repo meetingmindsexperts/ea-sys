@@ -37,6 +37,18 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Reviewer emails in the email dialog: what the Nov 19 review left (recorded Nov 19, 2026): not started
+
+Every reviewer email now opens in the email dialog with Preview, and the invitation is one of its types (`dacfaafd`; CHANGELOG, Nov 19). Review of `dacfaafd`: 0 BLOCKER, 1 HIGH, 5 MED, about 9 LOW. The HIGH (a typed CC or BCC carried a new reviewer's set-password link) and four of the MEDs are fixed in the follow-up commit. Left:
+
+1. **MED: a custom role with only the reviewers key cannot preview or attach.** Sending the invitation needs `reviewers.pool.manage`; Preview (`email-preview`) and the attachment upload (`email-attachments`) need `communications.send`. Every built-in role that holds one holds the other, so only a custom role built with the first and without the second meets it: Preview and Attach answer 403 while Send works. Not fixed because a route takes one key today and the right answer is a decision (accept either key for this one email, or say in the catalogue that sending reviewer emails needs both).
+2. **MED, owner's decision: should a typed CC ever go with a new reviewer's email?** It never does now. If the owner wants the chair copied on those too, the safe way is a second email to the copied address without the set-password button, not the same email.
+3. **LOW: `resolveBulkObservers` lives in `bulk-email.ts`**, so the invitation route loads the whole bulk pipeline for a ten-line function. Move it beside `MAX_MANUAL_CC` in `email-address-list.ts` and re-export it.
+4. **LOW: bare 400s.** More than 500 named reviewers (select all on a very large pool) or more than 10 BCC addresses answer "Invalid input" with no reason in the dialog. No pool is near 500.
+5. **LOW: after a send to ticked rows the ticks stay.** A second press sends to the same people again; the dialog names the count.
+6. **Test gaps.** Nothing renders `BulkEmailDialog`, the Reviewers page, `EmailTypePicker` or `AbstractReviewersCard`: the invitation's routing in the dialog (named or all, the upload guard, the scheduling guard) is pinned only by the browser check made by hand on Nov 19. The preview route's test passes the permission check by a mock.
+7. **Older, found by the review, not changed:** `email-preview` answers 404 for an event it cannot find without a log line; "Send to all N reviewers" shows the size of the selection, not of the pool, when a ticked selection is scheduled as "matching" on a page that does not pass `fixedListOnly`; the Reviewers list shows the speaker record's address while the invitation goes to the account's, which can differ; the event's own CC list and a reviewer's additional email still receive set-password links (owner, Nov 10), so "the link was sent to this address" in accept-invitation is not strict.
+
 ## Email delivery reports: what the first step left (recorded Nov 19, 2026): not started
 
 The first step records what the mail service reports (delivered, bounced, marked as spam) on each email and shows it in Communications and on the person's Email History, with a warning while their address is bouncing (CHANGELOG, Nov 19; owner's switch-on steps in `docs/runbook-ses.md`). Owner's choices: record deliveries as well as bounces; warn about a bounced address and still allow the send.

@@ -181,25 +181,41 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json(preview);
     }
 
-    // One reviewer's invitation, through the sender's own render
-    // (previewReviewerInvitation): preview == send by construction. Only for
-    // someone on this event's reviewer list, the people the send can reach.
-    if (slug === "reviewer-invitation" && reviewerId) {
-      if (!reviewerPoolIds(eventRow.settings).includes(reviewerId)) {
+    // The reviewer invitation, always through the sender's own render
+    // (previewReviewerInvitation): preview == send by construction. The generic
+    // sample path below fills tokens the sender never supplies ({{role}} from
+    // the retired assignment wording), so a template every send would refuse
+    // previewed perfectly (review of dacfaafd).
+    // With `reviewerId` it is THAT reviewer's copy, and only for someone on
+    // this event's reviewer list, the people the send can reach. Without one (a
+    // send to several) it is a new reviewer's copy, addressed to whoever is
+    // looking: an id no account or speaker record has.
+    if (slug === "reviewer-invitation") {
+      if (reviewerId && !reviewerPoolIds(eventRow.settings).includes(reviewerId)) {
         apiLogger.warn({ msg: "email-preview:reviewer-not-on-pool", eventId, reviewerId });
         return NextResponse.json({ error: "Reviewer not found for this event" }, { status: 404 });
       }
-      const [reviewer, brand] = await Promise.all([
-        db.user.findUnique({
-          where: { id: reviewerId },
-          select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true, role: true },
-        }),
+      const [account, brand] = await Promise.all([
+        reviewerId
+          ? db.user.findUnique({
+              where: { id: reviewerId },
+              select: { id: true, email: true, firstName: true, lastName: true, emailVerified: true, role: true },
+            })
+          : null,
         loadPublicBrandForOrg(eventRow.organizationId),
       ]);
-      if (!reviewer) {
+      if (reviewerId && !account) {
         apiLogger.warn({ msg: "email-preview:reviewer-account-not-found", eventId, reviewerId });
         return NextResponse.json({ error: "Reviewer account not found" }, { status: 404 });
       }
+      const reviewer = account ?? {
+        id: "preview-sample-reviewer",
+        email: session.user.email ?? "reviewer@example.com",
+        firstName: session.user.firstName ?? "Jane",
+        lastName: session.user.lastName ?? "Doe",
+        emailVerified: null,
+        role: "REVIEWER",
+      };
       const preview = await previewReviewerInvitation({
         eventId,
         organizationId: eventRow.organizationId,

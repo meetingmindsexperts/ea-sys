@@ -230,6 +230,14 @@ function Reviewers({ eventId }: { eventId: string }) {
     setRemovingId(userId);
     try {
       const res = await removeReviewer.mutateAsync(userId);
+      // Off the list, off the selection: a ticked row that is gone would
+      // still be counted in "2 reviewers selected".
+      setSelectedIds((prev) => {
+        if (!prev.has(userId)) return prev;
+        const next = new Set(prev);
+        next.delete(userId);
+        return next;
+      });
       const gone = res.assignmentsRemoved;
       toast.success(gone > 0 ? `${name} removed, with ${gone} assignment${gone === 1 ? "" : "s"}` : `${name} removed from reviewers`);
     } catch (error) {
@@ -302,9 +310,11 @@ function Reviewers({ eventId }: { eventId: string }) {
             </Button>
           )}
           {reviewers.length > 0 && (
-            <Button variant="outline" onClick={() => openEmail({ ids: [], emailType: "custom" })}>
+            // With rows ticked it writes to them, and says how many: it always
+            // did, and a note meant for three must not reach the committee.
+            <Button variant="outline" onClick={() => openEmail({ ids: Array.from(selectedIds), emailType: "custom" })}>
               <PenLine className="mr-2 h-4 w-4" />
-              Custom email
+              {selectedIds.size > 0 ? `Custom email (${selectedIds.size})` : "Custom email"}
             </Button>
           )}
           <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
@@ -436,39 +446,40 @@ function Reviewers({ eventId }: { eventId: string }) {
               aria-label="Select all reviewers"
             />
             {selectedIds.size > 0 ? (
-              <>
-                <span className="text-sm font-medium">{plural(selectedIds.size, "reviewer", "reviewers")} selected</span>
-                <div className="ml-auto flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => openEmail({ ids: Array.from(selectedIds), emailType: "reviewer-invitation" })}>
-                    <Send className="mr-2 h-4 w-4" />
-                    Send invitation
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => openEmail({ ids: Array.from(selectedIds), emailType: "custom" })}>
-                    <PenLine className="mr-2 h-4 w-4" />
-                    Custom email
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={clearSelection}>
-                    <X className="mr-2 h-4 w-4" />
-                    Clear
-                  </Button>
-                </div>
-              </>
+              <span className="text-sm font-medium">{plural(selectedIds.size, "reviewer", "reviewers")} selected</span>
             ) : (
-              <>
-                <span className="text-sm text-muted-foreground">Select all</span>
-                {reviewers.length >= SEARCH_FROM && (
-                  <div className="relative ml-auto w-full sm:w-80">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Search name, email or organisation"
-                      aria-label="Search reviewers"
-                      className="h-9 pl-8"
-                    />
-                  </div>
-                )}
-              </>
+              <span className="text-sm text-muted-foreground">Select all</span>
+            )}
+            {/* Shown while a search is typed even if the list has since shrunk
+                below the threshold, and beside a selection, so a selection
+                can be built across two searches. */}
+            {(reviewers.length >= SEARCH_FROM || search !== "") && (
+              <div className="relative w-full sm:w-72">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search name, email or organisation"
+                  aria-label="Search reviewers"
+                  className="h-9 pl-8"
+                />
+              </div>
+            )}
+            {selectedIds.size > 0 && (
+              <div className="ml-auto flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => openEmail({ ids: Array.from(selectedIds), emailType: "reviewer-invitation" })}>
+                  <Send className="mr-2 h-4 w-4" />
+                  Send invitation
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => openEmail({ ids: Array.from(selectedIds), emailType: "custom" })}>
+                  <PenLine className="mr-2 h-4 w-4" />
+                  Custom email
+                </Button>
+                <Button size="sm" variant="ghost" onClick={clearSelection}>
+                  <X className="mr-2 h-4 w-4" />
+                  Clear
+                </Button>
+              </div>
             )}
           </div>
 
@@ -595,6 +606,9 @@ function Reviewers({ eventId }: { eventId: string }) {
         selectionMode={emailTarget.ids.length > 0 ? "selected" : "all"}
         defaultEmailType={emailTarget.emailType}
         recipientName={emailTarget.name}
+        // One row or the ticked rows are exactly that list: reviewers have no
+        // filters to "match", so a scheduled send must not widen to the pool.
+        fixedListOnly={emailTarget.ids.length > 0}
       />
     </div>
   );

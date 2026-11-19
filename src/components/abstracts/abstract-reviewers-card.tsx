@@ -278,7 +278,9 @@ export function AbstractReviewersCard({
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <SectionLabel>Available reviewers ({availableAll.length})</SectionLabel>
-            {availableAll.length >= SEARCH_FROM && (
+            {/* Also while a search is typed: assigning the eighth person must
+                not take the box away and leave the list filtered. */}
+            {(availableAll.length >= SEARCH_FROM || search !== "") && (
               <div className="relative w-full sm:w-56">
                 <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input

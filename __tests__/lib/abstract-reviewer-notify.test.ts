@@ -239,6 +239,18 @@ describe("sendReviewerInvitation: what the organiser added in the email dialog",
     expect(sent().bcc).toBeUndefined();
   });
 
+  // Review of dacfaafd (HIGH): whoever is copied on a set-password email
+  // holds a working credential for that reviewer, and using it confirms the
+  // address. One tick ("Send me a copy") must never do that.
+  it("a NEW reviewer's email is never copied to a typed CC or BCC; the attachment still goes, and the event's own CC is unchanged", async () => {
+    expect(await sendReviewerInvitation({ ...args(NEW_REVIEWER), extras: { manualCc: ["chair@x.com"], bcc: ["me@x.com"], attachments: [FILE] } })).toEqual({ ok: true, kind: "setup" });
+    expect(sent().htmlContent).toContain("/accept-invitation?token=");
+    expect(sent().cc).toEqual([{ email: "ops@example.com" }]);
+    expect(sent().bcc).toBeUndefined();
+    expect(sent().attachments).toEqual([FILE]);
+    expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-invitation:copies-withheld", withheld: 2 }));
+  });
+
   it("with nothing added, the email is what it always was: no BCC, no attachment", async () => {
     await sendReviewerInvitation(args(HAS_ACCOUNT));
     expect(sent().bcc).toBeUndefined();
@@ -279,6 +291,14 @@ describe("previewReviewerInvitation", () => {
     await sendReviewerInvitation(args(HAS_ACCOUNT));
     expect(preview?.subject).toBe(sent().subject);
     expect(preview?.htmlContent).toBe(sent().htmlContent);
+
+    // The set-password form too: identical once the real link is taken out.
+    sendEmailSpy.mockClear();
+    const setup = await previewReviewerInvitation(args(NEW_REVIEWER));
+    await sendReviewerInvitation(args(NEW_REVIEWER));
+    const withoutLink = (html: string) => html.replace(/href="[^"]*accept-invitation[^"]*"/, 'href="#"');
+    expect(sent().htmlContent).toContain("/accept-invitation?token=");
+    expect(withoutLink(sent().htmlContent)).toBe(setup?.htmlContent);
   });
 
   it("no template, or a render that throws: null and logged, never an exception", async () => {

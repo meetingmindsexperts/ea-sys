@@ -52,7 +52,7 @@ const post = (body: unknown) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockAuth.mockResolvedValue({ user: { id: "admin1", role: "ORGANIZER", organizationId: "org1", firstName: "Sarah", lastName: "Ahmed" } });
+  mockAuth.mockResolvedValue({ user: { id: "admin1", role: "ORGANIZER", organizationId: "org1", firstName: "Sarah", lastName: "Ahmed", email: "sarah@x.com" } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", name: "MedCon", slug: "medcon", settings: { reviewerUserIds: ["r1", "r2"] } });
   // r1 has an account, r2 is on the pool with none, admin1 is whoever is looking.
   const accounts: Record<string, unknown> = { r1: REVIEWER, admin1: { emailSignature: null } };
@@ -95,11 +95,18 @@ describe("email-preview with reviewerId", () => {
     expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "email-preview:reviewer-invitation-render-failed" }));
   });
 
-  it("without a reviewer (a send to several) it stays the generic sample preview", async () => {
+  // Review of dacfaafd: the generic sample path fills tokens the sender never
+  // supplies, so a template every send would refuse previewed perfectly.
+  it("without a reviewer (a send to several) it is still the sender's render: a new reviewer's copy, addressed to whoever is looking", async () => {
     const res = await post({ slug: "reviewer-invitation" });
     expect(res.status).toBe(200);
-    expect((await res.json()).htmlContent).toContain("GENERIC SAMPLE");
-    expect(previewSpy).not.toHaveBeenCalled();
+    expect((await res.json()).htmlContent).not.toContain("GENERIC SAMPLE");
+    expect(previewSpy).toHaveBeenCalledWith(expect.objectContaining({
+      reviewer: { id: "preview-sample-reviewer", email: "sarah@x.com", firstName: "Sarah", lastName: "Ahmed", emailVerified: null, role: "REVIEWER" },
+      inviterName: "Sarah Ahmed",
+    }));
+    // No account is read for the sample.
+    expect(mockDb.user.findUnique).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: "preview-sample-reviewer" } }));
   });
 
   it("a reviewerId on any other email is ignored: it never swaps in the invitation", async () => {

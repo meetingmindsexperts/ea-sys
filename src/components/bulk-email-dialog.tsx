@@ -4,7 +4,7 @@ import { templateUsesRsvpToken } from "@/lib/rsvp/button";
 import { OWES_MONEY_FILTER, bulkTemplateSlugFor } from "@/lib/bulk-email-audience";
 import { bulkEmailTypeOptionsFor } from "@/lib/email-template-registry";
 
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { useCan } from "@/hooks/use-can";
 import type { SurveyRespondedFilter } from "@/lib/survey/responded-filter";
 import {
@@ -535,7 +535,13 @@ export function BulkEmailDialog({
   // The invitation is sent now or not at all: a "later" left on from another
   // email type must not change who it says it goes to.
   const scheduling = sendMode === "later" && !isReviewerInvitation;
-  const sending = bulkEmail.isPending || scheduleEmail.isPending || sendInvitations.isPending;
+  // `submitting` covers the whole press, the attachment upload included: the
+  // mutations only turn pending once the files are up, and a second click in
+  // that gap sent everything twice (review of dacfaafd). The ref is the guard
+  // (state is a render late), the state disables the buttons.
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+  const sending = submitting || bulkEmail.isPending || scheduleEmail.isPending || sendInvitations.isPending;
   const label = getRecipientLabel(recipientType);
 
   // Live recipient count. In "all" mode, ask the page to count against the
@@ -735,6 +741,9 @@ export function BulkEmailDialog({
         ...(attachmentFiles.length > 0 ? { attachments: await uploadEmailAttachments(eventId, attachmentFiles) } : {}),
       });
       reportSendInvitations(res, sentTo);
+      // Nothing went (a token left in the template refuses every one): the
+      // dialog stays, with the CC and files still in it, to send again.
+      if (res.emailed === 0 && res.failed > 0) return;
       onOpenChange(false);
       resetForm();
     } catch (error) {
@@ -743,6 +752,18 @@ export function BulkEmailDialog({
   };
 
   const handleSend = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      await submit();
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  const submit = async () => {
     if (effectiveSelectionMode === "selected" && !resolvesToMatching && effectiveRecipientIds.length === 0) {
       toast.error("No recipients to send to");
       return;
@@ -939,6 +960,9 @@ export function BulkEmailDialog({
   };
 
   const handleOpenChange = (newOpen: boolean) => {
+    // Not while a send is running: its completion closes and resets the
+    // dialog, which by then could be a different one opened in its place.
+    if (!newOpen && sending) return;
     if (!newOpen) resetForm();
     onOpenChange(newOpen);
   };
@@ -1346,13 +1370,14 @@ export function BulkEmailDialog({
           </div>
           </div>
 
-          {/* A copy of a NEW reviewer's invitation carries the link that sets
-              their password: whoever is copied can use it. Said once, when a
+          {/* A new reviewer's email carries the link that sets their password,
+              so the sender never copies it to a typed address. Said when a
               copy is actually asked for. */}
           {isReviewerInvitation && (ccInput.trim() || bccInput.trim() || bccSelf) && (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              A reviewer who has no password yet is sent a personal link to set one. Everyone copied on their
-              email, on CC or BCC, receives that link too, so copy only people you would trust with it.
+              Copies go only with the emails of reviewers who can already sign in. A reviewer who has no
+              password yet is sent a personal link to set one, and that email is not copied to anyone you add
+              here. Attachments go to everyone.
             </p>
           )}
 
@@ -1684,8 +1709,8 @@ export function BulkEmailDialog({
                 Certificates:{" "}
                 {certTemplateIds
                   .map((id) => certTemplateOptions.find((t) => t.id === id)?.name ?? id)
-                  .join(", ")}{" "}
-                — each person gets only the certificates assigned to them
+                  .join(", ")}
+                . Each person gets only the certificates assigned to them.
               </p>
             )}
           </div>
