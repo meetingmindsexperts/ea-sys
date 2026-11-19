@@ -87,6 +87,9 @@ person. The move itself is the existing bulk Change type, which moves a
 registration OFF Faculty and keeps a Complimentary one free. No script writes
 anything.
 
+**Step 5. Copy and docs.** The sign-up page and welcome email say what the
+person registered as; CLAUDE.md, the user guide, ROADMAP, CHANGELOG.
+
 **Step 6. Make a speaker's registration Faculty.**
 For the person who submitted first and was invited later (section 4a). On
 the registration sheet, a "Make Faculty" action, offered only for a registration
@@ -98,9 +101,6 @@ it does with money is decision P5. Moving back off Faculty is the existing
 Change type. Tests: a registration with no speaker is refused; one with a
 payment is refused until refunded; an owing one moves only with the
 confirmation; the speaker's badge and barcode carry over.
-
-**Step 5. Copy and docs.** The sign-up page and welcome email say what the
-person registered as; CLAUDE.md, the user guide, ROADMAP, CHANGELOG.
 
 ## 4a. One person, one registration: which one wins
 
