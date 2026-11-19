@@ -33,7 +33,7 @@ import {
   consolidateReviewNotes,
   readRequiredReviewCount,
 } from "@/lib/abstract-review";
-import { readReviewScoreScale } from "@/lib/abstract-score";
+import { DEFAULT_REVIEW_SCORE_SCALE, readReviewScoreScale } from "@/lib/abstract-score";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 import type { PresentationType } from "@prisma/client";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
@@ -81,6 +81,13 @@ export interface ChangeAbstractStatusInput {
    * from the row. The caller has checked the event offers it.
    */
   presentationType?: PresentationType;
+  /**
+   * One of many in a bulk change (bulkUpdateAbstracts): marked on the audit
+   * row, and the event's counts are refreshed ONCE by the bulk caller, not
+   * after each abstract (165 changes were 165 refreshes of nine queries each,
+   * racing the loop on the connection pool).
+   */
+  bulk?: boolean;
   source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 }
@@ -274,6 +281,7 @@ export async function changeAbstractStatus(
           after: { status: newStatus, ...(input.presentationType && { presentationType: input.presentationType }) },
           source: forceStatus ? "chair-override" : source,
           ...(input.notify === false && { authorEmail: "not sent" }),
+          ...(input.bulk && { bulk: true }),
           reviewCount: aggregateResult?.aggregates.count ?? null,
           meanOverall: aggregateResult?.aggregates.meanOverall ?? null,
           ...(requestIp ? { ip: requestIp } : {}),
@@ -282,8 +290,8 @@ export async function changeAbstractStatus(
     })
     .catch((err) => apiLogger.error({ err, abstractId }, "abstract-service:audit-log-failed"));
 
-  // Refresh denormalized event stats (fire-and-forget).
-  refreshEventStats(eventId);
+  // Refresh denormalized event stats (fire-and-forget). A bulk change does it once, at its end.
+  if (!input.bulk) refreshEventStats(eventId);
 
   // Notification gating:
   //   - Only fires on transition into a review status (UNDER_REVIEW / ACCEPTED
@@ -298,7 +306,7 @@ export async function changeAbstractStatus(
   if (shouldNotify) {
     try {
       const notifyAggregate = aggregateResult ?? (await computeSubmissionAggregates(abstractId));
-      await notifyAbstractStatusChange({
+      const emailOutcome = await notifyAbstractStatusChange({
         eventId,
         organizationId: abstract.event.organizationId,
         eventName: abstract.event.name,
@@ -318,7 +326,10 @@ export async function changeAbstractStatus(
           title: abstract.speaker?.title ?? null,
         },
       });
-      notificationStatus = "sent";
+      // What the sender says happened, never "it did not throw" (it never does).
+      notificationStatus = emailOutcome === "sent" ? "sent" : "failed";
+      if (emailOutcome === "no-recipient") notificationError = "The author has no email address";
+      if (emailOutcome === "failed" || emailOutcome === "not-due") notificationError = "The email could not be sent";
     } catch (err) {
       apiLogger.error({ err, abstractId }, "abstract-status:notification-failed");
       notificationStatus = "failed";
@@ -377,10 +388,7 @@ export interface BulkUpdateAbstractsInput {
   budgetMs?: number;
 }
 
-export type BulkAbstractSkipCode =
-  | "NOT_FOUND"
-  | "NOT_SUBMITTED"
-  | ChangeAbstractStatusErrorCode;
+export type BulkAbstractSkipCode = "NOT_FOUND" | ChangeAbstractStatusErrorCode;
 
 export interface BulkAbstractSkip {
   abstractId: string;
@@ -416,10 +424,6 @@ async function bulkUpdateOne(input: BulkUpdateAbstractsInput, row: BulkAbstractR
   if (!wantsStatus && !wantsType) return { kind: "unchanged" };
 
   if (wantsStatus && status) {
-    // The author has not submitted it: there is nothing yet to decide.
-    if (row.status === "DRAFT") {
-      return { kind: "skipped", skip: { abstractId: row.id, code: "NOT_SUBMITTED", message: "Still a draft: the author has not submitted it." } };
-    }
     const result = await changeAbstractStatus({
       eventId,
       organizationId,
@@ -429,6 +433,7 @@ async function bulkUpdateOne(input: BulkUpdateAbstractsInput, row: BulkAbstractR
       forceStatus: input.forceStatus === true,
       notify: input.notifyAuthors === true,
       ...(wantsType && { presentationType }),
+      bulk: true,
       source,
       requestIp,
     });
@@ -511,7 +516,12 @@ export async function bulkUpdateAbstracts(input: BulkUpdateAbstractsInput): Prom
         skipped.push({ abstractId: id, code: "NOT_FOUND", message: "Not an abstract of this event." });
         continue;
       }
-      const outcome = await bulkUpdateOne(input, row);
+      // One abstract failing must not lose the tally of the ones before it:
+      // they are changed, and their authors may have been emailed.
+      const outcome = await bulkUpdateOne(input, row).catch((err): BulkOneOutcome => {
+        apiLogger.error({ err, eventId, abstractId: id, source }, "abstract-bulk-update:one-failed");
+        return { kind: "skipped", skip: { abstractId: id, code: "UNKNOWN", message: "Could not be changed. Try it again." } };
+      });
       if (outcome.kind === "unchanged") unchanged.push(id);
       if (outcome.kind === "skipped") skipped.push(outcome.skip);
       if (outcome.kind === "changed") {
@@ -541,7 +551,8 @@ export async function bulkUpdateAbstracts(input: BulkUpdateAbstractsInput): Prom
     if (skipped.length > 0) {
       apiLogger.warn({ msg: "abstract-bulk-update:some-skipped", eventId, source, skipped: skipped.map((s) => ({ abstractId: s.abstractId, code: s.code })) });
     }
-    // A type alone moves no count; a status did, and changeAbstractStatus has refreshed it.
+    // The event's counts, once for the whole request (a type alone moves none).
+    if (status !== undefined && changed.length > 0) refreshEventStats(eventId);
     return { ok: true, changed, unchanged, skipped, remaining, emailed, emailFailed };
   } catch (err) {
     apiLogger.error({ err, eventId, source }, "abstract-bulk-update:failed");
@@ -593,6 +604,14 @@ export interface SubmitAbstractReviewInput {
   };
   overallScore?: number;
   criteriaScores?: Array<{ criterionId: string; score: number }>;
+  /**
+   * The scale the scorer gave `criteriaScores` on. Absent means 10, the only
+   * scale there was before Nov 19, 2026, so an older screen or a connected
+   * assistant with a cached tool description is right on an event still on 10
+   * and REFUSED on any other, never silently misread (8 meant out of 10 and
+   * stored out of 100). See `SCALE_MISMATCH`.
+   */
+  scoreScale?: number;
   /** `undefined` = keep existing notes; `""` = clear them. */
   reviewNotes?: string;
   recommendedFormat?: string;
@@ -616,6 +635,7 @@ export type SubmitAbstractReviewErrorCode =
   | "INVALID_CRITERION_ID"
   | "DUPLICATE_CRITERION_ID"
   | "INVALID_CRITERION_SCORE"
+  | "SCALE_MISMATCH"
   | "INVALID_RECOMMENDED_FORMAT"
   | "INVALID_CONFIDENCE"
   | "INVALID_REVIEW_NOTES"
@@ -835,6 +855,20 @@ export async function submitAbstractReview(
     // Criteria: every id must exist on this event, no duplicates, a whole
     // number on the event's own scale (abstract-score.ts: 5, 10 or 100).
     const scoreScale = readReviewScoreScale(event.settings);
+    // The scores must have been given on the scale the event is on NOW: the
+    // organiser may have changed it while this form was open, and a connected
+    // assistant may hold a description from before scales existed (review of
+    // 9fd484fd). Checked only when criterion scores are sent; an overall score
+    // is out of 100 on every scale.
+    const givenOnScale = input.scoreScale ?? DEFAULT_REVIEW_SCORE_SCALE;
+    if (criteriaScores && criteriaScores.length > 0 && givenOnScale !== scoreScale) {
+      apiLogger.warn({ msg: "abstract-submission:scale-mismatch", eventId, abstractId, reviewerUserId, givenOnScale, scoreScale, source });
+      return {
+        ok: false,
+        code: "SCALE_MISMATCH",
+        message: `This event scores each criterion from 0 to ${scoreScale}. Score again on that scale${input.scoreScale === undefined ? `, and send scoreScale: ${scoreScale} with the scores` : ""}.`,
+      };
+    }
     let criteriaScoresJson: Record<string, number> | null = null;
     let computedOverall: number | null = null;
     if (criteriaScores && criteriaScores.length > 0) {

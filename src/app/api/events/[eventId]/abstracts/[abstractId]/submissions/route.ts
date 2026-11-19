@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { can } from "@/lib/permissions/can";
 import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { z } from "zod";
-import { MAX_REVIEW_SCORE_SCALE } from "@/lib/abstract-score";
+import { MAX_REVIEW_SCORE_SCALE, readReviewScoreScale } from "@/lib/abstract-score";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { findGatedEvent, resolveEventTenant } from "@/lib/tenant/event-tenant";
@@ -43,6 +43,9 @@ const criterionScoreSchema = z.object({
 
 const submissionSchema = z.object({
   criteriaScores: z.array(criterionScoreSchema).max(50).optional(),
+  // The scale the form showed when these were typed: the service refuses the
+  // review if the event has moved to another one since (SCALE_MISMATCH).
+  scoreScale: z.number().int().min(1).max(MAX_REVIEW_SCORE_SCALE).optional(),
   overallScore: z.number().int().min(0).max(100).optional(),
   reviewNotes: z.string().max(5000).optional(),
   recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
@@ -151,6 +154,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return NextResponse.json({
       submissions: aggregate.submissions,
       aggregates: aggregate.aggregates,
+      // What the criterion scores and their means are out of on this event.
+      scoreScale: readReviewScoreScale(event.settings),
     });
     });
   } catch (err) {
@@ -178,6 +183,7 @@ const HTTP_STATUS_FOR_SUBMIT_CODE: Record<SubmitAbstractReviewErrorCode, number>
   INVALID_CRITERION_ID: 400,
   DUPLICATE_CRITERION_ID: 400,
   INVALID_CRITERION_SCORE: 400,
+  SCALE_MISMATCH: 409,
   INVALID_RECOMMENDED_FORMAT: 400,
   INVALID_CONFIDENCE: 400,
   INVALID_REVIEW_NOTES: 400,
@@ -256,6 +262,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
       overallScore: data.overallScore,
       criteriaScores: data.criteriaScores,
+      scoreScale: data.scoreScale,
       reviewNotes: data.reviewNotes,
       recommendedFormat: data.recommendedFormat,
       confidence: data.confidence,

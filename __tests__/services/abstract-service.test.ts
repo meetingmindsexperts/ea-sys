@@ -105,7 +105,7 @@ beforeEach(() => {
   mockComputeAggregates.mockResolvedValue(SUFFICIENT_REVIEWS);
   mockReadRequiredCount.mockReturnValue(1);
   mockConsolidateNotes.mockReturnValue("Solid / Excellent");
-  mockNotifyAbstract.mockResolvedValue(undefined);
+  mockNotifyAbstract.mockResolvedValue("sent");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,6 +139,26 @@ describe("changeAbstractStatus — happy path", () => {
     await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED" });
     expect(mockNotifyAbstract).toHaveBeenCalledTimes(1);
     expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).not.toHaveProperty("authorEmail");
+  });
+
+  // Review of 9fd484fd (HIGH): the sender never throws, so its ANSWER is what
+  // says whether the author was told.
+  it("a refused email, or an author with no address, is reported as failed, and the status still changed", async () => {
+    mockNotifyAbstract.mockResolvedValueOnce("failed");
+    expect(await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED" })).toMatchObject({ ok: true, notificationStatus: "failed", notificationError: "The email could not be sent" });
+
+    mockNotifyAbstract.mockResolvedValueOnce("no-recipient");
+    expect(await changeAbstractStatus({ ...BASE_INPUT, newStatus: "REJECTED" })).toMatchObject({ ok: true, notificationStatus: "failed", notificationError: "The author has no email address" });
+  });
+
+  it("one of a bulk change is marked on the audit row and leaves the count refresh to its caller", async () => {
+    await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED", bulk: true });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ bulk: true });
+    expect(mockRefreshStats).not.toHaveBeenCalled();
+
+    await changeAbstractStatus({ ...BASE_INPUT, newStatus: "REJECTED" });
+    expect(mockRefreshStats).toHaveBeenCalledTimes(1);
+    expect(mockDb.auditLog.create.mock.calls[1][0].data.changes).not.toHaveProperty("bulk");
   });
 
   it("a presentation type is written in the same claim as the status", async () => {

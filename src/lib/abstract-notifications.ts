@@ -319,14 +319,26 @@ export interface NotifyAbstractStatusChangeParams {
 }
 
 /**
+ * What became of the author's email: it went, it was refused or could not be
+ * built ("failed"), the author has no address to send to, or none was due.
+ */
+export type AbstractEmailOutcome = "sent" | "failed" | "no-recipient" | "not-due";
+
+/**
  * Sends the `abstract-status-update` email to the speaker and fires the admin
  * notification. Safe to call whether status changed, feedback was added, or
  * both. No-ops if neither condition is met or the speaker has no email.
  *
  * Called from the dashboard PUT handler and the AI agent `update_abstract_status`
  * tool so both entry points produce identical side effects.
+ *
+ * Never throws, and ANSWERS what became of the email (review of 9fd484fd, Nov
+ * 19, 2026). It returned nothing until then, so every caller read "no throw"
+ * as "sent": a send the mail service refused (a token left in the event's
+ * template) or an author with no address was reported as emailed, and a bulk
+ * change told the organiser 165 authors had been told when none had.
  */
-export async function notifyAbstractStatusChange(params: NotifyAbstractStatusChangeParams): Promise<void> {
+export async function notifyAbstractStatusChange(params: NotifyAbstractStatusChangeParams): Promise<AbstractEmailOutcome> {
   const {
     eventId,
     organizationId,
@@ -344,8 +356,12 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
 
   const isReview = !feedbackOnly && REVIEW_STATUSES.has(newStatus) && newStatus !== previousStatus;
   const shouldNotify = isReview || feedbackOnly;
-  if (!shouldNotify) return;
+  if (!shouldNotify) return "not-due";
 
+  let outcome: AbstractEmailOutcome = speaker.email ? "failed" : "no-recipient";
+  if (!speaker.email) {
+    apiLogger.warn({ msg: "abstract-notification:author-has-no-email", eventId, abstractId });
+  }
   if (speaker.email) {
     const managementLink = buildAbstractManagementLink(eventSlug);
 
@@ -386,7 +402,7 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
       } else {
         const branding = tpl?.branding || { eventName };
         const rendered = renderAndWrap(t, vars, branding);
-        await sendEmail({
+        const result = await sendEmail({
           to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
           cc: brandingCc(
             branding,
@@ -405,6 +421,8 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
             templateSlug: "abstract-status-update",
           },
         });
+        if (result.success) outcome = "sent";
+        else apiLogger.error({ msg: "abstract-notification:email-refused", eventId, abstractId, code: result.code, error: result.error });
       }
     } catch (err) {
       apiLogger.error({ err, msg: "Failed to send abstract notification email", eventId, abstractId });
@@ -421,4 +439,5 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
   } catch (err) {
     apiLogger.error({ err, msg: "Failed to send abstract review admin notification", eventId, abstractId });
   }
+  return outcome;
 }

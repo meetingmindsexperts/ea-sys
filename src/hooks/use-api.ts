@@ -416,6 +416,8 @@ export function useSubmitMyReview(eventId: string, abstractId: string) {
     mutationFn: (data: {
       overallScore?: number;
       criteriaScores?: { criterionId: string; score: number }[];
+      /** The scale the form showed when the criterion scores were typed. */
+      scoreScale?: ReviewScoreScale;
       reviewNotes: string;
       recommendedFormat?: RecommendedFormat;
     }) =>
@@ -429,6 +431,13 @@ export function useSubmitMyReview(eventId: string, abstractId: string) {
     onSuccess: () => {
       queryClient.removeQueries({ queryKey: queryKeys.myReview(eventId, abstractId) });
       return queryClient.invalidateQueries({ queryKey: queryKeys.myReviews });
+    },
+    // The organiser changed the scoring scale while this form was open: load
+    // the review again, so the form (keyed by the scale) starts over on it.
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "SCALE_MISMATCH") {
+        return queryClient.invalidateQueries({ queryKey: queryKeys.myReview(eventId, abstractId) });
+      }
     },
   });
 }

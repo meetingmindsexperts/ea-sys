@@ -92,7 +92,7 @@ function ReviewForm({ review, eventId, abstractId }: { review: OpenReview; event
     submit.mutate(
       {
         ...(usesCriteria
-          ? { criteriaScores: scored.map(({ criterionId, score }) => ({ criterionId, score })) }
+          ? { criteriaScores: scored.map(({ criterionId, score }) => ({ criterionId, score })), scoreScale: review.scoreScale }
           : { overallScore: overallScore as number }),
         reviewNotes,
         recommendedFormat: format,
@@ -292,7 +292,7 @@ export default function MyReviewPage() {
         <Card className="lg:sticky lg:top-4">
           <CardContent className="pt-6">
             {review.canSubmit ? (
-              <ReviewForm key={review.submission?.updatedAt ?? "new"} review={review} eventId={eventId} abstractId={abstractId} />
+              <ReviewForm key={`${review.submission?.updatedAt ?? "new"}:${review.scoreScale}`} review={review} eventId={eventId} abstractId={abstractId} />
             ) : (
               <ClosedNotice review={review} />
             )}

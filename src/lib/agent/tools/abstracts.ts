@@ -448,6 +448,7 @@ const submitAbstractReviewTool: ToolExecutor = async (input, ctx) => {
 function parseReviewFields(input: Record<string, unknown>): {
   overallScore?: number;
   criteriaScores?: Array<{ criterionId: string; score: number }>;
+  scoreScale?: number;
   reviewNotes?: string;
   recommendedFormat?: string;
   confidence?: number;
@@ -464,6 +465,8 @@ function parseReviewFields(input: Record<string, unknown>): {
         score: Number(raw),
       })),
     }),
+    // The scale the scores were given on; the service refuses a mismatch with the event's.
+    ...(input.scoreScale != null && { scoreScale: Number(input.scoreScale) }),
     // null/undefined = keep existing notes; "" = clear them (unified REST semantics).
     ...(input.reviewNotes != null && { reviewNotes: String(input.reviewNotes) }),
     ...(input.recommendedFormat != null && input.recommendedFormat !== "" && { recommendedFormat: String(input.recommendedFormat) }),
@@ -551,6 +554,9 @@ const getAbstractScores: ToolExecutor = async (input, ctx) => {
       })),
       submissions: aggregate.submissions,
       aggregates: aggregate.aggregates,
+      // What each criterion score and the perCriterion figures are out of on
+      // this event. overallScore and the overall figures are always out of 100.
+      scoreScale: readReviewScoreScale(abstract.event.settings),
       requiredReviewCount: requiredCount,
       // Match the real decision gate (review H5): SCORED submissions, not
       // total rows — an all-null review no longer looks like it meets the bar.

@@ -189,6 +189,14 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   `SELECT email FROM "User" WHERE role = 'BASE';`. Never delete the enum value; retire it
   through `RETIRED_ROLES`.
 
+- **The abstract scoring scale (Nov 19, 2026; no migration, `Event.settings.reviewScoreScale`).**
+  An image older than this release scores every criterion out of 10 whatever the event chose.
+  On an event set to 0 to 5 it would accept 6 to 10 and store an overall score ten times the
+  criterion average capped at 100; on one set to 0 to 100 it would refuse any score above 10.
+  Before rolling back past it, check which events left the default:
+  `SELECT id, name, settings->'reviewScoreScale' FROM "Event" WHERE settings ? 'reviewScoreScale';`
+  and ask their reviewers to wait until the roll forward.
+
 - **Session roles an organisation added (Nov 18, 2026; migration
   `20261118140000_session_speaker_custom_role_key`).** Safe to READ on an older image: it
   ignores `SessionSpeaker.customRoleKey` and reads `role`, which holds the duty's built-in, so a

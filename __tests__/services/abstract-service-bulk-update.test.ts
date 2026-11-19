@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, txUpdateMany, logger, aggregates, notify } = vi.hoisted(() => {
+const { mockDb, txUpdateMany, logger, aggregates, notify, refreshStats } = vi.hoisted(() => {
   const txUpdateMany = vi.fn();
   return {
     txUpdateMany,
@@ -19,6 +19,7 @@ const { mockDb, txUpdateMany, logger, aggregates, notify } = vi.hoisted(() => {
     logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     aggregates: vi.fn(),
     notify: vi.fn(),
+    refreshStats: vi.fn(),
   };
 });
 
@@ -33,7 +34,7 @@ vi.mock("@/lib/abstract-review", () => ({
   consolidateReviewNotes: () => "",
 }));
 vi.mock("@/lib/abstract-notifications", () => ({ notifyAbstractStatusChange: notify }));
-vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
+vi.mock("@/lib/event-stats", () => ({ refreshEventStats: refreshStats }));
 
 import { bulkUpdateAbstracts, MAX_BULK_ABSTRACT_UPDATES } from "@/services/abstract-service";
 
@@ -71,7 +72,7 @@ beforeEach(() => {
     aggregates: { count: REVIEWS[abstractId] ?? 0, scoredCount: REVIEWS[abstractId] ?? 0, meanOverall: 80 },
     submissions: [],
   }));
-  notify.mockResolvedValue(undefined);
+  notify.mockResolvedValue("sent");
 });
 
 describe("bulkUpdateAbstracts: status", () => {
@@ -94,13 +95,35 @@ describe("bulkUpdateAbstracts: status", () => {
     expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ authorEmail: "not sent", after: { status: "ACCEPTED" } });
   });
 
-  it("with notifyAuthors, each changed abstract's author is emailed, and a failed email is counted without undoing the change", async () => {
-    REVIEWS.a2 = 1;
-    notify.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("provider down"));
-    const result = await bulkUpdateAbstracts(input({ status: "ACCEPTED", notifyAuthors: true }));
-    REVIEWS.a2 = 0;
-    expect(result).toMatchObject({ ok: true, changed: ["a1", "a2"], emailed: 1, emailFailed: 1 });
-    expect(notify).toHaveBeenCalledTimes(2);
+  // Review of 9fd484fd (HIGH): the sender never throws, so "it did not throw"
+  // was read as "sent" and a refused send was reported as emailed.
+  it("with notifyAuthors, the report counts what the sender SAYS: a refused email, or an author with no address, is not 'emailed'", async () => {
+    rows = [
+      { id: "a1", status: "UNDER_REVIEW", presentationType: "ORAL" },
+      { id: "a3", status: "UNDER_REVIEW", presentationType: "ORAL" },
+      { id: "a4", status: "UNDER_REVIEW", presentationType: "ORAL" },
+    ];
+    REVIEWS.a4 = 1;
+    notify.mockResolvedValueOnce("sent").mockResolvedValueOnce("failed").mockResolvedValueOnce("no-recipient");
+    const result = await bulkUpdateAbstracts(input({ status: "ACCEPTED", notifyAuthors: true, abstractIds: ["a1", "a3", "a4"] }));
+    delete REVIEWS.a4;
+    // The status changed for all three; only one author was told.
+    expect(result).toMatchObject({ ok: true, changed: ["a1", "a3", "a4"], emailed: 1, emailFailed: 2 });
+    expect(notify).toHaveBeenCalledTimes(3);
+  });
+
+  // Review of 9fd484fd (MED): one throw used to answer 500 and lose the tally of everything before it.
+  it("one abstract failing is skipped and named; the ones before and after it are still done and counted", async () => {
+    txUpdateMany.mockResolvedValueOnce({ count: 1 }).mockRejectedValueOnce(new Error("db blip")).mockResolvedValueOnce({ count: 1 });
+    const result = await bulkUpdateAbstracts(input({ status: "REJECTED", forceStatus: true }));
+    expect(result).toMatchObject({ ok: true, changed: ["a1", "a3"] });
+    expect(result.ok && result.skipped).toEqual([expect.objectContaining({ abstractId: "a2", code: "UNKNOWN" })]);
+  });
+
+  it("marks each status change as part of a bulk change, and refreshes the event's counts once", async () => {
+    await bulkUpdateAbstracts(input({ status: "ACCEPTED", forceStatus: true }));
+    expect(mockDb.auditLog.create.mock.calls.map(([a]) => a.data.changes.bulk)).toEqual([true, true]);
+    expect(refreshStats).toHaveBeenCalledTimes(1);
   });
 
   it("the override decides an abstract short of reviews, as the single change's does", async () => {
@@ -109,19 +132,22 @@ describe("bulkUpdateAbstracts: status", () => {
     expect(mockDb.auditLog.create.mock.calls.map(([a]) => a.data.changes.source)).toEqual(["chair-override", "chair-override"]);
   });
 
-  it("withdrawn is final, a draft has nothing to decide, and an id from elsewhere is not found", async () => {
-    rows = [
-      { id: "w1", status: "WITHDRAWN", presentationType: "ORAL" },
-      { id: "d1", status: "DRAFT", presentationType: null },
-    ];
-    const result = await bulkUpdateAbstracts(input({ status: "REJECTED", forceStatus: true, abstractIds: ["w1", "d1", "other-event"] }));
+  it("withdrawn is final, and an id from elsewhere is not found", async () => {
+    rows = [{ id: "w1", status: "WITHDRAWN", presentationType: "ORAL" }];
+    const result = await bulkUpdateAbstracts(input({ status: "REJECTED", forceStatus: true, abstractIds: ["w1", "other-event"] }));
     expect(result).toMatchObject({ ok: true, changed: [] });
     expect(result.ok && result.skipped.map((s) => [s.abstractId, s.code])).toEqual([
       ["w1", "ABSTRACT_WITHDRAWN"],
-      ["d1", "NOT_SUBMITTED"],
       ["other-event", "NOT_FOUND"],
     ]);
     expect(txUpdateMany).not.toHaveBeenCalled();
+  });
+
+  // It adds no rule of its own: what one abstract's change allows, this allows.
+  it("a draft is whatever the single change makes of it, no second rule here", async () => {
+    rows = [{ id: "d1", status: "DRAFT", presentationType: null }];
+    const result = await bulkUpdateAbstracts(input({ status: "WITHDRAWN", abstractIds: ["d1"] }));
+    expect(result).toMatchObject({ ok: true, changed: ["d1"], skipped: [] });
   });
 });
 

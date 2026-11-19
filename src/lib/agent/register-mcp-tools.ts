@@ -451,9 +451,10 @@ export function registerAllMcpTools(
     { name: "unassign_reviewer_from_abstract", description: "Remove a reviewer's per-abstract assignment. Any submission the reviewer already made is preserved (abstractReviewerId is set null).", params: {
       abstractId: z.string(), userId: z.string(),
     }},
-    { name: "submit_abstract_review", description: "Create or update the current reviewer's submission (upserts on abstractId+reviewerUserId). criteriaScores is a map of {criterionId: score}, each score from 0 to the event's scoring scale (list_review_criteria returns scoreScale: 5, 10 or 100); overallScore 0-100 auto-computed from weighted criteria if omitted. Requires an authenticated user session — NOT available via API-key MCP (returns MCP_API_KEY_NOT_SUPPORTED). Use the /my-reviews portal, the in-app AI agent, or OAuth MCP with a per-user grant.", params: {
+    { name: "submit_abstract_review", description: "Create or update the current reviewer's submission (upserts on abstractId+reviewerUserId). criteriaScores is a map of {criterionId: score}, each score from 0 to the event's scoring scale (list_review_criteria returns scoreScale: 5, 10 or 100); overallScore 0-100 auto-computed from weighted criteria if omitted. Requires an authenticated user session: NOT available via API-key MCP (returns MCP_API_KEY_NOT_SUPPORTED). Use the /my-reviews portal, the in-app AI agent, or OAuth MCP with a per-user grant.", params: {
       abstractId: z.string(),
       criteriaScores: z.record(z.string(), z.number().int().min(0).max(MAX_REVIEW_SCORE_SCALE)).optional().describe("Each criterion's score: a whole number from 0 to the event's scoring scale (5, 10 or 100; list_review_criteria returns it as scoreScale)"),
+      scoreScale: z.number().int().optional().describe("The scale the criteriaScores are given on: 5, 10 or 100. Send the event's scoreScale (from list_review_criteria) whenever criteriaScores is sent. Omitted, the scores are taken as out of 10 and refused on an event that uses another scale"),
       overallScore: z.number().int().min(0).max(100).optional(),
       reviewNotes: z.string().optional(),
       recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
@@ -463,12 +464,13 @@ export function registerAllMcpTools(
       abstractId: z.string(),
       reviewerUserId: z.string().describe("The User.id of the reviewer whose review you are recording"),
       criteriaScores: z.record(z.string(), z.number().int().min(0).max(MAX_REVIEW_SCORE_SCALE)).optional().describe("Each criterion's score: a whole number from 0 to the event's scoring scale (5, 10 or 100; list_review_criteria returns it as scoreScale)"),
+      scoreScale: z.number().int().optional().describe("The scale the criteriaScores are given on: 5, 10 or 100. Send the event's scoreScale (from list_review_criteria) whenever criteriaScores is sent. Omitted, the scores are taken as out of 10 and refused on an event that uses another scale"),
       overallScore: z.number().int().min(0).max(100).optional(),
       reviewNotes: z.string().optional(),
       recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
       confidence: z.number().int().min(1).max(5).optional(),
     }},
-    { name: "get_abstract_scores", description: "Return all reviewer submissions on an abstract plus per-criterion + overall aggregates (mean/min/max, count).", params: {
+    { name: "get_abstract_scores", description: "Return all reviewer submissions on an abstract plus per-criterion + overall aggregates (mean/min/max, count). Criterion scores and the perCriterion figures are out of the returned scoreScale (5, 10 or 100); overallScore and the overall figures are always out of 100.", params: {
       abstractId: z.string(),
     }},
     { name: "create_hotel", description: "Add a hotel.", params: {

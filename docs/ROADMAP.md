@@ -37,6 +37,23 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Abstract scoring scale and bulk status: what the Nov 19 review left (recorded Nov 19, 2026): not started
+
+The organiser chooses what a criterion is scored out of (5, 10 or 100), and sets a status or a type on many abstracts at once (`9fd484fd`; CHANGELOG, Nov 19). Review of `9fd484fd`: 0 BLOCKER, 2 HIGH, 5 MED, 10 LOW. Both HIGHs are fixed in the follow-up commit (a review now names the scale its scores are on and is refused on another; the decision email reports whether it really went), with three MEDs (one abstract failing no longer loses the tally, the scale is returned beside raw criterion scores, the event's counts are refreshed once per request). Left:
+
+1. **MED: the lock is any submitted review, and nothing but a cascade removes one.** A trial review, or one with only notes or only an overall score, fixes the scale for good; the way out is to delete that review's abstract or reviewer account. Counting only reviews that carry criterion scores would be more exact, but a wrong filter on a JSON column unlocks an event that should stay locked, so it wants a test on real Postgres first. Until then: choose the scale before anyone reviews (MEHF had no reviews on Nov 19).
+2. **MED: count, then write, is not one step.** A review submitted in the few milliseconds between the route counting no reviews and saving the new scale is stored on the old scale. The scale a review names closes the wide window (a form left open); this narrow one needs the count taken under the event row's lock.
+3. **LOW: a custom role with `abstracts.update` and without `abstracts.reviewers.assign` cannot reach Set status or type**, because the row tick boxes and the bar render for the second key only. ADMIN and ORGANIZER hold both.
+4. **LOW: a bulk Withdrawn is confirmed in the dialog only.** One API call with `status: "WITHDRAWN"` withdraws up to 500 abstracts for good. Anyone who can make it could withdraw them one by one; a count echoed back by the caller (the certificate send's `CONFIRM_SEND_NOW` shape) would make a mistaken call harmless.
+5. **Test gaps.** Nothing renders the dialog, the settings card or the score editor (its clamp and its preview on each scale); nothing asserts `scoreScale` in the my-reviews answer; the route matrix reaches the scale route's no-change path only.
+6. **Older, found by the review, not changed:**
+   - `{{reviewScore}}` is described as "(0-10)" with a sample of 9 in the template registry and the preview; it is the mean overall score, 0 to 100.
+   - On the single abstract's route, decisions and the override are gated by `abstracts.update` ("Edit abstracts"), not `abstracts.decide`; the bulk route copies it, so its reach is the same.
+   - A single change that sets a status and a type together emails the author the OLD type: the type is written after the email. `presentationType` on `changeAbstractStatus` would fix it if that route passed it.
+   - Several review refusals return unlogged (`INVALID_OVERALL_SCORE`, `INVALID_CONFIDENCE`, `INVALID_REVIEW_NOTES`, `INVALID_CRITERION_ID`, `DUPLICATE_CRITERION_ID`, a body that is not JSON), and `INVALID_CRITERION_SCORE` names the criterion by its id in the reviewer's message.
+   - The user guide says the abstract detail shows each reviewer's per-criterion scores; no dashboard screen renders them.
+   - The reviewer form's "Weighted Score" preview is computed over the criteria scored so far, so it reads 100 / 100 after one criterion at full marks.
+
 ## Reviewer emails in the email dialog: what the Nov 19 review left (recorded Nov 19, 2026): not started
 
 Every reviewer email now opens in the email dialog with Preview, and the invitation is one of its types (`dacfaafd`; CHANGELOG, Nov 19). Review of `dacfaafd`: 0 BLOCKER, 1 HIGH, 5 MED, about 9 LOW. The HIGH (a typed CC or BCC carried a new reviewer's set-password link) and four of the MEDs are fixed in the follow-up commit. Left:

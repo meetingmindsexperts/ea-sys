@@ -50,8 +50,8 @@ export function ReviewCriteriaSettings({ eventId }: ReviewCriteriaSettingsProps)
   async function handleScale(next: ReviewScoreScale) {
     if (next === scale) return;
     try {
-      await setScale.mutateAsync(next);
-      toast.success(`Reviewers now score each criterion from 0 to ${next}`);
+      const saved = await setScale.mutateAsync(next);
+      toast.success(`Reviewers now score each criterion from 0 to ${saved.scale}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save the scoring scale");
     }
@@ -126,7 +126,7 @@ export function ReviewCriteriaSettings({ eventId }: ReviewCriteriaSettingsProps)
                 variant={scale === option ? "secondary" : "ghost"}
                 size="sm"
                 className="h-7 px-3 text-xs"
-                disabled={scaleQuery.isLoading || setScale.isPending || (scaleLocked && scale !== option)}
+                disabled={!scaleQuery.data || setScale.isPending || (scaleLocked && scale !== option)}
                 onClick={() => handleScale(option)}
               >
                 0 to {option}
@@ -134,6 +134,15 @@ export function ReviewCriteriaSettings({ eventId }: ReviewCriteriaSettingsProps)
             ))}
           </div>
         </div>
+        {/* Not yet known is not "0 to 10 and free to change": nothing is offered until the answer is in. */}
+        {scaleQuery.isError && (
+          <p className="text-xs text-destructive">
+            The scoring scale could not be loaded.{" "}
+            <button type="button" className="underline underline-offset-2" onClick={() => void scaleQuery.refetch()}>
+              Retry
+            </button>
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           {scaleLocked
             ? `Fixed at 0 to ${scale}: ${scaleQuery.data?.reviewCount ?? 0} review${scaleQuery.data?.reviewCount === 1 ? " has" : "s have"} been submitted on it.`

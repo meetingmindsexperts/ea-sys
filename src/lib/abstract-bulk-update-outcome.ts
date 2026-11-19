@@ -30,7 +30,6 @@ export interface BulkUpdateReport {
 const SKIP_REASONS: Record<string, string> = {
   INSUFFICIENT_REVIEWS: "Not enough scored reviews yet",
   ABSTRACT_WITHDRAWN: "Withdrawn, which cannot be undone",
-  NOT_SUBMITTED: "Still a draft: the author has not submitted it",
   STATUS_CHANGED: "Changed by someone else at the same moment",
   NOT_FOUND: "No longer on this event",
 };

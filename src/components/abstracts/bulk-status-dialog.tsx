@@ -65,9 +65,21 @@ const KEEP = "keep";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** How many of the ticked abstracts the choice would actually touch. */
+/**
+ * Would the server change this abstract? The same order it uses
+ * (bulkUpdateOne): a status that differs is tried first, and a withdrawn
+ * abstract refuses it, type and all; only with no status to change does a
+ * type alone count.
+ */
+function wouldChange(a: BulkStatusAbstract, status: BulkStatus | null, type: string | null): boolean {
+  const wantsStatus = status !== null && a.status !== status;
+  if (wantsStatus) return a.status !== "WITHDRAWN";
+  return type !== null && a.presentationType !== type;
+}
+
+/** How many of the ticked abstracts the choice can touch. The review-count rule may still skip some. */
 function countAffected(abstracts: BulkStatusAbstract[], status: BulkStatus | null, type: string | null): number {
-  return abstracts.filter((a) => (status !== null && a.status !== status) || (type !== null && a.presentationType !== type)).length;
+  return abstracts.filter((a) => wouldChange(a, status, type)).length;
 }
 
 function applyLabel(busy: boolean, affected: number): string {
@@ -122,11 +134,17 @@ function BulkStatusBody({
   const typeChoices = readEnabledPresentationTypes(eventSettings);
   const affected = countAffected(abstracts, status, type);
   const withdrawn = abstracts.filter((a) => a.status === "WITHDRAWN").length;
+  // The ones a Withdrawn would really withdraw: not those already withdrawn
+  // that a type chosen beside it would also touch.
+  const toWithdraw = abstracts.length - withdrawn;
   const emails = status !== null && EMAILED_STATUSES.includes(status);
   const gated = status !== null && GATED_STATUSES.includes(status);
   const withdrawing = status === "WITHDRAWN";
   const busy = update.isPending;
   const nothingChosen = status === null && type === null;
+  const alreadyAsChosen = abstracts.filter((a) => (status === null || a.status === status) && (type === null || a.presentationType === type)).length;
+  // The review-count rule is the server's to judge: without the override, some may be skipped.
+  const mayBeFewer = gated && !forceStatus && affected > 0;
   const blocked = nothingChosen || affected === 0 || (withdrawing && !withdrawConfirmed);
 
   const numberOf = (id: string) => formatAbstractSerial(abstracts.find((a) => a.id === id)?.serialId ?? null);
@@ -236,7 +254,7 @@ function BulkStatusBody({
           <label htmlFor="bulk-abstract-withdraw" className="flex cursor-pointer items-start gap-2.5 rounded-md border border-red-200 bg-red-50 p-3">
             <Checkbox id="bulk-abstract-withdraw" className="mt-0.5" checked={withdrawConfirmed} onCheckedChange={(c) => setWithdrawConfirmed(c === true)} disabled={busy} />
             <span className="text-sm text-red-900">
-              <span className="font-medium">Withdraw {plural(affected, "abstract", "abstracts")}: this cannot be undone</span>
+              <span className="font-medium">Withdraw {plural(toWithdraw, "abstract", "abstracts")}: this cannot be undone</span>
               <span className="block text-xs">
                 A withdrawn abstract can never be given another status. The authors are not emailed.
               </span>
@@ -246,10 +264,13 @@ function BulkStatusBody({
 
         <div className="rounded-md border p-3 text-sm">
           <p className="font-medium">
-            {nothingChosen ? "Choose a status, a type, or both." : `${plural(affected, "abstract", "abstracts")} of the ${abstracts.length} ticked will change.`}
+            {nothingChosen ? "Choose a status, a type, or both." : `${mayBeFewer ? "Up to " : ""}${plural(affected, "abstract", "abstracts")} of the ${abstracts.length} ticked will change.`}
           </p>
-          {!nothingChosen && affected < abstracts.length && (
-            <p className="text-muted-foreground">The others are already as chosen.</p>
+          {mayBeFewer && (
+            <p className="text-muted-foreground">Any that do not yet have the required reviews are skipped and named.</p>
+          )}
+          {!nothingChosen && alreadyAsChosen > 0 && (
+            <p className="text-muted-foreground">{plural(alreadyAsChosen, "is", "are")} already as chosen.</p>
           )}
           {status !== null && !withdrawing && withdrawn > 0 && (
             <p className="text-amber-700">{plural(withdrawn, "ticked abstract is", "ticked abstracts are")} withdrawn and will be skipped: withdrawn is final.</p>

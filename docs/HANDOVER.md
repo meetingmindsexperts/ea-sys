@@ -319,7 +319,7 @@ The schema lives in `prisma/schema.prisma`. Here are the models and why they exi
 
 **AbstractReviewer** — Per-abstract assignment metadata: role (PRIMARY/SECONDARY/CONSULTING), conflictFlag, assignedBy. Grants review rights on a specific abstract independent of the event-level `reviewerUserIds` pool. Unique on `(abstractId, userId)`.
 
-**AbstractReviewSubmission** — A single reviewer's submission for one abstract. Upserts on `(abstractId, reviewerUserId)` — reviewers edit their own submission without creating duplicates. Fields: `criteriaScores` (JSON map `{criterionId → 0-10}`), `overallScore` (0-100, auto-computed from weighted criteria if omitted), `reviewNotes`, `recommendedFormat`, `confidence` (1-5 self-rated). Optional FK to `AbstractReviewer` (SET NULL cascade — unassigning a reviewer preserves their submission).
+**AbstractReviewSubmission**: a single reviewer's submission for one abstract. Upserts on `(abstractId, reviewerUserId)`, so reviewers edit their own submission without creating duplicates. Fields: `criteriaScores` (JSON map `{criterionId → score}`, each from 0 to the event's scoring scale: 5, 10 or 100, `src/lib/abstract-score.ts`), `overallScore` (0-100, auto-computed from weighted criteria if omitted), `reviewNotes`, `recommendedFormat`, `confidence` (1-5 self-rated). Optional FK to `AbstractReviewer` (SET NULL cascade: unassigning a reviewer preserves their submission).
 
 **Track** — Categories for organizing sessions and abstracts (e.g., "Cardiology", "Oncology"). Has a `color` field for UI display and `sortOrder` for custom ordering.
 

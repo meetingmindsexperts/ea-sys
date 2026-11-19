@@ -886,14 +886,14 @@ Contact ──&gt; organizationId (always org-scoped, auto-synced)</div>
   └── assignedBy: userId
 
 AbstractReviewSubmission (per-reviewer scores)
-  ├── criteriaScores: { [criterionId]: score (0-10) }
+  ├── criteriaScores: { [criterionId]: score (0 to the event's scale: 5, 10 or 100) }
   ├── overallScore: 0-100 (auto-computed)
   ├── reviewNotes: text
   ├── recommendedFormat: ORAL | POSTER | NEITHER
   └── confidence: 1-5</div>
 
   <h3>Weighted Score Computation</h3>
-  <p>Each review criterion has a weight (summing to 100). The algorithm converts per-criterion 0-10 scores into an overall 0-100 score:</p>
+  <p>Each review criterion has a weight (summing to 100). The algorithm converts per-criterion scores into an overall 0-100 score. Since November 19, 2026 each event chooses what a criterion is scored out of (5, 10 or 100; <code>src/lib/abstract-score.ts</code>); the sample below is the 0 to 10 case, and the real function divides by the event's scale:</p>
 <pre><code><span class="kw">function</span> <span class="fn">computeWeightedOverallScore</span>(scores: CriterionScore[]): <span class="tp">number</span> | <span class="tp">null</span> {
   <span class="kw">if</span> (!scores.length) <span class="kw">return null</span>;
 
@@ -1479,7 +1479,7 @@ queryClient.<span class="fn">invalidateQueries</span>({ queryKey: queryKeys.<spa
       <tr><td><strong>MCP</strong></td><td>OAuth 2.1 + PKCE + 57 tools</td><td>SHA-256 hashed tokens; dual auth (API key + OAuth)</td></tr>
       <tr><td><strong>Zoom</strong></td><td>Token cache + encrypted creds</td><td>5-min refresh buffer; Component View for React 19</td></tr>
       <tr><td><strong>Stripe</strong></td><td>Zero-decimal currencies</td><td>Idempotent webhooks via interactive transaction</td></tr>
-      <tr><td><strong>Scoring</strong></td><td>Weighted 0-10 &rarr; 0-100</td><td>Per-reviewer submissions; required review count gate</td></tr>
+      <tr><td><strong>Scoring</strong></td><td>Weighted, per-event scale (5, 10 or 100) &rarr; 0-100</td><td>Per-reviewer submissions; required review count gate</td></tr>
       <tr><td><strong>CSV</strong></td><td>RFC 4180 state machine</td><td>Quoted field handling; 5000-row limit</td></tr>
       <tr><td><strong>Provisioning</strong></td><td>Idempotent create-if-absent</td><td>Anchor session + Zoom + email sequence in one call</td></tr>
       <tr><td><strong>Contact Sync</strong></td><td>Fire-and-forget upsert</td><td>Never throws; failures logged only</td></tr>

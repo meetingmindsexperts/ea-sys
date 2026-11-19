@@ -51,7 +51,7 @@ describe("describeBulkUpdate", () => {
   });
 
   it("nothing changed is said plainly, and a long list is cut with a count", () => {
-    const many = Array.from({ length: 34 }, (_, i) => ({ abstractId: String(i + 1), code: "NOT_SUBMITTED" }));
+    const many = Array.from({ length: 34 }, (_, i) => ({ abstractId: String(i + 1), code: "INSUFFICIENT_REVIEWS" }));
     const report = describeBulkUpdate(totals({ skipped: many }), numberOf);
     expect(report.headline).toBe("Nothing was changed");
     expect(report.lines[0]).toContain("A-30 and 4 more");
