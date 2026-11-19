@@ -31,7 +31,7 @@
 
 **Stage 4. Row security on, for MM Group alone.** A quiet week, the switch and the way back scripted and rehearsed as ONE step (it is three settings on the web containers and the worker: the database role, `RLS_SET_LOCAL=1`, the operator connection; changing only the role blanks every page with no error, MULTI_TENANCY.md §0), then weeks of ordinary use before anything else.
 
-**Stage 5. Accounts per organisation** ([PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md) §6), the largest single piece: today reviewers, submitters and registrants belong to no organisation and an email is unique across the system. MM Group's existing accounts move with it.
+**Stage 5. Accounts per organisation** ([PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md) §6), the largest single piece. **Revised Nov 19, 2026: doctors keep ONE account across the organisers of a network (Medhat and the owner); accounts per organisation now applies to staff and to an organiser outside the network. Read the box at the top of §6 before planning this stage; most of what follows is about staff.** As first written: today reviewers, submitters and registrants belong to no organisation and an email is unique across the system. MM Group's existing accounts move with it.
 
 **Stage 6. What was built for a single organisation.** HR and the contacts sync; the single stream server; the CRM's shared reply mailbox; identifiers that are unique across the system (entry barcodes, DTCM codes, payment ids); per-organisation email sending (decided, not built); refusing an unknown address (`TENANCY_ENFORCE_HOST`); an organisation of its own for the operator.
 

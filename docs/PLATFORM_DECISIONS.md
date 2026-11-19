@@ -298,6 +298,71 @@ see **zero rows** from any tenant lane under platform RLS:
 
 ## 6. Phase-1 identity model — ✅ DECIDED (Aug 21, 2026)
 
+> **REVISED Nov 19, 2026 (the owner and Medhat). Read this box first: it changes
+> who the decision below applies to.**
+>
+> **The question put to Medhat:** will we ever want one doctor network across all
+> organisers, where a doctor has one login and sees events and certificates from
+> every organiser in one place? **His answer: yes.** Confirmed the same day: "go
+> ahead with one doctor and one access, but we prepare for true multi tenancy as
+> well."
+>
+> **The ruling, as recorded:**
+>
+> 1. **A doctor has ONE account across the organisers of a network.** This covers
+>    every external account: attendees, submitters and reviewers. There is one
+>    network today. Its name is not decided; "Meeting Minds Experts" is the
+>    existing doctor-facing brand.
+> 2. **True multi-tenancy stays a requirement.** An organiser OUTSIDE the network
+>    (another industry, or one that will not share) gets its own separate
+>    attendee accounts, which is the Aug 21 decision below, as written. The rule
+>    that holds both: **accounts are shared inside a network and never across
+>    networks, and an organiser is in at most one network.**
+> 3. **Staff belong to one organisation.** A named few are universal (the owner,
+>    Medhat, Lina, Vivek): they are platform operators, which is the model
+>    already built (§5, and the operator's door further down this section).
+> 4. **Reaching across organisers is by our permission only** (owner, Nov 19:
+>    "only those who we give permission to can access all events across all
+>    organizers"). *Reading to confirm with the owner:* an organiser joins the
+>    network only when we admit it, and a staff member is universal only when we
+>    name them. Nobody gets either by default.
+>
+> **What this changes in the reasoning below.** The Aug 21 decision still stands
+> for staff and for an organiser outside a network. For doctors inside one, the
+> Membership-style shared account that "lost" is now accepted knowingly, with its
+> cost: a shared account shares a password (reason 1). The reversibility note
+> now works in our favour: shared to separate is the easy direction, so an
+> organiser can be moved out of a network later.
+>
+> **Nothing is built and nothing changes in production.** Production already
+> holds every doctor as an account with no organisation and an email unique
+> across the system, and the constraint built on Aug 21 (`NULLS NOT DISTINCT`)
+> already allows such accounts beside per-organisation ones.
+>
+> **To settle before any of it is built** (each found by checking the code on
+> Nov 19):
+> - "One place" is a NEW read across organisations. The doctor's portal reads
+>   inside one organisation's lane today (`api/registrant/registrations`), so the
+>   cross-organiser list must be one narrow, heavily tested function limited to
+>   the person's own records.
+> - Staff can change a doctor's sign-in email today (`cascadeLinkedUserEmail` in
+>   `src/lib/email-change.ts`). With shared accounts that reaches other
+>   organisers: staff may correct the registration's address, not the account's.
+> - `EMAIL_IN_OTHER_ORG` ("This email already belongs to a user in another
+>   organization") tells one organiser that a person is known to another.
+> - Records made by a doctor's account stay without an organisation (§3): kept,
+>   and visible to the platform operator only.
+> - The account's data becomes the platform's responsibility: a network privacy
+>   notice and consent, and a legal check.
+> - The network needs its own profile questions; each registration keeps the
+>   organiser's own answers (§10).
+> - A stronger sign-in for doctors is worth offering, since one password now
+>   opens every organiser's records for that person.
+>
+> **Open:** the network's name; how an organiser is admitted; the network
+> grouping itself is not designed (no table, no column). It is needed only when
+> the first organiser outside the network is real.
+
 **Decision: per-tenant accounts, enforced by a column.** `User.organizationId`
 becomes **required**, and email uniqueness moves from global to
 **`@@unique([organizationId, email])`**. The same address in two tenants is two
