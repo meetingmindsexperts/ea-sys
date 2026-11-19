@@ -31,11 +31,10 @@ import { MAX_MANUAL_ATTACHMENTS } from "@/lib/email-attachment-limits";
  *     → `cc`, `bcc`, `bccSelf` and `attachments` are the organiser's own
  *       additions from the email dialog, with the limits and the rules of
  *       every other send (resolveBulkObservers, resolveStoredAttachments):
- *       attached to every invitation of the send, and copied on those of
- *       reviewers who can already sign in. A new reviewer's email carries
- *       their set-password link and is never copied to a typed address
- *       (sendReviewerInvitation withholds them). A request that carries on
- *       (`after`) must carry them again.
+ *       attached to and copied on every invitation of the send. A copy of a
+ *       new reviewer's email carries their set-password link (owner, Nov 19,
+ *       2026: accepted, see sendReviewerInvitation's `extras`). A request
+ *       that carries on (`after`) must carry them again.
  *
  * Each press goes to everyone, including people already emailed: nothing
  * records who was sent what, and a second press is how an organiser reminds

@@ -239,16 +239,15 @@ describe("sendReviewerInvitation: what the organiser added in the email dialog",
     expect(sent().bcc).toBeUndefined();
   });
 
-  // Review of dacfaafd (HIGH): whoever is copied on a set-password email
-  // holds a working credential for that reviewer, and using it confirms the
-  // address. One tick ("Send me a copy") must never do that.
-  it("a NEW reviewer's email is never copied to a typed CC or BCC; the attachment still goes, and the event's own CC is unchanged", async () => {
+  // Owner, Nov 19, 2026: CC is for documenting and BCC is internal, so a new
+  // reviewer's email (set-password link and all) is copied like any other.
+  // The review of dacfaafd had withheld those copies; the owner accepted the risk.
+  it("a NEW reviewer's email is copied to the typed CC and BCC too, set-password link and all", async () => {
     expect(await sendReviewerInvitation({ ...args(NEW_REVIEWER), extras: { manualCc: ["chair@x.com"], bcc: ["me@x.com"], attachments: [FILE] } })).toEqual({ ok: true, kind: "setup" });
     expect(sent().htmlContent).toContain("/accept-invitation?token=");
-    expect(sent().cc).toEqual([{ email: "ops@example.com" }]);
-    expect(sent().bcc).toBeUndefined();
+    expect(sent().cc).toEqual([{ email: "ops@example.com" }, { email: "chair@x.com" }]);
+    expect(sent().bcc).toEqual([{ email: "me@x.com" }]);
     expect(sent().attachments).toEqual([FILE]);
-    expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "reviewer-invitation:copies-withheld", withheld: 2 }));
   });
 
   it("with nothing added, the email is what it always was: no BCC, no attachment", async () => {

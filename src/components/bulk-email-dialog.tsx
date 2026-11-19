@@ -1370,14 +1370,13 @@ export function BulkEmailDialog({
           </div>
           </div>
 
-          {/* A new reviewer's email carries the link that sets their password,
-              so the sender never copies it to a typed address. Said when a
-              copy is actually asked for. */}
+          {/* A copy of a new reviewer's email carries the link that sets their
+              password (owner, Nov 19, 2026: accepted). Said when a copy is
+              actually asked for. */}
           {isReviewerInvitation && (ccInput.trim() || bccInput.trim() || bccSelf) && (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Copies go only with the emails of reviewers who can already sign in. A reviewer who has no
-              password yet is sent a personal link to set one, and that email is not copied to anyone you add
-              here. Attachments go to everyone.
+              A reviewer who has no password yet is sent a personal link to set one. Everyone you copy here,
+              on CC or BCC, receives that link too: copy only people you would trust with it.
             </p>
           )}
 

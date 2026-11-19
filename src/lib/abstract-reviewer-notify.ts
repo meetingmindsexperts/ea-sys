@@ -164,13 +164,14 @@ export interface ReviewerInvitationArgs {
    * caller has already cleaned the addresses (resolveBulkObservers) and read
    * the files (resolveStoredAttachments).
    *
-   * The copies go ONLY with the portal form of the email. A new reviewer's
+   * The copies go with BOTH forms of the email (owner, Nov 19, 2026: "CC is
+   * for documenting and BCC is internal, so it is fine"). A new reviewer's
    * email carries the link that sets their password and confirms their
-   * address, so a typed CC or BCC, or "Send me a copy", would hand whoever is
-   * copied a working credential for that reviewer (review of dacfaafd, Nov
-   * 19, 2026: one tick for anyone holding the reviewers key). The attachments
-   * go with both forms. The event's own CC list and the reviewer's additional
-   * email are unchanged (owner, Nov 10, 2026).
+   * address, so whoever is copied receives a working link for that reviewer.
+   * The review of dacfaafd rated that HIGH and the copies were withheld for a
+   * few hours; the owner accepted the risk, as for the event's own CC list and
+   * the reviewer's additional email (owner, Nov 10, 2026). The dialog says so
+   * when a copy is asked for. Do not withhold them again without asking.
    */
   extras?: { manualCc?: string[]; bcc?: string[]; attachments?: ResolvedAttachment[] };
 }
@@ -215,16 +216,12 @@ export async function sendReviewerInvitation(args: ReviewerInvitationArgs): Prom
     const built = await renderReviewerInvitation(args, tpl, minted?.link ?? null);
 
     const to = [{ email: reviewer.email, name: `${reviewer.firstName ?? ""} ${reviewer.lastName ?? ""}`.trim() || reviewer.email }];
-    const copies = dialogCopies(args.extras, kind);
-    if (copies.withheld > 0) {
-      apiLogger.info({ msg: "reviewer-invitation:copies-withheld", eventId, reviewerUserId: reviewer.id, withheld: copies.withheld });
-    }
-    const cc = brandingCc(built.branding, to, [built.additionalEmail, ...copies.manualCc]);
+    const cc = brandingCc(built.branding, to, [built.additionalEmail, ...(args.extras?.manualCc ?? [])]);
     const result = await sendEmail({
       to,
       cc,
       // Nobody is BCC'd on an email they already get (the bulk sends' rule).
-      bcc: observerBcc(copies.bcc, reviewer, cc),
+      bcc: observerBcc(args.extras?.bcc ?? [], reviewer, cc),
       attachments: args.extras?.attachments?.length ? args.extras.attachments : undefined,
       ...built.rendered,
       from: brandingFrom(built.branding),
@@ -255,20 +252,6 @@ export async function sendReviewerInvitation(args: ReviewerInvitationArgs): Prom
     if (minted) await discardSetupLink(minted, ctx);
     return { ok: false, code: "SEND_FAILED", message: "The email could not be sent" };
   }
-}
-
-/**
- * The organiser's typed CC and BCC for ONE reviewer's email: all of them on
- * the portal form, none on the set-password form (see `extras`).
- */
-function dialogCopies(
-  extras: ReviewerInvitationArgs["extras"],
-  kind: "setup" | "portal",
-): { manualCc: string[]; bcc: string[]; withheld: number } {
-  const manualCc = extras?.manualCc ?? [];
-  const bcc = extras?.bcc ?? [];
-  if (kind === "setup") return { manualCc: [], bcc: [], withheld: manualCc.length + bcc.length };
-  return { manualCc, bcc, withheld: 0 };
 }
 
 type InvitationTemplate = NonNullable<Awaited<ReturnType<typeof getEventTemplate>>> | NonNullable<ReturnType<typeof getDefaultTemplate>>;
