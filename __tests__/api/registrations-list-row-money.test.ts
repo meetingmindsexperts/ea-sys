@@ -13,6 +13,8 @@ const { mockDb, mockOrgCtx, mockRateLimit } = vi.hoisted(() => ({
     registration: { findMany: vi.fn(), findFirst: vi.fn() },
     // The surveys each row answered (several surveys, Phase 2).
     surveyResponse: { findMany: vi.fn().mockResolvedValue([]) },
+    // Each row's abstract outcome and place on the programme (author-facts.ts): none here.
+    speaker: { findMany: vi.fn().mockResolvedValue([]) },
     survey: { findFirst: vi.fn() },
   },
   mockOrgCtx: vi.fn(),

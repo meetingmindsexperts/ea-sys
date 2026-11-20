@@ -34,6 +34,8 @@ const {
     invoice: { groupBy: vi.fn().mockResolvedValue([]) },
     // The surveys each row answered (several surveys, Phase 2).
     surveyResponse: { findMany: vi.fn().mockResolvedValue([]) },
+    // Each row's abstract outcome and place on the programme (author-facts.ts): none here.
+    speaker: { findMany: vi.fn().mockResolvedValue([]) },
   },
   mockRecordExport: vi.fn(),
   mockCanViewFinance: vi.fn(() => true),

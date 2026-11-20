@@ -1,3 +1,4 @@
+import type { AbstractOutcome, SpeakerPlace } from "@/lib/author-facts";
 import type { PaymentStatus, RegistrationStatus } from "@prisma/client";
 
 export interface Attendee {
@@ -158,6 +159,9 @@ export interface Registration {
   completedAt?: string | null;
   /** What the type asks for that this registration does not hold (type-evidence.ts); never the values. */
   missingEvidence?: string[];
+  /** The person's abstracts summed up, and their place on the programme (author-facts.ts); absent for a reader without abstracts.read and speakers.read. */
+  abstractOutcome?: AbstractOutcome | null;
+  speakerPlace?: SpeakerPlace | null;
   checkedInAt: string | null;
   /** First time this registrant entered the webinar lobby / joined (presence). */
   webinarFirstJoinedAt?: string | null;

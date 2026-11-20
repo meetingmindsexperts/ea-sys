@@ -1,6 +1,6 @@
 # Abstract authors are not Faculty: registration and the Presenter mark
 
-**Status: IN BUILD.** Steps 1 and 4a built Nov 20, 2026; the rest not started. Owner, Nov 19, 2026. Amends decision D4 of
+**Status: IN BUILD.** Steps 1, 2 and 4a built Nov 20, 2026; the rest not started. Owner, Nov 19, 2026. Amends decision D4 of
 [PRESENTER_REGISTRATION_PLAN.md](PRESENTER_REGISTRATION_PLAN.md); everything else
 in that plan stands.
 
@@ -141,7 +141,11 @@ event without presenter rates creates no Faculty registration; a session
 proposal is unchanged; staff adding a speaker still gets the Faculty companion.
 
 **Step 2. The Abstract and Speaker filters on Registrations, and the Presenter
-mark** on each row of an accepted author. One shared reader answers "what is
+mark** on each row of an accepted author. BUILT Nov 20, 2026
+(`src/lib/author-facts.ts`; the mark reads "Accepted presenter", because the
+rate beside it is often named Presenter too). NOT built with it: the count of
+accepted authors who have no registration at all. They are not rows of this
+page; it belongs on the authors list of step 5. One shared reader answers "what is
 this person's abstract outcome" for the filter, the mark, the count and the
 Speakers page (step 5). Also a count: "Accepted authors without a
 registration", so nobody arrives with no badge.

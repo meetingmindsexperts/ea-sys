@@ -16,6 +16,8 @@ Submitting an abstract used to give the author a free Faculty registration on an
 - **Changes on deploy:** HEMNET 2026 (abstracts open, no presenter rates) starts asking authors for a type and quotes Early Bird. Authors already on Faculty are not moved.
 - First step of [docs/ABSTRACT_AUTHOR_REGISTRATION_PLAN.md](docs/ABSTRACT_AUTHOR_REGISTRATION_PLAN.md) (steps 1 and 4a).
 
+**Find authors and speakers on Registrations.** Two new filters beside the others: **Abstract** (accepted, awaiting a decision, rejected, signed up with nothing submitted, no abstract) and **Speaker** (on the programme, a speaker record only, not a speaker). They combine with type, payment and status ("rejected and unpaid", "a speaker on a delegate type"), the CSV export follows them, and a row whose person has an accepted abstract is marked **Accepted presenter**. Nothing is stored: the answer is read from the abstracts and the programme each time, so it is never out of date. Shown to staff who can open the Abstracts and Speakers pages. (Step 2 of the plan.)
+
 ### The author's requested presentation type is kept (November 19)
 
 An abstract had one presentation type. The author chose it on the submission form, and when an organiser set the type (Set status or type, or the edit page) it replaced the author's choice, with nothing left to show what the author had asked for. Now the two are kept apart:

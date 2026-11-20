@@ -96,6 +96,16 @@ import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { excludedAsNoBalance, excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
+import {
+  ABSTRACT_FILTER_LABELS,
+  ABSTRACT_FILTER_VALUES,
+  SPEAKER_FILTER_LABELS,
+  SPEAKER_FILTER_VALUES,
+  matchesAbstractFilter,
+  matchesSpeakerFilter,
+  type AbstractFilter,
+  type SpeakerFilter,
+} from "@/lib/author-facts";
 import { AssignCertificateDialog } from "@/components/certificates/assign-certificate-dialog";
 import {
   Dialog,
@@ -336,6 +346,10 @@ export default function RegistrationsPage() {
   const [completionFilter, setCompletionFilter] = useState<"all" | "pending" | "done">("all");
   // The type's ID and document (type-evidence.ts): "missing" = asked for and not held.
   const [evidenceFilter, setEvidenceFilter] = useState<"all" | "missing">("all");
+  // Abstract outcome and place on the programme (author-facts.ts): read from the
+  // abstracts and sessions, so "presenters" is a filter, never a type to keep in step.
+  const [abstractFilter, setAbstractFilter] = useState<AbstractFilter | "all">("all");
+  const [speakerFilter, setSpeakerFilter] = useState<SpeakerFilter | "all">("all");
   // Several registration types at once (owner, Oct 27); empty means every type.
   const [ticketFilters, setTicketFilters] = useState<string[]>([]);
   // "Answered / Not answered <survey>" (several surveys, Phase 2): client-side
@@ -402,6 +416,8 @@ export default function RegistrationsPage() {
         if (paymentFilter !== "all") p.set("paymentStatus", paymentFilter);
         if (completionFilter !== "all") p.set("completion", completionFilter);
         if (evidenceFilter !== "all") p.set("evidence", evidenceFilter);
+        if (abstractFilter !== "all") p.set("abstract", abstractFilter);
+        if (speakerFilter !== "all") p.set("speaker", speakerFilter);
         if (ticketFilters.length > 0) p.set("ticketTypeId", ticketFilters.join(","));
       }
       // The tag filter is applied SERVER-side on the table's own query
@@ -448,12 +464,17 @@ export default function RegistrationsPage() {
     const matchesSurvey = matchesSurveyResponded(r.answeredSurveyIds, surveyFilter);
     const matchesCompletion = matchesCompletionFilter(r, completionFilter);
     const matchesEvidence = evidenceFilter === "all" || (r.missingEvidence?.length ?? 0) > 0;
+    const matchesAuthor =
+      matchesAbstractFilter(r.abstractOutcome, abstractFilter === "all" ? null : abstractFilter) &&
+      matchesSpeakerFilter(r.speakerPlace, speakerFilter === "all" ? null : speakerFilter);
 
-    return matchesSearch && matchesStatus && matchesPayment && matchesTicket && matchesSurvey && matchesCompletion && matchesEvidence;
+    return matchesSearch && matchesStatus && matchesPayment && matchesTicket && matchesSurvey && matchesCompletion && matchesEvidence && matchesAuthor;
   });
+  // The rows carry these only for a reader who may see abstracts and speakers here.
+  const showsAuthorFilters = registrations.some((r) => r.abstractOutcome !== undefined);
   // The bulk send cannot express the form filter or the ID and document filter, so with either on
   // "Email" sends to exactly the listed rows.
-  const completionNarrowed = completionFilter !== "all" || evidenceFilter !== "all";
+  const completionNarrowed = completionFilter !== "all" || evidenceFilter !== "all" || abstractFilter !== "all" || speakerFilter !== "all";
   // The filters the bulk send DOES carry (the dialog's starting filters below).
   const listFiltered = statusFilter !== "all" || paymentFilter !== "all" || ticketFilters.length > 0 || tagFilter.length > 0 || surveyFilter !== null;
   // "Email All" leaves for Communications only when that page will open: it is
@@ -940,6 +961,32 @@ export default function RegistrationsPage() {
                 <SelectItem value="missing">Missing ID or document</SelectItem>
               </SelectContent>
             </Select>
+            {showsAuthorFilters && (
+              <>
+                <Select value={abstractFilter} onValueChange={(v) => { setAbstractFilter(v as AbstractFilter | "all"); setPage(1); }}>
+                  <SelectTrigger className="w-[230px]" aria-label="Abstract">
+                    <SelectValue placeholder="Abstract" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any abstract</SelectItem>
+                    {ABSTRACT_FILTER_VALUES.map((v) => (
+                      <SelectItem key={v} value={v}>{ABSTRACT_FILTER_LABELS[v]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={speakerFilter} onValueChange={(v) => { setSpeakerFilter(v as SpeakerFilter | "all"); setPage(1); }}>
+                  <SelectTrigger className="w-[220px]" aria-label="Speaker">
+                    <SelectValue placeholder="Speaker" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Speaker or not</SelectItem>
+                    {SPEAKER_FILTER_VALUES.map((v) => (
+                      <SelectItem key={v} value={v}>{SPEAKER_FILTER_LABELS[v]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
             <MultiSelect
               className="w-[220px]"
               options={(ticketTypes as TicketType[]).map((t) => ({ value: t.id, label: t.name }))}
@@ -1003,6 +1050,8 @@ export default function RegistrationsPage() {
                 setPaymentFilter("all");
                 setCompletionFilter("all");
                 setEvidenceFilter("all");
+                setAbstractFilter("all");
+                setSpeakerFilter("all");
                 setTicketFilters([]);
                 setSurveyFilter(null);
               }}
@@ -1125,6 +1174,14 @@ export default function RegistrationsPage() {
                             title={`Group registration — coordinator ${registration.group.coordinatorName}.`}
                           >
                             Group
+                          </Badge>
+                        )}
+                        {/* Read from the abstracts, never stored: an accepted abstract makes a presenter.
+                            Not just "Presenter": the rate in the next column is often named that too,
+                            for everyone who signed up to submit, accepted or not. */}
+                        {registration.abstractOutcome === "accepted" && (
+                          <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200" title="This person has an accepted abstract">
+                            Accepted presenter
                           </Badge>
                         )}
                         {registration.group && canExport && (
@@ -1326,7 +1383,7 @@ export default function RegistrationsPage() {
               />
               <p className="text-xs text-muted-foreground">
                 Matches a registration #, the full registration ID, or the attendee email.
-                {(statusFilter !== "all" || paymentFilter !== "all" || completionFilter !== "all" || evidenceFilter !== "all" || ticketFilters.length > 0 || tagFilter.length > 0 || sponsorFilter !== "" || surveyFilter)
+                {(statusFilter !== "all" || paymentFilter !== "all" || completionFilter !== "all" || evidenceFilter !== "all" || abstractFilter !== "all" || speakerFilter !== "all" || ticketFilters.length > 0 || tagFilter.length > 0 || sponsorFilter !== "" || surveyFilter)
                   ? " Note: only currently-loaded rows are matched — clear filters to match across all registrations."
                   : ""}
               </p>

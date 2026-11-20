@@ -43,6 +43,8 @@ import { getSponsorNameMap } from "@/lib/sponsors";
 import { certificatesByRegistration, loadRecipientReport } from "@/lib/certificates/recipients-report";
 import { parseSerialQuery } from "@/lib/registration-search";
 import { completionWhereFor } from "@/lib/registration-completion";
+import { isAbstractFilter, isSpeakerFilter, matchesAbstractFilter, matchesSpeakerFilter } from "@/lib/author-facts";
+import { loadAuthorFacts } from "@/lib/author-facts-server";
 import { ensureFacultyTicketType } from "@/lib/speaker-companion";
 import { COMMITTEE_ROLES, facultyBadgeType, withCommitteeTags } from "@/lib/faculty-registration";
 import { createRegistration } from "@/services/registration-service";
@@ -227,6 +229,20 @@ export async function GET(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
+    // The Abstract and Speaker filters (author-facts.ts): the export sends them
+    // so the file matches the screen. They are applied to the rows below, by
+    // the same function that labels each row, never as a second rule in SQL.
+    const abstractParam = searchParams.get("abstract");
+    const speakerParam = searchParams.get("speaker");
+    if ((abstractParam && !isAbstractFilter(abstractParam)) || (speakerParam && !isSpeakerFilter(speakerParam))) {
+      apiLogger.warn({ msg: "events/registrations:invalid-author-filter", eventId, abstract: abstractParam, speaker: speakerParam });
+      return NextResponse.json(
+        { error: "Invalid abstract or speaker filter", code: "INVALID_FILTER" },
+        { status: 400 },
+      );
+    }
+    const abstractFilter = abstractParam && isAbstractFilter(abstractParam) ? abstractParam : null;
+    const speakerFilter = speakerParam && isSpeakerFilter(speakerParam) ? speakerParam : null;
     // Both filters are AND lists; merged, so neither spread drops the other.
     const andFilters = [
       ...((completionWhere.AND as Prisma.RegistrationWhereInput[] | undefined) ?? []),
@@ -545,6 +561,21 @@ export async function GET(req: Request, { params }: RouteParams) {
     const canReadSurveys =
       !orgCtx.fromApiKey && eventFacts !== null && can(gate.principal, "surveys.read", { event: eventFacts });
     const answeredSurveysPromise = canReadSurveys ? answeredSurveysByRegistration(eventId) : null;
+    // Each row's abstract outcome and place on the programme (author-facts.ts),
+    // for people who may read abstracts and speakers on THIS event. Never for
+    // an API key, as with the surveys above: an integration's payload stays as
+    // it was. A filter asked for without that access is refused, never
+    // ignored: an ignored filter returns the whole list as if it were the subset.
+    const canReadAuthorFacts =
+      !orgCtx.fromApiKey &&
+      eventFacts !== null &&
+      can(gate.principal, "abstracts.read", { event: eventFacts }) &&
+      can(gate.principal, "speakers.read", { event: eventFacts });
+    if ((abstractFilter || speakerFilter) && !canReadAuthorFacts) {
+      apiLogger.warn({ msg: "events/registrations:author-filter-not-permitted", eventId, userId: orgCtx.userId, fromApiKey: orgCtx.fromApiKey });
+      return NextResponse.json({ error: "You cannot filter by abstract or speaker on this event", code: "FILTER_NOT_PERMITTED" }, { status: 403 });
+    }
+    const authorFactsPromise = canReadAuthorFacts ? loadAuthorFacts(eventId) : null;
 
     const cancelledPaid = registrations.filter(
       (r) => r.status === "CANCELLED" && r.paymentStatus === "PAID",
@@ -600,7 +631,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       taxLabel: event.taxLabel ?? null,
     };
     const answeredByReg = answeredSurveysPromise ? await answeredSurveysPromise : null;
-    const withMoney = flagged.map((r) => {
+    const authorFactsFor = authorFactsPromise ? await authorFactsPromise : null;
+    // The Abstract and Speaker filters, judged by the same function that labels each row.
+    const narrowed =
+      authorFactsFor && (abstractFilter || speakerFilter)
+        ? flagged.filter((r) => {
+            const facts = authorFactsFor(r);
+            return matchesAbstractFilter(facts.abstractOutcome, abstractFilter) && matchesSpeakerFilter(facts.speakerPlace, speakerFilter);
+          })
+        : flagged;
+    const withMoney = narrowed.map((r) => {
       // What the person's type asks for and the row does not hold, computed
       // here so the filter works for readers whose rows lose the document path
       // (supportingDocs.view) and so the ID numbers themselves never leave.
@@ -614,6 +654,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         missingEvidence,
         rowMoney: computeRegistrationRowMoney(r, moneyCtx),
         ...(answeredByReg ? { answeredSurveyIds: answeredByReg.get(r.id) ?? [] } : {}),
+        ...(authorFactsFor ? authorFactsFor(r) : {}),
       };
     });
 
@@ -703,6 +744,8 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(paymentStatus ? { paymentStatus } : {}),
           ...(completionParam ? { completion: completionParam } : {}),
           ...(evidenceParam ? { evidence: evidenceParam } : {}),
+          ...(abstractFilter ? { abstract: abstractFilter } : {}),
+          ...(speakerFilter ? { speaker: speakerFilter } : {}),
           ...(ticketTypeId ? { ticketTypeId } : {}),
         },
       });
@@ -767,6 +810,8 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(ticketTypeId ? { ticketTypeId } : {}),
           ...(completionParam ? { completion: completionParam } : {}),
           ...(evidenceParam ? { evidence: evidenceParam } : {}),
+          ...(abstractFilter ? { abstract: abstractFilter } : {}),
+          ...(speakerFilter ? { speaker: speakerFilter } : {}),
           ...(tagsFilter.length > 0 ? { tags: tagsFilter } : {}),
           // The raw search term is NOT stored. Operators search full names and
           // email addresses, and `AuditLog` has no prune job and survives a
