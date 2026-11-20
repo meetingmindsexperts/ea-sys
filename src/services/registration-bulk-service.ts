@@ -18,8 +18,17 @@
  * each row's change, not once for the whole run: a desk payment taken while a
  * long run is under way must be seen (review of 345400df).
  *
- * "Make presenters" (an accepted author becomes Complimentary with a
- * Presenter badge) is nothing more than a call of this with both fields.
+ * "MAKE PRESENTERS" IS ONE PRESET OF THIS, with the two things that are true
+ * of a presenter whichever screen asks (found by running the whole journey,
+ * Nov 20, 2026: the Abstracts side had them and the Registrations side did
+ * not, so ticking everyone under "Abstract accepted" turned an invited
+ * speaker's Faculty badge into Presenter):
+ *   - a registration on the event's FACULTY type is an invited speaker's or a
+ *     committee member's: already free, badge Faculty, left exactly as it is;
+ *   - a badge type someone set by hand (Exhibitor, Committee) is kept: the
+ *     registration is made Complimentary and the badge is named, not replaced.
+ * Setting a badge type or a payment status by hand, without the preset, does
+ * exactly what was asked on every row.
  *
  * Works for a bounded time per call and answers `remaining`; the caller sends
  * those again. Errors as values; never imports next/server.
@@ -27,6 +36,7 @@
 import { PaymentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { PRESENTER_BADGE_TYPE } from "@/lib/author-facts";
 import { refreshEventStats } from "@/lib/event-stats";
 import { cancelRegistration } from "@/services/payment-service";
 import { updateRegistration } from "@/services/registration-service";
@@ -53,6 +63,8 @@ export interface BulkUpdateRegistrationsInput {
   /** A badge type to set; an empty string clears it. Omit to leave it. */
   badgeType?: string;
   cancel?: boolean;
+  /** Complimentary with a Presenter badge, by the presenter rules in the header. Not with the fields above. */
+  preset?: "presenters";
   source: "rest" | "mcp" | "agent";
   requestIp?: string | null;
   /** How long one call may work (ms). */
@@ -67,6 +79,10 @@ export type BulkRegistrationSkipCode =
   | "GROUP_MEMBER"
   /** A card payment may be in progress in an open checkout. */
   | "CHECKOUT_OPEN"
+  /** The presenters preset: on the Faculty type, so left exactly as it is. */
+  | "FACULTY"
+  /** The presenters preset: a badge type set by hand was kept. */
+  | "BADGE_KEPT"
   /** The single change refused it; `message` carries its own words. */
   | "REFUSED";
 
@@ -76,6 +92,8 @@ export interface BulkRegistrationSkip {
   part: "paymentStatus" | "badgeType" | "cancel" | "all";
   code: BulkRegistrationSkipCode;
   message: string;
+  /** For BADGE_KEPT: the badge type that was kept. */
+  badgeType?: string;
 }
 
 export type BulkUpdateRegistrationsResult =
@@ -92,6 +110,7 @@ const ROW_SELECT = {
   refundedAmount: true,
   stripeCheckoutSessionId: true,
   updatedAt: true,
+  ticketType: { select: { isFaculty: true } },
   _count: { select: { payments: true, invoices: { where: { status: { not: "CANCELLED" } } } } },
 } as const;
 
@@ -104,6 +123,7 @@ type Row = {
   refundedAmount: unknown;
   stripeCheckoutSessionId: string | null;
   updatedAt: Date;
+  ticketType: { isFaculty: boolean } | null;
   _count: { payments: number; invoices: number };
 };
 
@@ -138,7 +158,7 @@ type RowOutcome = { changed: boolean; skips: BulkRegistrationSkip[] };
 /** One registration: what applies to it, through the single registration's own paths. */
 async function bulkUpdateOne(input: BulkUpdateRegistrationsInput, registrationId: string): Promise<RowOutcome> {
   const skips: BulkRegistrationSkip[] = [];
-  const skip = (part: BulkRegistrationSkip["part"], refusal: { code: BulkRegistrationSkipCode; message: string }) =>
+  const skip = (part: BulkRegistrationSkip["part"], refusal: { code: BulkRegistrationSkipCode; message: string; badgeType?: string }) =>
     skips.push({ registrationId, part, ...refusal });
 
   // Read NOW, immediately before this row's change, and scoped to the event
@@ -175,8 +195,20 @@ async function bulkUpdateOne(input: BulkUpdateRegistrationsInput, registrationId
     return { changed: result.ok, skips };
   }
 
-  const wantsPayment = input.paymentStatus !== undefined && row.paymentStatus !== input.paymentStatus;
-  const wantsBadge = input.badgeType !== undefined && (row.badgeType ?? "") !== input.badgeType;
+  const presenters = input.preset === "presenters";
+  if (presenters && row.ticketType?.isFaculty) {
+    skip("all", { code: "FACULTY", message: "Invited faculty: already free, with a Faculty badge. Left as it is." });
+    return { changed: false, skips };
+  }
+  const paymentTarget = presenters ? PaymentStatus.COMPLIMENTARY : input.paymentStatus;
+  const badgeTarget = presenters ? PRESENTER_BADGE_TYPE : input.badgeType;
+  const ownBadge = (row.badgeType ?? "").trim();
+  // The preset never replaces a badge type someone set by hand.
+  const badgeKept = presenters && ownBadge !== "" && ownBadge !== PRESENTER_BADGE_TYPE;
+  if (badgeKept) skip("badgeType", { code: "BADGE_KEPT", message: `Its badge type was kept: ${ownBadge}.`, badgeType: ownBadge });
+
+  const wantsPayment = paymentTarget !== undefined && row.paymentStatus !== paymentTarget;
+  const wantsBadge = !badgeKept && badgeTarget !== undefined && (row.badgeType ?? "") !== badgeTarget;
   const paymentRefusal = money ?? checkoutRefusal(row);
   if (wantsPayment && paymentRefusal) skip("paymentStatus", paymentRefusal);
   const setPayment = wantsPayment && !paymentRefusal;
@@ -192,8 +224,8 @@ async function bulkUpdateOne(input: BulkUpdateRegistrationsInput, registrationId
     // Someone who edited this registration since the list was read wins: the row is skipped, not overwritten.
     expectedUpdatedAt: row.updatedAt.toISOString(),
     skipStatsRefresh: true,
-    ...(setPayment && { paymentStatus: input.paymentStatus }),
-    ...(wantsBadge && { badgeType: input.badgeType === "" ? null : input.badgeType }),
+    ...(setPayment && { paymentStatus: paymentTarget }),
+    ...(wantsBadge && { badgeType: badgeTarget === "" ? null : badgeTarget }),
   });
   if (!result.ok) {
     // One write carried both parts, so neither was done.
@@ -212,7 +244,7 @@ export async function bulkUpdateRegistrations(input: BulkUpdateRegistrationsInpu
   };
   try {
     const ids = [...new Set(input.registrationIds)];
-    const nothingAsked = input.paymentStatus === undefined && input.badgeType === undefined && !input.cancel;
+    const nothingAsked = input.paymentStatus === undefined && input.badgeType === undefined && !input.cancel && !input.preset;
     if (ids.length === 0 || nothingAsked) return refuse("NOTHING_TO_CHANGE", "Choose registrations and what to change.");
     if (ids.length > MAX_BULK_REGISTRATION_UPDATES) {
       return refuse("TOO_MANY", `Up to ${MAX_BULK_REGISTRATION_UPDATES} registrations at a time.`);
@@ -258,6 +290,7 @@ export async function bulkUpdateRegistrations(input: BulkUpdateRegistrationsInpu
       paymentStatus: input.paymentStatus ?? null,
       badgeType: input.badgeType ?? null,
       cancel: input.cancel === true,
+      preset: input.preset ?? null,
       changed: changed.length,
       unchanged: unchanged.length,
       skipped: skipped.length,

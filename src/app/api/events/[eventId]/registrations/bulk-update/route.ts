@@ -19,7 +19,7 @@ import {
  * Set the payment status, set the badge type, or cancel, on many registrations
  * (Nov 20, 2026; docs/ABSTRACT_AUTHOR_REGISTRATION_PLAN.md step 3).
  *
- *   POST { registrationIds, paymentStatus?, badgeType?, cancel? }
+ *   POST { registrationIds, paymentStatus?, badgeType?, cancel?, preset? }
  *
  * The Registrations page sends its ticked rows. `registrations.bulk` opens it,
  * as it opens the bulk type change. What it then does needs the key of the
@@ -51,11 +51,18 @@ const bodySchema = z
     // The registration's own page allows 50.
     badgeType: z.string().trim().max(50).optional(),
     cancel: z.literal(true).optional(),
+    /** Complimentary with a Presenter badge, by the presenter rules (never Faculty, a hand-set badge kept). */
+    preset: z.literal("presenters").optional(),
   })
   .strict()
-  .refine((body) => body.paymentStatus !== undefined || body.badgeType !== undefined || body.cancel === true, {
+  .refine((body) => body.paymentStatus !== undefined || body.badgeType !== undefined || body.cancel === true || body.preset !== undefined, {
     message: "Choose what to change",
     path: ["paymentStatus"],
+  })
+  // The preset is the whole change: its own payment status and badge, by its own rules.
+  .refine((body) => !(body.preset && (body.paymentStatus !== undefined || body.badgeType !== undefined || body.cancel)), {
+    message: "The presenters preset cannot be combined with another change",
+    path: ["preset"],
   })
   // A cancel is its own action: a payment status or a badge on a row being cancelled means nothing.
   .refine((body) => !(body.cancel && (body.paymentStatus !== undefined || body.badgeType !== undefined)), {
@@ -81,7 +88,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "registrations/bulk-update:zod-validation-failed", eventId, userId: session.user.id, errors: parsed.error.flatten() });
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
-    const { registrationIds, paymentStatus, badgeType, cancel } = parsed.data;
+    const { registrationIds, paymentStatus, badgeType, cancel, preset } = parsed.data;
 
     return await runWithTenant(orgGuard.orgId, async () => {
       // The event must be one the grant reaches: the service checks only the event id.
@@ -123,6 +130,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         paymentStatus,
         badgeType,
         cancel: cancel === true,
+        ...(preset && { preset }),
         source: "rest",
         requestIp: getClientIp(req),
       });

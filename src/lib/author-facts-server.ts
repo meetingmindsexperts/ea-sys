@@ -15,9 +15,14 @@
  */
 import { db } from "@/lib/db";
 import { abstractOutcomeOf, type AuthorFacts, type SpeakerPlace } from "@/lib/author-facts";
-import { speakerKindOf } from "@/lib/speaker-kinds";
 
-type RegistrationRow = { id: string; status: string; createdSource: string | null; attendee: { email: string } | null };
+type RegistrationRow = {
+  id: string;
+  status: string;
+  createdSource: string | null;
+  attendee: { email: string } | null;
+  ticketType?: { isFaculty?: boolean | null } | null;
+};
 type FactsFor = (registration: RegistrationRow) => AuthorFacts;
 
 type PersonFacts = {
@@ -45,7 +50,6 @@ export async function loadAuthorFacts(eventId: string): Promise<FactsFor> {
       submitterSource: true,
       // An accepted abstract is put on the agenda by its own id, with no speaker row for its author.
       abstracts: { select: { status: true, eventSession: { select: { status: true } }, sessionTopic: { select: { id: true } } } },
-      sessionProposals: { select: { status: true } },
       sessions: { select: { session: { select: { status: true } } } },
       _count: { select: { topicSpeakers: true } },
     },
@@ -65,10 +69,13 @@ export async function loadAuthorFacts(eventId: string): Promise<FactsFor> {
       s.sessions.some((r) => r.session.status !== "CANCELLED") ||
       s._count.topicSpeakers > 0 ||
       s.abstracts.some((a) => (a.eventSession !== null && a.eventSession.status !== "CANCELLED") || a.sessionTopic !== null);
-    // Off the programme, "a speaker" is one the organisers invited: the Speakers
-    // page's own rule (speaker-kinds.ts). Someone who is there only because they
-    // signed up to submit is an author, not a speaker.
-    const invited = speakerKindOf({ abstracts: s.abstracts, sessionProposals: s.sessionProposals, submitterSource: s.submitterSource }) === "invited";
+    // Off the programme, "a speaker" is one the organisers invited: a record
+    // THEY made (no sign-up door on it), whatever the person submitted since
+    // (owner, Nov 20, 2026: authors are kept apart "except those who are
+    // invited and submitted"). Someone who is there only because they signed
+    // up to submit is an author, not a speaker. The other way to be invited,
+    // a registration on the Faculty type, is judged per row below.
+    const invited = !s.submitterSource;
     const offProgramme: SpeakerPlace | null = invited ? "record" : null;
     const facts: PersonFacts = {
       statuses: s.abstracts.map((a) => a.status),
@@ -89,21 +96,14 @@ export async function loadAuthorFacts(eventId: string): Promise<FactsFor> {
     const all = [...people.values()];
     const signedUp = registration.createdSource === "PUBLIC_SUBMITTER" || all.some((p) => p.signedUpForAbstracts);
     const onProgramme = all.some((p) => p.place === "programme");
-    const invited = all.some((p) => p.place === "record");
+    // On the Faculty type: invited, whichever door their speaker record first came through.
+    const invited = all.some((p) => p.place === "record") || (all.length > 0 && registration.ticketType?.isFaculty === true);
     const offProgramme: SpeakerPlace | null = invited ? "record" : null;
     return {
       abstractOutcome: abstractOutcomeOf(all.flatMap((p) => p.statuses), signedUp),
       speakerPlace: onProgramme ? "programme" : offProgramme,
     };
   };
-}
-
-/** A speaker's live registration, with what "make presenters" must know before touching it. */
-export interface LiveRegistration {
-  id: string;
-  /** On the event's Faculty type: an invited speaker's own registration. */
-  isFaculty: boolean;
-  badgeType: string | null;
 }
 
 /**
@@ -113,24 +113,22 @@ export interface LiveRegistration {
  */
 export async function loadLiveRegistrationOf(
   eventId: string,
-): Promise<(speaker: { sourceRegistrationId: string | null; email: string }) => LiveRegistration | null> {
+): Promise<(speaker: { sourceRegistrationId: string | null; email: string }) => string | null> {
   const live = await db.registration.findMany({
     where: { eventId, status: { not: "CANCELLED" } },
-    select: { id: true, badgeType: true, attendee: { select: { email: true } }, ticketType: { select: { isFaculty: true } } },
+    select: { id: true, attendee: { select: { email: true } } },
     // Oldest first, so two rows on one address (a changed email can make such
     // a pair) always answer the same one: the first registration wins.
     orderBy: { createdAt: "asc" },
   });
-  const byId = new Map<string, LiveRegistration>();
-  const byAddress = new Map<string, LiveRegistration>();
+  const ids = new Set(live.map((r) => r.id));
+  const byAddress = new Map<string, string>();
   for (const r of live) {
-    const row: LiveRegistration = { id: r.id, isFaculty: r.ticketType?.isFaculty === true, badgeType: r.badgeType };
-    byId.set(r.id, row);
     const address = sameAddress(r.attendee.email);
-    if (!byAddress.has(address)) byAddress.set(address, row);
+    if (!byAddress.has(address)) byAddress.set(address, r.id);
   }
   return (speaker) => {
-    const pointed = speaker.sourceRegistrationId ? byId.get(speaker.sourceRegistrationId) : undefined;
-    return pointed ?? byAddress.get(sameAddress(speaker.email)) ?? null;
+    if (speaker.sourceRegistrationId && ids.has(speaker.sourceRegistrationId)) return speaker.sourceRegistrationId;
+    return byAddress.get(sameAddress(speaker.email)) ?? null;
   };
 }

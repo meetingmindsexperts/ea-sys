@@ -66,6 +66,12 @@ describe("POST registrations/bulk-update", () => {
     });
   });
 
+  it("the presenters preset is passed on as it is, and is an edit: it needs the edit key", async () => {
+    expect((await post({ registrationIds: ["r1"], preset: "presenters" })).status).toBe(200);
+    expect(bulkSpy.mock.calls[0][0]).toMatchObject({ preset: "presenters", cancel: false });
+    expect(canSpy.mock.calls[0][1]).toBe("registrations.update");
+  });
+
   it("a cancel also needs the Cancel button's key: without it, 403, logged, and nothing runs", async () => {
     canSpy.mockReturnValue(false);
     const res = await post({ registrationIds: ["r1"], cancel: true });
@@ -102,6 +108,9 @@ describe("POST registrations/bulk-update", () => {
       { registrationIds: ["r1"], cancel: false },
       { registrationIds: ["r1"], badgeType: "Presenter", status: "CANCELLED" },
       { registrationIds: ["r1"], badgeType: "x".repeat(51) },
+      { registrationIds: ["r1"], preset: "presenters", paymentStatus: "COMPLIMENTARY" },
+      { registrationIds: ["r1"], preset: "presenters", cancel: true },
+      { registrationIds: ["r1"], preset: "anything" },
       "not json",
     ]) {
       const res = await post(body);

@@ -60,7 +60,7 @@ describe("the filters", () => {
 
 /** A speaker record as the reader selects it. */
 const speaker = (id: string, email: string, over: Record<string, unknown> = {}) => ({
-  id, email, sourceRegistrationId: null, submitterSource: null, abstracts: [], sessionProposals: [], sessions: [], _count: { topicSpeakers: 0 }, ...over,
+  id, email, sourceRegistrationId: null, submitterSource: null, abstracts: [], sessions: [], _count: { topicSpeakers: 0 }, ...over,
 });
 const abstract = (status: string, over: Record<string, unknown> = {}) => ({ status, eventSession: null, sessionTopic: null, ...over });
 const reg = (id: string, email: string, over: Record<string, unknown> = {}) => ({ id, status: "CONFIRMED", createdSource: "PUBLIC_REGISTER", attendee: { email }, ...over });
@@ -126,6 +126,25 @@ describe("loadAuthorFacts", () => {
     expect(factsFor(reg("r3", "topic@x.com")).speakerPlace).toBe("programme");
     // Invited by the organisers, their only session cancelled: invited, not on the programme.
     expect(factsFor(reg("r4", "gone@x.com")).speakerPlace).toBe("record");
+  });
+
+  // Found by running the whole journey (Nov 20, 2026), and the owner's rule:
+  // authors are kept apart "except those who are invited and submitted".
+  it("an invited speaker who also submitted is still an invited speaker; so is anyone on the Faculty type", async () => {
+    findMany.mockResolvedValue([
+      // The organisers made her record (no sign-up door on it); she has an accepted abstract.
+      speaker("s1", "invited@x.com", { sourceRegistrationId: "r1", abstracts: [abstract("ACCEPTED")] }),
+      // Invited first, then used the abstract door (which stamps it): still on the Faculty type.
+      speaker("s2", "stamped@x.com", { sourceRegistrationId: "r2", submitterSource: "abstract", abstracts: [abstract("SUBMITTED")] }),
+      // Only ever an author.
+      speaker("s3", "author@x.com", { sourceRegistrationId: "r3", submitterSource: "abstract", abstracts: [abstract("ACCEPTED")] }),
+    ]);
+    const factsFor = await loadAuthorFacts("ev1");
+    expect(factsFor(reg("r1", "invited@x.com", { ticketType: { isFaculty: true } }))).toEqual({ abstractOutcome: "accepted", speakerPlace: "record" });
+    expect(factsFor(reg("r2", "stamped@x.com", { ticketType: { isFaculty: true } })).speakerPlace).toBe("record");
+    expect(factsFor(reg("r3", "author@x.com", { ticketType: { isFaculty: false } })).speakerPlace).toBeNull();
+    // A delegate on the Faculty type by mistake, with no speaker record at all, is not made a speaker by it.
+    expect(factsFor(reg("r4", "nobody@x.com", { ticketType: { isFaculty: true } })).speakerPlace).toBeNull();
   });
 
   // Review of b4493d67 (MED): the sign-up is the PERSON's, not the registration's.

@@ -118,12 +118,15 @@ function Body({
   const [badgeText, setBadgeText] = useState("");
   const [cancelConfirmed, setCancelConfirmed] = useState(false);
   const [outcome, setOutcome] = useState<BulkRegistrationUpdateOutcome | null>(null);
+  // "Make presenters": Complimentary with a Presenter badge, by the presenter
+  // rules (invited faculty left alone, a hand-set badge kept), not two fields.
+  const [presenters, setPresenters] = useState(false);
 
   const busy = update.isPending;
   const ids = registrations.map((r) => r.id);
   const labelOf = (id: string) => registrations.find((r) => r.id === id)?.label ?? id;
   const badgeReady = badge !== "set" || badgeText.trim() !== "";
-  const nothingChosen = payment === "keep" && badge === "keep";
+  const nothingChosen = !presenters && payment === "keep" && badge === "keep";
   const nobody = ids.length === 0;
   const cancelReady = cancelCount.trim() === String(ids.length);
 
@@ -141,6 +144,7 @@ function Body({
   };
 
   const apply = () => {
+    if (presenters) return run({ preset: "presenters" });
     const badgeType = badge === "clear" ? "" : badgeText.trim();
     return run({
       ...(payment !== "keep" && { paymentStatus: payment }),
@@ -173,14 +177,16 @@ function Body({
         )}
         <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
           <p className="text-sm text-muted-foreground">
-            For accepted abstract authors: Complimentary, with a Presenter badge.
+            For accepted abstract authors: Complimentary, with a {PRESENTER_BADGE_TYPE} badge. Invited faculty are
+            left as they are, and a badge type someone set is kept.
           </p>
           <Button
             type="button"
             size="sm"
-            variant="outline"
+            variant={presenters ? "default" : "outline"}
+            aria-pressed={presenters}
             disabled={busy || cancelConfirmed}
-            onClick={() => { setPayment("COMPLIMENTARY"); setBadge("set"); setBadgeText(PRESENTER_BADGE_TYPE); }}
+            onClick={() => setPresenters((on) => !on)}
           >
             Make presenters
           </Button>
@@ -188,7 +194,7 @@ function Body({
 
         <div className="space-y-1.5">
           <Label htmlFor="bulk-payment">Payment status</Label>
-          <Select value={payment} onValueChange={(v) => setPayment(v as PaymentChoice)} disabled={busy || cancelConfirmed}>
+          <Select value={payment} onValueChange={(v) => setPayment(v as PaymentChoice)} disabled={busy || cancelConfirmed || presenters}>
             <SelectTrigger id="bulk-payment"><SelectValue /></SelectTrigger>
             <SelectContent>
               {PAYMENT_CHOICES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
@@ -202,7 +208,7 @@ function Body({
 
         <div className="space-y-1.5">
           <Label htmlFor="bulk-badge">Badge type</Label>
-          <Select value={badge} onValueChange={(v) => setBadge(v as BadgeChoice)} disabled={busy || cancelConfirmed}>
+          <Select value={badge} onValueChange={(v) => setBadge(v as BadgeChoice)} disabled={busy || cancelConfirmed || presenters}>
             <SelectTrigger id="bulk-badge"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="keep">Leave as it is</SelectItem>
@@ -217,7 +223,7 @@ function Body({
               maxLength={50}
               placeholder="e.g. Presenter"
               onChange={(e) => setBadgeText(e.target.value)}
-              disabled={busy || cancelConfirmed}
+              disabled={busy || cancelConfirmed || presenters}
             />
           )}
           <p className="text-xs text-muted-foreground">A badge already printed is not reprinted by this.</p>

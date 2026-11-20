@@ -1128,6 +1128,8 @@ export interface BulkRegistrationUpdateInput {
   /** A badge type; an empty string clears it. */
   badgeType?: string;
   cancel?: true;
+  /** Complimentary with a Presenter badge, by the presenter rules. On its own. */
+  preset?: "presenters";
 }
 export interface BulkRegistrationSkip {
   registrationId: string;

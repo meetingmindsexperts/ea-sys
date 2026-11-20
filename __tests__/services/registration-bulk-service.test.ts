@@ -26,6 +26,7 @@ import { bulkUpdateRegistrations, MAX_BULK_REGISTRATION_UPDATES } from "@/servic
 const UPDATED = new Date("2026-11-20T08:00:00.000Z");
 const row = (id: string, over: Record<string, unknown> = {}) => ({
   id, status: "CONFIRMED", paymentStatus: "UNASSIGNED", badgeType: null, groupId: null, refundedAmount: 0, stripeCheckoutSessionId: null, updatedAt: UPDATED,
+  ticketType: { isFaculty: false },
   _count: { payments: 0, invoices: 0 }, ...over,
 });
 let rows: ReturnType<typeof row>[];
@@ -83,6 +84,49 @@ describe("make presenters: Complimentary and a badge, through the single registr
   it("someone who edited the registration since it was read wins: the write names what was read", async () => {
     await bulkUpdateRegistrations(input({ badgeType: "Presenter" }));
     expect(updates()[0].expectedUpdatedAt).toBe(UPDATED.toISOString());
+  });
+});
+
+// Found by running the whole journey (Nov 20, 2026): the Abstracts side left
+// invited faculty alone and the Registrations side did not, so ticking everyone
+// under "Abstract accepted" turned a Faculty badge into Presenter. The rules
+// are the preset's, so both sides follow them.
+describe("the presenters preset", () => {
+  it("makes an owing author Complimentary with the Presenter badge", async () => {
+    rows = [row("author")];
+    const result = await bulkUpdateRegistrations(input({ preset: "presenters" }));
+    expect(result).toMatchObject({ ok: true, changed: ["author"], skipped: [] });
+    expect(updates()[0]).toMatchObject({ registrationId: "author", paymentStatus: "COMPLIMENTARY", badgeType: "Presenter" });
+  });
+
+  it("a registration on the Faculty type is left exactly as it is, and named", async () => {
+    rows = [row("invited", { paymentStatus: "COMPLIMENTARY", badgeType: "Faculty", ticketType: { isFaculty: true } })];
+    const result = await bulkUpdateRegistrations(input({ preset: "presenters" }));
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(skipsOf(result)).toEqual([["invited", "all", "FACULTY"]]);
+  });
+
+  it("a badge type someone set by hand is kept and named; the registration is still made Complimentary", async () => {
+    rows = [row("exhibitor", { badgeType: "Exhibitor" })];
+    const result = await bulkUpdateRegistrations(input({ preset: "presenters" }));
+    expect(updates()[0]).toMatchObject({ paymentStatus: "COMPLIMENTARY" });
+    expect(updates()[0]).not.toHaveProperty("badgeType");
+    expect(result.ok && result.skipped).toEqual([expect.objectContaining({ registrationId: "exhibitor", part: "badgeType", code: "BADGE_KEPT", badgeType: "Exhibitor" })]);
+    expect(result).toMatchObject({ ok: true, changed: ["exhibitor"] });
+  });
+
+  it("the money rule still holds under the preset, and one already a presenter is left alone", async () => {
+    rows = [row("paid", { paymentStatus: "PAID" }), row("done", { paymentStatus: "COMPLIMENTARY", badgeType: "Presenter" })];
+    const result = await bulkUpdateRegistrations(input({ preset: "presenters" }));
+    expect(skipsOf(result)).toEqual([["paid", "paymentStatus", "HAS_MONEY"]]);
+    expect(result).toMatchObject({ ok: true, changed: ["paid"], unchanged: ["done"] });
+  });
+
+  // The general fields do exactly what was asked: setting a badge by hand is a person's choice.
+  it("without the preset, a badge type is set on a Faculty row like any other", async () => {
+    rows = [row("invited", { paymentStatus: "COMPLIMENTARY", badgeType: "Faculty", ticketType: { isFaculty: true } })];
+    await bulkUpdateRegistrations(input({ badgeType: "VIP" }));
+    expect(updates()[0]).toMatchObject({ badgeType: "VIP" });
   });
 });
 
