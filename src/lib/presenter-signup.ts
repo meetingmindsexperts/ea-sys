@@ -35,7 +35,6 @@ import {
   type CompanionSpeakerInput,
 } from "@/lib/speaker-companion";
 import { createAndLinkPayableRegistration } from "@/lib/presenter-registration";
-import { isPresenterPayNowEnabled } from "@/lib/presenter-registration-settings";
 import { authorRateOptions } from "@/lib/author-rates";
 import { equalsIgnoringCase } from "@/lib/like-escape";
 import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
@@ -413,8 +412,10 @@ export async function ensureSubmitterRegistration(
       // ticket TYPE's seat instead of the presenter TIER's — so a presenter
       // tier's seat limit would never fill. Found by running the flow.
       createdSource: "PUBLIC_SUBMITTER",
-      // D3: quote yes, Pay Now only if the organizer turned it on.
-      suppressPayNow: !isPresenterPayNowEnabled(input.eventSettings),
+      // The quote, never Pay Now (owner, Nov 20, 2026: presenter registration
+      // is always pay later). The Settings switch that could turn it on is
+      // gone, and a setting saved before that is not read.
+      suppressPayNow: true,
       // One email, not two: the caller folds the fee into its welcome.
       suppressConfirmationEmail: input.callerSendsFeeEmail === true,
       logPrefix: "presenter-signup",
@@ -438,9 +439,7 @@ export async function ensureSubmitterRegistration(
     // `linked-existing` row is one they already had (and were already told
     // about), and a `race-lost` duplicate was cancelled.
     if (outcome.status !== "created" || !input.callerSendsFeeEmail) return null;
-    return buildPresenterFeeEmailExtras(outcome.registrationId, {
-      payNowEnabled: isPresenterPayNowEnabled(input.eventSettings),
-    });
+    return buildPresenterFeeEmailExtras(outcome.registrationId);
   } catch (err) {
     apiLogger.error(
       { err, speakerId: speaker.id, eventId: speaker.eventId },
@@ -487,11 +486,8 @@ function acceptedEvidence(
  * is built only above 0), so it gets no sentence: the quote and paying are all
  * the sentence is about, and only the 0 is shown.
  */
-function feeNote(price: number, payNow: boolean): string {
+function feeNote(price: number): string {
   if (price <= 0) return "";
-  if (payNow) {
-    return "A quote is attached to this email. You can pay online now, or the organizing team will confirm your fee once your submission has been reviewed.";
-  }
   return "A quote is attached to this email. Payment is not required to submit your abstract; the organizing team will confirm your fee once your submission has been reviewed.";
 }
 
@@ -503,10 +499,7 @@ function feeNote(price: number, payNow: boolean): string {
  * "no fee block, no attachment" and is logged. The registration itself still
  * exists and the organizer can re-send the quote from the dashboard.
  */
-export async function buildPresenterFeeEmailExtras(
-  registrationId: string,
-  opts: { payNowEnabled: boolean } = { payNowEnabled: false },
-): Promise<PresenterFeeEmailExtras | null> {
+export async function buildPresenterFeeEmailExtras(registrationId: string): Promise<PresenterFeeEmailExtras | null> {
   try {
     const registration = await db.registration.findUnique({
       where: { id: registrationId },
@@ -553,33 +546,21 @@ export async function buildPresenterFeeEmailExtras(
     const tierName = registration.pricingTier?.name ?? "";
     const label = [typeName, tierName].filter(Boolean).join(" · ");
 
-    // The closing sentence must agree with the organizer's Pay Now toggle
-    // (plan D3). Saying "payment is not required" while a Pay Now button sits
-    // underneath is the kind of contradiction nobody reads twice, so the copy
-    // and the button are decided together, here, from one flag.
-    const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
-    const payLink =
-      opts.payNowEnabled && registration.event.slug && price > 0
-        ? `${appUrl}/e/${registration.event.slug}/confirmation?id=${registration.id}` +
-          `&name=${encodeURIComponent(registration.attendee.firstName)}` +
-          `&price=${price}&currency=${currency}`
-        : "";
-    const note = feeNote(price, Boolean(payLink));
+    // No Pay Now link, on any event (owner, Nov 20, 2026: presenter
+    // registration is always pay later). The fee is quoted here and paid
+    // from the person's own portal, or offline, once the abstract is decided.
+    const note = feeNote(price);
     const noteHtml = note
       ? `\n  <p style="margin:0;color:#6b7280;font-size:14px;">${escapeHtml(note)}</p>`
       : "";
 
     // Dynamic values are event/organizer-authored, but escape anyway: a tier
     // name is free text an organizer types, and this lands in an HTML email.
-    const payCta = payLink
-      ? `\n  <div style="margin-top:12px;"><a href="${escapeHtml(payLink)}" style="display:inline-block;background:#00aade;color:#ffffff;padding:10px 24px;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Pay Now</a></div>`
-      : "";
     const html = `
 <div style="margin:16px 0;padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
   <p style="margin:0 0 8px 0;font-weight:600;">Your presenter registration fee</p>
   <p style="margin:0 0 4px 0;font-size:20px;font-weight:700;">${escapeHtml(amount)}</p>
-  <p style="margin:0 0 8px 0;color:#6b7280;font-size:14px;">${escapeHtml(label)}</p>${noteHtml}${payCta}
+  <p style="margin:0 0 8px 0;color:#6b7280;font-size:14px;">${escapeHtml(label)}</p>${noteHtml}
 </div>`.trim();
 
     const text = [
@@ -587,7 +568,6 @@ export async function buildPresenterFeeEmailExtras(
       amount,
       label,
       note,
-      payLink ? `Pay Now: ${payLink}` : "",
     ]
       .filter(Boolean)
       .join("\n");

@@ -31,6 +31,8 @@ Submitting an abstract used to give the author a free Faculty registration on an
 - **Already on Faculty from signing up to submit:** the button reads "Confirm as invited faculty". It changes nothing about the registration; it records that the organisers invited this person, so they are listed with the invited speakers.
 - **Moved back later** (Change type), it is an ordinary delegate registration again and takes a seat.
 
+**Pay Now is never offered at abstract sign-up.** Presenter registration is always pay later (owner, November 20): the sign-up email quotes the fee and attaches the quote, and the author pays from their own portal, or offline, once the abstract is decided. The Settings switch "Ask submitters to pay at submission" is removed; no event had it on. Paying from the portal is unchanged. (Step 7 of the plan.)
+
 **Who counts as invited, for someone who has submitted (November 20, after two reviews):** the organisers put them on the Faculty type. That is a speaker the organisers added themselves whose registration is on Faculty, or a registration made Faculty by hand (Add registration as Faculty, or Make Faculty). Three simpler signals were tried and dropped:
 
 - **The Faculty type alone:** the old abstract sign-up gave every author a Faculty registration on an event with no presenter rates, so 33 authors on MEHF2027 and 2 on hemnet2026 would have moved onto the Invited tab, where "Email listed" and the certificates' default group reach them. They stay with the submitters, as before, until an organiser moves them off Faculty or confirms them.
