@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { UserCheck, Plus, Trash2, Send, X, Search, PenLine } from "lucide-react";
+import { UserCheck, Plus, Trash2, Send, X, Search, PenLine, Download } from "lucide-react";
 import { PageHeader } from "@/components/ui/typography";
 import { PermissionGate } from "@/components/permissions/permission-gate";
 import { useReviewers, useAddReviewer, useRemoveReviewer } from "@/hooks/use-api";
@@ -38,6 +38,8 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { useCan } from "@/hooks/use-can";
+import { downloadExport } from "@/lib/export-download";
 
 interface Reviewer {
   speakerId: string;
@@ -150,6 +152,22 @@ function Reviewers({ eventId }: { eventId: string }) {
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);
   const addReviewer = useAddReviewer(eventId);
   const removeReviewer = useRemoveReviewer(eventId);
+  // The review scores report (who scored which abstract, per criterion): the
+  // same file the Abstracts page's Export menu gives, for whoever may export abstracts.
+  const canExportScores = useCan("abstracts.export", eventId) === "allowed";
+  const [exportingScores, setExportingScores] = useState(false);
+  const exportScores = async () => {
+    setExportingScores(true);
+    const result = await downloadExport({
+      url: `/api/events/${eventId}/abstracts?export=review-scores`,
+      filename: `review-scores-${eventId}.csv`,
+      logKey: "reviewers:scores-export-failed",
+      forbiddenMessage: "Only admins and organisers can export review scores.",
+    });
+    setExportingScores(false);
+    if (result.ok) toast.success("Review scores exported");
+    else toast.error(result.error);
+  };
   const [removeTarget, setRemoveTarget] = useState<Reviewer | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
 
@@ -303,6 +321,12 @@ function Reviewers({ eventId }: { eventId: string }) {
         trailing={isFetching && !isLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" /> : null}
         actions={
           <>
+          {canExportScores && (
+            <Button variant="outline" disabled={exportingScores} onClick={() => void exportScores()}>
+              <Download className={`mr-2 h-4 w-4 ${exportingScores ? "animate-pulse" : ""}`} />
+              Review scores (.csv)
+            </Button>
+          )}
           {reviewers.length > 0 && (
             <Button variant="outline" onClick={() => openEmail({ ids: [], emailType: "reviewer-invitation" })}>
               <Send className="mr-2 h-4 w-4" />

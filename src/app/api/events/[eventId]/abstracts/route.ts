@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { AbstractStatus, PresentationType } from "@prisma/client";
+import { AbstractStatus, PresentationType, type Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
@@ -18,6 +18,8 @@ import { getTitleLabel } from "@/lib/utils";
 import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
 import { getClientIp } from "@/lib/security";
 import { meanOverallScore } from "@/lib/abstract-review";
+import { buildReviewScoresCsv } from "@/lib/abstract-review-scores-report";
+import { readReviewScoreScale } from "@/lib/abstract-score";
 import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -215,6 +217,93 @@ function exportAbstractsCsv(req: Request, args: ExportArgs): NextResponse {
   });
 }
 
+/**
+ * `?export=review-scores` (owner, Nov 20, 2026): who scored which abstract, and
+ * what they gave under each criterion. One row per reviewer per abstract, the
+ * assignments with no review yet included (abstract-review-scores-report.ts).
+ * The same boundary as the abstracts export (`abstracts.export`, checked by the
+ * caller), the same status rule (never a draft) and the same audit row, with
+ * `report: "review-scores"` so the two pulls can be told apart.
+ */
+async function exportReviewScoresCsv(
+  req: Request,
+  args: {
+    eventId: string;
+    organizationId: string;
+    eventSettings: unknown;
+    where: Prisma.AbstractWhereInput;
+    userId: string;
+    role: string;
+    filters: Record<string, string>;
+  },
+): Promise<NextResponse> {
+  const [criteria, abstracts] = await Promise.all([
+    db.reviewCriterion.findMany({
+      where: { eventId: args.eventId },
+      select: { id: true, name: true, weight: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    }),
+    db.abstract.findMany({
+      where: args.where,
+      select: {
+        serialId: true,
+        title: true,
+        status: true,
+        presentationType: true,
+        theme: { select: { name: true } },
+        speaker: { select: { title: true, firstName: true, lastName: true } },
+        reviewers: { select: { userId: true, role: true }, orderBy: { assignedAt: "asc" } },
+        submissions: {
+          select: {
+            reviewerUserId: true, criteriaScores: true, overallScore: true,
+            recommendedFormat: true, confidence: true, reviewNotes: true, updatedAt: true,
+          },
+          orderBy: { submittedAt: "asc" },
+        },
+      },
+      orderBy: [{ serialId: "asc" }, { createdAt: "asc" }],
+      take: EXPORT_ROW_CAP,
+    }),
+  ]);
+  // Reviewer accounts belong to no organisation: named by the ids these rows carry, nothing wider.
+  const reviewerIds = [...new Set(abstracts.flatMap((a) => [...a.reviewers.map((r) => r.userId), ...a.submissions.map((r) => r.reviewerUserId)]))];
+  const people = reviewerIds.length
+    ? await db.user.findMany({ where: { id: { in: reviewerIds } }, select: { id: true, firstName: true, lastName: true, email: true } })
+    : [];
+  const { csv, rowCount } = buildReviewScoresCsv({
+    scale: readReviewScoreScale(args.eventSettings),
+    criteria,
+    people: new Map(people.map((u) => [u.id, u])),
+    abstracts: abstracts.map((a) => ({
+      serialId: a.serialId,
+      title: a.title,
+      status: a.status,
+      presentationType: a.presentationType,
+      themeName: a.theme?.name ?? null,
+      author: a.speaker,
+      assigned: a.reviewers,
+      reviews: a.submissions,
+    })),
+  });
+  recordExport(req, {
+    entityType: "Abstract",
+    eventId: args.eventId,
+    organizationId: args.organizationId,
+    userId: args.userId,
+    role: args.role,
+    source: "rest",
+    rowCount,
+    format: "csv",
+    filters: { ...args.filters, report: "review-scores" },
+  });
+  return new NextResponse(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="review-scores-${args.eventId}.csv"`,
+    },
+  });
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     // Parallelize params and auth for faster response
@@ -246,7 +335,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const exportParam = searchParams.get("export");
     const wantsCsv = exportParam === "csv";
     const wantsDocx = exportParam === "docx";
-    const wantsExport = wantsCsv || wantsDocx;
+    // The review scores report: the same boundary, a different sheet.
+    const wantsScores = exportParam === "review-scores";
+    const wantsExport = wantsCsv || wantsDocx || wantsScores;
     if (wantsExport) {
       const exportGate = requirePermission(session, "abstracts.export", { route: "events/[eventId]/abstracts:GET", eventId });
       if (!exportGate.ok) {
@@ -287,7 +378,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // scopes by role (a SUBMITTER → their own linked event), so event.organizationId
     // is the RESOURCE org even for an org-null submitter/reviewer caller.
     const event = await findGatedEvent(gate, {
-      select: { id: true, name: true, organizationId: true },
+      select: { id: true, name: true, organizationId: true, settings: true },
     });
 
     if (!event) {
@@ -295,14 +386,30 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(event.organizationId, async () => {
-    const abstracts = await db.abstract.findMany({
-      where: {
+    const listWhere: Prisma.AbstractWhereInput = {
+      eventId,
+      ...(statusFilter !== undefined && { status: statusFilter }),
+      ...(trackId && { trackId }),
+      ...(speakerId && { speakerId }),
+      ...roleFilter,
+    };
+    if (wantsScores) {
+      return exportReviewScoresCsv(req, {
         eventId,
-        ...(statusFilter !== undefined && { status: statusFilter }),
-        ...(trackId && { trackId }),
-        ...(speakerId && { speakerId }),
-        ...roleFilter,
-      },
+        organizationId: event.organizationId,
+        eventSettings: event.settings,
+        where: listWhere,
+        userId: session.user.id,
+        role: session.user.role,
+        filters: {
+          ...(status ? { status } : {}),
+          ...(trackId ? { trackId } : {}),
+          ...(speakerId ? { speakerId } : {}),
+        },
+      });
+    }
+    const abstracts = await db.abstract.findMany({
+      where: listWhere,
       include: {
         speaker: true,
         track: true,

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Review scores by reviewer: who scored which abstract, and what under each criterion (November 20)
+
+A new spreadsheet for admins and organisers, from the Abstracts page's Export menu ("Review scores by reviewer (.csv)") or the "Review scores (.csv)" button on the Reviewers page. Both give the same file.
+
+- **One row per reviewer per abstract:** the abstract (number, title, status, type, theme, author), the reviewer (name, email, role), one column per review criterion with the score that reviewer gave, then the review's overall score out of 100, recommended format, confidence, notes and date.
+- **Scores are as the reviewer gave them,** on the event's own scale (0 to 5, 10 or 100). Each criterion's column heading names the scale and the criterion's weight. Only the overall score is always out of 100.
+- **Who still owes a review:** an assigned reviewer with no review yet has a row marked "Assigned, not reviewed yet".
+- **Not in it:** abstracts with no reviewer and no review (the abstracts spreadsheet lists them with Reviews 0), and drafts.
+- **A deleted criterion:** if a criterion was deleted after reviews were given, its scores are kept in a column at the end, because each overall score was worked out with them.
+- Same permission as the abstracts export, and every download is in the audit trail as its own report.
+
 ### The Accepted card on Abstracts says how many are oral and how many are poster (November 20)
 
 Under the number of accepted abstracts, the card now lists them by presentation type, one per line: Oral 12, Poster 8. Any other type in use (Oral or Poster, Video, Workshop) is listed too, so the parts always add up to the card's number.

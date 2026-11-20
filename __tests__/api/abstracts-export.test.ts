@@ -15,6 +15,8 @@ const { mockDb, mockAuth, recordExport } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     abstract: { findMany: vi.fn() },
+    reviewCriterion: { findMany: vi.fn() },
+    user: { findMany: vi.fn() },
   },
   mockAuth: vi.fn(),
   recordExport: vi.fn(),
@@ -158,5 +160,57 @@ describe("abstracts list (no export)", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect((await res.json())[0]).toMatchObject({ id: "abs-1", assignedReviewerCount: 2 });
+  });
+});
+
+describe("the review scores report, ?export=review-scores (Nov 20, 2026)", () => {
+  // Owner: "what reviewer scored what abstract and what score under each
+  // criteria". The same boundary as the abstracts file, a different sheet.
+  // MUTATION: leave "review-scores" out of wantsExport and MEMBER below gets
+  // the JSON list instead of a refusal.
+  const SCORED = {
+    serialId: 4, title: "HF in women", status: "REJECTED", presentationType: "ORAL",
+    theme: { name: "Outcomes" }, speaker: { title: "DR", firstName: "Hadi", lastName: "Skouri" },
+    reviewers: [{ userId: "u1", role: "PRIMARY" }, { userId: "u2", role: "SECONDARY" }],
+    submissions: [{
+      reviewerUserId: "u1", criteriaScores: { c1: 4 }, overallScore: 80, recommendedFormat: "POSTER",
+      confidence: 5, reviewNotes: "Fine", updatedAt: new Date("2026-11-20T08:00:00.000Z"),
+    }],
+  };
+
+  beforeEach(() => {
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, name: "MEHF", settings: { reviewScoreScale: 5 } });
+    mockDb.abstract.findMany.mockResolvedValue([SCORED]);
+    mockDb.reviewCriterion.findMany.mockResolvedValue([{ id: "c1", name: "Originality", weight: 100 }]);
+    mockDb.user.findMany.mockResolvedValue([
+      { id: "u1", firstName: "Rana", lastName: "Aziz", email: "rana@x.org" },
+      { id: "u2", firstName: "Omar", lastName: "Said", email: "omar@x.org" },
+    ]);
+  });
+
+  it.each(["MEMBER", "ONSITE", "REVIEWER", "SUBMITTER"])("refuses %s before any read", async (role) => {
+    mockAuth.mockResolvedValue(user(role, role === "REVIEWER" || role === "SUBMITTER" ? null : "org-1"));
+    const res = await GET(req("?export=review-scores"), params);
+    expect(res.status).toBe(403);
+    expect(mockDb.abstract.findMany).not.toHaveBeenCalled();
+    expect(recordExport).not.toHaveBeenCalled();
+  });
+
+  it("gives an organiser one row per reviewer per abstract, on the event's own scale, and audits it as its own report", async () => {
+    mockAuth.mockResolvedValue(user("ORGANIZER"));
+    const res = await GET(req("?export=review-scores"), params);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="review-scores-evt-1.csv"');
+    const [header, reviewed, pending] = (await res.text()).split("\n");
+    expect(header).toContain('"Originality (0-5, weight 100%)",Overall (0-100)');
+    expect(reviewed).toBe("A-004,HF in women,REJECTED,ORAL,Outcomes,Dr. Hadi Skouri,Rana Aziz,rana@x.org,PRIMARY,Reviewed,4,80,POSTER,5,Fine,2026-11-20T08:00:00.000Z");
+    expect(pending).toContain('Omar Said,omar@x.org,SECONDARY,"Assigned, not reviewed yet"');
+    // Never a draft, the abstract export's own rule; reviewers named by the ids on these rows only.
+    expect(mockDb.abstract.findMany.mock.calls[0][0].where).toEqual({ eventId: "evt-1", status: { not: "DRAFT" } });
+    expect(mockDb.user.findMany.mock.calls[0][0].where).toEqual({ id: { in: ["u1", "u2"] } });
+    expect(recordExport).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ entityType: "Abstract", format: "csv", rowCount: 2, filters: { report: "review-scores" } }),
+    );
   });
 });

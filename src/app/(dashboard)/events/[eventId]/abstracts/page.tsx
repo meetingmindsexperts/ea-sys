@@ -256,16 +256,19 @@ export default function AbstractsPage() {
   // Fetch-then-save rather than a bare download link: a 403 or a lapsed session
   // would otherwise save an error JSON as "abstracts.csv" (the quote.json
   // lesson of April 2026), and the failure would be silent.
-  const runExport = async (format: "csv" | "docx") => {
+  const runExport = async (format: "csv" | "docx" | "review-scores") => {
     setExporting(true);
+    // The review scores report is its own sheet on the same call: one row per
+    // reviewer per abstract, a column per criterion.
+    const scores = format === "review-scores";
     const result = await downloadExport({
       url: `/api/events/${eventId}/abstracts?export=${format}`,
-      filename: `abstracts-${eventId}.${format}`,
+      filename: scores ? `review-scores-${eventId}.csv` : `abstracts-${eventId}.${format}`,
       logKey: "abstracts:export-failed",
       forbiddenMessage: "Only admins and organisers can export abstracts.",
     });
     setExporting(false);
-    if (result.ok) toast.success("Abstracts exported");
+    if (result.ok) toast.success(scores ? "Review scores exported" : "Abstracts exported");
     else toast.error(result.error);
   };
   const { data: speakersData = [] } = useSpeakers(eventId);
@@ -686,6 +689,9 @@ export default function AbstractsPage() {
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void runExport("docx")}>
                   Word document (.docx)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void runExport("review-scores")}>
+                  Review scores by reviewer (.csv)
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
