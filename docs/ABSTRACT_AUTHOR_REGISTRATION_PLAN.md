@@ -108,6 +108,10 @@ person. The move itself is the existing bulk Change type, which moves a
 registration OFF Faculty and keeps a Complimentary one free. No script writes
 anything.
 
+**Step 4a. The abstract form does not ask a registered person for a rate**
+(5a, T1): no type or rate step when they already hold a registration on the
+event; a line says what they are registered as.
+
 **Step 5. Copy and docs.** The sign-up page and welcome email say what the
 person registered as; CLAUDE.md, the user guide, ROADMAP, CHANGELOG.
 
@@ -240,6 +244,18 @@ has a recommendation; the owner rules.
 - **R3. Residents and students** are free either way on MEHF2027 (every rate
   is 0): nothing to do.
 
+### A complimentary registration the team gives anyway
+
+- **C1. The team sometimes makes an author Complimentary though the rule says
+  they pay** (owner, Nov 20, 2026): a rejected author, one still under review,
+  one who never submitted. Setting Complimentary on the registration sheet
+  exists and stays the way. The rule this plan adds: **the system never undoes
+  it.** Nothing here turns a Complimentary registration back into an owing
+  one: "Rejected, owing" and every bulk action act on owing rows only, and a
+  rejected author the team made free stays free. The history already records
+  who set it. Open: whether the team needs it on ticked rows (many at once)
+  or the sheet, one at a time, is enough.
+
 ### Never decided
 
 - **N1. Signed up through the abstract door and never submitted anything:**
@@ -254,10 +270,26 @@ has a recommendation; the owner rules.
 
 ### People with two roles
 
-- **T1. Invited speaker who also submits:** Faculty stays (first registration
-  wins, section 4a), badge Faculty. An accepted abstract adds nothing they do
-  not have.
-- **T2. Submitted first, invited later:** step 6, Make Faculty.
+Invited faculty are added in either order (owner, Nov 20, 2026): before they
+submit an abstract, or after.
+
+- **T1. Added as faculty first, submits later:** Faculty stays (first
+  registration wins, section 4a), badge Faculty; an accepted abstract adds
+  nothing they do not have. **Two rough edges in the form today:**
+  (i) on an event with presenter rates the abstract form still makes them
+  choose a registration type and a presenter rate ("Physician, Presenter, AED
+  400"), though nothing is created or charged and no fee email goes out; it
+  reads as if they owe. The form already knows they are registered
+  (`registeredHere`, used to skip the ID and document questions).
+  **Recommendation:** skip the rate step for someone already registered and
+  say "You are already registered for this event as Faculty. There is no fee."
+  (ii) a speaker the organisers added has no account, so the form asks them to
+  confirm their email before they can take over that speaker profile. That is
+  deliberate (it stops someone else claiming a speaker), and stays.
+- **T2. Submitted first, added as faculty later:** the stuck case. Their
+  sign-up registration stays on the delegate type, possibly owing. Step 6,
+  Make Faculty, on that person's registration sheet. Until it is built: set
+  Complimentary and badge Faculty by hand (they still count as a delegate).
 - **T3. Registered as a delegate first, then submitted** (14 on MEHF2027, all
   free so far). Their delegate registration is the one. If accepted after
   PAYING as a delegate, Complimentary is a refund: same rule as A2.
