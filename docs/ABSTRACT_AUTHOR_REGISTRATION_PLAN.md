@@ -129,7 +129,9 @@ that IS the pay-later route. The user guide's paragraph on the switch goes.
 **Step 5. Copy and docs.** The sign-up page and welcome email say what the
 person registered as; CLAUDE.md, the user guide, ROADMAP, CHANGELOG.
 
-**Step 6. Make a speaker's registration Faculty.**
+**Step 6. Make a speaker's registration Faculty.** (Owner, Nov 20, 2026: built
+as part of this work, not ahead of it. Until then the one known case,
+skourihadi73 on MEHF2027, stays Physician, Complimentary, badge Faculty.)
 For the person who submitted first and was invited later (section 4a). On
 the registration sheet, a "Make Faculty" action, offered only for a registration
 linked to a speaker record (`Speaker.sourceRegistrationId`), never for an
