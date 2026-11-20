@@ -79,12 +79,12 @@ Review of `66969977` (0 BLOCKER, 0 HIGH, 6 MED, 12 LOW). All six MEDs and seven 
 7. **LOW: tests.** `updateRegistration` is mocked in the service's test and its own `toFaculty` test asserts that a counter write happened, not which; nothing runs the move against Postgres. No route test covers the `registrations.update` refusal, the rate limit or who is sent `speakerRecord`.
 8. **Older, found by the review, not changed:** the registration PUT lets Paid be set to Complimentary, Unpaid or Unassigned by hand while payments are held, and does not expire an open card checkout when the payment status changes; the sheet's and the PUT's "total paid" sums compare a payment's status to "succeeded", which the enum never holds, and drop refunded payments.
 
-## Pay Now at abstract sign-up removed: what the Nov 20 review of step 7 left (recorded Nov 20, 2026): not started
+## Presenter Pay Now switch: kept, and what a review of its removal found (recorded Nov 20, 2026): not started
 
-Review of `2849bf15` (0 BLOCKER, 0 HIGH, 0 MED, 5 LOW). All five LOWs are fixed in the commit after it. Older, found by the review, not changed:
+The plan's step 7 removed the switch (`2849bf15`) and the owner reversed it the same day, before it was pushed: the switch stays, per event and off by default, for organisations that collect at submission. The review of the removal found these, which hold with the switch in place:
 
-1. **For the owner: does "always pay later" cover a registration the team GRANTS to an author?** The speaker page's Grant registration sends the ordinary confirmation, with Pay Now and "complete only upon receipt of your payment" (the August design). An author who signed up while nothing was on sale and is later granted a payable registration gets Pay Now; one who signed up with a rate does not. Same for the Registration Confirmation resend from Communications to an unpaid author. Both are sent by an organiser, not at sign-up.
-2. **The flag's two hops are in no test.** `presenter-registration.ts` and `registration-service.ts` pass `suppressPayNow` along; it is asserted only at the mocked call above them and inside the email builder. One `createRegistration` test asserting the confirmation sender receives it would pin the path.
+1. **For the owner: with the switch OFF, a registration the team GRANTS to an author still offers Pay Now.** The speaker page's Grant registration sends the ordinary confirmation, with Pay Now and "complete only upon receipt of your payment" (the August design), and so does the Registration Confirmation resend from Communications to an unpaid author. Both are sent by an organiser, not at sign-up. If MM Group's "always pay later" should cover them, they should read the same switch.
+2. **The flag's two hops are in no test.** `presenter-registration.ts` and `registration-service.ts` pass `suppressPayNow` along; it is asserted only at the mocked call above them and inside the email builder.
 3. **Preview wording:** the email preview sample says "A quote is attached." where the live text says "A quote is attached to this email."
 
 ## The Speakers page and authors: what the Nov 20 review of step 5 left (recorded Nov 20, 2026): not started

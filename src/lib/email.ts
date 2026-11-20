@@ -2687,8 +2687,8 @@ export function buildRegistrationPaymentBlock(p: RegistrationPaymentBlockInput):
   // abstract is accepted and a payment taken now would need refunding. The
   // quote still attaches (that is decided by price > 0, not here), so this
   // drops only the Pay Now call to action and the "complete it now" framing.
-  // Always, since Nov 20, 2026 (owner: presenter registration is always pay
-  // later); the Settings switch that turned it back on is gone.
+  // Organizers who do want payment up front flip
+  // settings.presenterRegistration.payNowEnabled.
   const payNowCta = p.suppressPayNow
     ? ""
     : `<p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Should you wish to complete the payment online, please use the online form below.</p>

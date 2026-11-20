@@ -53,7 +53,8 @@ never shows or emails a Pay Now link; the fee is quoted and paid later, from
 the person's own portal or offline, once the organisers have decided. The
 August plan made this a per-event switch (Settings, Presenter registration,
 Show Pay Now), off by default; it is off on all 30 production events that
-carry the setting (read Nov 20, 2026) and step 7 removes it.
+carry the setting (read Nov 20, 2026). The switch itself is kept for other
+organisations (step 7, reversed the same day).
 
 ## 2. How a submitter ends up on Faculty today
 
@@ -285,14 +286,13 @@ registration with no speaker is refused; one with a payment is refused until
 refunded; an owing one moves only with the confirmation; the speaker's badge
 and barcode carry over.
 
-**Step 7. Remove the presenter Pay Now switch.** BUILT Nov 20, 2026: the
-switch, its reader (`presenter-registration-settings.ts`) and the email's Pay
-Now branch are deleted; a `presenterRegistration` setting saved earlier is
-read by nothing (no production event had it on, read on production Nov 20).
-What was planned: Settings loses "Presenter registration, Show Pay Now"; no
-event is offered it, whatever an old setting says; the welcome email never
-carries a Pay Now button. Paying later from the person's portal is untouched:
-that IS the pay-later route. The user guide's paragraph on the switch goes.
+**Step 7. Remove the presenter Pay Now switch.** NOT DONE: REVERSED by the
+owner on Nov 20, 2026 ("keep the Pay Now option, some tenants may need it").
+It was built and taken out again before it was pushed. The switch stays as it
+was: Settings, Abstracts, "Ask submitters to pay at submission", per event,
+off by default, behind a confirmation. For MM Group's own events the house
+rule above stands and it is left off (no production event has it on). Paying
+later from the person's portal is untouched either way.
 
 **Step 8. The authors already on Faculty, and the words.** With steps 2 and 3
 the 22 on MEHF2027 are a filter (Faculty type + has an abstract + not on the

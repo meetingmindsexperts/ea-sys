@@ -81,8 +81,8 @@ at all except an organizer-sent reminder, which contradicts "pay later".
 
 **Made an option, not a rule (owner, Aug 11).** Some events do want payment up
 front, so `settings.presenterRegistration.payNowEnabled` turns it back on.
-(REMOVED Nov 20, 2026: the switch and its reader are deleted; presenter
-registration is always pay later. See docs/ABSTRACT_AUTHOR_REGISTRATION_PLAN.md, step 7.)
+(Owner, Nov 20, 2026: the switch is KEPT, off by default. MM Group's own
+events are always pay later; another organisation may collect at submission.)
 Off by default; enabling it is behind a confirmation, because the consequence
 lands on every future submitter before their abstract has been read. The reader
 is strict `=== true`, so a malformed blob resolves to "do not ask for money"

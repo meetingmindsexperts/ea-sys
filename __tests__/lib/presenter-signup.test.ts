@@ -342,18 +342,18 @@ describe("with presenter rates configured", () => {
     expect(createAndLinkSpy.mock.calls[0][0].createdSource).toBe("PUBLIC_SUBMITTER");
   });
 
-  // Owner, Nov 20, 2026: presenter registration is always pay later. The Settings switch is gone, and a
-  // setting saved while it existed must not bring the button back.
-  it("never offers Pay Now, whatever an old setting says", async () => {
+  it("suppresses Pay Now by default (D3)", async () => {
     await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
     expect(createAndLinkSpy.mock.calls[0][0].suppressPayNow).toBe(true);
-    createAndLinkSpy.mockClear();
+  });
+
+  it("shows Pay Now when the organizer turned it on", async () => {
     await ensureSubmitterRegistration({
       ...BASE,
       eventSettings: { presenterRegistration: { payNowEnabled: true } },
       ticketTypeId: "tt-phys",
     });
-    expect(createAndLinkSpy.mock.calls[0][0].suppressPayNow).toBe(true);
+    expect(createAndLinkSpy.mock.calls[0][0].suppressPayNow).toBe(false);
   });
 });
 
@@ -431,10 +431,12 @@ describe("resolvePresenterRateSelection", () => {
 
 /**
  * The fee block is the ONLY thing that tells an abstract submitter what they
- * owe, now that the delegate confirmation is suppressed on that door. It
- * never invites payment (owner, Nov 20, 2026: always pay later).
+ * owe, now that the delegate confirmation is suppressed on that door. Its
+ * closing sentence and its button are decided from ONE flag, because
+ * "payment is not required" printed above a Pay Now button is the kind of
+ * contradiction nobody reads twice.
  */
-describe("the presenter fee block quotes the fee and never offers Pay Now", () => {
+describe("presenter fee block copy follows the Pay Now toggle", () => {
   beforeEach(() => {
     findUniqueSpy.mockResolvedValue({
       id: "reg-1",
@@ -447,22 +449,28 @@ describe("the presenter fee block quotes the fee and never offers Pay Now", () =
     quotePdfSpy.mockResolvedValue({ buffer: Buffer.from("pdf"), filename: "quote-1.pdf" });
   });
 
-  it("says payment is NOT required, and carries no Pay Now button or link", async () => {
-    const r = await buildPresenterFeeEmailExtras("reg-1");
+  it("says payment is NOT required, and shows no button, when Pay Now is off", async () => {
+    const r = await buildPresenterFeeEmailExtras("reg-1", { payNowEnabled: false });
     expect(r?.text).toContain("Payment is not required");
-    expect(r?.text).not.toMatch(/pay now|pay online/i);
-    expect(r?.html).not.toMatch(/Pay Now|confirmation\?id=/);
+    expect(r?.html).not.toContain(">Pay Now<");
+  });
+
+  it("offers to pay, with a button, when the organizer turned Pay Now on", async () => {
+    const r = await buildPresenterFeeEmailExtras("reg-1", { payNowEnabled: true });
+    expect(r?.text).toContain("You can pay online now");
+    expect(r?.text).not.toContain("Payment is not required");
+    expect(r?.html).toContain(">Pay Now<");
   });
 
   it("attaches the quote", async () => {
-    const r = await buildPresenterFeeEmailExtras("reg-1");
+    const r = await buildPresenterFeeEmailExtras("reg-1", { payNowEnabled: false });
     expect(r?.attachment?.name).toBe("quote-1.pdf");
   });
 
   /** A broken PDF must not cost someone the fee message, or their account. */
   it("still returns the fee block when the quote PDF blows up", async () => {
     quotePdfSpy.mockRejectedValueOnce(new Error("pdfkit exploded"));
-    const r = await buildPresenterFeeEmailExtras("reg-1");
+    const r = await buildPresenterFeeEmailExtras("reg-1", { payNowEnabled: false });
     expect(r?.attachment).toBeNull();
     expect(r?.text).toContain("USD 450.00");
   });
@@ -477,12 +485,14 @@ describe("the presenter fee block quotes the fee and never offers Pay Now", () =
       pricingTier: { name: "Presenter", price: 0, currency: "USD" },
       event: { slug: "MEHF2027", name: "MEHF", organization: {} },
     });
-    const r = await buildPresenterFeeEmailExtras("reg-1");
-    expect(r?.text).toContain("USD 0.00");
-    expect(r?.text).toContain("Resident · Presenter");
-    expect(r?.text).not.toMatch(/quote|payment|pay online/i);
-    expect(r?.html).not.toMatch(/quote|Payment|Pay Now/);
-    expect(r?.attachment).toBeNull();
+    for (const payNowEnabled of [false, true]) {
+      const r = await buildPresenterFeeEmailExtras("reg-1", { payNowEnabled });
+      expect(r?.text).toContain("USD 0.00");
+      expect(r?.text).toContain("Resident · Presenter");
+      expect(r?.text).not.toMatch(/quote|payment|pay online/i);
+      expect(r?.html).not.toMatch(/quote|Payment|Pay Now/);
+      expect(r?.attachment).toBeNull();
+    }
     expect(quotePdfSpy).not.toHaveBeenCalled();
   });
 });
