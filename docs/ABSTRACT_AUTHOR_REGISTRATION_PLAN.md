@@ -207,7 +207,7 @@ by abstract sign-up). Step 6 is the way out.
 
 ## 5. Decisions needed
 
-**P1. An event with abstracts but no presenter rates: what does sign-up create?** OPEN.
+**P1. An event with abstracts but no presenter rates: what does sign-up create?** DECIDED Nov 20, 2026: (b). "Reg type as what they chose, badge also how it is currently": the registration is on the type the author picks, and the badge is whatever that registration gets today; Presenter goes on the badge only at acceptance.
 
 What it is about: "presenter rates" are the special prices an organiser adds
 under each registration type (Physician, Presenter, 400). Where they exist,
