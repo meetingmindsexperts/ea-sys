@@ -6,15 +6,21 @@
  * someone signing in with an existing one) ask the same question, so they ask
  * it here rather than each deciding for itself.
  *
- * THE RULE:
- *   proposal signup                    -> link only, never create (Aug 5)
- *   abstract, event HAS presenter rates -> a REAL payable registration
- *   abstract, event has none            -> the complimentary Faculty companion,
- *                                          exactly as before (plan D4)
+ * THE RULE (owner, Nov 20, 2026; docs/ABSTRACT_AUTHOR_REGISTRATION_PLAN.md):
+ *   proposal signup                     -> link only, never create (Aug 5)
+ *   already registered on the event     -> link that registration, ask nothing
+ *   abstract, a rate is on offer        -> a REAL registration on the type the
+ *                                          author chose, to pay later: the
+ *                                          presenter rate, or on an event with
+ *                                          none the ordinary rate on sale
+ *                                          (author-rates.ts)
+ *   abstract, nothing on offer          -> link only; the organisers give a
+ *                                          registration later
  *
- * That last branch is what makes this safe to deploy: every existing event has
- * no presenter rates, so every existing event keeps its current behaviour until
- * an organizer sets some.
+ * An abstract sign-up NEVER makes a Faculty registration. Until Nov 20, 2026
+ * an event with no presenter rates gave every submitter the complimentary
+ * Faculty companion (plan D4 of the August plan): Faculty is for the people
+ * the organisers invite.
  *
  * FAILURE-ISOLATED BY CONTRACT. The account and the speaker row are already
  * committed by the time this runs, and a registration hiccup must never fail a
@@ -30,7 +36,9 @@ import {
 } from "@/lib/speaker-companion";
 import { createAndLinkPayableRegistration } from "@/lib/presenter-registration";
 import { isPresenterPayNowEnabled } from "@/lib/presenter-registration-settings";
-import { presenterRateOptions } from "@/lib/presenter-tiers";
+import { authorRateOptions } from "@/lib/author-rates";
+import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
+import { tierAvailability } from "@/lib/public-availability";
 import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
 import { escapeHtml } from "@/lib/html";
 import { IDENTITY_EVIDENCE_SELECT, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
@@ -119,14 +127,14 @@ export interface PresenterSignupInput {
  * keeps working untouched for every event that charges nothing.
  */
 export type PresenterRateSelection =
-  /** No presenter rates configured on this event. D4: comp companion. */
+  /** Nothing is on offer to an author right now: link only, never a free registration. */
   | { kind: "none" }
-  /** A rate is on sale and the submitter's choice resolved to it. */
-  | { kind: "resolved"; ticketTypeId: string; pricingTierId: string; policy: TypeEvidencePolicy }
+  /** A rate is on sale and the submitter's choice resolved to it (null: a type with no rates, at its own price). */
+  | { kind: "resolved"; ticketTypeId: string; pricingTierId: string | null; policy: TypeEvidencePolicy }
   /**
-   * This event DOES charge presenters, but no usable rate was chosen — either
-   * the field was absent, or it named a type whose presenter tier is closed,
-   * sold out or does not exist. Never a comp.
+   * Rates ARE on offer, but no usable one was chosen: either the field was
+   * absent, or it named a type whose rate is closed, sold out or does not
+   * exist. Never a free registration.
    */
   | { kind: "required"; availableCount: number };
 
@@ -139,6 +147,8 @@ export type PresenterRateSelection =
 export async function resolvePresenterRateSelection(
   eventId: string,
   ticketTypeId: string | null | undefined,
+  /** The event's settings JSON: the registration switch and the sponsor-only rates. */
+  eventSettings: unknown,
 ): Promise<PresenterRateSelection> {
   const ticketTypes = await db.ticketType.findMany({
     where: { eventId, isActive: true, isFaculty: false },
@@ -146,6 +156,12 @@ export async function resolvePresenterRateSelection(
       id: true,
       name: true,
       isActive: true,
+      price: true,
+      currency: true,
+      quantity: true,
+      soldCount: true,
+      salesStart: true,
+      salesEnd: true,
       ...IDENTITY_EVIDENCE_SELECT,
       ...SUPPORTING_DOCUMENT_POLICY_SELECT,
       pricingTiers: {
@@ -165,34 +181,40 @@ export async function resolvePresenterRateSelection(
       },
     },
   });
-  const now = Date.now();
-  const options = presenterRateOptions(
+  const now = new Date();
+  const settings = (eventSettings && typeof eventSettings === "object" ? eventSettings : {}) as Record<string, unknown>;
+  const options = authorRateOptions(
     ticketTypes.map((tt) => ({
       id: tt.id,
       name: tt.name,
       isActive: tt.isActive,
+      price: Number(tt.price),
+      currency: tt.currency,
+      // A type with no rates is sold at its own price, inside its own dates and seats.
+      canPurchase:
+        tt.soldCount < tt.quantity &&
+        (!tt.salesStart || tt.salesStart <= now) &&
+        (!tt.salesEnd || tt.salesEnd >= now),
       pricingTiers: tt.pricingTiers.map((t) => ({
         id: t.id,
         name: t.name,
         price: Number(t.price),
         currency: t.currency,
         sortOrder: t.sortOrder,
-        // `canPurchase` is computed by the public API for the form; recompute
-        // it here from the same facts so a tier that closed between page load
-        // and submit is not sold anyway.
-        canPurchase:
-          t.soldCount < t.quantity &&
-          (!t.salesStart || new Date(t.salesStart).getTime() <= now) &&
-          (!t.salesEnd || new Date(t.salesEnd).getTime() >= now),
+        // The public API computes `canPurchase` for the form with this same
+        // rule (public-availability.ts); recomputed here so a rate that closed
+        // between page load and submit is not sold anyway.
+        canPurchase: tierAvailability(t, tt, now).canPurchase,
       })),
     })),
+    { registrationOpen: settings.registrationOpen !== false, codeRequiredTiers: readCodeRequiredTiers(eventSettings) },
   );
-  // Empty is meaningful, not an error: this event charges presenters nothing,
-  // so the D4 comp companion is the right outcome and always has been.
+  // Empty is meaningful, not an error: nothing is on sale for an author, so
+  // the sign-up links what exists and creates nothing (never a free place).
   if (options.length === 0) return { kind: "none" };
 
-  // From here the event DOES charge presenters, so a missing or unusable
-  // choice is a refusal — never a free registration.
+  // From here a rate IS on offer, so a missing or unusable choice is a
+  // refusal, never a free registration.
   if (!ticketTypeId) return { kind: "required", availableCount: options.length };
 
   const chosen = options.find((o) => o.ticketTypeId === ticketTypeId);
@@ -252,7 +274,9 @@ export async function checkPresenterRateSelection(
   source: string,
   ticketTypeId: string | null | undefined,
   /** Who is signing up and what they gave for the chosen type's ID and document switches. */
-  applicant?: { email: string; evidence?: PresenterEvidenceInput },
+  applicant: { email: string; evidence?: PresenterEvidenceInput } | undefined,
+  /** The event's settings JSON (the registration switch, the sponsor-only rates). */
+  eventSettings: unknown,
 ): Promise<
   | { ok: true }
   | { ok: false; code: "REGISTRATION_TYPE_REQUIRED"; message: string; availableCount: number }
@@ -262,14 +286,16 @@ export async function checkPresenterRateSelection(
   // rate is not a thing they can or should choose.
   if (source === "proposal") return { ok: true };
 
-  const selection = await resolvePresenterRateSelection(eventId, ticketTypeId);
+  // Someone already registered on the event (invited faculty, a delegate who
+  // registered first) keeps that registration: nothing is created, so there is
+  // no rate to choose and nothing to verify. Until Nov 20, 2026 they were still
+  // made to pick a type and a rate that was never charged.
+  if (applicant && (await holdsLiveRegistration(eventId, applicant.email))) return { ok: true };
+
+  const selection = await resolvePresenterRateSelection(eventId, ticketTypeId, eventSettings);
   if (selection.kind === "none") return { ok: true };
   if (selection.kind === "resolved") {
-    // Asked only when a registration is about to be made on that type: someone
-    // already registered keeps the registration they hold, so nothing is created
-    // and there is nothing to verify.
     if (!applicant || !asksForEvidence(selection.policy)) return { ok: true };
-    if (await holdsLiveRegistration(eventId, applicant.email)) return { ok: true };
     return checkPresenterEvidence(selection.policy, eventId, applicant.evidence);
   }
 
@@ -278,7 +304,8 @@ export async function checkPresenterRateSelection(
     code: "REGISTRATION_TYPE_REQUIRED",
     message: ticketTypeId
       ? "That registration type is no longer available. Please reload the page and choose again."
-      : "Please choose a registration type.",
+      // A page loaded before the choice existed has nothing to choose from: say how to get it.
+      : "Please choose a registration type. If you do not see the choice, reload the page.",
     availableCount: selection.availableCount,
   };
 }
@@ -299,11 +326,21 @@ export async function ensureSubmitterRegistration(
       return null;
     }
 
-    const selection = await resolvePresenterRateSelection(speaker.eventId, input.ticketTypeId);
+    // Already registered on the event: that registration is theirs to keep
+    // (first registration wins), whatever type it is on. Link it, create nothing.
+    if (await holdsLiveRegistration(speaker.eventId, speaker.email)) {
+      await ensureSpeakerCompanionRegistration(speaker, { linkOnly: true, expectedLink });
+      return null;
+    }
+
+    const selection = await resolvePresenterRateSelection(speaker.eventId, input.ticketTypeId, input.eventSettings);
 
     if (selection.kind === "none") {
-      // D4: this event has no presenter rates. Behave exactly as before.
-      await ensureSpeakerCompanionRegistration(speaker, { expectedLink });
+      // Nothing is on sale for an author (owner, Nov 20, 2026): no registration
+      // is made, and never the free Faculty one this branch made until then.
+      // The organisers give one later; the line is what tells them it happened.
+      apiLogger.info({ msg: "presenter-signup:no-rate-on-offer", eventId: speaker.eventId, speakerId: speaker.id });
+      await ensureSpeakerCompanionRegistration(speaker, { linkOnly: true, expectedLink });
       return null;
     }
 

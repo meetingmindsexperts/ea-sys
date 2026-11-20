@@ -220,7 +220,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const rateCheck = await checkPresenterRateSelection(event.id, data.source, data.ticketTypeId, {
       email: emailLower,
       evidence: data,
-    });
+    }, event.settings);
     if (!rateCheck.ok) {
       apiLogger.warn({
         msg: rateCheck.code === "REGISTRATION_TYPE_REQUIRED"

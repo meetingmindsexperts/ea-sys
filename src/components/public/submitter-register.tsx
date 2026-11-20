@@ -15,18 +15,16 @@
  *
  * NOTE (owner decision, Aug 5 2026): a PROPOSAL signup does NOT auto-create a
  * complimentary registration — the organizer grants attendance per person
- * (comp or payable) from the proposal detail / speaker page. ABSTRACT signups
- * still auto-mint the comp Faculty companion (badge/barcode), unchanged.
+ * (comp or payable) from the proposal detail / speaker page. An ABSTRACT
+ * signup registers the author on the type they choose, to pay later
+ * (author-rates.ts); since Nov 20, 2026 it never makes a Faculty registration.
  */
 
 import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { scrollToFirstFormError } from "@/lib/form-error-scroll";
 import { useParams, useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import {
-  presenterRateOptions,
-  type PresenterTicketTypeCandidate,
-} from "@/lib/presenter-tiers";
+import { authorRateOptions, type AuthorRateTypeCandidate } from "@/lib/author-rates";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { PublicEventNotice } from "@/components/public/event-notice";
 import { SupportingDocumentField, type UploadedDocument } from "@/components/public/registration-form-extras";
@@ -103,9 +101,12 @@ interface Event {
     allowAbstractSubmissions: boolean;
     abstractDeadline: string | null;
   };
-  /** Used to offer presenter rates on the abstract flow (plan D2), and for the
-   *  chosen type's ID and document switches (Nov 4, 2026). */
-  ticketTypes?: (PresenterTicketTypeCandidate & Partial<IdentityEvidencePolicy> & SupportingDocumentPolicy)[];
+  /** Used to offer the author's rates on the abstract flow (author-rates.ts),
+   *  and for the chosen type's ID and document switches (Nov 4, 2026). */
+  ticketTypes?: (AuthorRateTypeCandidate & Partial<IdentityEvidencePolicy> & SupportingDocumentPolicy)[];
+  /** The registration switch and the sponsor-only rates, as the public event API sends them. */
+  registrationOpen?: boolean;
+  codeRequiredTiers?: string[];
 }
 
 const VARIANT_COPY: Record<
@@ -264,18 +265,20 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
   const [event, setEvent] = useState<Event | null>(null);
 
   /**
-   * Presenter rates on offer right now (plan D2). Abstracts only: session
-   * proposals create no registration at all (the Aug 5 decision) so they must
-   * never show a rate.
+   * The registration types an author may pick, each with its rate
+   * (author-rates.ts): the presenter rates where the event has any, otherwise
+   * each type's ordinary rate on sale. Abstracts only: session proposals create
+   * no registration at all (the Aug 5 decision) so they must never show a rate.
    *
-   * An EMPTY list is the D4 fallback, not an error. It means this event has no
-   * presenter tiers configured, the step does not render, and the door mints
-   * the complimentary Faculty registration exactly as before. Every existing
-   * event is in that state until an organizer sets rates, which is what makes
-   * this safe to ship.
+   * An EMPTY list is an answer, not an error: nothing is on sale for an author,
+   * the step does not render, and the sign-up makes no registration (the
+   * organisers give one later). Since Nov 20, 2026 it is never a free Faculty
+   * registration.
    */
   const rateOptions =
-    variant === "abstract" ? presenterRateOptions(event?.ticketTypes) : [];
+    variant === "abstract"
+      ? authorRateOptions(event?.ticketTypes, { registrationOpen: event?.registrationOpen, codeRequiredTiers: event?.codeRequiredTiers })
+      : [];
   const offersRates = rateOptions.length > 0;
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -328,6 +331,8 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
   const [supportingDoc, setSupportingDoc] = useState<UploadedDocument | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
   const [registeredHere, setRegisteredHere] = useState(false);
+  // What that registration is on ("Faculty", "Physician"), when the server could say.
+  const [registeredAs, setRegisteredAs] = useState<string | null>(null);
   // The rate an upload started under: a file that finishes after the person
   // picked another rate is not that rate's evidence.
   const uploadForType = useRef<string | undefined>(undefined);
@@ -400,7 +405,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
     setSubmitNotice(null);
     // Required only when the event actually offers rates (D4). Enforced again
     // server-side, since a form can be bypassed.
-    if (offersRates && !data.ticketTypeId) {
+    if (offersRates && !registeredHere && !data.ticketTypeId) {
       form.setError("ticketTypeId", { message: "Please choose a registration type" });
       showBlockedSubmit();
       return;
@@ -544,6 +549,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       form.setValue("confirmPassword", password);
       const name = [prefill.firstName, prefill.lastName].filter(Boolean).join(" ");
       setRegisteredHere(data.registeredHere === true);
+      setRegisteredAs(typeof data.registeredAs === "string" && data.registeredAs ? data.registeredAs : null);
       setExistingPerson({ name, email });
       setStep(2);
     } catch (err) {
@@ -725,9 +731,24 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
     </>
   ) : null;
 
-  // The presenter-rate picker, at the foot of step 2's details form, which new
-  // and existing accounts share.
-  const ratePicker = offersRates ? (
+  // Someone already registered for the event keeps that registration: nothing
+  // to choose, nothing to pay here (Nov 20, 2026; before, an invited speaker
+  // was made to pick a type and a rate that was never charged).
+  const alreadyRegisteredNote = (
+    <div className="space-y-3">
+      <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">
+        Registration
+      </h3>
+      <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-base text-slate-700">
+        You are already registered for this event{registeredAs ? <> as <strong>{registeredAs}</strong></> : null}.
+        There is nothing to choose and no fee to pay for submitting an abstract.
+      </p>
+    </div>
+  );
+
+  // The rate picker, at the foot of step 2's details form, which new and
+  // existing accounts share.
+  const rateChoice = (
     <div className="space-y-5">
       <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">
         Registration
@@ -768,7 +789,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                       <span className="block text-base font-medium text-slate-800 truncate">
                         {o.ticketTypeName}
                       </span>
-                      <span className="block text-xs text-slate-400">{o.tierName}</span>
+                      {o.tierName && <span className="block text-xs text-slate-400">{o.tierName}</span>}
                     </span>
                   </span>
                   <span className="text-base font-semibold text-slate-800 whitespace-nowrap tabular-nums">
@@ -787,7 +808,10 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
         )} />
       {evidenceFields}
     </div>
-  ) : null;
+  );
+  // Nothing on sale for an author: no step at all.
+  const registrationStep = registeredHere ? alreadyRegisteredNote : rateChoice;
+  const ratePicker = offersRates ? registrationStep : null;
 
   if (loading) {
     return (
@@ -1167,10 +1191,9 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                     </div>
 
                     {/*
-                      Presenter rate (plan D2). Rendered only when the event has
-                      presenter tiers configured: with none, the submitter still
-                      gets the complimentary Faculty registration and there is
-                      nothing to choose (D4).
+                      The author's registration type and rate (author-rates.ts).
+                      Not rendered when nothing is on sale for an author: the
+                      sign-up then makes no registration.
                     */}
                     {ratePicker}
 
@@ -1181,7 +1204,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
 
                     {/* Navigation: full width on a phone, the main button first */}
                     <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between pt-2">
-                      <Button type="button" variant="outline" className="rounded-lg text-base w-full sm:w-auto" onClick={() => { setExistingPerson(null); setRegisteredHere(false); setStep(1); }}>
+                      <Button type="button" variant="outline" className="rounded-lg text-base w-full sm:w-auto" onClick={() => { setExistingPerson(null); setRegisteredHere(false); setRegisteredAs(null); setStep(1); }}>
                         <ChevronLeft className="mr-1 h-4 w-4" /> Back
                       </Button>
                       <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 text-base w-full sm:w-auto h-12 sm:h-10">

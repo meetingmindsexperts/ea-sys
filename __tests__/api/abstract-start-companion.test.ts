@@ -26,9 +26,9 @@ const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy, txUserU
     // registrations.
     speaker: { findFirst: vi.fn(), findMany: vi.fn() },
     accountProfile: { findUnique: vi.fn() },
-    // No presenter rates on this event -> the D4 comp path, which is what this
-    // file asserts. The route asks BEFORE the transaction (Sep 21, 2026), so
-    // the mock has to answer.
+    // Nothing on sale for an author on this event -> link only (Nov 20, 2026;
+    // until then the free Faculty companion, plan D4). The route asks BEFORE
+    // the transaction (Sep 21, 2026), so the mock has to answer.
     ticketType: { findMany: vi.fn().mockResolvedValue([]) },
     // The organisation's switches for Title, Role and Specialty (person-field-rules.ts).
     organization: { findUnique: vi.fn() },
@@ -111,12 +111,13 @@ beforeEach(() => {
 });
 
 describe("abstract-start — companion policy per source", () => {
-  it("an ABSTRACT sign-in still auto-mints (linkOnly false)", async () => {
+  // Owner, Nov 20, 2026: Faculty is for the people the organisers invite. This
+  // pinned the opposite ("still auto-mints") until then.
+  it("an ABSTRACT sign-in never makes a Faculty registration: with nothing on sale it links only", async () => {
     const res = await POST(makeReq(validBody), params);
     expect(res.status).toBe(200);
     expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
-    // The decision, not the option object (see the submitter suite).
-    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).not.toBe(true);
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
   });
 
   it("a PROPOSAL sign-in is linkOnly — NO auto comp registration (owner decision Aug 5, 2026)", async () => {
@@ -292,6 +293,7 @@ describe("abstract-start — lookup, then confirmed details", () => {
     mockDb.ticketType.findMany.mockResolvedValueOnce([
       {
         id: "tt-stu", name: "Student", isActive: true, requiresStudentId: true,
+        price: 0, currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null,
         pricingTiers: [{ id: "tier-p", name: "Presenter", price: 0, currency: "USD", sortOrder: 3,
           quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null }],
       },

@@ -80,11 +80,15 @@ export interface PresenterTicketTypeCandidate {
   pricingTiers?: PresenterTierCandidate[] | null;
 }
 
-/** One registration type and the presenter rate currently on sale for it. */
+/**
+ * One registration type and the rate an author is offered on it: its presenter
+ * rate, or (an event with none, author-rates.ts) its ordinary rate on sale.
+ * `tierId` is null only for a type that has no rates and is sold at its own price.
+ */
 export interface PresenterRateOption {
   ticketTypeId: string;
   ticketTypeName: string;
-  tierId: string;
+  tierId: string | null;
   tierName: string;
   price: number;
   currency: string;
@@ -101,9 +105,9 @@ export interface PresenterRateOption {
  * id or a price from the client, and sharing the resolution is what keeps the
  * price the submitter was shown identical to the one they are charged.
  *
- * An empty result is meaningful, not an error: it means this event has no
- * presenter rates configured, which is plan decision D4, and the submitter
- * falls back to the complimentary Faculty registration as before.
+ * An empty result is meaningful, not an error: no presenter rate is on sale.
+ * What an author is offered then is decided by `authorRateOptions`
+ * (author-rates.ts); since Nov 20, 2026 it is never a free Faculty registration.
  */
 export function presenterRateOptions(
   ticketTypes: PresenterTicketTypeCandidate[] | null | undefined,

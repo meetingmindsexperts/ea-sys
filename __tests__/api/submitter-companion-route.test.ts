@@ -135,6 +135,7 @@ describe("submitter route — presenter rate is required when the event charges"
         id: "tt-phys",
         name: "Physician",
         isActive: true,
+        price: 0, currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null,
         pricingTiers: [
           { id: "tier-p", name: "Presenter", price: 125, currency: "USD", sortOrder: 3,
             quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null },
@@ -224,12 +225,11 @@ describe("submitter route — companion registration", () => {
     expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("ABSTRACT signups still auto-mint (linkOnly false)", async () => {
+  // Owner, Nov 20, 2026: an abstract sign-up never makes a Faculty
+  // registration. This pinned the opposite ("still auto-mint") until then.
+  it("ABSTRACT signups on an event with nothing on sale link only: never a Faculty registration", async () => {
     await POST(makeReq(validBody), { params });
-    // Asserted as the DECISION, not the option object: linkOnly absent and
-    // linkOnly:false mean the same thing to the helper, and the door now
-    // routes through ensureSubmitterRegistration which omits it.
-    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).not.toBe(true);
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
     expect(ensureCompanionSpy.mock.calls[0][1]?.expectedLink).toBeNull();
   });
 
@@ -250,7 +250,8 @@ describe("submitter route — companion registration", () => {
     // Effective pointer nulled so the helper links a live same-email row…
     expect(input.sourceRegistrationId).toBeNull();
     // …while the RAW pointer rides as expectedLink for the conditional claim.
-    expect(opts?.linkOnly).not.toBe(true);
+    // Link only: nothing is made for an abstract sign-up (Nov 20, 2026).
+    expect(opts?.linkOnly).toBe(true);
     expect(opts?.expectedLink).toBe("reg-dead");
   });
 });
@@ -423,6 +424,7 @@ describe("submitter route — the chosen type's student ID and document", () => 
         id: "tt-stu",
         name: "Student",
         isActive: true,
+        price: 0, currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null,
         requiresStudentId: true,
         requiresStudentIdExpiry: true,
         requiresDocument: true,

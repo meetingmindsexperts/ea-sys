@@ -1,6 +1,6 @@
 # Abstract authors are not Faculty: registration and the Presenter mark
 
-**Status: PLANNED, not built.** Owner, Nov 19, 2026. Amends decision D4 of
+**Status: IN BUILD.** Steps 1 and 4a built Nov 20, 2026; the rest not started. Owner, Nov 19, 2026. Amends decision D4 of
 [PRESENTER_REGISTRATION_PLAN.md](PRESENTER_REGISTRATION_PLAN.md); everything else
 in that plan stands.
 
@@ -133,7 +133,8 @@ is written to the history with who did it.
 
 Each step is its own commit, reviewed, deployable alone.
 
-**Step 1. Abstract sign-up never creates a Faculty registration.**
+**Step 1. Abstract sign-up never creates a Faculty registration.** BUILT Nov 20,
+2026 (`src/lib/author-rates.ts`, `presenter-signup.ts`).
 Replace the D4 branch in `ensureSubmitterRegistration` with the outcome of P1.
 Both doors are covered because both call it. Tests: an abstract sign-up on an
 event without presenter rates creates no Faculty registration; a session
@@ -157,7 +158,10 @@ reports who was skipped (already paid, no registration, sponsor-paid). Left
 unticked, the team does it later from the Accepted filter. Its default (on or
 off) is remembered per person, never forced.
 
-**Step 4a. The abstract form does not ask a registered person for a rate**
+**Step 4a. The abstract form does not ask a registered person for a rate** BUILT
+Nov 20, 2026, with step 1. A new account cannot be told (a stranger typing an
+address must not learn it is registered): they pick a type, and nothing is
+created or charged.
 (5a, T1): no type or rate step when they already hold a registration on the
 event; a line says what they are registered as.
 

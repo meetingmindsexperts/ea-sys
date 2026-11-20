@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Abstract authors are no longer registered as Faculty (November 20)
+
+Submitting an abstract used to give the author a free Faculty registration on any event that had no presenter rates, so authors saw "Faculty" on their portal, emails and badge before anyone had read the abstract. Faculty is for the speakers and committee the organisers invite.
+
+- **What sign-up does now:** the author picks their registration type and gets a real registration on it, to pay later. With presenter rates set, that is the presenter rate, as before. Without, it is the type's ordinary rate on sale that day (Early Bird while it is open), offered only while public registration is open. Never a sponsor's rate, and never a type's own price when its rates are closed.
+- **Nothing on sale:** the author still signs up and submits; no registration is made, and the organisers give one later from the speaker's page.
+- **Already registered** (invited faculty who submit, or a delegate who registered first): that registration stays, and the form no longer asks them for a type and a rate that was never charged. After signing in it says what they are registered as.
+- **Changes on deploy:** HEMNET 2026 (abstracts open, no presenter rates) starts asking authors for a type and quotes Early Bird. Authors already on Faculty are not moved.
+- First step of [docs/ABSTRACT_AUTHOR_REGISTRATION_PLAN.md](docs/ABSTRACT_AUTHOR_REGISTRATION_PLAN.md) (steps 1 and 4a).
+
 ### The author's requested presentation type is kept (November 19)
 
 An abstract had one presentation type. The author chose it on the submission form, and when an organiser set the type (Set status or type, or the edit page) it replaced the author's choice, with nothing left to show what the author had asked for. Now the two are kept apart:

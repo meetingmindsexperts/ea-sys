@@ -2,10 +2,11 @@
  * What an abstract signup does about the submitter's registration
  * (Aug 11, 2026). See docs/PRESENTER_REGISTRATION_PLAN.md.
  *
- * The branch that matters most is D4: an event with NO presenter rates keeps
- * today's complimentary Faculty companion. Every existing event is in that
- * state, so if this branch were wrong the change would alter behaviour on
- * every live event the moment it deployed.
+ * Since Nov 20, 2026 (owner; docs/ABSTRACT_AUTHOR_REGISTRATION_PLAN.md) an
+ * abstract sign-up NEVER makes a Faculty registration: an event with no
+ * presenter rates sells the author the ordinary rate on sale, and where
+ * nothing is on sale it links what exists and creates nothing. The August
+ * rule (plan D4) gave every such submitter a free Faculty companion.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -21,8 +22,10 @@ type PayableInput = {
   supportingDocument?: { url: string; filename: string | null } | null;
 };
 
-const { ensureCompanionSpy, createAndLinkSpy, findManySpy, findUniqueSpy, quotePdfSpy } = vi.hoisted(() => ({
+const { ensureCompanionSpy, createAndLinkSpy, findManySpy, findUniqueSpy, heldRegistrationSpy, quotePdfSpy } = vi.hoisted(() => ({
   findUniqueSpy: vi.fn(),
+  // holdsLiveRegistration: does this address already hold a registration on the event?
+  heldRegistrationSpy: vi.fn(),
   quotePdfSpy: vi.fn(),
   ensureCompanionSpy:
     vi.fn<(speaker: unknown, opts?: CompanionOpts) => Promise<Record<string, unknown>>>(),
@@ -38,7 +41,7 @@ vi.mock("@/lib/quote-pdf", () => ({ buildQuotePDFFromRegistration: quotePdfSpy }
 vi.mock("@/lib/db", () => ({
   db: {
     ticketType: { findMany: findManySpy },
-    registration: { findUnique: findUniqueSpy },
+    registration: { findUnique: findUniqueSpy, findFirst: heldRegistrationSpy },
   },
   dbOperator: {},
   tenantTransaction: vi.fn(),
@@ -80,13 +83,17 @@ const SPEAKER = {
   sourceRegistrationId: null,
 };
 
+/** A registration type's own columns, as the resolver selects them. */
+const TYPE_COLUMNS = { isActive: true, price: 0, currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null };
+const OPEN_RATE = { currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null };
+
 /** One registration type carrying an open presenter tier. */
 function typeWithPresenterRate() {
   return [
     {
       id: "tt-phys",
       name: "Physician",
-      isActive: true,
+      ...TYPE_COLUMNS,
       pricingTiers: [
         {
           id: "tier-peb",
@@ -115,6 +122,7 @@ const BASE = {
 beforeEach(() => {
   vi.clearAllMocks();
   findManySpy.mockResolvedValue(typeWithPresenterRate());
+  heldRegistrationSpy.mockResolvedValue(null);
   ensureCompanionSpy.mockResolvedValue({ status: "created", registrationId: "r1" });
   createAndLinkSpy.mockResolvedValue({
     status: "created",
@@ -177,27 +185,101 @@ describe("an event that DOES charge presenters never hands out a free comp", () 
   });
 });
 
-describe("D4: an event with no presenter rates keeps today's behaviour", () => {
-  it("falls back when the chosen type has no presenter tier", async () => {
-    findManySpy.mockResolvedValue([
-      { id: "tt-phys", name: "Physician", isActive: true, pricingTiers: [
-        { id: "t1", name: "Early Bird", price: 400, currency: "USD", sortOrder: 0,
-          quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null },
-      ] },
-    ]);
+/** The Faculty companion is what the helper makes when it is NOT told `linkOnly`. */
+const madeFacultyCompanion = () => ensureCompanionSpy.mock.calls.some(([, opts]) => opts?.linkOnly !== true);
+
+describe("an event with no presenter rates: the ordinary rate on sale, never Faculty", () => {
+  const ordinaryType = (tiers: Record<string, unknown>[]) => [{ id: "tt-phys", name: "Physician", ...TYPE_COLUMNS, pricingTiers: tiers }];
+
+  it("registers the author on the type they chose, at the rate a delegate would get today", async () => {
+    findManySpy.mockResolvedValue(ordinaryType([
+      { id: "t-std", name: "Standard", price: 500, sortOrder: 1, ...OPEN_RATE },
+      { id: "t-eb", name: "Early Bird", price: 400, sortOrder: 0, ...OPEN_RATE },
+    ]));
     await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
-    expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
-    expect(createAndLinkSpy).not.toHaveBeenCalled();
+    expect(createAndLinkSpy).toHaveBeenCalledTimes(1);
+    expect(createAndLinkSpy.mock.calls[0][0]).toMatchObject({ ticketTypeId: "tt-phys", pricingTierId: "t-eb", createdSource: "PUBLIC_SUBMITTER", suppressPayNow: true });
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
   });
 
+  it("a type with no rates is sold at its own price", async () => {
+    findManySpy.mockResolvedValue([{ id: "tt-phys", name: "Physician", ...TYPE_COLUMNS, price: 300, pricingTiers: [] }]);
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+    expect(createAndLinkSpy.mock.calls[0][0]).toMatchObject({ ticketTypeId: "tt-phys", pricingTierId: null });
+  });
+
+  it("never sells a sponsor's rate, even when it sorts first", async () => {
+    findManySpy.mockResolvedValue(ordinaryType([
+      { id: "t-spon", name: "Sponsored", price: 0, sortOrder: 0, ...OPEN_RATE },
+      { id: "t-eb", name: "Early Bird", price: 400, sortOrder: 1, ...OPEN_RATE },
+    ]));
+    await ensureSubmitterRegistration({ ...BASE, eventSettings: { codeRequiredTiers: ["sponsored"] }, ticketTypeId: "tt-phys" });
+    expect(createAndLinkSpy.mock.calls[0][0].pricingTierId).toBe("t-eb");
+  });
+
+  it("with registration switched off nothing is sold: it links only, and says so in the log", async () => {
+    findManySpy.mockResolvedValue(ordinaryType([{ id: "t-eb", name: "Early Bird", price: 400, sortOrder: 0, ...OPEN_RATE }]));
+    await ensureSubmitterRegistration({ ...BASE, eventSettings: { registrationOpen: false }, ticketTypeId: "tt-phys" });
+    expect(createAndLinkSpy).not.toHaveBeenCalled();
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
+    expect(apiLogger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "presenter-signup:no-rate-on-offer" }));
+  });
+
+  it("a type whose rates are all closed offers nothing: its own price (0 on an event priced by rate) is never the fallback", async () => {
+    findManySpy.mockResolvedValue(ordinaryType([
+      { id: "t-eb", name: "Early Bird", price: 400, sortOrder: 0, ...OPEN_RATE, salesEnd: new Date(Date.now() - 86_400_000) },
+    ]));
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+    expect(createAndLinkSpy).not.toHaveBeenCalled();
+    expect(madeFacultyCompanion()).toBe(false);
+  });
+
+  it("rates on offer and none chosen is still a refusal to register, never a free place", async () => {
+    findManySpy.mockResolvedValue(ordinaryType([{ id: "t-eb", name: "Early Bird", price: 400, sortOrder: 0, ...OPEN_RATE }]));
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: null });
+    expect(createAndLinkSpy).not.toHaveBeenCalled();
+    expect(madeFacultyCompanion()).toBe(false);
+  });
+});
+
+describe("the Faculty registration is never made for submitting an abstract", () => {
   /** A stale form must not be able to buy a rate that closed since page load. */
-  it("falls back when the presenter tier sold out or closed since page load", async () => {
+  it("presenter rates all closed: links only", async () => {
     const closed = typeWithPresenterRate();
     closed[0].pricingTiers[0].salesEnd = new Date(Date.now() - 86_400_000) as unknown as null;
     findManySpy.mockResolvedValue(closed);
     await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
     expect(createAndLinkSpy).not.toHaveBeenCalled();
     expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
+    expect(madeFacultyCompanion()).toBe(false);
+  });
+
+  it("a type full under its own seat limit sells none of its rates (the form's rule, public-availability.ts)", async () => {
+    const full = typeWithPresenterRate();
+    Object.assign(full[0], { quantity: 10, soldCount: 10 });
+    findManySpy.mockResolvedValue(full);
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+    expect(createAndLinkSpy).not.toHaveBeenCalled();
+    expect(madeFacultyCompanion()).toBe(false);
+  });
+
+  it("no types at all: links only", async () => {
+    findManySpy.mockResolvedValue([]);
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: null });
+    expect(createAndLinkSpy).not.toHaveBeenCalled();
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
+  });
+});
+
+describe("someone already registered on the event keeps that registration", () => {
+  // Invited faculty who submit, or a delegate who registered first: first registration wins.
+  it("links it and creates nothing, whatever was chosen on the form, without pricing anything", async () => {
+    heldRegistrationSpy.mockResolvedValue({ id: "reg-faculty" });
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+    expect(createAndLinkSpy).not.toHaveBeenCalled();
+    expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
+    expect(findManySpy).not.toHaveBeenCalled();
   });
 });
 
@@ -301,17 +383,17 @@ describe("resolvePresenterRateSelection", () => {
   // but none was chosen" are different facts, and only the first may end in a
   // free registration. They now assert the DISTINCTION.
   it("says a choice is REQUIRED for an unknown type rather than guessing another", async () => {
-    const sel = await resolvePresenterRateSelection("ev1", "tt-nope");
+    const sel = await resolvePresenterRateSelection("ev1", "tt-nope", {});
     expect(sel.kind).toBe("required");
   });
 
   it("says a choice is REQUIRED when nothing was chosen but rates exist", async () => {
-    const sel = await resolvePresenterRateSelection("ev1", null);
+    const sel = await resolvePresenterRateSelection("ev1", null, {});
     expect(sel.kind).toBe("required");
   });
 
   it("resolves a valid choice to its tier", async () => {
-    const sel = await resolvePresenterRateSelection("ev1", "tt-phys");
+    const sel = await resolvePresenterRateSelection("ev1", "tt-phys", {});
     expect(sel).toMatchObject({
       kind: "resolved",
       ticketTypeId: "tt-phys",

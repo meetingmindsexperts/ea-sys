@@ -1,3 +1,4 @@
+import { displayRegistrationType } from "@/lib/faculty-filter";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, tenantTransaction } from "@/lib/db";
@@ -220,6 +221,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
       select: {
         id: true,
+        ticketType: { select: { name: true, isFaculty: true } },
         attendee: {
           select: {
             title: true, firstName: true, lastName: true, organization: true, jobTitle: true,
@@ -245,7 +247,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       // must not ask them for the chosen type's ID or document.
       const registeredHere = await holdsLiveRegistration(event.id, emailLower);
       apiLogger.info({ msg: "public/abstract-start:lookup", eventId: event.id, userId: user.id });
-      return NextResponse.json({ ok: true, prefill, registeredHere });
+      // What they are registered as, only from a registration proven to be
+      // theirs (the password was just checked): the form says it instead of
+      // asking for a registration type that would never be used.
+      const registeredAs = registration
+        ? displayRegistrationType({ ticketTypeName: registration.ticketType?.name, isFaculty: registration.ticketType?.isFaculty }, "")
+        : "";
+      return NextResponse.json({ ok: true, prefill, registeredHere, registeredAs: registeredAs || null });
     }
 
     // The confirmed details win; without them (a page loaded before Sep 29,
@@ -301,6 +309,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       parsed.data.source,
       parsed.data.ticketTypeId,
       { email: emailLower, evidence: parsed.data },
+      event.settings,
     );
     if (!rateCheck.ok) {
       apiLogger.warn({
