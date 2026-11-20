@@ -77,6 +77,13 @@ Review of `c332aea6` (0 BLOCKER, 0 HIGH, 4 MED, 7 LOW). All four MEDs are fixed 
 5. **LOW: a send resumed after a crash, with the template edited in between** to add an abstract token, skips each author's first abstract (the resume list holds that abstract's id from the per-author run).
 6. **Older, beside it:** a per-author send resumed after a crash can mail an author twice (the resume key is the first abstract the query happened to return, and the query has no order); an abstract title or reviewer note containing `{{...}}` aborts the whole send (the values are not passed through `untokened`); the count route cuts the ticked list at 500 and takes it in the query string; the reminder's preview omits the typed note; a per-author send keeps a recipient whose author has no email address, which the count drops.
 
+## Abstract list filters: what the Nov 20 review left (recorded Nov 20, 2026): not started
+
+Review of `022bbb70` (0 BLOCKER, 0 HIGH, 1 MED, 3 LOW). Fixed in the commit after it: a filter choice that no abstract had any more was remembered out of sight, could not be cleared and re-applied by itself when an abstract next took that status (it is now forgotten); the search was squeezed between the tablet and desktop widths (the row wraps below the large width); the page's wiring had no test (source pins). Recorded, not fixed:
+
+1. **LOW: each choice's count is over the whole list,** not over what the other filters leave: with a theme or a type chosen, the status filter can read "Accepted (12)" above a list of 3. The true number is on the same row ("Showing 3 of 200").
+2. **By design, for the owner to know:** when the last abstract leaves the chosen status the list opens to everything, so "Select all 5 shown" can become "Select all 200" after a colleague decides those five. The label, the filter and the ticked count all say so. The stricter choice is an empty list with "Clear the filters".
+
 ## Review scores by reviewer: what the Nov 20 review left (recorded Nov 20, 2026): not started
 
 Review of `cd9f9a40` (0 BLOCKER, 0 HIGH, 1 MED, 5 LOW). Fixed in the commit after it: the report named who scored what on a weaker permission than the screens ask (it now needs Decide abstracts as well as Export abstracts, both judged on the event, and every abstracts export is now judged on the event, which was an older gap); a reviewer with a declared conflict of interest was listed as owing a review; the formula-cell test. Recorded, not fixed:

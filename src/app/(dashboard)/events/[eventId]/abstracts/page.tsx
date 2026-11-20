@@ -551,6 +551,15 @@ export default function AbstractsPage() {
   const filterOptions = abstractFilterOptions(abstracts);
   const statusFilter = effectiveListFilter(statusChoice, filterOptions.statuses);
   const typeFilter = effectiveListFilter(typeChoice, filterOptions.types);
+  // A choice that reads as "all" IS "all": forgotten here, during render (the
+  // pattern React documents for adjusting state to what was just rendered).
+  // Kept in state it was invisible, could not be cleared (the select already
+  // read "All statuses", and picking that again changes nothing), and came
+  // back by itself when an abstract next took that status: the organiser who
+  // accepted every Submitted abstract saw the list collapse to one row when an
+  // author resubmitted (review of 022bbb70).
+  if (statusChoice !== statusFilter) setStatusChoice(statusFilter);
+  if (typeChoice !== typeFilter) setTypeChoice(typeFilter);
 
   // The theme and "no reviewer yet" filters belong to whoever assigns
   // reviewers; status, type and the search are everyone's. All narrow the same
@@ -1214,7 +1223,7 @@ export default function AbstractsPage() {
             {listWording(isSubmitter, isReviewer).heading}
           </h2>
           {abstracts.length > 0 && (
-            <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:flex-nowrap">
+            <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto lg:flex-nowrap">
               {/* The reviewer toolbar below already says "Showing N of M" to
                   whoever has it; this is the count for everyone else. */}
               {(searching || reviewerFiltersOn) && !canAssignReviewers && (
@@ -1226,7 +1235,7 @@ export default function AbstractsPage() {
                   shown whenever there are abstracts (this whole row is). Only
                   values the listed abstracts have are offered, each with its count. */}
               <Select value={statusFilter} onValueChange={setStatusChoice}>
-                <SelectTrigger className="h-9 w-[170px] shrink-0" aria-label="Filter by status">
+                <SelectTrigger className="h-9 w-[200px] shrink-0" aria-label="Filter by status">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1239,7 +1248,7 @@ export default function AbstractsPage() {
                 </SelectContent>
               </Select>
               <Select value={typeFilter} onValueChange={setTypeChoice}>
-                <SelectTrigger className="h-9 w-[170px] shrink-0" aria-label="Filter by presentation type">
+                <SelectTrigger className="h-9 w-[200px] shrink-0" aria-label="Filter by presentation type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1251,7 +1260,9 @@ export default function AbstractsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <div className="relative w-full sm:w-80">
+              {/* Below the lg width the row wraps, so the two filters never
+                  squeeze the search to nothing (review of 022bbb70). */}
+              <div className="relative w-full min-w-[14rem] sm:w-80">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   type="text"

@@ -5,6 +5,8 @@
  * list has" fails; drop effectiveListFilter and a vanished choice hides the
  * whole list ("a choice nothing has any more").
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { ALL, NO_TYPE, abstractFilterOptions, effectiveListFilter, matchesListFilters } from "@/lib/abstract-list-filters";
 
@@ -57,5 +59,28 @@ describe("effectiveListFilter", () => {
     expect(effectiveListFilter("ACCEPTED", statuses)).toBe("ACCEPTED");
     expect(effectiveListFilter("WITHDRAWN", statuses)).toBe(ALL);
     expect(effectiveListFilter(ALL, statuses)).toBe(ALL);
+  });
+});
+
+describe("the Abstracts page uses them as written (source pins; review of 022bbb70)", () => {
+  // The hiding happens on the page, so the page's wiring is pinned here: each
+  // line below is one a reviewer changed without any test failing.
+  const page = readFileSync(join(process.cwd(), "src/app/(dashboard)/events/[eventId]/abstracts/page.tsx"), "utf8");
+
+  it("filters by the EFFECTIVE values, never the stored choices", () => {
+    expect(page).toContain(".filter((a) => matchesListFilters(a, { status: statusFilter, type: typeFilter }));");
+  });
+
+  it("forgets a choice that is no longer offered, so it cannot come back by itself", () => {
+    expect(page).toContain("if (statusChoice !== statusFilter) setStatusChoice(statusFilter);");
+    expect(page).toContain("if (typeChoice !== typeFilter) setTypeChoice(typeFilter);");
+  });
+
+  it("says a filter is on for everyone, and Clear the filters resets all four", () => {
+    expect(page).toContain("const reviewerFiltersOn = filteredAbstracts.length !== abstracts.length;");
+    const clear = page.slice(page.indexOf("const clearFilters = () => {"), page.indexOf("};", page.indexOf("const clearFilters = () => {")));
+    for (const reset of ["setThemeFilter(ALL_THEMES)", "setUnassignedOnly(false)", "setStatusChoice(ALL_VALUES)", "setTypeChoice(ALL_VALUES)"]) {
+      expect(clear).toContain(reset);
+    }
   });
 });
