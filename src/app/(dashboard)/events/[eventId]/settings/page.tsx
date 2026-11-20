@@ -400,13 +400,6 @@ export default function EventSettingsPage() {
    * mid-edit without it snapping to 0; parsed on save, where an empty or
    * unparseable value falls back to the default rather than storing garbage.
    */
-  /**
-   * D3: abstract submitters are not invited to pay at submission by default,
-   * because roughly 29 in 30 get comped after acceptance. This turns Pay Now
-   * back on for events that do want payment up front. Enabling it is behind a
-   * confirmation, since the consequence lands on every future submitter.
-   */
-
   const [abstractLimits, setAbstractLimits] = useState({
     maxTitleWords: "",
     maxContentWords: "",

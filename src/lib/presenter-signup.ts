@@ -81,7 +81,7 @@ export interface PresenterFeeEmailExtras {
 export interface PresenterSignupInput {
   speaker: CompanionSpeakerInput;
   organizationId: string;
-  /** Settings JSON of the event, for the Pay Now toggle. */
+  /** Settings JSON of the event: which rates an author is offered (the registration switch, sponsor-only rates, the main link's names). */
   eventSettings: unknown;
   /** "abstract" | "proposal". Proposals never create a registration. */
   source: string;

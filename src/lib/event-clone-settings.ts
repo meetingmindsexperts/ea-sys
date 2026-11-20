@@ -39,7 +39,6 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
   "codeRequiredTiers",
   "maxAttendees",
   "groupRegistration",
-  "presenterRegistration",
   // What speakers' form links ask for (speaker-profile/constants.ts): plain
   // config with nothing event-specific in it (review of b334d096).
   "speakerProfile",

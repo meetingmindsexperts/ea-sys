@@ -257,10 +257,9 @@ and barcode carry over.
 **Step 7. Remove the presenter Pay Now switch.** BUILT Nov 20, 2026: the
 switch, its reader (`presenter-registration-settings.ts`) and the email's Pay
 Now branch are deleted; a `presenterRegistration` setting saved earlier is
-read by nothing (no production event had it on). As planned:
-Settings loses "Presenter
-registration, Show Pay Now"; the reader (`isPresenterPayNowEnabled`) answers
-no for every event, whatever an old setting says; the welcome email never
+read by nothing (no production event had it on, read on production Nov 20).
+What was planned: Settings loses "Presenter registration, Show Pay Now"; no
+event is offered it, whatever an old setting says; the welcome email never
 carries a Pay Now button. Paying later from the person's portal is untouched:
 that IS the pay-later route. The user guide's paragraph on the switch goes.
 

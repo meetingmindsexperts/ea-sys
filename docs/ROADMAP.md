@@ -66,6 +66,14 @@ Every reviewer email now opens in the email dialog with Preview, and the invitat
 6. **Test gaps.** Nothing renders `BulkEmailDialog`, the Reviewers page, `EmailTypePicker` or `AbstractReviewersCard`: the invitation's routing in the dialog (named or all, the upload guard, the scheduling guard) is pinned only by the browser check made by hand on Nov 19. The preview route's test passes the permission check by a mock.
 7. **Older, found by the review, not changed:** `email-preview` answers 404 for an event it cannot find without a log line; "Send to all N reviewers" shows the size of the selection, not of the pool, when a ticked selection is scheduled as "matching" on a page that does not pass `fixedListOnly`; the Reviewers list shows the speaker record's address while the invitation goes to the account's, which can differ; the event's own CC list and a reviewer's additional email still receive set-password links (owner, Nov 10), so "the link was sent to this address" in accept-invitation is not strict.
 
+## Pay Now at abstract sign-up removed: what the Nov 20 review of step 7 left (recorded Nov 20, 2026): not started
+
+Review of `2849bf15` (0 BLOCKER, 0 HIGH, 0 MED, 5 LOW). All five LOWs are fixed in the commit after it. Older, found by the review, not changed:
+
+1. **For the owner: does "always pay later" cover a registration the team GRANTS to an author?** The speaker page's Grant registration sends the ordinary confirmation, with Pay Now and "complete only upon receipt of your payment" (the August design). An author who signed up while nothing was on sale and is later granted a payable registration gets Pay Now; one who signed up with a rate does not. Same for the Registration Confirmation resend from Communications to an unpaid author. Both are sent by an organiser, not at sign-up.
+2. **The flag's two hops are in no test.** `presenter-registration.ts` and `registration-service.ts` pass `suppressPayNow` along; it is asserted only at the mocked call above them and inside the email builder. One `createRegistration` test asserting the confirmation sender receives it would pin the path.
+3. **Preview wording:** the email preview sample says "A quote is attached." where the live text says "A quote is attached to this email."
+
 ## The Speakers page and authors: what the Nov 20 review of step 5 left (recorded Nov 20, 2026): not started
 
 Review of `54404a7a` (0 BLOCKER, 1 HIGH, 4 MED, 9 LOW). The HIGH, the four MEDs and six LOWs are fixed in the commit after it. Recorded, not fixed:

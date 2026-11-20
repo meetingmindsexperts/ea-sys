@@ -431,12 +431,10 @@ describe("resolvePresenterRateSelection", () => {
 
 /**
  * The fee block is the ONLY thing that tells an abstract submitter what they
- * owe, now that the delegate confirmation is suppressed on that door. Its
- * closing sentence and its button are decided from ONE flag, because
- * "payment is not required" printed above a Pay Now button is the kind of
- * contradiction nobody reads twice.
+ * owe, now that the delegate confirmation is suppressed on that door. It
+ * never invites payment (owner, Nov 20, 2026: always pay later).
  */
-describe("presenter fee block copy follows the Pay Now toggle", () => {
+describe("the presenter fee block quotes the fee and never offers Pay Now", () => {
   beforeEach(() => {
     findUniqueSpy.mockResolvedValue({
       id: "reg-1",
