@@ -26,6 +26,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useSpeakers, useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
+import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abstract-sub-theme-select";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
@@ -78,6 +79,9 @@ export default function NewAbstractPage() {
   // required (it is, when the event has any).
   const { data: themes = [] } = useAbstractThemes(eventId) as { data: Array<{ id: string }> };
   const { data: event } = useEvent(eventId);
+  // An author opening this page on a closed event (a bookmark, the browser's
+  // back button): the form would be refused on save, so it is not shown.
+  const intakeClosed = isSubmitter && event ? abstractIntakeClosed(event) : null;
 
   const speakers = speakersData as Speaker[];
   const tracks = tracksData as Track[];
@@ -184,6 +188,26 @@ export default function NewAbstractPage() {
       status: asDraft ? "DRAFT" : "SUBMITTED",
     });
   };
+
+  if (intakeClosed) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+          <FileText className="h-6 w-6 shrink-0 text-primary" />
+          Submit Abstract
+        </h1>
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {intakeClosed.message} New abstracts can no longer be submitted.
+        </p>
+        <Button asChild variant="outline">
+          <Link href={`/events/${eventId}/abstracts`}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to my abstracts
+          </Link>
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-12">

@@ -88,6 +88,7 @@ import { BulkStatusDialog } from "@/components/abstracts/bulk-status-dialog";
 import { ReviewerSheetDialog } from "@/components/abstracts/reviewer-sheet-dialog";
 import { SelectAbstractsByIdsDialog } from "@/components/abstracts/select-abstracts-by-ids-dialog";
 import { acceptedByPresentationType } from "@/lib/abstract-accepted-breakdown";
+import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { ALL as ALL_VALUES, abstractFilterOptions, effectiveListFilter, matchesListFilters } from "@/lib/abstract-list-filters";
 
 /** The shared labels; this page's own list once called every Oral or Poster abstract "Workshop". */
@@ -543,6 +544,10 @@ export default function AbstractsPage() {
   };
 
   const acceptedTypes = acceptedByPresentationType(abstracts);
+  // An author's Submit button goes once the event has stopped taking abstracts
+  // (the server refuses the same, abstract-intake.ts). Unknown until the event
+  // has loaded: never "closed" by default.
+  const intakeClosed = isSubmitter && event ? abstractIntakeClosed(event) : null;
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
@@ -638,6 +643,13 @@ export default function AbstractsPage() {
     <div className="space-y-6">
       {/* Incomplete-profile nudge for submitters (renders nothing otherwise). */}
       <SubmitterProfileNudge />
+      {/* Why there is no Submit button, for an author on a closed event. */}
+      {intakeClosed && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {intakeClosed.message} New abstracts can no longer be submitted, and a draft can no longer be
+          sent in. You can still see your abstracts and their status here.
+        </p>
+      )}
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -734,12 +746,14 @@ export default function AbstractsPage() {
                 My Details
               </Link>
             </Button>
-            <Button asChild>
-              <Link href={`/events/${eventId}/abstracts/new`}>
-                <Plus className="mr-2 h-4 w-4" />
-                Submit Abstract
-              </Link>
-            </Button>
+            {!intakeClosed && (
+              <Button asChild>
+                <Link href={`/events/${eventId}/abstracts/new`}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Submit Abstract
+                </Link>
+              </Button>
+            )}
           </>
         )}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

@@ -95,6 +95,8 @@ export const RESTRICTED_EVENT_DETAIL_SELECT = {
  *  - `sessionProposalDeadline` client-gates the proposal form
  *  - `abstractLimits` drives the live word/co-author counters and the submit
  *    guard, and must match what the API will enforce
+ *  - `allowAbstractSubmissions` and `abstractDeadline` say whether the event
+ *    still takes abstracts (the author's Submit button, abstract-intake.ts)
  *
  * Everything else in that blob is organiser business, and two of them are
  * pointed: `reviewerUserIds` would tell a submitter who is scoring their work,
@@ -111,6 +113,14 @@ export const RESTRICTED_SETTINGS_KEYS = [
   // save. A form that permits what the API refuses is worse than one that
   // shows the wrong number.
   "abstractLimits",
+  // Added Nov 20, 2026, and the same class of bug: whether the event still
+  // takes abstracts is decided from these two (abstract-intake.ts), and the
+  // author's own screens ask that rule to show or hide Submit. Withheld, the
+  // screen read every event as "not open": found in the browser before it
+  // shipped, where it would have hidden the button on open events too. Both
+  // are already public (the public event API sends them to anyone).
+  "allowAbstractSubmissions",
+  "abstractDeadline",
 ] as const;
 
 /**

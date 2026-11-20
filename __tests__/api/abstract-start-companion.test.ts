@@ -89,7 +89,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   rateLimitSpy.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   compareSpy.mockResolvedValue(true);
-  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
+  // Open for abstracts: the sign-in half closes with the sign-up (abstract-intake.ts).
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { allowAbstractSubmissions: true } });
   // Nothing saved: today's rules.
   mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
   mockDb.user.findUnique.mockResolvedValue({ email: "anna@example.com", emailConfirmedAt: new Date() });
@@ -108,6 +109,30 @@ beforeEach(() => {
   mockDb.accountProfile.findUnique.mockResolvedValue(null);
   upsertSpy.mockResolvedValue("sp1");
   ensureCompanionSpy.mockResolvedValue({ status: "created", registrationId: "reg1" });
+});
+
+describe("abstract-start closes with the abstract sign-up (Nov 20, 2026)", () => {
+  // The sign-in half made an existing account an author, with a speaker record,
+  // whatever the deadline said. MUTATION: drop the check and the first two set the person up.
+  const PAST = new Date(Date.now() - 60_000).toISOString();
+
+  it.each([
+    ["the deadline has passed", { allowAbstractSubmissions: true, abstractDeadline: PAST }, "DEADLINE_PASSED"],
+    ["submissions are switched off", { allowAbstractSubmissions: false }, "SUBMISSIONS_CLOSED"],
+  ])("refuses an abstract sign-in when %s, before anyone is set up", async (_why, settings, code) => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", eventType: "CONFERENCE", settings });
+    const res = await POST(makeReq(validBody), params);
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe(code);
+    expect(upsertSpy).not.toHaveBeenCalled();
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
+  });
+
+  it("a PROPOSAL sign-in is not judged by the abstract deadline", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", eventType: "CONFERENCE", settings: { allowAbstractSubmissions: false } });
+    const res = await POST(makeReq({ ...validBody, source: "proposal" }), params);
+    expect(res.status).toBe(200);
+  });
 });
 
 describe("abstract-start — companion policy per source", () => {
@@ -387,7 +412,7 @@ describe("abstract-start — lookup, then confirmed details", () => {
     });
 
     it("the EVENT does not ask Title or Role: both go as undefined, whatever the form re-posted", async () => {
-      mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { personFieldChoices: { title: "off", role: "off" } } });
+      mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { allowAbstractSubmissions: true, personFieldChoices: { title: "off", role: "off" } } });
       const res = await POST(makeReq({ ...validBody, details }), params);
       expect(res.status).toBe(200);
       const sent = profileSent();

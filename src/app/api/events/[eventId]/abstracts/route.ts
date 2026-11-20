@@ -21,6 +21,7 @@ import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
 import { getClientIp } from "@/lib/security";
 import { meanOverallScore } from "@/lib/abstract-review";
 import { buildReviewScoresCsv } from "@/lib/abstract-review-scores-report";
+import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { readReviewScoreScale } from "@/lib/abstract-score";
 import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -556,11 +557,22 @@ export async function POST(req: Request, { params }: RouteParams) {
     // SUBMITTER creating their own abstract works even though their session org is
     // null). The theme lookup below reads a swept table, so it must run INSIDE.
     const event = await findGatedEvent(gate, {
-      select: { id: true, settings: true, organizationId: true },
+      select: { id: true, settings: true, organizationId: true, eventType: true },
     });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // An AUTHOR creates nothing once the event has stopped taking abstracts,
+    // draft or submitted (abstract-intake.ts). Staff are exempt: an entry on
+    // someone's behalf after the deadline is a deliberate act.
+    if (session.user.role === "SUBMITTER") {
+      const closed = abstractIntakeClosed(event);
+      if (closed) {
+        apiLogger.warn({ msg: "abstracts:intake-closed", eventId, userId: session.user.id, code: closed.code, door: "create" });
+        return NextResponse.json({ error: closed.message, code: closed.code }, { status: 403 });
+      }
     }
 
     return await runWithTenant(event.organizationId, async () => {

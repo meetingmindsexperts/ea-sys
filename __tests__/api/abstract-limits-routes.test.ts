@@ -120,7 +120,8 @@ function setEventLimits(limits: Record<string, unknown> | undefined) {
     id: "ev1",
     organizationId: "org1",
     name: "Ev",
-    settings: limits ? { abstractLimits: limits } : {},
+    // Open for abstracts: an author's create and submit ask (abstract-intake.ts).
+    settings: limits ? { allowAbstractSubmissions: true, abstractLimits: limits } : { allowAbstractSubmissions: true },
   });
 }
 

@@ -9,6 +9,7 @@ import { sendEmailVerification } from "@/lib/email-verification";
 import { loadRegistrantScope, ownRegistrationWhere, speakerClaimPending } from "@/lib/registrant-access";
 import { firstGiven, loadOwnDetailSources, OWN_DETAIL_SELECT } from "@/lib/own-details-sources";
 import { findPublicEvent } from "@/lib/tenant/event-tenant";
+import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
@@ -145,10 +146,23 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await findPublicEvent(req, slug, { allowIdFallback: true }, {
-      select: { id: true, organizationId: true, settings: true },
+      select: { id: true, organizationId: true, settings: true, eventType: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // The sign-in half of the abstract sign-up closes with the sign-up
+    // (abstract-intake.ts): it made an existing account an author and gave it a
+    // speaker record whatever the deadline said. The page shows "closed" and
+    // never calls this then; this is the door itself. Proposals have their own
+    // deadline, checked where a proposal is created or submitted.
+    if (parsed.data.source === "abstract") {
+      const closed = abstractIntakeClosed(event);
+      if (closed) {
+        apiLogger.warn({ msg: "public/abstract-start:intake-closed", eventId: event.id, code: closed.code, ip });
+        return NextResponse.json({ error: closed.message, code: closed.code }, { status: 403 });
+      }
     }
 
     // The details as this door keeps them: a field this event does not ask is

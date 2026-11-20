@@ -7,6 +7,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -177,7 +178,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // so an org-null REVIEWER/SUBMITTER caller works). The swept abstract read +
     // all downstream swept writes run INSIDE the wrap.
     const event = await findGatedEvent(gate, {
-      select: { id: true, organizationId: true, name: true, settings: true },
+      select: { id: true, organizationId: true, name: true, settings: true, eventType: true },
     });
 
     if (!event) {
@@ -367,6 +368,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const isSubmission =
       data.status === "SUBMITTED" &&
       (existingAbstract.status === "DRAFT" || existingAbstract.status === "REVISION_REQUESTED");
+    // An AUTHOR cannot submit a draft once the event has stopped taking
+    // abstracts (abstract-intake.ts). Staff still can, on someone's behalf.
+    // (An author's only submission is DRAFT to SUBMITTED: anything later is
+    // locked to them above.)
+    if (isSubmission && session.user.role === "SUBMITTER") {
+      const closed = abstractIntakeClosed(event);
+      if (closed) {
+        apiLogger.warn({ msg: "abstracts:intake-closed", eventId, abstractId, userId: session.user.id, code: closed.code, door: "submit-draft" });
+        return NextResponse.json({ error: closed.message, code: closed.code }, { status: 403 });
+      }
+    }
     // Per-event limits, with the grandfathering rule: a value already over a
     // newly-lowered cap may be kept or trimmed, never grown. Passing the
     // EXISTING count as the third argument is what encodes that.

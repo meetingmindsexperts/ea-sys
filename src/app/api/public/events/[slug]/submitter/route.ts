@@ -21,7 +21,7 @@ import { ensureSubmitterRegistration, checkPresenterRateSelection, presenterEvid
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
-import { abstractSubmissionsOpen } from "@/lib/webinar";
+import { abstractIntakeClosed } from "@/lib/abstract-intake";
 
 // Role, Specialty and "Others needs the typed specialty" are demanded as the
 // event says (its own choice over its organisation's), in the handler
@@ -131,23 +131,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     // the organizer controls exposure by sharing the proposer link.
     const settings = (event.settings || {}) as Record<string, unknown>;
     if (data.source !== "proposal") {
-      if (!abstractSubmissionsOpen(event)) {
-        apiLogger.warn({ msg: "public/submitter:abstracts-closed", slug, ip: clientIp, eventType: event.eventType });
-        return NextResponse.json(
-          { error: "Abstract submissions are not open for this event" },
-          { status: 403 }
-        );
-      }
-
-      if (settings.abstractDeadline) {
-        const deadline = new Date(settings.abstractDeadline as string);
-        if (new Date() > deadline) {
-          apiLogger.warn({ msg: "public/submitter:deadline-passed", slug, ip: clientIp });
-          return NextResponse.json(
-            { error: "The abstract submission deadline has passed" },
-            { status: 403 }
-          );
-        }
+      // ONE rule with the author's own doors (abstract-intake.ts): the switch, then the deadline.
+      const closed = abstractIntakeClosed(event);
+      if (closed) {
+        apiLogger.warn({
+          msg: closed.code === "DEADLINE_PASSED" ? "public/submitter:deadline-passed" : "public/submitter:abstracts-closed",
+          slug, ip: clientIp, eventType: event.eventType,
+        });
+        return NextResponse.json({ error: closed.message, code: closed.code }, { status: 403 });
       }
     } else if (isDeadlinePassed(readSessionProposalDeadline(settings))) {
       // Proposal intake ends automatically at the deadline (Aug 6, 2026).

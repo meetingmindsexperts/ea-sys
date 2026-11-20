@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import {
   EVENT_LIST_SELECT,
   EVENT_LIST_COUNT_SELECT,
@@ -87,10 +88,26 @@ describe("the settings a restricted role receives", () => {
    */
   it("keeps only the keys their forms read", () => {
     expect([...RESTRICTED_SETTINGS_KEYS].sort()).toEqual([
+      "abstractDeadline",
       "abstractLimits",
       "abstractPresentationTypes",
+      "allowAbstractSubmissions",
       "sessionProposalDeadline",
     ]);
+  });
+
+  // Nov 20, 2026: the author's screens decide "is this event still taking
+  // abstracts" from these two (abstract-intake.ts). Withheld, every event read
+  // as closed and the Submit button would have gone from open events.
+  // MUTATION: take either key off the whitelist and this reads "closed".
+  it("carries what the author's Submit button is decided from, and that rule then reads the event as it is", () => {
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const open = pickRestrictedSettings({ allowAbstractSubmissions: true, abstractDeadline: future, reviewerUserIds: ["r1"] });
+    expect(open).toEqual({ allowAbstractSubmissions: true, abstractDeadline: future });
+    expect(abstractIntakeClosed({ eventType: "CONFERENCE", settings: open })).toBeNull();
+    const closed = pickRestrictedSettings({ allowAbstractSubmissions: true, abstractDeadline: past });
+    expect(abstractIntakeClosed({ eventType: "CONFERENCE", settings: closed })?.code).toBe("DEADLINE_PASSED");
   });
 
   it("drops organiser configuration, including the pointed ones", () => {

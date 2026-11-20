@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Once abstract submissions close, an author can no longer submit from their own portal (November 20)
+
+Closing abstracts (the deadline passing, or "Allow abstract submissions" switched off) closed the public sign-up page only. An author who already had an account could still open their portal and submit: on MEHF2027, closed since November 8, three more abstracts arrived on November 20.
+
+- **Now closed for an author:** starting a new abstract (draft or submitted) and sending in a draft. The Submit Abstract button is gone from their page, which says why, and the server refuses the same if they try another way. The sign-in half of the abstract sign-up page closes with it.
+- **Still open:** the organising team can add an abstract for someone at any time, as before. An author can still sign in, see their abstracts and their status, and edit a draft (it can no longer be sent in).
+- **To reopen:** move the deadline forward or switch submissions back on (Settings, Abstracts). An author's page can take up to half a minute to notice.
+- **Changes on deploy:** MEHF2027 authors can no longer submit. HEMNET 2026 is open until November 30 and is unaffected.
+- Session proposals already worked this way; abstracts now use one rule for every door (`src/lib/abstract-intake.ts`).
+
 ### Two abstract dialogs: nothing cut off, and wider (November 20)
 
 - **Select abstracts** (Communications, Abstract Submitters): with a long abstract title in the list, the whole dialog was cut off at its right edge: the description, the fields, each row's author, and the Cancel and Use buttons at the bottom. One long title was widening everything past the dialog. Titles are now cut with an ellipsis inside the dialog, and the buttons are back. The dialog is also wider and its list a little taller.

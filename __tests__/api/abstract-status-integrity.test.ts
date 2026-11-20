@@ -75,7 +75,8 @@ beforeEach(() => {
   mockDb.abstractTheme.count.mockResolvedValue(0);
   mockDb.abstractSubTheme.count.mockResolvedValue(0);
   mockAuth.mockResolvedValue(admin);
-  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", name: "Ev", settings: {} });
+  // Open for abstracts: an author's create and submit ask (abstract-intake.ts).
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", name: "Ev", settings: { allowAbstractSubmissions: true } });
   mockDb.abstract.updateMany.mockResolvedValue({ count: 1 });
   mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", eventId: "ev1", status: "ACCEPTED", speaker: { userId: "spk" } });
   // Post-write reload (field path) — no speaker so the submission-email block
@@ -276,6 +277,65 @@ describe("profile hard gate — PROFILE_INCOMPLETE", () => {
     const res = await PUT(putReq({ status: "SUBMITTED" }), putParams);
     expect(res.status).toBeLessThan(400);
     expect(mockDb.abstract.updateMany).toHaveBeenCalled();
+  });
+});
+
+/**
+ * Once the event has stopped taking abstracts, an AUTHOR creates and submits
+ * nothing from their own portal (owner, Nov 20, 2026; abstract-intake.ts).
+ * On MEHF2027 the public sign-up closed on Nov 8 and an author with an account
+ * submitted three more on Nov 20.
+ *
+ * MUTATIONS: drop the check in POST and the first two fail; drop it in PUT and
+ * the draft test fails; ask it for staff too and the staff test fails.
+ */
+describe("abstract intake closed: what an author can no longer do", () => {
+  const submitter = { user: { id: "spk", role: "SUBMITTER", organizationId: null } };
+  const profile = {
+    role: "PHYSICIAN", specialty: "Cardiology", organization: "Clinic",
+    jobTitle: "Consultant", phone: "+97150", city: "Dubai", country: "AE", bio: "Consultant cardiologist.",
+  };
+  const PAST = new Date(Date.now() - 60_000).toISOString();
+  const closedBy = (settings: Record<string, unknown>) =>
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", name: "Ev", eventType: "CONFERENCE", settings });
+
+  beforeEach(() => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1", ...profile });
+    mockDb.abstract.create.mockResolvedValue({ id: "new", status: "DRAFT" });
+  });
+
+  it.each([
+    ["the deadline has passed", { allowAbstractSubmissions: true, abstractDeadline: PAST }, "DEADLINE_PASSED"],
+    ["submissions are switched off", { allowAbstractSubmissions: false }, "SUBMISSIONS_CLOSED"],
+  ])("an author cannot create an abstract, draft or submitted, when %s", async (_why, settings, code) => {
+    mockAuth.mockResolvedValue(submitter);
+    closedBy(settings);
+    for (const status of ["DRAFT", "SUBMITTED"]) {
+      const res = await CREATE(createReq({ speakerId: "spk1", title: "T", content: "C", presentationType: "ORAL", status }), createParams);
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe(code);
+    }
+    expect(mockDb.abstract.create).not.toHaveBeenCalled();
+  });
+
+  it("staff still enter an abstract after the deadline: a deliberate act on someone's behalf", async () => {
+    closedBy({ allowAbstractSubmissions: true, abstractDeadline: PAST });
+    const res = await CREATE(createReq({ speakerId: "spk1", title: "T", content: "C", presentationType: "ORAL", status: "SUBMITTED" }), createParams);
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstract.create).toHaveBeenCalled();
+  });
+
+  it("an author cannot submit a DRAFT after the deadline, and can still edit it", async () => {
+    mockAuth.mockResolvedValue(submitter);
+    closedBy({ allowAbstractSubmissions: true, abstractDeadline: PAST });
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", eventId: "ev1", status: "DRAFT", presentationType: "ORAL", speaker: { userId: "spk", ...profile } });
+    const res = await PUT(putReq({ status: "SUBMITTED" }), putParams);
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("DEADLINE_PASSED");
+    expect(mockDb.abstract.updateMany).not.toHaveBeenCalled();
+
+    const edit = await PUT(putReq({ title: "reworked" }), putParams);
+    expect(edit.status).toBeLessThan(400);
   });
 });
 
