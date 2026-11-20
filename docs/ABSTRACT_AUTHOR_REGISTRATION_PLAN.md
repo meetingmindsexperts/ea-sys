@@ -194,19 +194,24 @@ created or charged.
 (5a, T1): no type or rate step when they already hold a registration on the
 event; a line says what they are registered as.
 
-**Settled in the build, Nov 20, 2026 (review of `8eaa3550`): how "invited" is
-told for someone who has submitted.** One fact: their registration is on the
-Faculty type. Not the sign-up door on the speaker record (it is stamped on an
-invited speaker's record when they sign in to submit, and absent on a record
-staff made to enter an author's abstract), and not a place on the programme
-(an accepted author given a talk is scheduled like any speaker and is still
-an author). With nothing submitted, the older rules stand: a record the
-organisers made, or a place on the programme. `speakerKindOf` in
+**Settled in the build, Nov 20, 2026 (reviews of `8eaa3550` and `54404a7a`):
+how "invited" is told for someone who has submitted.** The organisers put them
+on the Faculty type: a speaker the organisers added themselves (no sign-up
+door on the record) whose registration is on Faculty, or a registration made
+Faculty by hand (Add registration as Faculty, or Make Faculty; marked
+`FACULTY_ADMIN`). Tried and dropped: the Faculty type alone (the old sign-up
+gave every author one: 33 on MEHF2027, 2 on hemnet2026, who would have landed
+on the Invited tab and in the certificates' default group); the sign-up door
+alone (stamped on an invited speaker's record when they sign in to submit,
+absent on a record staff made to enter an author's abstract); a place on the
+programme (an accepted author given a talk is scheduled like any speaker).
+With nothing submitted, the older rules stand. `speakerKindOf` in
 `src/lib/speaker-kinds.ts` is the one rule; the Registrations filter asks it
-with each row's type. Consequences: an invited speaker on a delegate type who
-submits is listed as an author until Make Faculty (step 6); and the authors
-the old sign-up put on Faculty read as invited until step 8 moves them.
-Leaving the Faculty type clears its own "Faculty" badge.
+with each row's own facts. Consequences: an invited speaker on a delegate
+type who submits, and an invited speaker who signs in to submit (the door is
+stamped), are listed as authors until Make Faculty is used on them, which on
+a registration already on Faculty only confirms it. Leaving the Faculty type
+clears its own "Faculty" badge.
 
 **Step 5. The Speakers page keeps authors apart from invited faculty** (P4).
 BUILT Nov 20, 2026. The tabs existed (Invited speakers, Abstract submitters,

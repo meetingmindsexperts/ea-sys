@@ -14,8 +14,9 @@
  * registration and carries no facts, even where an old pointer still names it.
  */
 import { db } from "@/lib/db";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 import { abstractOutcomeOf, type AuthorFacts, type SpeakerPlace } from "@/lib/author-facts";
-import { speakerKindOf } from "@/lib/speaker-kinds";
+import { registrationFacultyByHand, registrationOnFacultyType, speakerKindOf } from "@/lib/speaker-kinds";
 
 type RegistrationRow = {
   id: string;
@@ -95,19 +96,17 @@ export async function loadAuthorFacts(eventId: string): Promise<FactsFor> {
     const signedUp = registration.createdSource === "PUBLIC_SUBMITTER" || all.some((p) => p.signedUpForAbstracts);
     const onProgramme = all.some((p) => p.onProgramme);
     // Off the programme, "a speaker" is one the organisers invited: the
-    // Speakers page's own rule, asked with THIS row's type (speaker-kinds.ts).
-    // On the Faculty type they are invited whatever they submitted (owner,
-    // Nov 20, 2026: authors are kept apart "except those who are invited and
-    // submitted"); otherwise someone who is there because they submitted is
-    // an author, not a speaker.
-    //
-    // UNTIL THE AUTHORS ALREADY ON FACULTY ARE MOVED (plan step 8; review of
-    // 8eaa3550, MED): before Nov 20, 2026 an abstract sign-up with no
-    // presenter rate was given a Faculty registration, and nothing stored
-    // tells those rows from an invited speaker's. They read as invited here
-    // and on the Speakers page until an organiser changes their type.
-    const onFacultyType = registration.ticketType?.isFaculty === true;
-    const invited = all.some((p) => speakerKindOf({ ...p.submissions, onFacultyType }) === "invited");
+    // Speakers page's own rule, asked with THIS row's facts (speaker-kinds.ts).
+    // Put on the Faculty type by the organisers, they are invited whatever
+    // they submitted (owner, Nov 20, 2026: authors are kept apart "except
+    // those who are invited and submitted"); otherwise someone who is there
+    // because they submitted is an author, not a speaker. A Faculty
+    // registration the OLD abstract sign-up gave an author does not count:
+    // the rule says why.
+    const ownRegistration = { status: registration.status, createdSource: registration.createdSource, ticketType: { isFaculty: registration.ticketType?.isFaculty === true } };
+    const onFacultyType = registrationOnFacultyType(ownRegistration);
+    const facultyByHand = registrationFacultyByHand(ownRegistration);
+    const invited = all.some((p) => speakerKindOf({ ...p.submissions, onFacultyType, facultyByHand }) === "invited");
     const offProgramme: SpeakerPlace | null = invited ? "record" : null;
     return {
       abstractOutcome: abstractOutcomeOf(all.flatMap((p) => p.statuses), signedUp),
@@ -141,4 +140,38 @@ export async function loadLiveRegistrationOf(
     if (speaker.sourceRegistrationId && ids.has(speaker.sourceRegistrationId)) return speaker.sourceRegistrationId;
     return byAddress.get(sameAddress(speaker.email)) ?? null;
   };
+}
+
+/**
+ * Which of these speakers hold a live registration on the event: the same two
+ * ways as above (the pointer, else the same address, exact whatever its case).
+ *
+ * Reads only what it is asked about (review of 54404a7a, MED): the speakers
+ * list is loaded by a dozen screens, and the first version read every live
+ * registration of the event for each of them. Callers pass the few speakers
+ * the answer matters for (the accepted authors).
+ */
+export async function speakersWithLiveRegistration(
+  eventId: string,
+  speakers: readonly { id: string; sourceRegistrationId: string | null; email: string }[],
+): Promise<Set<string>> {
+  const found = new Set<string>();
+  if (speakers.length === 0) return found;
+  const pointers = [...new Set(speakers.flatMap((s) => (s.sourceRegistrationId ? [s.sourceRegistrationId] : [])))];
+  const livePointers = new Set(
+    pointers.length === 0
+      ? []
+      : (await db.registration.findMany({ where: { eventId, id: { in: pointers }, status: { not: "CANCELLED" } }, select: { id: true } })).map((r) => r.id),
+  );
+  for (const s of speakers) if (s.sourceRegistrationId && livePointers.has(s.sourceRegistrationId)) found.add(s.id);
+
+  const byAddress = speakers.filter((s) => !found.has(s.id) && s.email.trim() !== "");
+  if (byAddress.length === 0) return found;
+  const rows = await db.registration.findMany({
+    where: { eventId, status: { not: "CANCELLED" }, OR: byAddress.map((s) => ({ attendee: { email: equalsIgnoringCase(s.email.trim()) } })) },
+    select: { attendee: { select: { email: true } } },
+  });
+  const registered = new Set(rows.map((r) => sameAddress(r.attendee.email)));
+  for (const s of byAddress) if (registered.has(sameAddress(s.email))) found.add(s.id);
+  return found;
 }

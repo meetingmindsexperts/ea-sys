@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -155,15 +155,24 @@ export default function SpeakersPage() {
   const bulkTagSpeakers = useBulkTagSpeakers(eventId);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  // The tab the organiser picked; until they pick one, the page's opening tab (openingKind).
+  // The tab the organiser picked; until they pick one, the page's opening tab.
   const [chosenKind, setKind] = useState<SpeakerKind | null>(null);
+  // The opening tab, decided ONCE when the list first arrives (review of 54404a7a): worked out again on every
+  // refetch, the tab could change under a ticked selection or an open email dialog.
+  const [opening, setOpening] = useState<SpeakerKind | null>(null);
   // Only the accepted authors who hold no registration (the notice above the list).
-  const [unregisteredOnly, setUnregisteredOnly] = useState(false);
+  const [unregisteredAsked, setUnregisteredOnly] = useState(false);
   // Speakers with at least one abstract in these statuses; empty means any (submitters tab).
   const [abstractStatuses, setAbstractStatuses] = useState<string[]>([]);
 
   const { data: event } = useEvent(eventId);
   const { data: speakersData = [], isLoading: loading, isFetching, refetch } = useSpeakers(eventId);
+  // Fresh on every visit (review of 54404a7a): the tabs and the notice read the speakers' REGISTRATIONS, and a
+  // registration added or moved on another page does not refresh this list, which is otherwise kept 5 minutes.
+  // `cancelRefetch: false` joins a load already under way instead of starting a second.
+  useEffect(() => {
+    void refetch({ cancelRefetch: false });
+  }, [refetch]);
   const speakers = speakersData as Speaker[];
   // The list itself says what the server let through (it is the authority), so the column and tabs show at once
   // instead of waiting on the permission answer; that answer is only needed for an empty list.
@@ -174,8 +183,11 @@ export default function SpeakersPage() {
 
   const kindCount = (k: SpeakerKind) => speakers.filter((s) => matchesKind(s, k)).length;
   const tabKinds = visibleKinds(canReadAbstracts, canReadProposals, kindCount);
-  const kind = chosenKind ?? openingKind(tabKinds);
+  if (opening === null && !loading && speakers.length > 0) setOpening(openingKind(tabKinds, kindCount("invited")));
+  const kind = chosenKind ?? opening ?? "all";
   const unregistered = speakers.filter(acceptedWithoutRegistration);
+  // Off by itself once nobody is left to list: the notice (and its way back) is gone by then.
+  const unregisteredOnly = unregisteredAsked && unregistered.length > 0;
   // What the list is showing, for its headings and counts.
   const listLabel = unregisteredOnly ? "Accepted authors with no registration" : KIND_LABEL[kind];
   const listTotal = unregisteredOnly ? unregistered.length : kindCount(kind);
@@ -388,7 +400,8 @@ export default function SpeakersPage() {
       {/* Invited speakers and abstract submitters, apart (owner, Oct 27). The Abstract submitters and Session
           proposers tabs only on an event that has some; no tab bar at all when there is nothing to tell apart. */}
       {tabKinds.length > 1 && (
-        <Tabs value={kind} onValueChange={(v) => { setKind(v as SpeakerKind); setUnregisteredOnly(false); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
+        // No tab is the open one while the notice's list is showing: it reaches across them.
+        <Tabs value={unregisteredOnly ? "" : kind} onValueChange={(v) => { setKind(v as SpeakerKind); setUnregisteredOnly(false); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
           <TabsList className="max-w-full justify-start overflow-x-auto">
             {tabKinds.map((k) => (
               <TabsTrigger key={k} value={k}>
@@ -461,7 +474,7 @@ export default function SpeakersPage() {
                 <SelectItem value="CANCELLED">Cancelled</SelectItem>
               </SelectContent>
             </Select>
-            {kind === "submitters" && (
+            {kind === "submitters" && !unregisteredOnly && (
               <MultiSelect
                 className="w-[220px]"
                 options={ABSTRACT_STATUSES.map((st) => ({ value: st, label: abstractStatusLabel(st) }))}
@@ -479,6 +492,9 @@ export default function SpeakersPage() {
                 setStatusFilter("all");
                 setAbstractStatuses([]);
                 setUnregisteredOnly(false);
+                // What was ticked may no longer be listed: nothing hidden stays ticked.
+                setSelectedIds(new Set());
+                setPage(1);
               }}
               title="Clear filters"
             >

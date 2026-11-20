@@ -33,7 +33,7 @@ import { db } from "@/lib/db";
 import { isReleased, RELEASE_FIELDS, resolveCmeHours, type EmailedRunItem } from "@/lib/registrant-certificates";
 import { localDateInTz, resolveTimezone } from "@/lib/event-time";
 import { getTitleLabel } from "@/lib/utils";
-import { registrationOnFacultyType, speakerKindOf } from "@/lib/speaker-kinds";
+import { registrationFacultyByHand, registrationOnFacultyType, speakerKindOf } from "@/lib/speaker-kinds";
 import { withVisibleSubmissions, type SubmissionVisibility } from "@/lib/speaker-submission-visibility";
 import { assignmentSourceLabel } from "./assignments";
 import { speakerBucketOf, type SpeakerBucket } from "./people-filter";
@@ -507,8 +507,8 @@ export async function loadCertificatePeople(
         email: true,
         status: true,
         sourceRegistrationId: true,
-        // On the Faculty type: invited, whatever they submitted (speaker-kinds.ts).
-        sourceRegistration: { select: { status: true, ticketType: { select: { isFaculty: true } } } },
+        // Put on the Faculty type by the organisers: invited, whatever they submitted (speaker-kinds.ts).
+        sourceRegistration: { select: { status: true, createdSource: true, ticketType: { select: { isFaculty: true } } } },
         submitterSource: true,
         abstracts: { select: { status: true } },
         sessionProposals: { select: { status: true } },
@@ -573,7 +573,12 @@ export async function loadCertificatePeople(
         // proposal key, the speaker reads as invited, as on the Speakers page.
         speakerBucket: speakerBucketOf(
           s.status,
-          speakerKindOf(withVisibleSubmissions({ ...s, onFacultyType: registrationOnFacultyType(s.sourceRegistration) }, access.submissions)),
+          speakerKindOf(
+            withVisibleSubmissions(
+              { ...s, onFacultyType: registrationOnFacultyType(s.sourceRegistration), facultyByHand: registrationFacultyByHand(s.sourceRegistration) },
+              access.submissions,
+            ),
+          ),
         ),
         surveyAnsweredAt: surveyBySpeaker.get(s.id)?.surveyAnsweredAt ?? null,
         noList: false,

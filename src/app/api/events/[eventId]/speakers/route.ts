@@ -17,8 +17,8 @@ import { getClientIp } from "@/lib/security";
 import { stripHonorariumFields } from "@/lib/reimbursement/constants";
 import { submissionVisibilityFor, withVisibleSubmissions } from "@/lib/speaker-submission-visibility";
 import { eventFactsOf } from "@/lib/permissions/event-facts";
-import { loadLiveRegistrationOf } from "@/lib/author-facts-server";
-import { registrationOnFacultyType } from "@/lib/speaker-kinds";
+import { speakersWithLiveRegistration } from "@/lib/author-facts-server";
+import { registrationFacultyByHand, registrationOnFacultyType } from "@/lib/speaker-kinds";
 import { titleEnum, roleAnswer } from "@/lib/schemas";
 import {
   createSpeaker,
@@ -82,9 +82,9 @@ interface RouteParams {
  * An extra on the roster, so it never fails it: the list is still served, without the field, and the failure
  * is logged.
  */
-async function liveRegistrationReader(eventId: string): Promise<Awaited<ReturnType<typeof loadLiveRegistrationOf>> | null> {
+async function registeredAmong(eventId: string, speakers: Parameters<typeof speakersWithLiveRegistration>[1]): Promise<Set<string> | null> {
   try {
-    return await loadLiveRegistrationOf(eventId);
+    return await speakersWithLiveRegistration(eventId, speakers);
   } catch (err) {
     apiLogger.error({ err, msg: "events/speakers:live-registrations-failed", eventId });
     return null;
@@ -210,22 +210,31 @@ export async function GET(req: Request, { params }: RouteParams) {
           // status and isFaculty decide the `registrationType` this API
           // serves (speakerApiRegistrationType); neither is sent on.
           sourceRegistration: {
-            select: { serialId: true, status: true, ticketType: { select: { name: true, isFaculty: true } } },
+            select: { serialId: true, status: true, createdSource: true, ticketType: { select: { name: true, isFaculty: true } } },
           },
         },
         orderBy: { createdAt: "desc" },
       });
 
-    // "Has this speaker a registration at all" (the count of accepted authors
+    // Abstracts and session proposals need their own read keys on this event, not speakers.read alone
+    // (owner, Oct 27): a Sales or Onsite custom role lists speakers without seeing what they submitted. A
+    // submitter's own row keeps its own submissions. An API key is judged on its keys like anyone else.
+    const visibility = ownSpeakerOnly ? { abstracts: true, proposals: true } : submissionVisibilityFor(gate.principal, event);
+
+    // "Has this accepted author a registration at all" (the count of those
     // who would arrive with no badge): the same answer the Make presenters
     // action reads, the pointer or the same address, never a cancelled one.
-    // For the Speakers page only: a signed-in member of staff who may read
-    // registrations on this event, never an API key (the website sync reads
-    // this list and needs none of it).
+    // For the Speakers page's notice only, so it is answered only about the
+    // accepted authors (none on most events: no read at all), to a signed-in
+    // member of staff who may read both the abstracts and the registrations
+    // of this event, and never to an API key or a mobile token (the website
+    // sync reads this list and needs none of it).
     const eventFacts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
     const mayReadRegistrations =
-      !!session?.user && !ownSpeakerOnly && eventFacts !== null && can(gate.principal, "registrations.read", { event: eventFacts });
-    const liveRegistrationOf = mayReadRegistrations ? await liveRegistrationReader(eventId) : null;
+      !!session?.user && !ownSpeakerOnly && visibility.abstracts && eventFacts !== null && can(gate.principal, "registrations.read", { event: eventFacts });
+    const acceptedAuthors = mayReadRegistrations ? speakers.filter((s) => s.abstracts.some((a) => a.status === "ACCEPTED")) : [];
+    const registered = acceptedAuthors.length > 0 ? await registeredAmong(eventId, acceptedAuthors) : null;
+    const acceptedIds = new Set(acceptedAuthors.map((s) => s.id));
 
     // The organiser-agreed honorarium is reimbursement data (staff only —
     // the Sep 3, 2026 boundary). `include` returns whole rows, so the two
@@ -235,10 +244,6 @@ export async function GET(req: Request, { params }: RouteParams) {
     const canSeeHonorarium = session?.user
       ? can(gate.principal, "honorarium.view")
       : Boolean(orgCtx);
-    // Abstracts and session proposals need their own read keys on this event, not speakers.read alone
-    // (owner, Oct 27): a Sales or Onsite custom role lists speakers without seeing what they submitted. A
-    // submitter's own row keeps its own submissions. An API key is judged on its keys like anyone else.
-    const visibility = ownSpeakerOnly ? { abstracts: true, proposals: true } : submissionVisibilityFor(gate.principal, event);
     const visible = speakers.map((s) =>
       withVisibleSubmissions(
         {
@@ -250,10 +255,12 @@ export async function GET(req: Request, { params }: RouteParams) {
           registrationType: speakerApiRegistrationType(s.registrationType, s.sourceRegistration),
           // Only the number leaves, as before.
           sourceRegistration: s.sourceRegistration ? { serialId: s.sourceRegistration.serialId } : null,
-          // Invited, whatever they submitted: their live registration is on
-          // the Faculty type (speaker-kinds.ts).
+          // Put on the Faculty type by the organisers: invited, whatever
+          // they submitted (speaker-kinds.ts reads the two with the door).
           onFacultyType: registrationOnFacultyType(s.sourceRegistration),
-          ...(liveRegistrationOf && { hasRegistration: liveRegistrationOf(s) !== null }),
+          facultyByHand: registrationFacultyByHand(s.sourceRegistration),
+          // Said only of an accepted author; absent for everyone else.
+          ...(registered && acceptedIds.has(s.id) && { hasRegistration: registered.has(s.id) }),
         },
         visibility,
       ),

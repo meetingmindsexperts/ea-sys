@@ -1064,6 +1064,10 @@ Four rules from the review of the first version (`a5134945`):
   own tabs, read through the caller's abstract and proposal keys). The speakers view opens on
   "Invited speakers" plus anyone already on a list, so "select all" cannot hand an
   appreciation certificate to every abstract author. The other groups are one choice away.
+  Since Nov 20, 2026 someone who has submitted is still in "Invited speakers" when the
+  organisers put them on the Faculty type (a speaker they added themselves, or a
+  registration made Faculty by hand); the Faculty registration the old abstract sign-up
+  gave an author does not count.
 - **A link that says "N assigned" lands on those N.** A template's "N assigned" link and the
   summary cards open the list with Status = Assigned (`initialStatus`); a tab chosen by hand
   opens on everyone.
