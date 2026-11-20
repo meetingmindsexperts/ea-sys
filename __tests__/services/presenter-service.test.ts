@@ -20,13 +20,17 @@ import { makePresenters } from "@/services/presenter-service";
 
 const input = (abstractIds: string[]) => ({ eventId: "ev1", organizationId: "org1", actorUserId: "u1", abstractIds, source: "rest" as const });
 const accepted = (id: string, email: string, sourceRegistrationId: string | null = null) => ({ id, speaker: { email, sourceRegistrationId } });
+const live = (id: string, email: string, over: Record<string, unknown> = {}) => ({ id, badgeType: null, attendee: { email }, ticketType: { isFaculty: false }, ...over });
 
 beforeEach(() => {
   vi.clearAllMocks();
   registrationFindMany.mockResolvedValue([
-    { id: "reg-linked", attendee: { email: "linked@x.com" } },
-    { id: "reg-by-address", attendee: { email: "Late@X.com" } },
-    { id: "reg-paid", attendee: { email: "paid@x.com" } },
+    live("reg-linked", "linked@x.com"),
+    live("reg-by-address", "Late@X.com"),
+    live("reg-paid", "paid@x.com"),
+    live("reg-faculty", "invited@x.com", { badgeType: "Faculty", ticketType: { isFaculty: true } }),
+    live("reg-exhibitor", "exhibitor@x.com", { badgeType: "Exhibitor" }),
+    live("reg-presenter", "again@x.com", { badgeType: "Presenter" }),
   ]);
   bulkSpy.mockResolvedValue({ ok: true, changed: ["reg-linked", "reg-by-address"], unchanged: [], skipped: [], remaining: [] });
 });
@@ -36,12 +40,42 @@ describe("makePresenters", () => {
     abstractFindMany.mockResolvedValue([accepted("a1", "linked@x.com", "reg-linked"), accepted("a2", "late@x.com")]);
     const result = await makePresenters(input(["a1", "a2", "a-rejected"]));
     expect(abstractFindMany.mock.calls[0][0].where).toEqual({ id: { in: ["a1", "a2", "a-rejected"] }, eventId: "ev1", status: "ACCEPTED" });
-    // Live registrations only.
+    // Live registrations only, oldest first (two rows on one address always answer the same one).
     expect(registrationFindMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", status: { not: "CANCELLED" } });
+    expect(registrationFindMany.mock.calls[0][0].orderBy).toEqual({ createdAt: "asc" });
     expect(bulkSpy).toHaveBeenCalledWith(expect.objectContaining({
       eventId: "ev1", actorUserId: "u1", registrationIds: ["reg-linked", "reg-by-address"], paymentStatus: "COMPLIMENTARY", badgeType: "Presenter",
     }));
     expect(result).toMatchObject({ ok: true, made: ["a1", "a2"], already: [], skipped: [], noRegistration: [], notAccepted: ["a-rejected"] });
+  });
+
+  // Review of 46993de5 (HIGH; plan T1 and T4): an invited speaker's registration
+  // is already free and its badge says Faculty. An accepted abstract adds nothing.
+  it("an author on the Faculty type is left exactly as they are, and named", async () => {
+    abstractFindMany.mockResolvedValue([accepted("a1", "invited@x.com", "reg-faculty")]);
+    const result = await makePresenters(input(["a1"]));
+    expect(bulkSpy).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, made: [], faculty: ["a1"], noRegistration: [] });
+  });
+
+  it("a badge type someone set by hand is kept: the registration is made Complimentary without touching it, and the badge is named", async () => {
+    abstractFindMany.mockResolvedValue([accepted("a1", "exhibitor@x.com"), accepted("a2", "again@x.com"), accepted("a3", "linked@x.com", "reg-linked")]);
+    bulkSpy.mockImplementation(async ({ registrationIds }: { registrationIds: string[] }) => ({ ok: true, changed: registrationIds, unchanged: [], skipped: [], remaining: [] }));
+    const result = await makePresenters(input(["a1", "a2", "a3"]));
+    // With the badge: no badge yet, or already Presenter.
+    expect(bulkSpy.mock.calls[0][0]).toMatchObject({ registrationIds: ["reg-presenter", "reg-linked"], paymentStatus: "COMPLIMENTARY", badgeType: "Presenter" });
+    // The payment status alone: the Exhibitor badge is not named, so it is not changed.
+    expect(bulkSpy.mock.calls[1][0]).toMatchObject({ registrationIds: ["reg-exhibitor"], paymentStatus: "COMPLIMENTARY" });
+    expect(bulkSpy.mock.calls[1][0]).not.toHaveProperty("badgeType");
+    expect(result).toMatchObject({ ok: true, made: ["a2", "a3", "a1"], badgeKept: [{ abstractId: "a1", badgeType: "Exhibitor" }] });
+  });
+
+  it("the pointer is preferred to the address, and a cancelled pointer falls back to the live row on the same address", async () => {
+    // "linked@x.com" points at reg-by-address: the pointer wins over its own address's row.
+    abstractFindMany.mockResolvedValue([accepted("a1", "linked@x.com", "reg-by-address"), accepted("a2", "paid@x.com", "reg-cancelled-gone")]);
+    bulkSpy.mockImplementation(async ({ registrationIds }: { registrationIds: string[] }) => ({ ok: true, changed: registrationIds, unchanged: [], skipped: [], remaining: [] }));
+    await makePresenters(input(["a1", "a2"]));
+    expect(bulkSpy.mock.calls[0][0].registrationIds).toEqual(["reg-by-address", "reg-paid"]);
   });
 
   it("an author with no live registration is named, and nobody is made free for them", async () => {

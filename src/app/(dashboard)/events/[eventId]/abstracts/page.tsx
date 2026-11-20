@@ -229,7 +229,11 @@ export default function AbstractsPage() {
   const isAbstractManager = useCan("abstracts.update", eventId) === "allowed";
   // Making an accepted author's registration Complimentary is a change to
   // registrations: the key of the bulk action it runs (plan step 4).
-  const canMakePresenters = useCan("registrations.bulk", eventId) === "allowed";
+  // (the three keys the route asks, so the box is never offered and then refused).
+  const canBulkRegistrations = useCan("registrations.bulk", eventId) === "allowed";
+  const canEditRegistrations = useCan("registrations.update", eventId) === "allowed";
+  const canReadAbstracts = useCan("abstracts.read", eventId) === "allowed";
+  const canMakePresenters = canBulkRegistrations && canEditRegistrations && canReadAbstracts;
   const makePresenters = useMakePresenters(eventId);
   const canReview    = isAbstractManager || isReviewer;
   // Management writes (CSV import, bulk email, add abstract) are blocked by
@@ -425,12 +429,12 @@ export default function AbstractsPage() {
       setMakePresenterTicked(false);
       makePresenters.mutate([abstractId], {
         onSuccess: (outcome) => {
-          const text = describeMakePresenters(outcome, () => serial).join(" ");
+          const text = describeMakePresenters(outcome, () => serial).join(" ") || `${serial}: nothing to change on the registration.`;
           if (makePresentersNeedsAttention(outcome)) toast.warning(text, { duration: 12000 });
           else toast.success(text);
         },
         // The status is set; only the registration was not touched.
-        onError: (err: Error) => toast.error(`${serial}: the registration was not changed (${err.message}). Do it from Registrations.`, { duration: 12000 }),
+        onError: (err: Error) => toast.error(`${serial}: the registration may not have been changed (${err.message}). Check it on Registrations.`, { duration: 12000 }),
       });
     },
     onError: (err: Error) => toast.error(err.message || "Failed to save review"),
@@ -500,7 +504,8 @@ export default function AbstractsPage() {
       status: abstract.status,
       forceStatus: false,
     });
-    setIsReviewDialogOpen(true);
+    setMakePresenterTicked(false); // offered afresh every time, never carried over
+                                  setIsReviewDialogOpen(true);
   };
 
   const resetForm = () => {
@@ -1103,7 +1108,7 @@ export default function AbstractsPage() {
                       />
                       <span>
                         Also make the author&apos;s registration Complimentary, with a Presenter badge. Their own portal
-                        shows it at once, before any announcement. Left unticked, do it later from Registrations.
+                        shows it at once. Left unticked, do it later from Registrations.
                       </span>
                     </label>
                   )}
@@ -1475,6 +1480,7 @@ export default function AbstractsPage() {
                                     status: "ACCEPTED",
                                     forceStatus: false,
                                   });
+                                  setMakePresenterTicked(false); // offered afresh every time, never carried over
                                   setIsReviewDialogOpen(true);
                                 }}
                               >
@@ -1490,6 +1496,7 @@ export default function AbstractsPage() {
                                     status: "REJECTED",
                                     forceStatus: false,
                                   });
+                                  setMakePresenterTicked(false); // offered afresh every time, never carried over
                                   setIsReviewDialogOpen(true);
                                 }}
                               >

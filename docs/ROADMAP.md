@@ -66,6 +66,18 @@ Every reviewer email now opens in the email dialog with Preview, and the invitat
 6. **Test gaps.** Nothing renders `BulkEmailDialog`, the Reviewers page, `EmailTypePicker` or `AbstractReviewersCard`: the invitation's routing in the dialog (named or all, the upload guard, the scheduling guard) is pinned only by the browser check made by hand on Nov 19. The preview route's test passes the permission check by a mock.
 7. **Older, found by the review, not changed:** `email-preview` answers 404 for an event it cannot find without a log line; "Send to all N reviewers" shows the size of the selection, not of the pool, when a ticked selection is scheduled as "matching" on a page that does not pass `fixedListOnly`; the Reviewers list shows the speaker record's address while the invitation goes to the account's, which can differ; the event's own CC list and a reviewer's additional email still receive set-password links (owner, Nov 10), so "the link was sent to this address" in accept-invitation is not strict.
 
+## Complimentary offered at acceptance: what the Nov 20 review of step 4 left (recorded Nov 20, 2026): not started
+
+Review of `46993de5` (0 BLOCKER, 1 HIGH, 2 MED, 9 LOW). The HIGH and both MEDs are fixed in the commit after it. Recorded, not fixed:
+
+1. **For the owner: should a badge type set by hand be overwritten with Presenter?** Today it is kept and named in the result (Exhibitor changes the badge's layout, and a T2 author's hand-set "Faculty" must not be lost). Faculty-type registrations are never touched; that part is decided.
+2. **One accept with the box ticked spends one of the 60 bulk requests an hour** it shares with the Registrations bulk action (LOW). Its own budget, or more for a one-id call.
+3. **What was not reached is named, not retried** (LOW), unlike the two sibling hooks; and numbers are cut at 30, so "no registration yet" authors beyond 30 are only in the log until step 5's list exists.
+4. **The single dialog's result is a toast** (LOW): gone after 12 seconds, and lost if the page is left first.
+5. **The single status dialog emails the decision at once** (older behaviour of that dialog, noticed): its accept sends the author the decision email immediately, unlike Set status or type, where that is a tick box. The wording of the new box there no longer says "before any announcement".
+6. **Tests not written** (LOW): neither dialog is rendered by a test; `makePresenters` is not run over the real bulk service.
+7. **Older:** changing a registration's email never checks for another live registration at the new address on the event, so two rows on one address can exist (the readers now take the oldest); a promo code's use is not released when an owing row with a discount is made Complimentary (with the step 3 item on one money predicate).
+
 ## Bulk payment status, badge or cancel: what the Nov 20 review of step 3 left (recorded Nov 20, 2026): not started
 
 Review of `345400df` (0 BLOCKER, 1 HIGH, 5 MED, 8 LOW). The HIGH and the five MEDs are fixed in the commit after it. Recorded, not fixed:

@@ -98,6 +98,14 @@ export async function loadAuthorFacts(eventId: string): Promise<FactsFor> {
   };
 }
 
+/** A speaker's live registration, with what "make presenters" must know before touching it. */
+export interface LiveRegistration {
+  id: string;
+  /** On the event's Faculty type: an invited speaker's own registration. */
+  isFaculty: boolean;
+  badgeType: string | null;
+}
+
 /**
  * The other direction: a speaker's LIVE registration on the event, by the same
  * two ways (the pointer, else the same address), never a cancelled one.
@@ -105,15 +113,24 @@ export async function loadAuthorFacts(eventId: string): Promise<FactsFor> {
  */
 export async function loadLiveRegistrationOf(
   eventId: string,
-): Promise<(speaker: { sourceRegistrationId: string | null; email: string }) => string | null> {
+): Promise<(speaker: { sourceRegistrationId: string | null; email: string }) => LiveRegistration | null> {
   const live = await db.registration.findMany({
     where: { eventId, status: { not: "CANCELLED" } },
-    select: { id: true, attendee: { select: { email: true } } },
+    select: { id: true, badgeType: true, attendee: { select: { email: true } }, ticketType: { select: { isFaculty: true } } },
+    // Oldest first, so two rows on one address (a changed email can make such
+    // a pair) always answer the same one: the first registration wins.
+    orderBy: { createdAt: "asc" },
   });
-  const ids = new Set(live.map((r) => r.id));
-  const byAddress = new Map(live.map((r) => [sameAddress(r.attendee.email), r.id]));
+  const byId = new Map<string, LiveRegistration>();
+  const byAddress = new Map<string, LiveRegistration>();
+  for (const r of live) {
+    const row: LiveRegistration = { id: r.id, isFaculty: r.ticketType?.isFaculty === true, badgeType: r.badgeType };
+    byId.set(r.id, row);
+    const address = sameAddress(r.attendee.email);
+    if (!byAddress.has(address)) byAddress.set(address, row);
+  }
   return (speaker) => {
-    if (speaker.sourceRegistrationId && ids.has(speaker.sourceRegistrationId)) return speaker.sourceRegistrationId;
-    return byAddress.get(sameAddress(speaker.email)) ?? null;
+    const pointed = speaker.sourceRegistrationId ? byId.get(speaker.sourceRegistrationId) : undefined;
+    return pointed ?? byAddress.get(sameAddress(speaker.email)) ?? null;
   };
 }

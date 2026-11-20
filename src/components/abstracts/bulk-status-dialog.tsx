@@ -147,7 +147,9 @@ function BulkStatusBody({
   const emails = status !== null && EMAILED_STATUSES.includes(status);
   const gated = status !== null && GATED_STATUSES.includes(status);
   const withdrawing = status === "WITHDRAWN";
-  const busy = update.isPending;
+  // Busy through BOTH calls: the registrations are changed after the statuses,
+  // and a second press or a close in between ran it twice or lost its report.
+  const busy = update.isPending || makePresenters.isPending;
   const nothingChosen = status === null && type === null;
   const alreadyAsChosen = abstracts.filter((a) => (status === null || a.status === status) && (type === null || a.presentationType === type)).length;
   const offersPresenters = canMakePresenters && status === "ACCEPTED";
@@ -179,7 +181,7 @@ function BulkStatusBody({
           // The statuses are set; only the registrations were not touched. Say so, with the way to do it.
           described.level = "warning";
           described.lines.push(
-            `The registrations were not changed (${error instanceof Error ? error.message : "it failed"}). Do it from Registrations: filter Abstract accepted, tick them, Payment, badge or cancel.`,
+            `The registrations may not have been changed (${error instanceof Error ? error.message : "it failed"}). Check on Registrations: filter Abstract accepted, tick them, Payment, badge or cancel. Running it again there is safe.`,
           );
         }
       }
@@ -268,8 +270,9 @@ function BulkStatusBody({
               <span className="font-medium">Also make the authors&apos; registrations Complimentary, with a Presenter badge</span>
               <span className="block text-xs text-muted-foreground">
                 Left unticked, their registrations stay as they are: do it later from Registrations, filter Abstract
-                accepted. Ticked, the author&apos;s own portal shows Complimentary at once, before any announcement, and
-                a registration with a payment on it is left as it is and named.
+                accepted. Ticked, it covers every ticked abstract that is accepted, the ones accepted earlier
+                included; the author&apos;s own portal shows Complimentary at once, before any announcement. Invited
+                faculty and a registration with a payment on it are left as they are and named.
               </span>
             </span>
           </label>

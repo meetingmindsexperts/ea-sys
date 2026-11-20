@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { describeMakePresenters, makePresentersNeedsAttention, type MakePresentersOutcome } from "@/lib/make-presenters-outcome";
 
-const NONE: MakePresentersOutcome = { made: [], already: [], skipped: [], noRegistration: [], notAccepted: [], remaining: [] };
+const NONE: MakePresentersOutcome = { made: [], already: [], skipped: [], noRegistration: [], faculty: [], badgeKept: [], notAccepted: [], remaining: [] };
 const numberOf = (id: string) => `A-${id}`;
 
 describe("describeMakePresenters", () => {
@@ -29,9 +29,33 @@ describe("describeMakePresenters", () => {
       ],
     };
     expect(describeMakePresenters(outcome, numberOf)).toEqual([
-      "Payment status left as it is: A-3, A-4. Has a payment on it.",
-      "Payment status left as it is: A-5. Paid by a sponsor.",
+      "Payment status left as it is (the badge was set): A-3, A-4. Has a payment on it.",
+      "Payment status left as it is (the badge was set): A-5. Paid by a sponsor.",
     ]);
+    expect(makePresentersNeedsAttention(outcome)).toBe(true);
+  });
+
+  // Review of 46993de5: where the whole row was refused, the badge was not set either.
+  it("a row refused altogether is not said to have its badge set", () => {
+    const outcome = { ...NONE, skipped: [{ abstractId: "6", part: "all", code: "REFUSED", message: "Changed by someone else." }] };
+    expect(describeMakePresenters(outcome, numberOf)).toEqual(["Left as it is: A-6. Changed by someone else."]);
+  });
+
+  // Review of 46993de5 (HIGH): Faculty stays Faculty, and a badge set by hand is kept.
+  it("invited faculty are said to be left as they are, and that is not a problem", () => {
+    const outcome = { ...NONE, faculty: ["2"] };
+    expect(describeMakePresenters(outcome, numberOf)).toEqual(["Invited faculty, left as they are (already free, badge Faculty): A-2."]);
+    expect(makePresentersNeedsAttention(outcome)).toBe(false);
+  });
+
+  it("a kept badge is named with the badge, one line per badge", () => {
+    const outcome = { ...NONE, made: ["4", "5"], badgeKept: [{ abstractId: "4", badgeType: "Exhibitor" }, { abstractId: "5", badgeType: "Exhibitor" }] };
+    expect(describeMakePresenters(outcome, numberOf)[1]).toBe('Made Complimentary, badge kept as "Exhibitor": A-4, A-5.');
+  });
+
+  it("an abstract no longer accepted when it ran is said, and needs a look", () => {
+    const outcome = { ...NONE, notAccepted: ["9"] };
+    expect(describeMakePresenters(outcome, numberOf)).toEqual(["No longer accepted, so nothing was changed: A-9."]);
     expect(makePresentersNeedsAttention(outcome)).toBe(true);
   });
 
