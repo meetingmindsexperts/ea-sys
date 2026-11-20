@@ -31,6 +31,18 @@ In one table:
 | **Accepted** | Same type, **Complimentary**, badge **Presenter** |
 | **Not accepted** | Same type; **pays** if it has a price, **free** if it does not |
 
+**Complimentary is the organiser's choice, per person, never a rule (owner,
+Nov 20, 2026, asked after the build).** "Complimentary is optional to an
+approved abstract and not required; the organiser decides who is complimentary
+and who is paid." The table's Accepted row is what an organiser CAN do, not
+what happens: accepting an abstract changes nothing about the registration.
+The box at acceptance starts unticked; Make presenters acts only on the rows
+ticked; an accepted author left alone goes on owing their rate, and can be
+given the Presenter badge without the payment being touched (Set badge type).
+Nothing in the system makes a registration free by itself, and no default
+email promises it. This is how steps 3 and 4 were built; it is written here so
+nobody later "completes" the table by making it automatic.
+
 This settles P2 (Presenter is a mark and a badge, not a registration type) and
 P3 (a rejected author pays their type's fee). Section 5a lists the cases the
 table does not answer.
@@ -249,6 +261,18 @@ registration already on Faculty by re-marking it; that was removed (it
 recorded a waiver that had not happened, and changed how four other features
 treat the speaker's companion). The one known case, skourihadi73 on MEHF2027
 (Physician, Complimentary, badge Faculty), can now be moved.
+Run in a browser on the local test event (Nov 20, 2026; screenshots in
+`screenshots/2026-11-20-author-steps-5-7/`): a staff-registered Physician
+owing 400 and an abstract sign-up on the Early Bird rate owing 400 were each
+shown the amount, confirmed and moved (type Faculty, Complimentary, badge
+Faculty, barcode kept, the type's or the rate's seat and the event's seat
+released, the waiver in the history, the speaker pointed at it); a
+registration paid at the desk was refused with the reason; one moved back
+with Change type became a seated Physician again with its badge cleared; the
+Speakers page listed the moved person with the invited speakers. Two defects
+found by it and fixed: the button had been placed in the reviewers' read-only
+view, and the sheet went on showing the old type after the move (its refresh
+was answered from the browser's cache).
 (Owner, Nov 20, 2026: built as part of this work, not ahead of it.)
 For the person who submitted first and was invited later (section 4a). On
 the registration sheet, a "Make Faculty" action, offered only for a registration

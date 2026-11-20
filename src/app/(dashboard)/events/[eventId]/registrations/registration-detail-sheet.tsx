@@ -413,7 +413,10 @@ export function RegistrationDetailSheet({
     if (id !== openIdRef.current) return;
     const seq = ++detailFetchSeq.current;
     try {
-      const fresh = await apiFetch<Registration>(`/api/events/${eventId}/registrations/${id}`);
+      // Never from the browser's cache: the detail GET allows a stale answer for 30 seconds
+      // (stale-while-revalidate), and this runs right after a write, usually well inside that. Found on
+      // Nov 20, 2026: Make Faculty moved the registration and the sheet went on showing the old type.
+      const fresh = await apiFetch<Registration>(`/api/events/${eventId}/registrations/${id}`, { cache: "no-store" });
       if (seq === detailFetchSeq.current && id === openIdRef.current) setSelectedRegistration(fresh);
     } catch (err) {
       console.error("[RegistrationDetail] refresh after a save failed:", err);
@@ -1774,8 +1777,9 @@ export function RegistrationDetailSheet({
                       <p className="flex items-start gap-1 text-xs text-amber-800">
                         <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
                         <span>
-                          Added as Faculty. On a delegate type they become a delegate and take a seat;
-                          they cannot be moved back to Faculty from here.
+                          Added as Faculty. On a delegate type they become a delegate and take a seat.
+                          Faculty cannot be picked again in this list; for someone on the Speakers list,
+                          Make Faculty moves them back.
                         </span>
                       </p>
                     )}

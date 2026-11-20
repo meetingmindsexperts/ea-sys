@@ -18,7 +18,8 @@ import { makeRegistrationFaculty, type MakeFacultyErrorCode } from "@/services/m
  *   POST { preview?: true, confirmWaive?: number }
  *
  * `preview` answers what would happen (the fee no longer owed, the invoices
- * cancelled, the badge) and changes nothing. Without it the move is made;
+ * cancelled, the badge) and changes nothing; where it cannot be done the
+ * answer is 200 with `ok: false`, the code and the reason. Without it the move is made;
  * where something is owed it is refused with `CONFIRM_WAIVE` and the plan
  * until the caller sends back the amount it was shown.
  *
@@ -62,6 +63,9 @@ const HTTP_STATUS: Record<MakeFacultyErrorCode, number> = {
   STALE_WRITE: 409,
   UNKNOWN: 500,
 };
+
+/** Refusals that are about the request, not about the registration's state: these keep their status on a preview too. */
+const REQUEST_ERRORS: readonly MakeFacultyErrorCode[] = ["REGISTRATION_NOT_FOUND", "UNKNOWN"];
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -119,7 +123,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
       // The service has logged the refusal with its code.
       if (!result.ok) {
-        return NextResponse.json({ error: result.message, code: result.code, ...(result.plan && { plan: result.plan }) }, { status: HTTP_STATUS[result.code] ?? 500 });
+        // A preview ASKS whether it can be done. "No, because it has a payment on it" is the answer, not a
+        // failed request: it comes back 200 with `ok: false`, so the dialog shows the reason and the browser
+        // logs no error. Only what is wrong with the request itself keeps its status.
+        const asked = parsed.data.preview === true && !REQUEST_ERRORS.includes(result.code);
+        return NextResponse.json(
+          { ok: false, error: result.message, code: result.code, ...(result.plan && { plan: result.plan }) },
+          { status: asked ? 200 : (HTTP_STATUS[result.code] ?? 500) },
+        );
       }
       return NextResponse.json(result);
     });
