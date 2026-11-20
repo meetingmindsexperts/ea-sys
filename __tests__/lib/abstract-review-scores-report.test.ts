@@ -8,7 +8,7 @@
  * test fails.
  */
 import { describe, it, expect } from "vitest";
-import { buildReviewScoresCsv, NOT_REVIEWED, REVIEWED, type ReviewScoresInput } from "@/lib/abstract-review-scores-report";
+import { buildReviewScoresCsv, CONFLICTED, NOT_REVIEWED, REVIEWED, type ReviewScoresInput } from "@/lib/abstract-review-scores-report";
 
 const CRITERIA = [
   { id: "c-orig", name: "Originality", weight: 60 },
@@ -61,6 +61,29 @@ describe("buildReviewScoresCsv", () => {
     const { csv, rowCount } = build([abstract()]);
     expect(rowCount).toBe(2);
     expect(lines(csv)[2]).toBe(`A-004,HF in women,REJECTED,ORAL,Outcomes,Dr. Hadi Skouri,Omar Said,omar@x.org,SECONDARY,"${NOT_REVIEWED}",,,,,,,`);
+  });
+
+  // Review of cd9f9a40. A conflicted reviewer's review is refused for good:
+  // the sheet an organiser chases from must not list them as owing one.
+  it("marks an assigned reviewer with a declared conflict of interest, instead of listing them as owing a review", () => {
+    const { csv } = build([abstract({ assigned: [{ userId: "u2", role: "SECONDARY", conflictFlag: true }], reviews: [] })]);
+    expect(lines(csv)[1]).toContain(`SECONDARY,"${CONFLICTED}"`);
+    expect(csv).not.toContain(NOT_REVIEWED);
+  });
+
+  // MUTATION: bypass toCsvRow for the header or a row and these come out bare.
+  it("neutralises a cell that starts like a formula: a criterion's name in the heading, a reviewer's name, the notes", () => {
+    const { csv } = build(
+      [abstract({ assigned: [], reviews: [review({ reviewNotes: "=HYPERLINK(\"http://x\")" })] })],
+      {
+        criteria: [{ id: "c-orig", name: "=cmd|x", weight: 100 }],
+        people: new Map([["u1", { firstName: "+Rana", lastName: "Aziz", email: "@rana" }]]),
+      },
+    );
+    const [header, first] = lines(csv);
+    expect(header).toContain("\"'=cmd|x (0-10, weight 100%)\"");
+    expect(first).toContain("'+Rana Aziz,'@rana");
+    expect(first).toContain("\"'=HYPERLINK(\"\"http://x\"\")\"");
   });
 
   it("keeps a review whose reviewer was taken off the abstract, and gives an abstract nobody reviews no row", () => {

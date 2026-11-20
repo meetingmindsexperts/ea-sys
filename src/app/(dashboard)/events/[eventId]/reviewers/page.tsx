@@ -154,7 +154,10 @@ function Reviewers({ eventId }: { eventId: string }) {
   const removeReviewer = useRemoveReviewer(eventId);
   // The review scores report (who scored which abstract, per criterion): the
   // same file the Abstracts page's Export menu gives, for whoever may export abstracts.
-  const canExportScores = useCan("abstracts.export", eventId) === "allowed";
+  // Who scored what is for the people who decide: the server asks both keys on this event.
+  const mayExportAbstracts = useCan("abstracts.export", eventId) === "allowed";
+  const mayDecideAbstracts = useCan("abstracts.decide", eventId) === "allowed";
+  const canExportScores = mayExportAbstracts && mayDecideAbstracts;
   const [exportingScores, setExportingScores] = useState(false);
   const exportScores = async () => {
     setExportingScores(true);

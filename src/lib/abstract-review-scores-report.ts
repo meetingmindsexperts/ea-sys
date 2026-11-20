@@ -4,7 +4,8 @@
  *
  * One row per reviewer per abstract: every submitted review, with a column per
  * criterion, and every assignment that has no review yet (so the same sheet
- * shows who still owes one). An abstract with no reviewer and no review has no
+ * shows who still owes one; a reviewer with a declared conflict of interest
+ * is marked as such, since their review would be refused). An abstract with no reviewer and no review has no
  * row here; the abstracts export lists it with "Reviews 0".
  *
  * Columns that need saying:
@@ -43,7 +44,7 @@ export interface ReviewScoresAbstract {
   themeName: string | null;
   author: { title: string | null; firstName: string; lastName: string } | null;
   /** The reviewers assigned to it, with or without a review. */
-  assigned: Array<{ userId: string; role: string }>;
+  assigned: Array<{ userId: string; role: string; conflictFlag?: boolean }>;
   reviews: Array<{
     reviewerUserId: string;
     /** `{ [criterionId]: score }` as the review stored it; anything else reads as no scores. */
@@ -68,6 +69,8 @@ export interface ReviewScoresInput {
 
 export const REVIEWED = "Reviewed";
 export const NOT_REVIEWED = "Assigned, not reviewed yet";
+/** A declared conflict of interest: the review is refused for good, so this is not someone to chase. */
+export const CONFLICTED = "Assigned, conflict of interest (cannot review)";
 
 function scoresOf(raw: unknown): Record<string, number> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -149,7 +152,7 @@ export function buildReviewScoresCsv(input: ReviewScoresInput): { csv: string; r
         personName(person),
         person?.email ?? "",
         assignment.role,
-        NOT_REVIEWED,
+        assignment.conflictFlag ? CONFLICTED : NOT_REVIEWED,
         ...input.criteria.map(() => ""),
         ...deleted.map(() => ""),
         "", "", "", "", "",

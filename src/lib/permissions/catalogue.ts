@@ -536,7 +536,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("abstracts.update", "Abstracts", "Edit abstracts", "Change an abstract's details on the author's behalf.", E),
   app("abstracts.decide", "Abstracts", "Decide abstracts", "Accept, reject or send back an abstract.", E),
   app("abstracts.delete", "Abstracts", "Delete abstracts", "Remove an abstract and its reviews.", ES),
-  app("abstracts.export", "Abstracts", "Export abstracts", "Download the abstracts as a spreadsheet or Word file.", E),
+  app("abstracts.export", "Abstracts", "Export abstracts", "Download the abstracts as a spreadsheet or Word file. With Decide abstracts, also the review scores by reviewer.", E),
   app("abstracts.import", "Abstracts", "Import abstracts", "Load abstracts from a spreadsheet.", E),
   app("abstracts.email", "Abstracts", "Email authors", "Email an abstract's author from the abstract.", E),
   app("abstracts.reviewers.assign", "Abstracts", "Assign reviewers", "Assign and unassign reviewers on an abstract.", E),

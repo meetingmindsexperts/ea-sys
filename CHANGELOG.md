@@ -15,7 +15,8 @@ A new spreadsheet for admins and organisers, from the Abstracts page's Export me
 - **Who still owes a review:** an assigned reviewer with no review yet has a row marked "Assigned, not reviewed yet".
 - **Not in it:** abstracts with no reviewer and no review (the abstracts spreadsheet lists them with Reviews 0), and drafts.
 - **A deleted criterion:** if a criterion was deleted after reviews were given, its scores are kept in a column at the end, because each overall score was worked out with them.
-- Same permission as the abstracts export, and every download is in the audit trail as its own report.
+- **Who can download it:** people who hold both Export abstracts and Decide abstracts on the event (admins and organisers), the same people the screens show reviewers' names to. A reviewer with a declared conflict of interest is marked as such, not listed as owing a review. Every download is in the audit trail as its own report.
+- **Also tightened:** the abstracts spreadsheet and Word file are now checked against the event being exported, so a custom role limited to webinars or to assigned events can no longer export another event's abstracts.
 
 ### The Accepted card on Abstracts says how many are oral and how many are poster (November 20)
 

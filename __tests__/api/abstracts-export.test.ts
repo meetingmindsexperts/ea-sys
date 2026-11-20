@@ -171,7 +171,7 @@ describe("the review scores report, ?export=review-scores (Nov 20, 2026)", () =>
   const SCORED = {
     serialId: 4, title: "HF in women", status: "REJECTED", presentationType: "ORAL",
     theme: { name: "Outcomes" }, speaker: { title: "DR", firstName: "Hadi", lastName: "Skouri" },
-    reviewers: [{ userId: "u1", role: "PRIMARY" }, { userId: "u2", role: "SECONDARY" }],
+    reviewers: [{ userId: "u1", role: "PRIMARY", conflictFlag: false }, { userId: "u2", role: "SECONDARY", conflictFlag: false }],
     submissions: [{
       reviewerUserId: "u1", criteriaScores: { c1: 4 }, overallScore: 80, recommendedFormat: "POSTER",
       confidence: 5, reviewNotes: "Fine", updatedAt: new Date("2026-11-20T08:00:00.000Z"),
@@ -191,6 +191,19 @@ describe("the review scores report, ?export=review-scores (Nov 20, 2026)", () =>
   it.each(["MEMBER", "ONSITE", "REVIEWER", "SUBMITTER"])("refuses %s before any read", async (role) => {
     mockAuth.mockResolvedValue(user(role, role === "REVIEWER" || role === "SUBMITTER" ? null : "org-1"));
     const res = await GET(req("?export=review-scores"), params);
+    expect(res.status).toBe(403);
+    expect(mockDb.abstract.findMany).not.toHaveBeenCalled();
+    expect(recordExport).not.toHaveBeenCalled();
+  });
+
+  // Review of cd9f9a40: an export is judged on THIS event's facts, not on
+  // "holds the key somewhere". MUTATION: drop the on-event check in the route
+  // and this answers 200 with the file.
+  it.each(["?export=review-scores", "?export=csv"])("refuses %s when the caller's grant does not reach this event", async (qs) => {
+    mockAuth.mockResolvedValue(user("ORGANIZER"));
+    // The lookup answered an event of another organisation: nothing the caller holds applies to it.
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, organizationId: "org-2", name: "Other", settings: {} });
+    const res = await GET(req(qs), params);
     expect(res.status).toBe(403);
     expect(mockDb.abstract.findMany).not.toHaveBeenCalled();
     expect(recordExport).not.toHaveBeenCalled();

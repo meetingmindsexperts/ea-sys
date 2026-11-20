@@ -9,6 +9,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getNextAbstractSerialId } from "@/lib/abstract-serial";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { buildEntriesDocx, DOCX_CONTENT_TYPE } from "@/lib/docx-export";
 import { abstractToDocxEntry, exportSubtitle } from "@/lib/submission-docx-export";
@@ -221,9 +223,11 @@ function exportAbstractsCsv(req: Request, args: ExportArgs): NextResponse {
  * `?export=review-scores` (owner, Nov 20, 2026): who scored which abstract, and
  * what they gave under each criterion. One row per reviewer per abstract, the
  * assignments with no review yet included (abstract-review-scores-report.ts).
- * The same boundary as the abstracts export (`abstracts.export`, checked by the
- * caller), the same status rule (never a draft) and the same audit row, with
- * `report: "review-scores"` so the two pulls can be told apart.
+ * The abstracts export's boundary (`abstracts.export`) AND `abstracts.decide`,
+ * both judged on this event by the caller: it names who scored what, which the
+ * on-screen reviews show only to the people who decide. The same status rule
+ * (never a draft) and the same audit row, with `report: "review-scores"` so the
+ * two pulls can be told apart.
  */
 async function exportReviewScoresCsv(
   req: Request,
@@ -252,7 +256,7 @@ async function exportReviewScoresCsv(
         presentationType: true,
         theme: { select: { name: true } },
         speaker: { select: { title: true, firstName: true, lastName: true } },
-        reviewers: { select: { userId: true, role: true }, orderBy: { assignedAt: "asc" } },
+        reviewers: { select: { userId: true, role: true, conflictFlag: true }, orderBy: { assignedAt: "asc" } },
         submissions: {
           select: {
             reviewerUserId: true, criteriaScores: true, overallScore: true,
@@ -378,11 +382,39 @@ export async function GET(req: Request, { params }: RouteParams) {
     // scopes by role (a SUBMITTER → their own linked event), so event.organizationId
     // is the RESOURCE org even for an org-null submitter/reviewer caller.
     const event = await findGatedEvent(gate, {
-      select: { id: true, name: true, organizationId: true, settings: true },
+      select: {
+        id: true, name: true, organizationId: true, settings: true,
+        // What an event-bound key is judged by, for the export check below.
+        eventType: true, staffAssignments: { select: { userId: true } },
+      },
     });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // An export is judged on THIS event (review of cd9f9a40). The gate above
+    // asked whether the caller holds the key somewhere, and the event was found
+    // through abstracts.read, so a grant scoped to webinars or to assigned
+    // events reached every event the caller could read. And the review scores
+    // report names who scored what: that is for the people who decide
+    // (abstracts.decide), the same key the on-screen reviews ask before they
+    // show a reviewer's name.
+    if (wantsExport) {
+      const facts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
+      const holdsHere = (key: "abstracts.export" | "abstracts.decide") =>
+        facts !== null && can(gate.principal, key, { event: facts });
+      const missing = [
+        ...(holdsHere("abstracts.export") ? [] : ["abstracts.export"]),
+        ...(wantsScores && !holdsHere("abstracts.decide") ? ["abstracts.decide"] : []),
+      ];
+      if (missing.length > 0) {
+        apiLogger.warn(
+          { eventId, userId: session.user.id, role: session.user.role, format: exportParam, missing },
+          "abstracts:export-refused-on-event",
+        );
+        return NextResponse.json({ error: "You do not have access to this export on this event." }, { status: 403 });
+      }
     }
 
     return await runWithTenant(event.organizationId, async () => {

@@ -245,6 +245,7 @@ export default function AbstractsPage() {
   // Bulk reviewer assignment (Nov 12, 2026): the reviewers routes' own key, so
   // the tick boxes and the route cannot drift.
   const canAssignReviewers = useCan("abstracts.reviewers.assign", eventId) === "allowed";
+  const canDecideAbstracts = useCan("abstracts.decide", eventId) === "allowed";
 
   const [copied, setCopied] = useState(false);
 
@@ -690,9 +691,12 @@ export default function AbstractsPage() {
                 <DropdownMenuItem onClick={() => void runExport("docx")}>
                   Word document (.docx)
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void runExport("review-scores")}>
-                  Review scores by reviewer (.csv)
-                </DropdownMenuItem>
+                {/* Who scored what is for the people who decide (the server asks abstracts.decide too). */}
+                {canDecideAbstracts && (
+                  <DropdownMenuItem onClick={() => void runExport("review-scores")}>
+                    Review scores by reviewer (.csv)
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
