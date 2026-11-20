@@ -26,6 +26,7 @@ import {
 import { useSession } from "next-auth/react";
 import { useSubmitterProfileGate } from "@/hooks/use-submitter-profile-gate";
 import { useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
+import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { ApiError } from "@/lib/api-fetch";
 import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abstract-sub-theme-select";
@@ -104,6 +105,10 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   const isSubmitter = session?.user?.role === "SUBMITTER";
   const { data: eventData } = useEvent(eventId);
   const contactEmail = (eventData as { emailFromAddress?: string | null } | undefined)?.emailFromAddress;
+  // An author's draft can no longer be sent in once the event has stopped
+  // taking abstracts (abstract-intake.ts); the route refuses it. Saving the
+  // draft still works.
+  const intakeClosed = isSubmitter && eventData ? abstractIntakeClosed(eventData) : null;
 
   const status = abstract.status as string;
   const abstractUpdatedAt = abstract.updatedAt as string;
@@ -378,7 +383,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 {status === "DRAFT" && (
                   <Button
                     className="w-full btn-gradient font-semibold h-11"
-                    disabled={isPending || limitBlocked || !editData.presentationType}
+                    disabled={isPending || limitBlocked || !editData.presentationType || !!intakeClosed}
                     onClick={() => {
                       if (!editData.presentationType) {
                         toast.error("Please select a presentation type to submit");
@@ -401,6 +406,12 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                       <><Send className="mr-2 h-4 w-4" /> Submit for Review</>
                     )}
                   </Button>
+                )}
+                {status === "DRAFT" && intakeClosed && (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    {intakeClosed.message} This draft can no longer be submitted. To send it in, contact the organising team
+                    {contactEmail ? <> at <a className="underline" href={`mailto:${contactEmail}`}>{contactEmail}</a>.</> : "."}
+                  </p>
                 )}
                 <Button
                   variant={status === "DRAFT" ? "outline" : "default"}

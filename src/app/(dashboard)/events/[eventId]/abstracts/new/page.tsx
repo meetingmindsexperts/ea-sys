@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
 import { useSubmitterProfileGate } from "@/hooks/use-submitter-profile-gate";
@@ -66,7 +66,7 @@ export default function NewAbstractPage() {
   // first (with a return link back here). Staff unaffected.
   useSubmitterProfileGate(eventId);
   const queryClient = useQueryClient();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
 
   const isSubmitter = session?.user?.role === "SUBMITTER";
   // Choosing Draft or Submitted: staff who manage abstracts (the route takes either).
@@ -79,9 +79,27 @@ export default function NewAbstractPage() {
   // required (it is, when the event has any).
   const { data: themes = [] } = useAbstractThemes(eventId) as { data: Array<{ id: string }> };
   const { data: event } = useEvent(eventId);
-  // An author opening this page on a closed event (a bookmark, the browser's
-  // back button): the form would be refused on save, so it is not shown.
+  // Null while the event takes abstracts from this author; otherwise why not.
   const intakeClosed = isSubmitter && event ? abstractIntakeClosed(event) : null;
+  // Whether the event was ALREADY closed when the author arrived, decided once
+  // (a bookmark, the browser's back button): then the form is not shown. An
+  // event that closes while the author is typing keeps the form on screen with
+  // its buttons off, so the text can still be copied out: swapping the form for
+  // a notice at the deadline would take the author's work off the screen at the
+  // moment they are most likely to be in it.
+  const [closedOnArrival, setClosedOnArrival] = useState<boolean | null>(null);
+  if (closedOnArrival === null && sessionStatus !== "loading" && event) {
+    setClosedOnArrival(intakeClosed !== null);
+  }
+  const organiserEmail = (event as { emailFromAddress?: string | null } | undefined)?.emailFromAddress;
+  // The notice at the top of the page is off screen for an author typing
+  // further down, so the moment it closes is also said in a toast, and again
+  // beside the buttons.
+  const closedWhileTyping = closedOnArrival === false && intakeClosed !== null;
+  useEffect(() => {
+    if (!closedWhileTyping) return;
+    toast.error("Abstract submissions have just closed. Your text is still on the page: copy it if you want to keep it.", { duration: 20_000 });
+  }, [closedWhileTyping]);
 
   const speakers = speakersData as Speaker[];
   const tracks = tracksData as Track[];
@@ -189,7 +207,7 @@ export default function NewAbstractPage() {
     });
   };
 
-  if (intakeClosed) {
+  if (intakeClosed && closedOnArrival) {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
@@ -211,6 +229,14 @@ export default function NewAbstractPage() {
 
   return (
     <div className="space-y-6 pb-12">
+      {/* Closed while the author was typing: the form stays so the text can be copied. */}
+      {intakeClosed && (
+        <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {intakeClosed.message} This abstract can no longer be saved or submitted. Your text is still
+          below: copy it if you want to keep it
+          {organiserEmail ? <>, and contact the organising team at <a className="underline" href={`mailto:${organiserEmail}`}>{organiserEmail}</a>.</> : ", and contact the organising team."}
+        </p>
+      )}
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link href={`/events/${eventId}/abstracts`}>
@@ -303,7 +329,7 @@ export default function NewAbstractPage() {
             <CardContent className="pt-5 space-y-3">
               <Button
                 className="w-full btn-gradient font-semibold h-11"
-                disabled={createMutation.isPending || overWords || overTitleWords}
+                disabled={createMutation.isPending || overWords || overTitleWords || !!intakeClosed}
                 onClick={() => handleSubmit(false)}
               >
                 {createMutation.isPending ? (
@@ -315,14 +341,20 @@ export default function NewAbstractPage() {
               <Button
                 variant="outline"
                 className="w-full"
-                disabled={createMutation.isPending || overWords || overTitleWords}
+                disabled={createMutation.isPending || overWords || overTitleWords || !!intakeClosed}
                 onClick={() => handleSubmit(true)}
               >
                 <Save className="mr-2 h-4 w-4" /> Save as Draft
               </Button>
-              <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
-                Drafts can be edited later. Submitted abstracts go directly for review.
-              </p>
+              {intakeClosed ? (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  {intakeClosed.message} This abstract can no longer be saved or submitted. Copy your text if you want to keep it.
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
+                  Drafts can be edited later. Submitted abstracts go directly for review.
+                </p>
+              )}
             </CardContent>
           </Card>
 

@@ -337,6 +337,18 @@ describe("abstract intake closed: what an author can no longer do", () => {
     const edit = await PUT(putReq({ title: "reworked" }), putParams);
     expect(edit.status).toBeLessThan(400);
   });
+
+  // Review of 74f7543b: the edit route asked the profile first, so an author
+  // was sent to complete My Details and only then told the deadline had passed.
+  // MUTATION: move the intake check back below the profile check and this fails.
+  it("an author with an incomplete profile is told the deadline has passed, not to complete the profile", async () => {
+    mockAuth.mockResolvedValue(submitter);
+    closedBy({ allowAbstractSubmissions: true, abstractDeadline: PAST });
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", eventId: "ev1", status: "DRAFT", presentationType: "ORAL", speaker: { userId: "spk", ...profile, phone: null } });
+    const res = await PUT(putReq({ status: "SUBMITTED" }), putParams);
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("DEADLINE_PASSED");
+  });
 });
 
 /**

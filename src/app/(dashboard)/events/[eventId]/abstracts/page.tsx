@@ -131,7 +131,9 @@ function noMatchMessage(search: string, reviewerFiltersOn: boolean): string {
 }
 
 /** The list's heading and empty text: a reviewer sees only what is assigned to them (Nov 10, 2026). */
-function listWording(isSubmitter: boolean, isReviewer: boolean): { heading: string; empty: string } {
+function listWording(isSubmitter: boolean, isReviewer: boolean, intakeIsClosed = false): { heading: string; empty: string } {
+  // No "Click Submit Abstract" once the button is gone (abstract-intake.ts).
+  if (isSubmitter && intakeIsClosed) return { heading: "Your Abstracts", empty: "You haven't submitted any abstracts for this event." };
   if (isSubmitter) return { heading: "Your Abstracts", empty: "You haven't submitted any abstracts yet. Click \"Submit Abstract\" to get started." };
   if (isReviewer) return { heading: "Assigned to you", empty: "No abstracts are assigned to you on this event yet." };
   return { heading: "All Abstracts", empty: "No abstracts yet. Click \"Add Abstract\" to get started." };
@@ -548,6 +550,7 @@ export default function AbstractsPage() {
   // (the server refuses the same, abstract-intake.ts). Unknown until the event
   // has loaded: never "closed" by default.
   const intakeClosed = isSubmitter && event ? abstractIntakeClosed(event) : null;
+  const organiserEmail = (event as { emailFromAddress?: string | null } | undefined)?.emailFromAddress;
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
@@ -647,7 +650,9 @@ export default function AbstractsPage() {
       {intakeClosed && (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           {intakeClosed.message} New abstracts can no longer be submitted, and a draft can no longer be
-          sent in. You can still see your abstracts and their status here.
+          sent in. You can still see your abstracts and their status here. If you have a draft you still
+          need to send in, contact the organising team
+          {organiserEmail ? <> at <a className="underline" href={`mailto:${organiserEmail}`}>{organiserEmail}</a>.</> : "."}
         </p>
       )}
       {/* Header */}
@@ -1395,7 +1400,7 @@ export default function AbstractsPage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground text-center py-8">
-                {listWording(isSubmitter, isReviewer).empty}
+                {listWording(isSubmitter, isReviewer, intakeClosed !== null).empty}
               </p>
             </CardContent>
           </Card>

@@ -267,6 +267,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
       if (data.forceStatus) {
         return NextResponse.json({ error: "Only admins can force status" }, { status: 403 });
       }
+      // An AUTHOR cannot send in a draft once the event has stopped taking
+      // abstracts (abstract-intake.ts). Staff still can, on someone's behalf.
+      // An author's only submission is DRAFT to SUBMITTED (anything later was
+      // refused just above). Asked BEFORE the profile gate, as in POST: an
+      // author must not be sent to complete My Details and then be told the
+      // deadline has passed.
+      if (data.status === "SUBMITTED") {
+        const closed = abstractIntakeClosed(event);
+        if (closed) {
+          apiLogger.warn({ msg: "abstracts:intake-closed", eventId, abstractId, userId: session.user.id, code: closed.code, door: "submit-draft" });
+          return NextResponse.json({ error: closed.message, code: closed.code }, { status: 403 });
+        }
+      }
       // Hard gate (Aug 5, 2026): submitting (DRAFT → SUBMITTED) requires a
       // complete profile. Draft edits stay allowed — only the submission is
       // blocked. The edit page redirects to My Details first; this covers a
@@ -368,17 +381,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const isSubmission =
       data.status === "SUBMITTED" &&
       (existingAbstract.status === "DRAFT" || existingAbstract.status === "REVISION_REQUESTED");
-    // An AUTHOR cannot submit a draft once the event has stopped taking
-    // abstracts (abstract-intake.ts). Staff still can, on someone's behalf.
-    // (An author's only submission is DRAFT to SUBMITTED: anything later is
-    // locked to them above.)
-    if (isSubmission && session.user.role === "SUBMITTER") {
-      const closed = abstractIntakeClosed(event);
-      if (closed) {
-        apiLogger.warn({ msg: "abstracts:intake-closed", eventId, abstractId, userId: session.user.id, code: closed.code, door: "submit-draft" });
-        return NextResponse.json({ error: closed.message, code: closed.code }, { status: 403 });
-      }
-    }
     // Per-event limits, with the grandfathering rule: a value already over a
     // newly-lowered cap may be kept or trimmed, never grown. Passing the
     // EXISTING count as the third argument is what encodes that.

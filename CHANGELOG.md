@@ -15,6 +15,9 @@ Closing abstracts (the deadline passing, or "Allow abstract submissions" switche
 - **To reopen:** move the deadline forward or switch submissions back on (Settings, Abstracts). An author's page can take up to half a minute to notice.
 - **Changes on deploy:** MEHF2027 authors can no longer submit. HEMNET 2026 is open until November 30 and is unaffected.
 - Session proposals already worked this way; abstracts now use one rule for every door (`src/lib/abstract-intake.ts`).
+- **An author typing as the deadline passes keeps their text.** The form stays on screen with its buttons switched off, and a notice (at the top, beside the buttons and as a pop-up message) tells them to copy their text and contact the organising team. Someone who opens the page after closing sees only the notice.
+- **No button that cannot work:** My Details no longer offers Submit Abstract on a closed event, and a draft's Submit for Review is switched off with the reason beside it. Saving the draft still works.
+- **An author with an unsent draft is told who to write to** (the event's sender address, when one is set). The organising team cannot see an author's draft, so to take it in they either reopen submissions for a while or enter it with Add Abstract. On production today: 4 drafts on MEHF2027, 1 on HEMNET 2026.
 
 ### Two abstract dialogs: nothing cut off, and wider (November 20)
 

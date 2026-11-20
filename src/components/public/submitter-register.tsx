@@ -75,6 +75,7 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { abstractIntakeClosed } from "@/lib/abstract-intake";
 
 export type SubmitterRegisterVariant = "abstract" | "proposal";
 
@@ -369,15 +370,10 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
         // proposal variant has no open/close toggle in v1 (the organizer
         // controls exposure by sharing the link).
         if (variant === "abstract") {
-          if (!data.abstractSettings?.allowAbstractSubmissions) {
-            setError("Abstract submissions are not open for this event");
-          }
-          if (data.abstractSettings?.abstractDeadline) {
-            const deadline = new Date(data.abstractSettings.abstractDeadline);
-            if (new Date() > deadline) {
-              setError("The abstract submission deadline has passed");
-            }
-          }
+          // The one rule (abstract-intake.ts), as the server's doors ask it.
+          // `allowAbstractSubmissions` arrives already judged (never a webinar).
+          const closed = abstractIntakeClosed({ settings: data.abstractSettings });
+          if (closed) setError(closed.message);
         } else if (data.sessionProposalSettings?.sessionProposalDeadline) {
           // Proposal intake ends automatically at the deadline (Aug 6, 2026).
           const deadline = new Date(data.sessionProposalSettings.sessionProposalDeadline);

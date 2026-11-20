@@ -88,7 +88,9 @@ interface FixtureEvent {
  *              org-bound one must not.
  */
 const links = {
-  settings: { reviewerUserIds: [U.reviewer] },
+  // The switch is on so an author's create is judged by the rules behind the
+  // intake check (own speaker, profile), not stopped at it (abstract-intake.ts).
+  settings: { reviewerUserIds: [U.reviewer], allowAbstractSubmissions: true },
   staffUserIds: [U.onsite, U.webinars],
   speakerUserIds: [U.submitter],
   registrantUserIds: [U.registrant],

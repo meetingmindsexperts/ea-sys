@@ -38,6 +38,7 @@ import {
 import { formatPersonName } from "@/lib/utils";
 import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import { useEvent, useSubmitterContext } from "@/hooks/use-api";
+import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-surfaces";
 import { isProfileIncomplete, missingProfileFields, rulesSentWith } from "@/lib/submitter-profile-completeness";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
@@ -184,6 +185,9 @@ export default function SubmitterProfilePage() {
   const seesProposals = surfaceCtx ? submitterSeesProposals(surfaceCtx) : false;
 
   const { data: event } = useEvent(eventId);
+  // An author on an event that no longer takes abstracts is not offered Submit
+  // (abstract-intake.ts): the button would only lead to the closed notice.
+  const intakeClosed = isSubmitter && event ? abstractIntakeClosed(event) : null;
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -386,11 +390,13 @@ export default function SubmitterProfilePage() {
                   <FileText className="h-4 w-4 mr-1.5" /> My Abstracts
                 </Link>
               </Button>
-              <Button asChild className="btn-gradient">
-                <Link href={`/events/${eventId}/abstracts/new`}>
-                  <Plus className="h-4 w-4 mr-1.5" /> Submit Abstract
-                </Link>
-              </Button>
+              {!intakeClosed && (
+                <Button asChild className="btn-gradient">
+                  <Link href={`/events/${eventId}/abstracts/new`}>
+                    <Plus className="h-4 w-4 mr-1.5" /> Submit Abstract
+                  </Link>
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -597,12 +603,16 @@ export default function SubmitterProfilePage() {
         <CardContent>
           {profile.abstracts.length === 0 ? (
             <div className="text-center py-6">
-              <p className="text-sm text-muted-foreground mb-3">You haven&apos;t submitted any abstracts yet.</p>
-              <Button asChild className="btn-gradient" size="sm">
-                <Link href={`/events/${eventId}/abstracts/new`}>
-                  <Plus className="h-4 w-4 mr-1.5" /> Submit your first abstract
-                </Link>
-              </Button>
+              <p className="text-sm text-muted-foreground mb-3">
+                {intakeClosed ? `You haven't submitted any abstracts. ${intakeClosed.message}` : "You haven't submitted any abstracts yet."}
+              </p>
+              {!intakeClosed && (
+                <Button asChild className="btn-gradient" size="sm">
+                  <Link href={`/events/${eventId}/abstracts/new`}>
+                    <Plus className="h-4 w-4 mr-1.5" /> Submit your first abstract
+                  </Link>
+                </Button>
+              )}
             </div>
           ) : (
             <div className="divide-y">
