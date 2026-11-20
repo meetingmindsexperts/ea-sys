@@ -317,6 +317,36 @@ describe("guards + sentinels come back as result values", () => {
     expect(mockDb._tx.ticketType.updateMany.mock.calls.length + mockDb._tx.$executeRaw.mock.calls.length).toBeGreaterThan(0);
   });
 
+  // Make Faculty (plan step 6): the ONE way onto the speakers' type for a registration that exists, and only
+  // for make-faculty-service.ts, which has checked the speaker and the money.
+  describe("toFaculty (Make Faculty)", () => {
+    const written = () => mockDb._tx.registration.updateMany.mock.calls.at(-1)![0].data;
+
+    it("moves a delegate's registration onto Faculty, marks it made by hand, and gives up its seat", async () => {
+      mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt1", paymentStatus: "UNASSIGNED", createdSource: "PUBLIC_SUBMITTER", ticketType: { isFaculty: false } }));
+      mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt-fac", isFaculty: true, name: "Faculty", price: 0 });
+      const r = await updateRegistration({ ...base, ticketTypeId: "tt-fac", toFaculty: true, paymentStatus: "COMPLIMENTARY" });
+      expect(r.ok).toBe(true);
+      expect(written()).toMatchObject({ ticketTypeId: "tt-fac", createdSource: "FACULTY_ADMIN", paymentStatus: "COMPLIMENTARY" });
+      // The delegate seat is released through the planner (a counter write), and none is claimed on Faculty.
+      expect(mockDb._tx.ticketType.updateMany.mock.calls.length + mockDb._tx.$executeRaw.mock.calls.length).toBeGreaterThan(0);
+    });
+
+    it("on a registration already on Faculty it sets the mark and nothing else", async () => {
+      mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt-fac", paymentStatus: "COMPLIMENTARY", createdSource: "SPEAKER_COMPANION", badgeType: "Faculty", ticketType: { isFaculty: true } }));
+      const r = await updateRegistration({ ...base, toFaculty: true });
+      expect(r.ok).toBe(true);
+      expect(written().createdSource).toBe("FACULTY_ADMIN");
+      for (const untouched of ["ticketTypeId", "paymentStatus", "badgeType", "pricingTierId"]) expect(written()).not.toHaveProperty(untouched);
+    });
+
+    it("means nothing on a delegate type with no move: the row is not marked", async () => {
+      mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt1", createdSource: "PUBLIC_REGISTER", ticketType: { isFaculty: false } }));
+      await updateRegistration({ ...base, toFaculty: true, notes: "x" });
+      expect(written()).not.toHaveProperty("createdSource");
+    });
+  });
+
   // Review of 8eaa3550 (MED): moved onto a delegate type, the companion's own "Faculty" badge stayed, so the
   // person printed FACULTY and "Make presenters" kept it as a badge set by hand.
   describe("leaving the speakers' type clears its own Faculty badge", () => {

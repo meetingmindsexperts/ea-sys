@@ -1,6 +1,7 @@
 "use client";
 
 import { EXHIBITOR_BADGE_ROLE, isExhibitorBadge } from "@/lib/badge-layout";
+import { MakeFacultyButton } from "@/components/registrations/make-faculty-button";
 import { useCan } from "@/hooks/use-can";
 import { DtcmDetControls } from "@/components/registrations/dtcm-det-controls";
 
@@ -223,6 +224,10 @@ export function RegistrationDetailSheet({
   const canResolveDtcmOrders = useCan("dtcm.import", eventId) === "allowed";
   // Delete and email follow the person's permissions, never the base role
   // (Oct 22, 2026): a Member whose custom role adds them saw neither.
+  // Make Faculty gives a free Faculty registration and edits this one: both keys, as its route asks.
+  const canGrantFaculty = useCan("speakers.companion.grant", eventId) === "allowed";
+  const canEditRegistrationHere = useCan("registrations.update", eventId) === "allowed";
+  const canMakeFaculty = canGrantFaculty && canEditRegistrationHere;
   const canDelete = useCan("registrations.delete", eventId) === "allowed";
   const canEmail = useCan("registrations.email", eventId) === "allowed";
   const canReadTemplates = useCan("templates.read", eventId) === "allowed";
@@ -1839,9 +1844,22 @@ export function RegistrationDetailSheet({
                   )}
                 </div>
               ) : (
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <ClipboardList className="h-4 w-4 text-muted-foreground" />
                   <div className="font-medium">{displayRegistrationType({ ticketTypeName: selectedRegistration.ticketType?.name, isFaculty: selectedRegistration.ticketType?.isFaculty, attendeeRegistrationType: selectedRegistration.attendee.registrationType })}</div>
+                  {/* A speaker who registered or submitted before being invited is stuck on that
+                      registration: this is the one way onto Faculty (owner, Nov 20, 2026). Only for a
+                      registration that belongs to a speaker record, never an ordinary delegate. */}
+                  {canMakeFaculty && selectedRegistration.speakerRecord && selectedRegistration.status !== "CANCELLED" &&
+                    (!selectedRegistration.ticketType?.isFaculty || selectedRegistration.speakerRecord.needsFacultyConfirmation) && (
+                    <MakeFacultyButton
+                      alreadyOnFaculty={!!selectedRegistration.ticketType?.isFaculty}
+                      eventId={eventId}
+                      registrationId={selectedRegistration.id}
+                      personName={`${selectedRegistration.attendee.firstName} ${selectedRegistration.attendee.lastName}`.trim()}
+                      onMoved={() => { void refreshSelectedRegistration(selectedRegistration.id); }}
+                    />
+                  )}
                 </div>
               )}
 

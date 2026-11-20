@@ -23,6 +23,7 @@ import { optimisticLockField } from "@/lib/optimistic-lock";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 import { dtcmCodeWriteRefusal, redactBarcodeFields, registrationForCaller } from "@/lib/barcode-visibility";
 import { eventFactsOf } from "@/lib/permissions/event-facts";
+import { findSpeakerRecordOf, needsFacultyConfirmation } from "@/services/make-faculty-service";
 import { redactSupportingDocumentFields } from "@/lib/supporting-document";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
@@ -138,6 +139,33 @@ const HTTP_STATUS_FOR_UPDATE_CODE: Partial<Record<UpdateRegistrationErrorCode, n
   UNKNOWN: 500,
 };
 
+/**
+ * An extra on the sheet, so it never fails it: without the answer the sheet
+ * simply does not offer Make Faculty, and the failure is logged.
+ */
+async function speakerRecordFor(
+  eventId: string,
+  registration: { id: string; createdSource: string | null; attendee: { email: string } | null; ticketType: { isFaculty: boolean } | null },
+): Promise<{ id: string; name: string; needsFacultyConfirmation: boolean } | null | undefined> {
+  try {
+    const speaker = await findSpeakerRecordOf(eventId, registration);
+    if (!speaker) return null;
+    return {
+      id: speaker.id,
+      name: `${speaker.firstName} ${speaker.lastName}`.trim(),
+      // On the Faculty type without the organisers having put them there (make-faculty-service.ts).
+      needsFacultyConfirmation: needsFacultyConfirmation({
+        onFacultyType: registration.ticketType?.isFaculty === true,
+        createdSource: registration.createdSource,
+        submitterSource: speaker.submitterSource,
+      }),
+    };
+  } catch (err) {
+    apiLogger.error({ err, msg: "registrations/detail:speaker-record-failed", eventId, registrationId: registration.id });
+    return undefined;
+  }
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     // Parallelize all async operations
@@ -160,7 +188,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       findGatedEvent(gate, {
         // taxRate/taxLabel feed the `financials` block so the Payment
         // block + Payment Summary match the quote/invoice VAT math.
-        select: { id: true, taxRate: true, taxLabel: true },
+        // The organisation, type and staff are the event's facts: the speaker
+        // record below is shown only to a caller who may read speakers here.
+        select: { id: true, taxRate: true, taxLabel: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
       }),
       db.registration.findFirst({
         where: {
@@ -266,7 +296,14 @@ export async function GET(req: Request, { params }: RouteParams) {
       creditedAmount: Number(creditedAgg._sum.total ?? 0),
     };
 
-    const withFinancials = { ...registration, financials };
+    // The speaker record this registration belongs to (the one that points at
+    // it, or one with the same address): the sheet offers "Make Faculty" only
+    // then. The same answer the action itself asks (make-faculty-service.ts).
+    const eventFacts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
+    const maySeeSpeakers = eventFacts !== null && can(gate.principal, "speakers.read", { event: eventFacts });
+    const speakerRecord = maySeeSpeakers ? await speakerRecordFor(eventId, registration) : undefined;
+
+    const withFinancials = { ...registration, financials, ...(speakerRecord !== undefined && { speakerRecord }) };
 
     // MEMBER (read-only viewer) keeps the payment STATUS label but never
     // the amounts — `redactFinancialFields` strips the whole `financials`

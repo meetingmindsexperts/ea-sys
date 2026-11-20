@@ -1384,6 +1384,18 @@ export interface UpdateRegistrationInput {
   badgeType?: string | null;
   dtcmBarcode?: string | null;
   ticketTypeId?: string;
+  /**
+   * "Make Faculty" (src/services/make-faculty-service.ts, its ONLY caller;
+   * plan docs/ABSTRACT_AUTHOR_REGISTRATION_PLAN.md step 6). Lifts the rule that
+   * the speakers' type is never a destination, for a registration that service
+   * has checked belongs to a speaker and carries no money, and marks the row
+   * as made Faculty BY HAND (FACULTY_ADMIN, the mark of Add registration as
+   * Faculty): seatless, so it gives up its delegate seat through the planner
+   * like any other move, and a delegate again, with a seat, if it is ever
+   * moved back off. On a row already on the Faculty type it only sets that
+   * mark. No route passes this on.
+   */
+  toFaculty?: boolean;
   /** An id, or null to clear the tier (→ base price); omit to leave unchanged. */
   pricingTierId?: string | null;
   attendanceMode?: AttendanceMode;
@@ -1399,6 +1411,15 @@ export interface UpdateRegistrationInput {
   billingZipCode?: string | null;
   billingCountry?: string | null;
   attendee?: UpdateRegistrationAttendeeInput;
+}
+
+/** How the row was made, as it reads after a type change (see the two callers' comments in updateRegistration). */
+function createdSourceAfterTypeChange(
+  current: RegistrationCreatedSource | null,
+  change: { leavesFaculty: boolean; madeFacultyByHand: boolean },
+): RegistrationCreatedSource | null {
+  if (change.madeFacultyByHand) return "FACULTY_ADMIN";
+  return change.leavesFaculty ? "ADMIN_DASHBOARD" : current;
 }
 
 export type UpdateRegistrationErrorCode =
@@ -1559,6 +1580,7 @@ export async function updateRegistration(
     const { ticketTypeId } = input;
     // The new type's name, when the type changes: the Exhibitor type sets the badge type.
     let newTicketTypeName: string | null = null;
+    let movesOntoFaculty = false;
     if (ticketTypeId && ticketTypeId !== existing.ticketTypeId) {
       const tt = await db.ticketType.findFirst({
         where: { id: ticketTypeId, eventId },
@@ -1572,7 +1594,8 @@ export async function updateRegistration(
       // never a destination. A delegate moved onto it drops out of every
       // delegate count and loses their profession; moving OFF it stays allowed.
       newTicketTypeName = tt.name;
-      if (tt.isFaculty) {
+      movesOntoFaculty = tt.isFaculty && input.toFaculty === true;
+      if (tt.isFaculty && !movesOntoFaculty) {
         apiLogger.warn({ msg: "registration-update:ticket-type-is-faculty", registrationId, ticketTypeId, source });
         return {
           ok: false,
@@ -1652,7 +1675,12 @@ export async function updateRegistration(
     // seatless on a delegate type for good, outside every cap and recount.
     // A speaker's companion keeps its documented behaviour.
     const leavesFaculty = isChangingType && existing.createdSource === "FACULTY_ADMIN";
-    const nextCreatedSource = leavesFaculty ? "ADMIN_DASHBOARD" : existing.createdSource;
+    // Make Faculty: put on the speakers' type by a person, or already on it
+    // and now said to be. Seatless from here (the planner releases a delegate
+    // seat below).
+    const stayingOnFaculty = !isChangingType && existing.ticketType?.isFaculty === true;
+    const madeFacultyByHand = input.toFaculty === true && (movesOntoFaculty || stayingOnFaculty);
+    const nextCreatedSource = createdSourceAfterTypeChange(existing.createdSource, { leavesFaculty, madeFacultyByHand });
 
     const expectedUpdatedAt = input.expectedUpdatedAt ?? null;
     if (!expectedUpdatedAt) {
@@ -1764,7 +1792,7 @@ export async function updateRegistration(
         ...(input.badgeType !== undefined && { badgeType: input.badgeType }),
         ...(input.dtcmBarcode !== undefined && { dtcmBarcode: input.dtcmBarcode || null }),
         ...(ticketTypeId && { ticketTypeId }),
-        ...(leavesFaculty && { createdSource: "ADMIN_DASHBOARD" as const }),
+        ...(nextCreatedSource !== existing.createdSource && { createdSource: nextCreatedSource }),
         // After the badge type the form sent, so moving onto Exhibitor wins.
         ...exhibitorBadgeData(newTicketTypeName),
         // Persist the resolved tier (undefined = leave unchanged) + re-stamped

@@ -301,6 +301,13 @@ export function describeAuditAction(log: AuditLogLike): string {
     return `Registration created for ${name || "attendee"}${ticketType ? ` — ${ticketType}` : ""} (${shortId})`;
   }
 
+  if (log.action === "MAKE_FACULTY") {
+    // { waived: { amount, currency } | null, fromType, invoicesCancelled } (make-faculty-service.ts).
+    const waived = changes.waived as { amount?: number; currency?: string } | null | undefined;
+    const from = str(changes.fromType);
+    const moved = `Made Faculty${from ? ` (was ${from})` : ""}`;
+    return waived?.amount ? `${moved}: ${waived.currency} ${waived.amount.toFixed(2)} owed was waived` : moved;
+  }
   if (log.action === "EMAIL_SENT") {
     const recipient = changes.recipient as string | undefined;
     return `Email sent to ${recipient || "recipient"}`;

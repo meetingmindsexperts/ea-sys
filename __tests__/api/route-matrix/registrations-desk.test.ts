@@ -89,6 +89,7 @@ import { GET as badgePreviewGET } from "@/app/api/events/[eventId]/registrations
 import { PATCH as bulkTagsPATCH } from "@/app/api/events/[eventId]/registrations/bulk-tags/route";
 import { PATCH as bulkTypePATCH } from "@/app/api/events/[eventId]/registrations/bulk-type/route";
 import { POST as bulkUpdatePOST } from "@/app/api/events/[eventId]/registrations/bulk-update/route";
+import { POST as makeFacultyPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/make-faculty/route";
 import { POST as importContactsPOST } from "@/app/api/events/[eventId]/registrations/import-contacts/route";
 import { POST as importCsvPOST } from "@/app/api/events/[eventId]/import/registrations/route";
 import { POST as completionPOST } from "@/app/api/events/[eventId]/import/registrations/send-completion-emails/route";
@@ -188,6 +189,8 @@ const CASES: HandlerCase[] = [
   // Added Nov 20, 2026 (payment status, badge type or cancel on ticked rows).
   { name: "POST registrations/bulk-update (payment status and badge)", handler: bulkUpdatePOST, method: "POST", body: { registrationIds: ["r1"], paymentStatus: "COMPLIMENTARY", badgeType: "Presenter" } },
   { name: "POST registrations/bulk-update (cancel)", handler: bulkUpdatePOST, method: "POST", body: { registrationIds: ["r1"], cancel: true } },
+  // Added Nov 20, 2026 (Make Faculty on a speaker's registration).
+  { name: "POST registrations/[id]/make-faculty (preview)", handler: makeFacultyPOST, method: "POST", params: { registrationId: "r1" }, body: { preview: true } },
   { name: "POST registrations/import-contacts", handler: importContactsPOST, method: "POST", body: { contactIds: ["ct1"] } },
   { name: "POST import/registrations (JSON, not multipart)", handler: importCsvPOST, method: "POST", body: {} },
   {

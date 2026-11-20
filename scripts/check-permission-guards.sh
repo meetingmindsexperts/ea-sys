@@ -191,6 +191,7 @@ SWEPT=(
   "src/app/api/events/[eventId]/registrations/[registrationId]/barcode/route.ts"
   "src/app/api/events/[eventId]/registrations/[registrationId]/check-in/route.ts"
   "src/app/api/events/[eventId]/registrations/[registrationId]/payments/route.ts"
+  "src/app/api/events/[eventId]/registrations/[registrationId]/make-faculty/route.ts"
   "src/app/api/events/[eventId]/registrations/[registrationId]/email/route.ts"
   "src/app/api/events/[eventId]/registrations/[registrationId]/documents/resend/route.ts"
   "src/app/api/events/[eventId]/registrations/[registrationId]/supporting-document/route.ts"

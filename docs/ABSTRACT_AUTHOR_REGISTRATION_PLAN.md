@@ -225,9 +225,24 @@ registrations key; an API key is never given the answer). Giving them one is
 Add registration on Registrations, on their own type: the speaker page's
 Grant button makes a Faculty registration and is not for an author.
 
-**Step 6. Make a speaker's registration Faculty.** (Owner, Nov 20, 2026: built
-as part of this work, not ahead of it. Until then the one known case,
-skourihadi73 on MEHF2027, stays Physician, Complimentary, badge Faculty.)
+**Step 6. Make a speaker's registration Faculty.** BUILT Nov 20, 2026
+(`src/services/make-faculty-service.ts`, `POST registrations/{id}/make-faculty`,
+the button beside the registration type on the sheet; keys
+`speakers.companion.grant` and, on the event, `registrations.update`, so the
+desk cannot). As planned below, with these settled in the build: the
+registration is marked as made Faculty BY HAND (`FACULTY_ADMIN`), which is what
+lists the person with the invited speakers, and means that moved back off
+Faculty later it is a delegate with a seat again; the person is found by the
+speaker record that points at the registration or carries its address, and
+that record is then pointed at it; a fully refunded registration moves and
+keeps saying Refunded; a sponsor-paid one, a group member and one with a card
+checkout open are refused; the badge becomes Faculty where it was blank or
+Presenter, and one the team chose is kept. On a registration ALREADY on the
+Faculty type that the organisers did not put there (the old sign-up's, or an
+invited speaker who signed in to submit) the button reads "Confirm as invited
+faculty" and sets only the mark. The one known case, skourihadi73 on MEHF2027
+(Physician, Complimentary, badge Faculty), can now be moved.
+(Owner, Nov 20, 2026: built as part of this work, not ahead of it.)
 For the person who submitted first and was invited later (section 4a). On
 the registration sheet, a "Make Faculty" action, offered only for a registration
 linked to a speaker record (`Speaker.sourceRegistrationId`), never for an
