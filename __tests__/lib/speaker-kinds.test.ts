@@ -2,7 +2,7 @@
  * The Speakers page tabs (owner, Oct 27) and who "Email" reaches from them (review HIGHs, Oct 27).
  */
 import { describe, it, expect } from "vitest";
-import { canEmailListed, emailRecipientIds, isProposer, isSubmitter, matchesKind, registrationOnFacultyType, speakerKindOf } from "@/lib/speaker-kinds";
+import { acceptedWithoutRegistration, canEmailListed, emailRecipientIds, isProposer, isSubmitter, matchesKind, openingKind, registrationOnFacultyType, speakerKindOf } from "@/lib/speaker-kinds";
 
 const invited = { id: "a", abstracts: [] as { status: string }[] };
 const submitter = { id: "b", abstracts: [{ status: "SUBMITTED" }, { status: "DRAFT" }] };
@@ -80,6 +80,26 @@ describe("invited and an author", () => {
     expect(registrationOnFacultyType({ status: "CONFIRMED", ticketType: { isFaculty: false } })).toBe(false);
     expect(registrationOnFacultyType({ status: "CONFIRMED", ticketType: null })).toBe(false);
     expect(registrationOnFacultyType(null)).toBe(false);
+  });
+});
+
+describe("the Speakers page: opening tab and the accepted authors with no registration", () => {
+  it("opens on the invited speakers when the event also has authors or proposers, else on everyone", () => {
+    expect(openingKind(["all", "invited", "submitters"])).toBe("invited");
+    expect(openingKind(["all", "invited", "proposers"])).toBe("invited");
+    expect(openingKind(["all", "invited"])).toBe("all");
+    expect(openingKind(["all"])).toBe("all");
+    // Without the Invited tab (the caller cannot see what tells the groups apart) there is nothing to open on.
+    expect(openingKind(["all", "submitters"])).toBe("all");
+  });
+
+  it("counts an accepted author only when told they hold no registration", () => {
+    expect(acceptedWithoutRegistration({ hasRegistration: false, abstracts: [{ status: "ACCEPTED" }] })).toBe(true);
+    expect(acceptedWithoutRegistration({ hasRegistration: true, abstracts: [{ status: "ACCEPTED" }] })).toBe(false);
+    expect(acceptedWithoutRegistration({ hasRegistration: false, abstracts: [{ status: "REJECTED" }, { status: "SUBMITTED" }] })).toBe(false);
+    // Not told (no registrations key, or no abstracts key): never counted.
+    expect(acceptedWithoutRegistration({ abstracts: [{ status: "ACCEPTED" }] })).toBe(false);
+    expect(acceptedWithoutRegistration({ hasRegistration: false })).toBe(false);
   });
 });
 

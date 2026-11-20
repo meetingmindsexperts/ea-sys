@@ -79,6 +79,25 @@ export function speakerKindOf(s: WithSubmissions): Exclude<SpeakerKind, "all"> {
   return signupKind(s);
 }
 
+/**
+ * The tab the Speakers page opens on. Authors are kept apart from the faculty (owner, Nov 20, 2026), so an event
+ * that has both opens on the invited speakers; an event with nothing to tell apart opens on everyone. `tabs` is
+ * what the caller can be shown: without the Invited tab (the abstracts or proposals are hidden from them) it
+ * opens on everyone.
+ */
+export function openingKind(tabs: readonly SpeakerKind[]): SpeakerKind {
+  const split = tabs.includes("submitters") || tabs.includes("proposers");
+  return split && tabs.includes("invited") ? "invited" : "all";
+}
+
+/**
+ * An accepted author with no registration at all: nothing for "Make presenters" to make Complimentary, and no
+ * badge on the day. `hasRegistration` is absent when the caller may not read registrations, and absent never
+ * reads as "none".
+ */
+export const acceptedWithoutRegistration = (s: { hasRegistration?: boolean; abstracts?: { status: string }[] }) =>
+  s.hasRegistration === false && (s.abstracts ?? []).some((a) => a.status === "ACCEPTED");
+
 export const matchesKind = (s: WithSubmissions, kind: SpeakerKind) => kind === "all" || speakerKindOf(s) === kind;
 
 /**

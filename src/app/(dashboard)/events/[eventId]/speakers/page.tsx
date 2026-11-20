@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { StatTile, StatsRow } from "@/components/ui/typography";
-import { canEmailListed, emailRecipientIds, matchesKind, type SpeakerKind } from "@/lib/speaker-kinds";
+import { acceptedWithoutRegistration, canEmailListed, emailRecipientIds, matchesKind, openingKind, type SpeakerKind } from "@/lib/speaker-kinds";
 import { abstractStatusColor, abstractStatusLabel } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,6 +78,10 @@ interface Speaker {
   sessionProposals?: { status: string }[];
   /** The public sign-up door ("abstract" | "proposal" | "both"); null for speakers the organisers added. */
   submitterSource?: string | null;
+  /** Their live registration is on the Faculty type: invited, whatever they submitted (speaker-kinds.ts). */
+  onFacultyType?: boolean;
+  /** Whether they hold a live registration on the event; absent when the caller may not read registrations. */
+  hasRegistration?: boolean;
 }
 
 const KIND_LABEL: Record<SpeakerKind, string> = { all: "All speakers", invited: "Invited speakers", submitters: "Abstract submitters", proposers: "Session proposers" };
@@ -151,7 +155,10 @@ export default function SpeakersPage() {
   const bulkTagSpeakers = useBulkTagSpeakers(eventId);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [kind, setKind] = useState<SpeakerKind>("all");
+  // The tab the organiser picked; until they pick one, the page's opening tab (openingKind).
+  const [chosenKind, setKind] = useState<SpeakerKind | null>(null);
+  // Only the accepted authors who hold no registration (the notice above the list).
+  const [unregisteredOnly, setUnregisteredOnly] = useState(false);
   // Speakers with at least one abstract in these statuses; empty means any (submitters tab).
   const [abstractStatuses, setAbstractStatuses] = useState<string[]>([]);
 
@@ -165,28 +172,43 @@ export default function SpeakersPage() {
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
-  // Filter speakers
-  const filteredSpeakers = speakers.filter((s) => {
+  const kindCount = (k: SpeakerKind) => speakers.filter((s) => matchesKind(s, k)).length;
+  const tabKinds = visibleKinds(canReadAbstracts, canReadProposals, kindCount);
+  const kind = chosenKind ?? openingKind(tabKinds);
+  const unregistered = speakers.filter(acceptedWithoutRegistration);
+  // What the list is showing, for its headings and counts.
+  const listLabel = unregisteredOnly ? "Accepted authors with no registration" : KIND_LABEL[kind];
+  const listTotal = unregisteredOnly ? unregistered.length : kindCount(kind);
+
+  // The search box and the status filter, whichever tab is open.
+  const matchesSearchAndStatus = (s: Speaker) => {
+    const q = searchQuery.toLowerCase();
     const matchesSearch =
       searchQuery === "" ||
-      s.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s.email && s.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (s.organization && s.organization.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    const matchesStatus = statusFilter === "all" || s.status === statusFilter;
+      s.firstName.toLowerCase().includes(q) ||
+      s.lastName.toLowerCase().includes(q) ||
+      (!!s.email && s.email.toLowerCase().includes(q)) ||
+      (!!s.organization && s.organization.toLowerCase().includes(q));
+    return matchesSearch && (statusFilter === "all" || s.status === statusFilter);
+  };
+  // The tab, or the notice's own list: exactly those people, on whichever tab they would be.
+  const matchesTab = (s: Speaker) => {
+    if (unregisteredOnly) return acceptedWithoutRegistration(s);
     const matchesAbstract = kind !== "submitters" || abstractStatuses.length === 0 || (s.abstracts ?? []).some((a) => abstractStatuses.includes(a.status));
-
-    return matchesSearch && matchesStatus && matchesKind(s, kind) && matchesAbstract;
-  });
+    return matchesKind(s, kind) && matchesAbstract;
+  };
+  const filteredSpeakers = speakers.filter((s) => matchesSearchAndStatus(s) && matchesTab(s));
+  // A search looks only at the open tab, and the page opens on the invited speakers: say so when the person
+  // searched for is on another tab, or they look missing.
+  const foundElsewhere = searchQuery.trim() !== "" && kind !== "all" && !unregisteredOnly
+    ? speakers.filter((s) => matchesSearchAndStatus(s) && !matchesKind(s, kind)).length
+    : 0;
   // A tab or abstract filter narrows the list in ways the bulk-email audience cannot express, so "Email" then
   // sends to exactly the speakers listed rather than to every speaker of the status (owner, Oct 27).
   // (The abstract filter lives on the submitters tab, so any tab but "all" is a narrowing.) A search narrows too:
   // "Email" then sends to exactly who is listed on every tab, not only on some (review LOW, Oct 27).
-  const narrowed = kind !== "all" || searchQuery.trim() !== "";
+  const narrowed = kind !== "all" || searchQuery.trim() !== "" || unregisteredOnly;
   const emailIds = emailRecipientIds(selectedIds, narrowed, filteredSpeakers);
-  const kindCount = (k: SpeakerKind) => speakers.filter((s) => matchesKind(s, k)).length;
-  const tabKinds = visibleKinds(canReadAbstracts, canReadProposals, kindCount);
 
   // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
   // SEND semantics and excludes the search box (not sent to the backend). This
@@ -366,7 +388,7 @@ export default function SpeakersPage() {
       {/* Invited speakers and abstract submitters, apart (owner, Oct 27). The Abstract submitters and Session
           proposers tabs only on an event that has some; no tab bar at all when there is nothing to tell apart. */}
       {tabKinds.length > 1 && (
-        <Tabs value={kind} onValueChange={(v) => { setKind(v as SpeakerKind); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
+        <Tabs value={kind} onValueChange={(v) => { setKind(v as SpeakerKind); setUnregisteredOnly(false); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
           <TabsList className="max-w-full justify-start overflow-x-auto">
             {tabKinds.map((k) => (
               <TabsTrigger key={k} value={k}>
@@ -377,15 +399,34 @@ export default function SpeakersPage() {
         </Tabs>
       )}
 
+      {/* Accepted authors who would arrive with no badge (owner, Nov 20, 2026): they hold no registration, so
+          "Make presenters" has nothing to make Complimentary. A registration is added on their own type, from
+          Registrations; never a Faculty one, which is for the people the organisers invite. */}
+      {unregistered.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span>
+            <strong>{unregistered.length}</strong> accepted {unregistered.length === 1 ? "author has" : "authors have"} no registration, so no badge
+            on the day. Add one for each from Registrations, on their own registration type.
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setUnregisteredOnly((on) => !on); setPage(1); setSelectedIds(new Set()); }}
+          >
+            {unregisteredOnly ? "Show everyone" : "Show them"}
+          </Button>
+        </div>
+      )}
+
       {/* Stats */}
       <Card className="gap-0 py-0">
         <CardContent className="px-5">
-          <StatsRow label={KIND_LABEL[kind]} hint={filteredSpeakers.length !== kindCount(kind) ? "Matching the filters" : undefined}>
+          <StatsRow label={listLabel} hint={filteredSpeakers.length !== listTotal ? "Matching the filters" : undefined}>
             <StatTile compact label="Total" value={stats.total} />
             <StatTile compact label="Confirmed" value={stats.confirmed} valueClassName="text-green-600" />
             <StatTile compact label="Awaiting reply" value={stats.invited} valueClassName="text-yellow-600" />
             <StatTile compact label="Declined" value={stats.declined} valueClassName="text-red-600" />
-            {canReadAbstracts && (kind === "all" || kind === "submitters") && <StatTile compact label="Abstract accepted" value={stats.accepted} valueClassName="text-blue-600" />}
+            {canReadAbstracts && (kind === "all" || kind === "submitters" || stats.accepted > 0) && <StatTile compact label="Abstract accepted" value={stats.accepted} valueClassName="text-blue-600" />}
           </StatsRow>
         </CardContent>
       </Card>
@@ -437,6 +478,7 @@ export default function SpeakersPage() {
                 setSearchQuery("");
                 setStatusFilter("all");
                 setAbstractStatuses([]);
+                setUnregisteredOnly(false);
               }}
               title="Clear filters"
             >
@@ -450,10 +492,18 @@ export default function SpeakersPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {totalSpeakers === kindCount(kind)
-              ? `${KIND_LABEL[kind]} (${totalSpeakers})`
-              : `Showing ${totalSpeakers} of ${kindCount(kind)} ${KIND_LABEL[kind].toLowerCase()}`}
+            {totalSpeakers === listTotal
+              ? `${listLabel} (${totalSpeakers})`
+              : `Showing ${totalSpeakers} of ${listTotal} ${listLabel.toLowerCase()}`}
           </CardTitle>
+          {foundElsewhere > 0 && (
+            <p className="text-sm text-muted-foreground">
+              {foundElsewhere} more on other tabs.{" "}
+              <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={() => { setKind("all"); setPage(1); setSelectedIds(new Set()); }}>
+                Search all speakers
+              </button>
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           {speakers.length === 0 ? (

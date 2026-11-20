@@ -209,6 +209,16 @@ the old sign-up put on Faculty read as invited until step 8 moves them.
 Leaving the Faculty type clears its own "Faculty" badge.
 
 **Step 5. The Speakers page keeps authors apart from invited faculty** (P4).
+BUILT Nov 20, 2026. The tabs existed (Invited speakers, Abstract submitters,
+Session proposers); what changed: someone who is both invited and an author is
+listed with the invited speakers (on the Faculty type, as settled above), on
+the page and in the certificate recipients' groups; the page opens on the
+Invited tab when the event also has authors or proposers, and a search that
+finds people on another tab says so; and a notice counts the **accepted
+authors who hold no registration**, with "Show them" (it needs the
+registrations key; an API key is never given the answer). Giving them one is
+Add registration on Registrations, on their own type: the speaker page's
+Grant button makes a Faculty registration and is not for an author.
 
 **Step 6. Make a speaker's registration Faculty.** (Owner, Nov 20, 2026: built
 as part of this work, not ahead of it. Until then the one known case,

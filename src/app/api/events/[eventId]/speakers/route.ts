@@ -16,6 +16,9 @@ import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { getClientIp } from "@/lib/security";
 import { stripHonorariumFields } from "@/lib/reimbursement/constants";
 import { submissionVisibilityFor, withVisibleSubmissions } from "@/lib/speaker-submission-visibility";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
+import { loadLiveRegistrationOf } from "@/lib/author-facts-server";
+import { registrationOnFacultyType } from "@/lib/speaker-kinds";
 import { titleEnum, roleAnswer } from "@/lib/schemas";
 import {
   createSpeaker,
@@ -73,6 +76,19 @@ const createSpeakerSchema = z.object({
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
+}
+
+/**
+ * An extra on the roster, so it never fails it: the list is still served, without the field, and the failure
+ * is logged.
+ */
+async function liveRegistrationReader(eventId: string): Promise<Awaited<ReturnType<typeof loadLiveRegistrationOf>> | null> {
+  try {
+    return await loadLiveRegistrationOf(eventId);
+  } catch (err) {
+    apiLogger.error({ err, msg: "events/speakers:live-registrations-failed", eventId });
+    return null;
+  }
 }
 
 export async function GET(req: Request, { params }: RouteParams) {
@@ -200,6 +216,17 @@ export async function GET(req: Request, { params }: RouteParams) {
         orderBy: { createdAt: "desc" },
       });
 
+    // "Has this speaker a registration at all" (the count of accepted authors
+    // who would arrive with no badge): the same answer the Make presenters
+    // action reads, the pointer or the same address, never a cancelled one.
+    // For the Speakers page only: a signed-in member of staff who may read
+    // registrations on this event, never an API key (the website sync reads
+    // this list and needs none of it).
+    const eventFacts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
+    const mayReadRegistrations =
+      !!session?.user && !ownSpeakerOnly && eventFacts !== null && can(gate.principal, "registrations.read", { event: eventFacts });
+    const liveRegistrationOf = mayReadRegistrations ? await liveRegistrationReader(eventId) : null;
+
     // The organiser-agreed honorarium is reimbursement data (staff only —
     // the Sep 3, 2026 boundary). `include` returns whole rows, so the two
     // columns are stripped here for everyone outside it: a signed-in caller
@@ -223,6 +250,10 @@ export async function GET(req: Request, { params }: RouteParams) {
           registrationType: speakerApiRegistrationType(s.registrationType, s.sourceRegistration),
           // Only the number leaves, as before.
           sourceRegistration: s.sourceRegistration ? { serialId: s.sourceRegistration.serialId } : null,
+          // Invited, whatever they submitted: their live registration is on
+          // the Faculty type (speaker-kinds.ts).
+          onFacultyType: registrationOnFacultyType(s.sourceRegistration),
+          ...(liveRegistrationOf && { hasRegistration: liveRegistrationOf(s) !== null }),
         },
         visibility,
       ),
