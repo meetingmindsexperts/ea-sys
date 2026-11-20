@@ -14,15 +14,18 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { auth, eventFindFirst, abstractFindMany, warn } = vi.hoisted(() => ({
+const { auth, eventFindFirst, abstractFindMany, templateFindUnique, warn } = vi.hoisted(() => ({
   auth: vi.fn(),
   eventFindFirst: vi.fn(),
   abstractFindMany: vi.fn(),
+  templateFindUnique: vi.fn(),
   warn: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({ auth }));
-vi.mock("@/lib/db", () => ({ db: { event: { findFirst: eventFindFirst }, abstract: { findMany: abstractFindMany } } }));
+vi.mock("@/lib/db", () => ({
+  db: { event: { findFirst: eventFindFirst }, abstract: { findMany: abstractFindMany }, emailTemplate: { findUnique: templateFindUnique } },
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn, error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, fn: () => unknown) => fn() }));
 
@@ -81,6 +84,19 @@ describe("count == send", () => {
     const res = await GET(req("recipientType=abstracts&emailType=custom"), params);
     expect((await res.json()).count).toBe(2);
     expect(abstractFindMany.mock.calls[0][0].where).toEqual({ eventId: "ev1" });
+  });
+
+  it("a saved template counts one per abstract when its text names an abstract's own tokens, one per author when it does not (Nov 20, 2026)", async () => {
+    abstractFindMany.mockResolvedValue([row("a", "jane@x.com"), row("b", "jane@x.com")]);
+    templateFindUnique.mockResolvedValue({ subject: "{{abstractNumber}}", htmlContent: "<p>{{newStatus}}</p>", textContent: null, isActive: true });
+    const per = await GET(req("recipientType=abstracts&emailType=template&templateSlug=not-accepted&status=REJECTED"), params);
+    expect((await per.json()).count).toBe(2);
+    expect(templateFindUnique.mock.calls[0][0].where).toEqual({ eventId_slug: { eventId: "ev1", slug: "not-accepted" } });
+    expect(abstractFindMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", status: "REJECTED" });
+
+    templateFindUnique.mockResolvedValue({ subject: "News", htmlContent: "<p>{{lastName}}</p>", textContent: null, isActive: true });
+    const author = await GET(req("recipientType=abstracts&emailType=template&templateSlug=news"), params);
+    expect((await author.json()).count).toBe(1);
   });
 
   it("ticked ids restrict the count inside the type's scope, exactly like recipientIds on the send", async () => {

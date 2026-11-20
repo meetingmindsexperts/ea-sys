@@ -19,7 +19,10 @@
  *   - certificate serials (not issued yet at preview time);
  *   - entryBarcode (the real one is a cid-attached PNG; previews can't
  *     carry inline attachments);
- *   - per-abstract decision fields (reviewNotes, reviewScore, newStatus).
+ *   - per-abstract decision fields (reviewNotes, reviewScore, newStatus),
+ *     EXCEPT when the preview is of a send to abstract authors: the email
+ *     dialog names its audience and the preview is then the first email that
+ *     send would produce (`previewAbstractEmailVars` in bulk-email.ts).
  *
  * Returned keys are spread into `buildEventPreviewVariables`'s `extra`
  * (before caller-typed subject/message, which must win last). Keys are only

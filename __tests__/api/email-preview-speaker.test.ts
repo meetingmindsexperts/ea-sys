@@ -10,7 +10,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, mockCtx, mockRender } = vi.hoisted(() => ({
+const { mockDb, mockAuth, mockCtx, mockRender, mockAbstractPreview } = vi.hoisted(() => ({
+  mockAbstractPreview: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
@@ -39,6 +40,8 @@ vi.mock("@/lib/email-preview-data", () => ({
   buildRealPreviewOverrides: vi.fn(async () => ({ presentationDetails: "<p>REPRESENTATIVE</p>" })),
 }));
 vi.mock("@/lib/certificates/bundle", () => ({ buildCertCoverEmailPreview: vi.fn() }));
+// The send's own first-recipient rule; its behaviour is pinned in bulk-email-abstract-audience.test.ts.
+vi.mock("@/lib/bulk-email", () => ({ previewAbstractEmailVars: (...a: unknown[]) => mockAbstractPreview(...a) }));
 vi.mock("@/lib/speaker-agreement", () => ({ buildSpeakerEmailContext: (...a: unknown[]) => mockCtx(...a) }));
 vi.mock("@/lib/email", () => ({
   loadActiveEventTemplateRow: vi.fn(),
@@ -56,8 +59,8 @@ vi.mock("@/lib/email", () => ({
     presentationDetails: "<p>REPRESENTATIVE</p>",
     eventName: "Ev",
   })),
-  renderTemplate: (html: string, vars: Record<string, string>) => {
-    mockRender(html, vars);
+  renderTemplate: (html: string, vars: Record<string, string>, rawKeys?: Set<string>) => {
+    mockRender(html, vars, rawKeys);
     return html.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
   },
   // Faithful-enough fake: substitutes tokens from vars (escaping fidelity is
@@ -70,7 +73,7 @@ vi.mock("@/lib/email", () => ({
 }));
 
 import { POST } from "@/app/api/events/[eventId]/email-preview/route";
-import { getEventTemplate } from "@/lib/email";
+import { getEventTemplate, buildEventPreviewVariables } from "@/lib/email";
 
 const params = { params: Promise.resolve({ eventId: "ev1" }) };
 const req = (body: unknown) =>
@@ -363,5 +366,61 @@ describe("email-preview for the Survey Invitation (Sep 17, 2026)", () => {
     });
     await POST(req({ slug: "speaker-invitation" }), params);
     expect(mockRender.mock.calls[0][0] as string).toContain("share=abc");
+  });
+});
+
+describe("email-preview with abstractAudience (Nov 20, 2026)", () => {
+  // The email dialog's Preview for a send to abstract authors showed the
+  // built-in sample: "A-007, ACCEPTED" for an abstract that was not accepted.
+  // MUTATION: drop the abstractAudience block from the route and the first test
+  // renders the operator's name and no shownFor.
+  const template = { subject: "{{abstractNumber}}: {{newStatus}}", htmlContent: "<p>Dear {{lastName}}, {{reviewNotes}}</p>", textContent: "T", branding: { eventName: "Ev" } };
+
+  it("renders the first email the send would produce and says whose it is", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce(template as never);
+    mockAbstractPreview.mockResolvedValue({
+      vars: { lastName: "Skouri", abstractNumber: "A-004", newStatus: "NOT ACCEPTED", reviewNotes: "<div>Notes</div>" },
+      shownFor: "abstract A-004",
+    });
+    const res = await POST(req({ slug: "abstract-not-accepted", abstractAudience: { emailType: "template", status: "REJECTED", recipientIds: ["abs-4"] } }), params);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { subject: string; htmlContent: string; shownFor?: string };
+    expect(body.subject).toBe("A-004: NOT ACCEPTED");
+    expect(body.htmlContent).toContain("Dear Skouri");
+    expect(body.htmlContent).not.toContain("Casison");
+    expect(body.shownFor).toBe("abstract A-004");
+    // The audience as the dialog sent it, and the text of the template being previewed.
+    expect(mockAbstractPreview).toHaveBeenCalledWith({
+      eventId: "ev1", emailType: "template", status: "REJECTED", recipientIds: ["abs-4"],
+      templateTexts: ["{{abstractNumber}}: {{newStatus}}", "<p>Dear {{lastName}}, {{reviewNotes}}</p>", "T"],
+    });
+    // The reviewer-notes block is our own markup: raw, as the send renders it.
+    expect((mockRender.mock.calls.at(-1)?.[2] as Set<string>).has("reviewNotes")).toBe(true);
+    expect(body.htmlContent).toContain("<div>Notes</div>");
+  });
+
+  it("keeps the samples, and names no one, when the audience is empty", async () => {
+    mockAbstractPreview.mockResolvedValue(null);
+    const res = await POST(req({ slug: "abstract-status-update", abstractAudience: { emailType: "abstract-decision" } }), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).not.toHaveProperty("shownFor");
+  });
+
+  it("asks nothing of the abstracts when the preview is not an abstracts send", async () => {
+    await POST(req({ slug: "speaker-invitation" }), params);
+    expect(mockAbstractPreview).not.toHaveBeenCalled();
+  });
+});
+
+describe("a token typed into the subject (Nov 20, 2026)", () => {
+  // MUTATION: drop the mergedVars.subject line from the route and the heading
+  // keeps the literal {{firstName}} while the subject line resolves it.
+  it("resolves inside the body's {{subject}} as well as on the subject line, as the send fills it", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({ subject: "{{subject}}", htmlContent: "<h1>{{subject}}</h1>", textContent: "", branding: { eventName: "Ev" } } as never);
+    vi.mocked(buildEventPreviewVariables).mockImplementationOnce(((_e: unknown, _u: unknown, extra: Record<string, string>) => ({ firstName: "Ops", eventName: "Ev", ...extra })) as never);
+    const res = await POST(req({ slug: "custom-notification", customSubject: "A note for {{firstName}}" }), params);
+    const body = (await res.json()) as { subject: string; htmlContent: string };
+    expect(body.subject).toBe("A note for Ops");
+    expect(body.htmlContent).toBe("<h1>A note for Ops</h1>");
   });
 });

@@ -15,7 +15,7 @@ const { mockDb, sendEmail, resolveTravelGrantBlock, presenterMint, presenterPdf 
   mockDb: {
     user: { findMany: vi.fn() },
     event: { findFirst: vi.fn() },
-    abstract: { findMany: vi.fn() },
+    abstract: { findMany: vi.fn(), findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
   sendEmail: vi.fn().mockResolvedValue({ success: true, messageId: "m1" }),
@@ -66,8 +66,10 @@ vi.mock("@/lib/presenter-agreement", async (importOriginal) => ({
   generatePresenterAgreementPdf: presenterPdf,
 }));
 
-import { executeBulkEmail } from "@/lib/bulk-email";
-import { renderAndWrap } from "@/lib/email";
+import { executeBulkEmail, previewAbstractEmailVars } from "@/lib/bulk-email";
+import { renderAndWrap, getEventTemplate, loadActiveEventTemplateRow } from "@/lib/email";
+import { buildAbstractConfirmationVars, buildAbstractDecisionVars } from "@/lib/abstract-notifications";
+import { ABSTRACT_OWN_TOKENS } from "@/lib/bulk-email-audience";
 
 const EVENT = {
   id: "evt-1", organizationId: "org-1", slug: "hemnet", name: "HEMNET 2026", startDate: new Date("2026-07-01"), venue: "Dubai", address: null,
@@ -227,6 +229,98 @@ describe("abstract-reminder and custom", () => {
     const r = await executeBulkEmail({ ...BASE, emailType: "custom", customSubject: "Hi", customMessage: "There" });
     expect(r.successCount).toBe(1);
     expect(mockDb.abstract.findMany.mock.calls[0][0].where).not.toHaveProperty("status");
+  });
+});
+
+describe("a saved template sent to abstract authors (Nov 20, 2026)", () => {
+  // An organiser's own "Abstract Not Accepted" template named the abstract's
+  // number, title and status. It went once per AUTHOR with none of them
+  // filled, so the dialog previewed the built-in sample ("A-007, ACCEPTED")
+  // and the send was refused for unresolved tokens.
+  // MUTATION: make abstractSendIsPerAbstract answer false for "template" and
+  // the first test sends one email with no abstractNumber.
+  const NOT_ACCEPTED = {
+    slug: "abstract-not-accepted",
+    subject: "{{abstractNumber}}: {{newStatus}}",
+    htmlContent: "<p>Dear {{title}} {{lastName}}, {{abstractTitle}} is {{newStatus}}.</p>",
+    textContent: "",
+  };
+  const useTemplate = (tpl: typeof NOT_ACCEPTED) => {
+    vi.mocked(loadActiveEventTemplateRow).mockResolvedValue(tpl);
+    vi.mocked(getEventTemplate).mockResolvedValueOnce(tpl as never);
+  };
+  const SEND = { ...BASE, emailType: "template" as const, filters: { templateSlug: "abstract-not-accepted", status: "REJECTED" } };
+
+  it("goes once per abstract, each with its own number, title and current status, when the template names them", async () => {
+    useTemplate(NOT_ACCEPTED);
+    mockDb.abstract.findMany.mockResolvedValue([
+      abstractRow({ id: "abs-1", serialId: 4, title: "HF in women", status: "REJECTED" }),
+      abstractRow({ id: "abs-2", serialId: 9, title: "Anaemia audit", status: "REJECTED" }),
+    ]);
+    const r = await executeBulkEmail(SEND);
+    expect(r.successCount).toBe(2);
+    expect(sentVars(0)).toMatchObject({ abstractNumber: "A-004", abstractTitle: "HF in women", newStatus: "NOT ACCEPTED", title: "Dr." });
+    expect(sentVars(1)).toMatchObject({ abstractNumber: "A-009", abstractTitle: "Anaemia audit", newStatus: "NOT ACCEPTED" });
+    // The organiser's status filter is the whole scope: a saved template has no default one.
+    expect(mockDb.abstract.findMany.mock.calls[0][0].where).toEqual({ eventId: "evt-1", status: "REJECTED" });
+    expect(resolveTravelGrantBlock).not.toHaveBeenCalled();
+  });
+
+  it("stays once per author when the template names nothing of one abstract", async () => {
+    useTemplate({ ...NOT_ACCEPTED, subject: "News", htmlContent: "<p>Dear {{title}} {{lastName}}, the programme is out.</p>" });
+    mockDb.abstract.findMany.mockResolvedValue([abstractRow({ id: "abs-1" }), abstractRow({ id: "abs-2" })]);
+    const r = await executeBulkEmail(SEND);
+    expect(r.successCount).toBe(1);
+    expect(sentVars(0)).not.toHaveProperty("abstractNumber");
+  });
+});
+
+describe("ABSTRACT_OWN_TOKENS is what the builders fill", () => {
+  // The rule reads the template's tokens against this list; a token a builder
+  // gains and the list lacks would be filled per abstract but sent per author.
+  it("names every token of the two builders except the person's own", () => {
+    const person = new Set(["title", "firstName", "lastName", "authorName"]);
+    const built = [
+      ...Object.keys(buildAbstractConfirmationVars({ abstractTitle: "t", serialId: 1, presentationType: "ORAL", themeName: "x", coAuthors: null, speaker: SPEAKER })),
+      ...Object.keys(buildAbstractDecisionVars({ status: "ACCEPTED", reviewNotes: null, reviewScore: null })),
+    ].filter((k) => !person.has(k));
+    expect([...ABSTRACT_OWN_TOKENS].sort()).toEqual([...new Set(built)].sort());
+  });
+});
+
+describe("previewAbstractEmailVars: the dialog's Preview is the first email the send would produce", () => {
+  const ASK = { eventId: "evt-1", emailType: "abstract-decision", templateTexts: [] };
+
+  it("reads the send's own audience, lowest abstract number first, and answers that abstract's own decision", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue(abstractRow({ id: "abs-4", serialId: 4, title: "HF in women", status: "REJECTED" }));
+    const out = await previewAbstractEmailVars({ ...ASK, recipientIds: ["abs-4", "abs-9"] });
+    expect(mockDb.abstract.findFirst.mock.calls[0][0]).toMatchObject({
+      where: { eventId: "evt-1", id: { in: ["abs-4", "abs-9"] }, status: { in: ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"] } },
+      orderBy: [{ serialId: "asc" }, { createdAt: "asc" }],
+    });
+    expect(out?.shownFor).toBe("abstract A-004");
+    expect(out?.vars).toMatchObject({
+      abstractNumber: "A-004", abstractTitle: "HF in women", newStatus: "NOT ACCEPTED", statusHeading: "Abstract Decision",
+      title: "Dr.", firstName: "Jane", lastName: "Doe",
+    });
+  });
+
+  it("a saved template that names an abstract's tokens previews one abstract; one that does not previews the author only", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue(abstractRow({ serialId: 4, status: "REJECTED" }));
+    const per = await previewAbstractEmailVars({ ...ASK, emailType: "template", templateTexts: ["{{abstractNumber}}", "<p>{{newStatus}}</p>"] });
+    expect(per?.vars).toMatchObject({ abstractNumber: "A-004", newStatus: "NOT ACCEPTED" });
+    const author = await previewAbstractEmailVars({ ...ASK, emailType: "template", templateTexts: ["News", "<p>{{lastName}}</p>"] });
+    expect(author?.shownFor).toBe("Dr. Jane Doe");
+    expect(author?.vars).not.toHaveProperty("abstractNumber");
+    expect(author?.vars).toMatchObject({ lastName: "Doe" });
+  });
+
+  it("answers null, so the samples stand, for an empty audience or a status the type cannot send", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue(null);
+    expect(await previewAbstractEmailVars(ASK)).toBeNull();
+    mockDb.abstract.findFirst.mockClear();
+    expect(await previewAbstractEmailVars({ ...ASK, status: "DRAFT" })).toBeNull();
+    expect(mockDb.abstract.findFirst).not.toHaveBeenCalled();
   });
 });
 

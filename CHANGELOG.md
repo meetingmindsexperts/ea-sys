@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Emails to abstract authors: the preview shows the real abstract, and your own template can name it (November 20)
+
+Previewing an email to abstract authors showed a built-in sample, "A-007, ACCEPTED", whichever abstracts were chosen: an organiser previewing the email for a not accepted abstract read "ACCEPTED".
+
+- **Preview:** on Communications, Abstract Submitters, Send Email, the preview is now the first email that send would produce: the first chosen abstract's own number, title, type, status and reviewer notes, and its author's name. A line above the subject says which abstract it is ("Shown as it goes for abstract A-004, the first of 12").
+- **Your own templates:** a saved template that names an abstract's own details (`{{abstractNumber}}`, `{{abstractTitle}}`, `{{presentationType}}`, `{{theme}}`, `{{coAuthorNames}}`, `{{newStatus}}`, `{{statusHeading}}`, `{{statusMessage}}`, `{{reviewNotes}}`, `{{reviewScore}}`) is now sent once per abstract, each email filled from that abstract, and the dialog says so. Before, it went once per author with none of them filled, so the send was refused. An author with two chosen abstracts receives two.
+- **Unchanged:** a saved template that names none of them still goes once per author. Resend Decision and Resend Submission Confirmation send as before. A custom email typed in the dialog is still one per author.
+- **Foot gun:** a saved template has no status scope of its own. Choose the status (for example Not accepted) or tick the abstracts before sending, or it goes to every abstract on the event, drafts and withdrawn included. The count in the dialog is exactly what will be sent.
+- The template editor's own preview (Communications, Templates) still shows the sample: it has no abstract chosen.
+
 ### Abstract authors are no longer registered as Faculty (November 20)
 
 Submitting an abstract used to give the author a free Faculty registration on any event that had no presenter rates, so authors saw "Faculty" on their portal, emails and badge before anyone had read the abstract. Faculty is for the speakers and committee the organisers invite.

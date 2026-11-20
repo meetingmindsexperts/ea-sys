@@ -1,7 +1,7 @@
 "use client";
 
 import { templateUsesRsvpToken } from "@/lib/rsvp/button";
-import { OWES_MONEY_FILTER, bulkTemplateSlugFor } from "@/lib/bulk-email-audience";
+import { OWES_MONEY_FILTER, bulkTemplateSlugFor, namesAbstractOwnToken } from "@/lib/bulk-email-audience";
 import { bulkEmailTypeOptionsFor } from "@/lib/email-template-registry";
 
 import { Fragment, useRef, useState } from "react";
@@ -237,6 +237,13 @@ interface BulkEmailDialogProps {
 // list, read by this dialog, the Communications tiles and the server.
 function getEmailTypes(recipientType: RecipientType): EmailTypeOption[] {
   return bulkEmailTypeOptionsFor(recipientType);
+}
+
+/** Whose copy the preview shows, when the server says (an abstracts send). */
+function previewNote(shownFor: string | undefined, emails: number): string | undefined {
+  if (!shownFor) return undefined;
+  if (emails > 1) return `Shown as it goes for ${shownFor}, the first of ${emails}. Each email carries its own details.`;
+  return `Shown as it goes for ${shownFor}.`;
 }
 
 function getDefaultEmailType(recipientType: RecipientType): string {
@@ -481,7 +488,7 @@ export function BulkEmailDialog({
   );
   const certTemplateOptions = certTemplatesQuery.data?.templates ?? [];
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string; shownFor?: string } | null>(null);
 
   // Computed once on mount; server-side validation re-checks at submit time.
   const [minScheduledFor] = useState(() => computeMinScheduledFor());
@@ -528,6 +535,12 @@ export function BulkEmailDialog({
   const savedTemplateName = customTemplates.find(
     (t) => t.slug === savedTemplateSlug
   )?.name;
+  // For the note under the picker only; the server decides the same way from
+  // the template it loads (abstractSendIsPerAbstract).
+  const savedTemplatePerAbstract =
+    recipientType === "abstracts" &&
+    isSavedTemplate &&
+    namesAbstractOwnToken(customTemplates.filter((t) => t.slug === savedTemplateSlug).flatMap((t) => [t.subject, t.htmlContent]));
   const isCustom = emailType === "custom";
   const isReminder = emailType === "abstract-reminder";
   const isCertificate = emailType === "certificate";
@@ -593,14 +606,17 @@ export function BulkEmailDialog({
   // HIGH 1): the list this dialog holds never contains a draft, and a reminder
   // mails exactly draft authors, so a client-side count read 0 while the server
   // mailed everyone with a draft. The client count is only the placeholder.
+  // The abstracts audience as the server is asked about it: the count and the
+  // preview name the same send. A saved template goes as "template" + its slug,
+  // as the send itself does, so its own text can decide per abstract or per author.
+  const abstractAudience = {
+    emailType: isSavedTemplate ? "template" : emailType,
+    status: abstractStatus,
+    recipientIds: isAbstracts && selectionMode === "selected" && !resolvesToMatching ? recipientIds : undefined,
+  };
   const serverCountQuery = useBulkEmailAudienceCount(
     eventId,
-    {
-      recipientType: "abstracts",
-      emailType,
-      status: abstractStatus,
-      recipientIds: isAbstracts && selectionMode === "selected" && !resolvesToMatching ? recipientIds : undefined,
-    },
+    { recipientType: "abstracts", ...abstractAudience, templateSlug: savedTemplateSlug },
     open && isAbstracts,
   );
   const abstractServerCount = isAbstracts ? (serverCountQuery.data?.count ?? null) : null;
@@ -695,6 +711,15 @@ export function BulkEmailDialog({
         slug,
         customSubject: isCustom ? customSubject.trim() || undefined : undefined,
         customMessage: isCustom ? customMessage.trim() || undefined : undefined,
+        // Abstracts: the first email this send would produce, with that
+        // abstract's own number, title and decision, never a sample's.
+        ...(isAbstracts && {
+          abstractAudience: {
+            emailType: abstractAudience.emailType,
+            ...(abstractAudience.status !== "all" && { status: abstractAudience.status }),
+            ...(abstractAudience.recipientIds?.length && { recipientIds: abstractAudience.recipientIds }),
+          },
+        }),
       });
       setPreviewData(result);
       setPreviewOpen(true);
@@ -1300,8 +1325,10 @@ export function BulkEmailDialog({
               )}
               {isSavedTemplate && (
                 <p>
-                  This will send your saved{savedTemplateName ? ` “${savedTemplateName}”` : ""} template,
-                  rendered with this event&apos;s details and branding for each recipient.
+                  This will send your saved{savedTemplateName ? ` “${savedTemplateName}”` : ""}{" "}
+                  template, rendered with this event&apos;s details and branding for each recipient.
+                  {savedTemplatePerAbstract &&
+                    " It names an abstract's own details (its number, title or status), so it goes once per abstract, each email with that abstract's own: an author with two abstracts receives two."}
                 </p>
               )}
               {emailType === "abstract-confirmation" && (
@@ -1864,6 +1891,7 @@ export function BulkEmailDialog({
         onOpenChange={setPreviewOpen}
         subject={previewData.subject}
         htmlContent={previewData.htmlContent}
+        note={previewNote(previewData.shownFor, displayCount)}
       />
     )}
     </>

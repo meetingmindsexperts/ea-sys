@@ -46,6 +46,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const recipientType = url.searchParams.get("recipientType") ?? "";
     const emailType = url.searchParams.get("emailType") ?? "";
     const status = url.searchParams.get("status") ?? undefined;
+    const templateSlug = url.searchParams.get("templateSlug")?.slice(0, 100) || undefined;
     const recipientIds = (url.searchParams.get("recipientIds") ?? "")
       .split(",")
       .map((s) => s.trim())
@@ -75,6 +76,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           emailType,
           status,
           recipientIds: recipientIds.length ? recipientIds : undefined,
+          templateSlug,
         });
         return NextResponse.json({ count });
       } catch (err) {

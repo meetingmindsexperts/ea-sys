@@ -16,6 +16,8 @@ interface EmailPreviewDialogProps {
   onOpenChange: (open: boolean) => void;
   subject: string;
   htmlContent: string;
+  /** Whose copy this is, when the send goes to several and each email differs. */
+  note?: string;
 }
 
 export function EmailPreviewDialog({
@@ -23,6 +25,7 @@ export function EmailPreviewDialog({
   onOpenChange,
   subject,
   htmlContent,
+  note,
 }: EmailPreviewDialogProps) {
   const [view, setView] = useState<"desktop" | "mobile">("desktop");
 
@@ -62,6 +65,8 @@ export function EmailPreviewDialog({
             The email as it will be sent, rendered at desktop or mobile width.
           </DialogDescription>
         </DialogHeader>
+
+        {note && <p className="text-xs text-muted-foreground">{note}</p>}
 
         {/* Subject line */}
         <div className="rounded-md border bg-muted/50 px-4 py-2">

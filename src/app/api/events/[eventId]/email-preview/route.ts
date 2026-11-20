@@ -19,6 +19,7 @@ import {
 } from "@/lib/email";
 import { buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
+import { previewAbstractEmailVars } from "@/lib/bulk-email";
 import { buildSpeakerEmailContext } from "@/lib/speaker-agreement";
 import { buildAbstractConfirmationVars } from "@/lib/abstract-notifications";
 import { buildTravelGrantBlock, type TravelGrantBlockStatus } from "@/lib/travel-grant/block";
@@ -49,6 +50,17 @@ const previewSchema = z.object({
   // preview: render THAT abstract's A-### number / title / theme / type /
   // co-authors, not representative samples (same builder as the send).
   abstractId: z.string().min(1).max(100).optional(),
+  // An abstracts send from the email dialog: the type, the status filter and
+  // the ticked abstracts, as the send and the count receive them. The preview
+  // is then the FIRST email that send would produce, with that abstract's own
+  // number, title and decision (Nov 20, 2026).
+  abstractAudience: z
+    .object({
+      emailType: z.string().min(1).max(100),
+      status: z.string().max(50).optional(),
+      recipientIds: z.array(z.string().min(1).max(100)).max(5000).optional(),
+    })
+    .optional(),
   // Target reviewer: slug === "reviewer-invitation" only. The Reviewers page
   // previews the invitation as THAT reviewer gets it: their name and title,
   // and their own access block (set a password, or the portal button). It is
@@ -79,7 +91,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId, registrationId, abstractId, reviewerId } = parsed.data;
+    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId, registrationId, abstractId, reviewerId, abstractAudience } = parsed.data;
 
     // Verify event access (org-scoped for team members; org-null SUPER_ADMIN
     // passes with no org filter, so the tenant wrap below uses the RESOURCE
@@ -237,7 +249,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // vars so the preview shows the actual recipient. Mirrors the single-send
     // route's ctx usage (buildSpeakerEmailContext is the shared source), so
     // preview == send by construction.
-    let speakerVars: Record<string, string> = {};
+    let speakerVars: Record<string, string | number> = {};
     if (speakerId) {
       const speaker = await db.speaker.findFirst({
         where: { id: speakerId, eventId },
@@ -391,6 +403,24 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (slug === "survey-invitation") eventTemplate = ensurePersonalSurveyLink(loadedTemplate).template;
     else if (thankYouSurvey) eventTemplate = withThankYouSurveyBlock(loadedTemplate);
 
+    // An abstracts send: the first email it would produce, by the send's own
+    // audience rule and var builders (previewAbstractEmailVars). An empty
+    // audience keeps the samples; the dialog refuses that send anyway.
+    let shownFor: string | undefined;
+    if (abstractAudience) {
+      const first = await previewAbstractEmailVars({
+        eventId,
+        emailType: abstractAudience.emailType,
+        status: abstractAudience.status,
+        recipientIds: abstractAudience.recipientIds?.length ? abstractAudience.recipientIds : undefined,
+        templateTexts: [eventTemplate.subject, eventTemplate.htmlContent, eventTemplate.textContent],
+      });
+      if (first) {
+        speakerVars = { ...speakerVars, ...first.vars };
+        shownFor = first.shownFor;
+      }
+    }
+
     const sampleVars = buildEventPreviewVariables(
       event,
       { ...session.user, emailSignature: previewUser?.emailSignature ?? null },
@@ -432,7 +462,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       "organizerSignature",
       "personalMessage",
       "message",
+      // A real abstract's reviewer-notes block is our own markup around
+      // escaped text (buildAbstractDecisionVars); raw, as the send renders it.
+      // The sample it replaces is a fixed sentence.
+      "reviewNotes",
     ]);
+    // A token typed into the subject resolves inside the body's {{subject}}
+    // too, as the send fills it (found in the browser, Nov 20, 2026: the
+    // heading read "A note for {{lastName}}" under a subject line that was right).
+    if (customSubject) mergedVars.subject = renderTemplatePlain(customSubject, mergedVars);
     if (customMessage) {
       mergedVars.personalMessage = renderMessageValue(customMessage, mergedVars, {
         isHtml: true,
@@ -453,7 +491,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
     const wrappedHtml = inlineCss(wrapWithBranding(renderedBody, eventTemplate.branding));
 
-    return NextResponse.json({ subject: renderedSubject, htmlContent: wrappedHtml });
+    return NextResponse.json({ subject: renderedSubject, htmlContent: wrappedHtml, ...(shownFor ? { shownFor } : {}) });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error previewing email by slug" });

@@ -1929,8 +1929,10 @@ export function usePreviewEmailBySlug(eventId: string) {
       abstractId?: string;
       /** Target reviewer: slug "reviewer-invitation" only; the invitation as THAT reviewer gets it. */
       reviewerId?: string;
+      /** An abstracts send: the preview is the first email it would produce. */
+      abstractAudience?: { emailType: string; status?: string; recipientIds?: string[] };
     }) =>
-      fetchApi<{ subject: string; htmlContent: string }>(
+      fetchApi<{ subject: string; htmlContent: string; shownFor?: string }>(
         `/api/events/${eventId}/email-preview`,
         {
           method: "POST",
@@ -1949,11 +1951,13 @@ export function usePreviewEmailBySlug(eventId: string) {
  */
 export function useBulkEmailAudienceCount(
   eventId: string,
-  args: { recipientType: "abstracts"; emailType: string; status?: string; recipientIds?: string[] },
+  args: { recipientType: "abstracts"; emailType: string; status?: string; recipientIds?: string[]; templateSlug?: string },
   enabled: boolean,
 ) {
   const q = new URLSearchParams({ recipientType: args.recipientType, emailType: args.emailType });
   if (args.status && args.status !== "all") q.set("status", args.status);
+  // A saved template: its own text decides one email per abstract or per author.
+  if (args.templateSlug) q.set("templateSlug", args.templateSlug);
   if (args.recipientIds?.length) q.set("recipientIds", args.recipientIds.join(","));
   const qs = q.toString();
   return useQuery({

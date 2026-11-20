@@ -18,6 +18,8 @@ import { describe, it, expect } from "vitest";
 import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
   excludesCancelledByDefault,
+  abstractSendIsPerAbstract,
+  namesAbstractOwnToken,
 } from "@/lib/bulk-email-audience";
 
 describe("excludesCancelledByDefault", () => {
@@ -98,5 +100,32 @@ describe("bulkTemplateSlugFor", () => {
     for (const slug of Object.values(BULK_EMAIL_TEMPLATE_SLUGS)) expect(system.has(slug), slug).toBe(true);
     expect(system.has("reviewer-invitation")).toBe(true);
     expect(system.has("reviewer-pool-invitation")).toBe(false);
+  });
+});
+
+describe("abstractSendIsPerAbstract: one email per abstract, or one per author (Nov 20, 2026)", () => {
+  it("the two fixed types are per abstract whatever the template says", () => {
+    expect(abstractSendIsPerAbstract("abstract-confirmation", [])).toBe(true);
+    expect(abstractSendIsPerAbstract("abstract-decision", [])).toBe(true);
+  });
+
+  it("a saved template is per abstract only when its own text names one abstract's tokens", () => {
+    expect(abstractSendIsPerAbstract("template", ["Decision on {{abstractNumber}}", "<p>Hi</p>"])).toBe(true);
+    expect(abstractSendIsPerAbstract("template", ["News", "<p>Status: {{newStatus}}</p>", null])).toBe(true);
+    // In the plain-text part only: still an email about one abstract.
+    expect(abstractSendIsPerAbstract("template", ["News", "<p>Hi</p>", "About {{abstractTitle}}"])).toBe(true);
+    expect(abstractSendIsPerAbstract("template", ["News", "<p>Dear {{title}} {{lastName}}, see {{managementLink}}</p>"])).toBe(false);
+    expect(abstractSendIsPerAbstract("template", [])).toBe(false);
+  });
+
+  it("a reminder and a typed custom email stay per author, even with an abstract token in the text", () => {
+    expect(abstractSendIsPerAbstract("abstract-reminder", ["{{abstractTitle}}"])).toBe(false);
+    expect(abstractSendIsPerAbstract("custom", ["{{abstractTitle}}"])).toBe(false);
+  });
+
+  it("the author's own name is not an abstract's token, and a token the editor mangled is still read by its name", () => {
+    expect(namesAbstractOwnToken(["{{authorName}} {{firstName}} {{eventName}}"])).toBe(false);
+    expect(namesAbstractOwnToken(["{{<span>abstractNumber</span>}}"])).toBe(true);
+    expect(namesAbstractOwnToken([null, undefined, ""])).toBe(false);
   });
 });

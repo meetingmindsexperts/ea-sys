@@ -155,12 +155,53 @@ export function excludedAsNoBalance(
 // we mail. Type-only Prisma import, so this stays client-safe.
 
 import type { AbstractStatus } from "@prisma/client";
+import { findUnresolvedTokens } from "@/lib/template-tokens";
 
 /** Types that send one email per ABSTRACT (the rest go once per author). */
 export const PER_ABSTRACT_EMAIL_TYPES: ReadonlySet<string> = new Set([
   "abstract-confirmation",
   "abstract-decision",
 ]);
+/**
+ * The tokens that belong to ONE abstract: its number, title, type, theme,
+ * co-authors, and its decision (status, heading, message, reviewer notes,
+ * score). An email that names any of them can only be written about a single
+ * abstract, so it is sent once per abstract.
+ */
+export const ABSTRACT_OWN_TOKENS: ReadonlySet<string> = new Set([
+  "abstractNumber",
+  "abstractTitle",
+  "presentationType",
+  "theme",
+  "coAuthorNames",
+  "newStatus",
+  "statusHeading",
+  "statusMessage",
+  "reviewNotes",
+  "reviewScore",
+]);
+
+/** Does this text name any of an abstract's own tokens? */
+export function namesAbstractOwnToken(texts: ReadonlyArray<string | null | undefined>): boolean {
+  return findUnresolvedTokens(...texts).some((t) => ABSTRACT_OWN_TOKENS.has(t));
+}
+
+/**
+ * Is a send to abstract authors one email per ABSTRACT (Nov 20, 2026)? The two
+ * fixed types always are. A saved template is when its own text names an
+ * abstract's tokens: before this it went once per author with none of them
+ * filled, so an organiser's own "not accepted" email (number, title, status)
+ * previewed with samples and was refused at the send. The send, the count the
+ * dialog shows and the preview all ask here.
+ */
+export function abstractSendIsPerAbstract(
+  emailType: string,
+  templateTexts: ReadonlyArray<string | null | undefined>,
+): boolean {
+  if (PER_ABSTRACT_EMAIL_TYPES.has(emailType)) return true;
+  return emailType === "template" && namesAbstractOwnToken(templateTexts);
+}
+
 /** Statuses a decision email can describe (the template heading comes from the status). */
 export const ABSTRACT_DECISION_STATUSES = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"] as const;
 /** Mirrors the single resend route's NOT_RESENDABLE set. */
