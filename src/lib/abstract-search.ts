@@ -25,6 +25,7 @@
  * Pure and client-safe.
  */
 import { abstractSerialFromToken } from "@/lib/abstract-reviewer-sheet";
+import { abstractStatusLabel } from "@/lib/abstract-status-label";
 
 export interface SearchableAbstract {
   serialId: number | null;
@@ -39,8 +40,49 @@ export interface SearchableAbstract {
 export interface AbstractSearchOptions {
   /** Search the author's email too. Only for a viewer who is shown it. */
   email?: boolean;
-  /** More text the page shows on the row: the status label, the presentation type. */
+  /** More text the page shows on the row: the presentation type. */
   extra?: ReadonlyArray<string | null | undefined>;
+  /**
+   * The abstract's status as stored ("REJECTED"), searched by the word the page shows for it
+   * (abstract-status-label.ts). Never passed as `extra`: see `matchesStatusWord`.
+   */
+  status?: string | null;
+}
+
+/** The older word for a status, which the exports and the assistant still use: typing it still finds them. */
+const STATUS_ALIASES: Record<string, string[]> = { REJECTED: ["rejected"] };
+const ALL_STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED", "ACCEPTED", "REJECTED", "WITHDRAWN"];
+
+/** A status as it is searched: the phrase shown ("not accepted"), then its aliases. */
+const statusPhrases = (status: string) => [abstractStatusLabel(status).toLowerCase(), ...(STATUS_ALIASES[status] ?? [])];
+
+/**
+ * A status named IN FULL in the search ("not accepted", "under review") selects that status and no other, and
+ * its words are taken out of what is left to match. Returns null when the abstract's status is not the one named.
+ *
+ * WHY THE STATUS IS NOT PLAIN TEXT (review of a3662d36): REJECTED reads "NOT ACCEPTED", so a search for
+ * "accepted" found every rejected abstract by its label, and Select all then Set status reached them.
+ */
+function termsAfterNamedStatus(terms: string[], status: string): string[] | null {
+  let rest = terms;
+  // Longest first, so "not accepted" is read before "accepted".
+  const named = ALL_STATUSES.flatMap((s) => statusPhrases(s).map((phrase) => ({ status: s, words: phrase.split(" ") })))
+    .sort((a, b) => b.words.length - a.words.length);
+  for (const { status: namedStatus, words } of named) {
+    const at = rest.findIndex((_, i) => words.every((w, k) => rest[i + k] === w));
+    if (at === -1) continue;
+    if (namedStatus !== status) return null;
+    rest = [...rest.slice(0, at), ...rest.slice(at + words.length)];
+  }
+  return rest;
+}
+
+/**
+ * A word still being typed ("acc", "rej", "under") matches a status by the START of its phrase or of an alias,
+ * never by a word inside it: "accepted" is not the start of "not accepted".
+ */
+function matchesStatusWord(term: string, status: string): boolean {
+  return statusPhrases(status).some((phrase) => phrase.startsWith(term));
 }
 
 /** Letters that do not come apart into a base letter and an accent. */
@@ -86,8 +128,11 @@ export function abstractMatchesSearch(
   query: string,
   options: AbstractSearchOptions = {},
 ): boolean {
-  const terms = fold(query).split(" ").map(bareTerm).filter(Boolean);
-  if (terms.length === 0) return true;
+  const typed = fold(query).split(" ").map(bareTerm).filter(Boolean);
+  if (typed.length === 0) return true;
+  const status = options.status ?? null;
+  const terms = status ? termsAfterNamedStatus(typed, status) : typed;
+  if (terms === null) return false;
 
   const coAuthors = (abstract.coAuthors ?? []).map((c) => `${c?.firstName ?? ""} ${c?.lastName ?? ""}`);
   const text = searchText([
@@ -107,6 +152,7 @@ export function abstractMatchesSearch(
     // "#12" is only ever a number; a bare "12" may also be text in a title.
     if (term.startsWith("#")) return false;
     if (text.includes(term)) return true;
+    if (status && matchesStatusWord(term, status)) return true;
     // A number is not looked for in an email: "12" would find everyone whose
     // address has a 12 in it, which is nobody's meaning.
     return serial === null && email.includes(term);

@@ -13,10 +13,8 @@
  * Sentence-case labels ("Under review") are the caller's to make with
  * `abstractStatusWords`. Pure, client-safe.
  */
-export const NOT_ACCEPTED_LABEL = "NOT ACCEPTED";
-
 export function abstractStatusLabel(status: string): string {
-  return status === "REJECTED" ? NOT_ACCEPTED_LABEL : status.replace(/_/g, " ");
+  return status === "REJECTED" ? "NOT ACCEPTED" : status.replace(/_/g, " ");
 }
 
 /** The same word in sentence case: "Not accepted", "Under review". */

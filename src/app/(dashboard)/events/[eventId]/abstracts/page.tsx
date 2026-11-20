@@ -410,7 +410,7 @@ export default function AbstractsPage() {
         const err = await res.json().catch(() => ({}));
         if (err.code === "INSUFFICIENT_REVIEWS") {
           throw new Error(
-            `Not enough reviews to ${data.status}: ${err.currentCount}/${err.required}. Use force override if needed.`,
+            `Not enough reviews to set ${abstractStatusLabel(data.status)}: ${err.currentCount}/${err.required}. Use force override if needed.`,
           );
         }
         throw new Error(err.error || "Failed to update status");
@@ -544,10 +544,12 @@ export default function AbstractsPage() {
   const searching = searchQuery.trim() !== "";
   // What the search reads beyond the abstract's own fields: the two labels the
   // row shows as badges, and the author's email for staff only (a reviewer is
-  // sent it and never shown it, so a search must not confirm a guess).
+  // sent it and never shown it, so a search must not confirm a guess). The
+  // status goes as a status, not as text: "accepted" must not find "not accepted".
   const searchOptionsFor = (a: Abstract): AbstractSearchOptions => ({
     email: !isSubmitter && !isReviewer,
-    extra: [abstractStatusLabel(a.status), a.presentationType ? presentationTypeLabel(a.presentationType) : null],
+    status: a.status,
+    extra: [a.presentationType ? presentationTypeLabel(a.presentationType) : null],
   });
   const shownAbstracts = searching
     ? filteredAbstracts.filter((a) => abstractMatchesSearch(a, searchQuery, searchOptionsFor(a)))

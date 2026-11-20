@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useBulkUpdateAbstracts, useMakePresenters, type BulkAbstractUpdateInput } from "@/hooks/use-api";
+import { abstractStatusWords } from "@/lib/abstract-status-label";
 import { describeMakePresenters, makePresentersNeedsAttention } from "@/lib/make-presenters-outcome";
 import { describeBulkUpdate, unfinishedIds, type BulkUpdateReport } from "@/lib/abstract-bulk-update-outcome";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
@@ -55,7 +56,7 @@ const STATUS_CHOICES: { value: BulkStatus; label: string }[] = [
   { value: "UNDER_REVIEW", label: "Under review" },
   { value: "ACCEPTED", label: "Accepted" },
   // The word everyone reads for a rejected abstract (abstract-status-label.ts).
-  { value: "REJECTED", label: "Not accepted" },
+  { value: "REJECTED", label: abstractStatusWords("REJECTED") },
   { value: "REVISION_REQUESTED", label: "Revision requested" },
   { value: "WITHDRAWN", label: "Withdrawn" },
 ];

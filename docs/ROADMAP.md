@@ -66,6 +66,14 @@ Every reviewer email now opens in the email dialog with Preview, and the invitat
 6. **Test gaps.** Nothing renders `BulkEmailDialog`, the Reviewers page, `EmailTypePicker` or `AbstractReviewersCard`: the invitation's routing in the dialog (named or all, the upload guard, the scheduling guard) is pinned only by the browser check made by hand on Nov 19. The preview route's test passes the permission check by a mock.
 7. **Older, found by the review, not changed:** `email-preview` answers 404 for an event it cannot find without a log line; "Send to all N reviewers" shows the size of the selection, not of the pool, when a ticked selection is scheduled as "matching" on a page that does not pass `fixedListOnly`; the Reviewers list shows the speaker record's address while the invitation goes to the account's, which can differ; the event's own CC list and a reviewer's additional email still receive set-password links (owner, Nov 10), so "the link was sent to this address" in accept-invitation is not strict.
 
+## "Not accepted" for a rejected abstract: what the Nov 20 review left (recorded Nov 20, 2026): not started
+
+Review of `a3662d36` (0 BLOCKER, 0 HIGH, 1 MED, 7 LOW). The MED (a search for "accepted" found the rejected abstracts) and five LOWs are fixed in the commit after it. Recorded, not fixed:
+
+1. **LOW: staff prose still says "reject".** Help text on the Abstracts page ("accepting or rejecting needs..."), Settings ("a withdrawn or rejected abstract returns the slot"), the readiness page, the header's hint and two template descriptions. None is shown to an author. Left as they are: they describe the action staff take.
+2. **LOW: the Speakers page's abstract-status filter** finds nothing when "rejected" is typed into its option search; the option is listed as "NOT ACCEPTED".
+3. **Older:** the bulk email schema accepts `abstract-accepted`, `abstract-rejected` and `abstract-revision`, which nothing sends; the service's "not enough reviews" message names the stored status; two lib files import the status helpers from a dashboard page folder.
+
 ## Make Faculty: what the Nov 20 review of step 6 left (recorded Nov 20, 2026): not started
 
 Review of `66969977` (0 BLOCKER, 0 HIGH, 6 MED, 12 LOW). All six MEDs and seven LOWs are fixed in the commit after it. Recorded, not fixed:

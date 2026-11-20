@@ -11,6 +11,7 @@
  * and title are always shown; reviewer data is not in the catalogue at all,
  * so no configuration can publish it.
  */
+import { abstractStatusWords } from "@/lib/abstract-status-label";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { formatSessionProposalSerial } from "@/lib/session-proposal-serial";
@@ -76,7 +77,8 @@ export const SHAREABLE_STATUSES: Record<ShareKind, { value: string; label: strin
     { value: "UNDER_REVIEW", label: "Under review", defaultOn: true },
     { value: "ACCEPTED", label: "Accepted", defaultOn: true },
     { value: "REVISION_REQUESTED", label: "Revision requested", defaultOn: true },
-    { value: "REJECTED", label: "Rejected", defaultOn: false },
+    // The word everyone reads for a rejected abstract (abstract-status-label.ts).
+    { value: "REJECTED", label: abstractStatusWords("REJECTED"), defaultOn: false },
   ],
   SESSION_PROPOSALS: [{ value: "SUBMITTED", label: "Submitted", defaultOn: true }],
 };

@@ -135,7 +135,7 @@ ${buildDashboardMapSection(event?.id ?? null, process.env.NEXT_PUBLIC_APP_URL)}
 - **Track** groups **EventSessions**. Each session has a time slot, optional location, and assigned **Speakers** with roles.
 - **SessionTopic** = individual talk within a session with its own speakers and duration.
 - **Speaker** = presenter linked to an event. Status: INVITED, CONFIRMED, DECLINED, CANCELLED.
-- **Abstract** = paper submission linked to a Speaker and optionally a Theme/Track. Status: DRAFT, SUBMITTED, UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED, WITHDRAWN.
+- **Abstract** = paper submission linked to a Speaker and optionally a Theme/Track. Status: DRAFT, SUBMITTED, UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED, WITHDRAWN. REJECTED is the value the tools take; when writing to or about an author, say "not accepted", never "rejected".
 - **Hotel** has **RoomTypes**; **Accommodation** links a Registration to a RoomType with check-in/out dates.
 - **Contact** = the organisation's contact book, shared across events.
 

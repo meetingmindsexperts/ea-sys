@@ -88,6 +88,48 @@ describe("abstractMatchesSearch", () => {
     expect(matches("poster")).toBe(false);
   });
 
+  // Review of a3662d36: REJECTED reads "NOT ACCEPTED", and as plain text a search for "accepted" found every
+  // rejected abstract, which Select all then Set status would reach.
+  describe("the status is searched as a status", () => {
+    const withStatus = (status: string) => ({ status, extra: ["Poster"] });
+    const found = (q: string, status: string) => matches(q, ABSTRACT, withStatus(status));
+
+    it("'accepted' finds the accepted and never the not accepted", () => {
+      expect(found("accepted", "ACCEPTED")).toBe(true);
+      expect(found("accepted", "REJECTED")).toBe(false);
+      expect(found("jose accepted", "ACCEPTED")).toBe(true);
+      expect(found("jose accepted", "REJECTED")).toBe(false);
+    });
+
+    it("'not accepted' and the older word 'rejected' both find the rejected, and only them", () => {
+      for (const q of ["not accepted", "NOT ACCEPTED", "rejected", "jose not accepted", "not accepted poster"]) {
+        expect(found(q, "REJECTED"), q).toBe(true);
+        expect(found(q, "ACCEPTED"), q).toBe(false);
+      }
+    });
+
+    it("a word still being typed matches by the start of the status, never by a word inside it", () => {
+      expect(found("acc", "ACCEPTED")).toBe(true);
+      expect(found("acc", "REJECTED")).toBe(false);
+      expect(found("rej", "REJECTED")).toBe(true);
+      expect(found("not", "REJECTED")).toBe(true);
+      expect(found("under", "UNDER_REVIEW")).toBe(true);
+      expect(found("under review", "UNDER_REVIEW")).toBe(true);
+      expect(found("under review", "SUBMITTED")).toBe(false);
+      expect(found("revision requested", "REVISION_REQUESTED")).toBe(true);
+    });
+
+    it("a status word that is really in the title still finds the abstract by its title", () => {
+      const titled = { ...ABSTRACT, title: "Accepted standards of care" };
+      expect(matches("accepted standards", titled, withStatus("REJECTED"))).toBe(false);
+      expect(matches("standards", titled, withStatus("REJECTED"))).toBe(true);
+    });
+
+    it("without a status passed, nothing changes", () => {
+      expect(matches("accepted", ABSTRACT, { extra: ["Accepted"] })).toBe(true);
+    });
+  });
+
   // A reviewer is sent the author's email and never shown it. Searching it
   // would let them confirm a guessed address.
   it("searches the author's email only when told the viewer is shown it", () => {

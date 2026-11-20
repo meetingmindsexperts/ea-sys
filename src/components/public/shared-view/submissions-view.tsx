@@ -1,6 +1,7 @@
 "use client";
 
 /** The abstracts / session proposals layout: search, theme filter, one card each. */
+import { abstractStatusWords } from "@/lib/abstract-status-label";
 import { useCallback, useMemo, useState } from "react";
 import { FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -12,7 +13,7 @@ const STATUS_LABEL: Record<string, string> = {
   SUBMITTED: "Submitted",
   UNDER_REVIEW: "Under review",
   ACCEPTED: "Accepted",
-  REJECTED: "Not accepted",
+  REJECTED: abstractStatusWords("REJECTED"),
   REVISION_REQUESTED: "Revision requested",
 };
 
