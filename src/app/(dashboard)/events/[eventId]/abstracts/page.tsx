@@ -952,7 +952,7 @@ export default function AbstractsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Rejected
+              Not accepted
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1076,7 +1076,7 @@ export default function AbstractsPage() {
                       <SelectContent>
                         <SelectItem value="UNDER_REVIEW">Under Review</SelectItem>
                         <SelectItem value="ACCEPTED">Accept</SelectItem>
-                        <SelectItem value="REJECTED">Reject</SelectItem>
+                        <SelectItem value="REJECTED">Do not accept</SelectItem>
                         <SelectItem value="REVISION_REQUESTED">
                           Request Revision
                         </SelectItem>

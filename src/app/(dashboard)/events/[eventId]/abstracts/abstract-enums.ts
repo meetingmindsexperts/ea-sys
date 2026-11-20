@@ -28,10 +28,8 @@ export function abstractStatusColor(status: string): string {
   return ABSTRACT_STATUS_COLORS[status as AbstractStatus] ?? "bg-gray-100 text-gray-700";
 }
 
-/** "UNDER_REVIEW" → "UNDER REVIEW" (matches the prior render behavior). */
-export function abstractStatusLabel(status: string): string {
-  return status.replace(/_/g, " ");
-}
+// The word shown for a status ("UNDER REVIEW"; REJECTED reads "NOT ACCEPTED"): one rule, shared with the emails.
+export { abstractStatusLabel } from "@/lib/abstract-status-label";
 
 // Presentation-type choices: a combined "Oral or Poster" plus the separate
 // Oral and Poster, then Video and Workshop.

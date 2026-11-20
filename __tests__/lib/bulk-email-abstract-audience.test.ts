@@ -197,7 +197,8 @@ describe("abstract-decision", () => {
     expect(sentVars(0)).toMatchObject({ statusHeading: "Abstract Accepted!", newStatus: "ACCEPTED", reviewScore: 85 });
     expect(String(sentVars(0).reviewNotes)).toContain("Reviewer Notes");
     expect(String(sentVars(0).reviewNotes)).toContain("Strong &lt;b&gt;data&lt;/b&gt;"); // author-visible free text, escaped
-    expect(sentVars(1)).toMatchObject({ statusHeading: "Abstract Decision", newStatus: "REJECTED", reviewNotes: "" });
+    // A rejected abstract reads NOT ACCEPTED to its author (owner, Nov 20, 2026; abstract-status-label.ts).
+    expect(sentVars(1)).toMatchObject({ statusHeading: "Abstract Decision", newStatus: "NOT ACCEPTED", reviewNotes: "" });
     expect(mockDb.abstract.findMany.mock.calls[0][0].where).toMatchObject({ status: { in: ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"] } });
   });
 });

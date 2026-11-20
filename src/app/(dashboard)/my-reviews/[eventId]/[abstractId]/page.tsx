@@ -1,5 +1,6 @@
 "use client";
 
+import { abstractStatusLabel } from "@/lib/abstract-status-label";
 import { useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -221,7 +222,7 @@ function ClosedNotice({ review }: { review: OpenReview }) {
     <div className="space-y-3 text-sm">
       <h2 className="font-semibold">Review closed</h2>
       <p className="text-muted-foreground">
-        This abstract is {abstract.status.replace(/_/g, " ").toLowerCase()}, so reviews can no longer be changed.
+        This abstract is {abstractStatusLabel(abstract.status).toLowerCase()}, so reviews can no longer be changed.
       </p>
       {submission?.overallScore != null && <p>Your score: {submission.overallScore}/100</p>}
       {submission?.reviewNotes && <p className="whitespace-pre-wrap">{submission.reviewNotes}</p>}
@@ -282,7 +283,7 @@ export default function MyReviewPage() {
       {heading}
       <div className="flex flex-wrap items-center gap-2">
         {review.assignmentRole && <Badge variant="secondary">{review.assignmentRole}</Badge>}
-        <Badge variant="outline">{review.abstract.status.replace(/_/g, " ")}</Badge>
+        <Badge variant="outline">{abstractStatusLabel(review.abstract.status)}</Badge>
         {review.submission?.stale && (
           <span className="text-sm text-orange-600">The abstract changed after your review. Please re-check it.</span>
         )}

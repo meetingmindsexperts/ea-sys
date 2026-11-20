@@ -12,7 +12,7 @@ const STATUS_LABEL: Record<string, string> = {
   SUBMITTED: "Submitted",
   UNDER_REVIEW: "Under review",
   ACCEPTED: "Accepted",
-  REJECTED: "Rejected",
+  REJECTED: "Not accepted",
   REVISION_REQUESTED: "Revision requested",
 };
 

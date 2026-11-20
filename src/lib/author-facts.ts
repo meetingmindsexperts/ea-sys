@@ -52,7 +52,7 @@ export type SpeakerFilter = (typeof SPEAKER_FILTER_VALUES)[number];
 export const ABSTRACT_FILTER_LABELS: Record<AbstractFilter, string> = {
   accepted: "Abstract accepted (presenters)",
   awaiting: "Abstract awaiting a decision",
-  rejected: "Abstract rejected",
+  rejected: "Abstract not accepted",
   "none-submitted": "Nothing submitted (signed up, a draft, or withdrawn)",
   none: "No abstract",
 };

@@ -1,3 +1,4 @@
+import { abstractStatusLabel } from "@/lib/abstract-status-label";
 import { apiLogger } from "@/lib/logger";
 import { resolveTravelGrantBlock } from "@/lib/travel-grant/server";
 import { templateUsesTravelGrantBlock } from "@/lib/travel-grant/block";
@@ -145,7 +146,8 @@ export function buildAbstractDecisionVars(
     ? `<div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 20px 0;"><strong>Reviewer Notes:</strong><br><span style="white-space: pre-wrap;">${escapeHtml(input.reviewNotes)}</span></div>`
     : "";
   return {
-    newStatus: input.status.replace(/_/g, " "),
+    // The word the author reads: REJECTED is "NOT ACCEPTED" (abstract-status-label.ts).
+    newStatus: abstractStatusLabel(input.status),
     statusHeading: input.feedbackOnly ? "Reviewer Feedback Received" : statusInfo.heading,
     statusMessage: input.feedbackOnly
       ? "A reviewer has provided feedback on your abstract. Log in to view the details."

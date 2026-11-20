@@ -13,6 +13,13 @@ describe("buildAbstractDecisionVars", () => {
     expect(String(v.reviewNotes)).toContain("Reviewer Notes");
     expect(String(v.reviewNotes)).toContain("Fix &lt;i&gt;fig 2&lt;/i&gt;");
   });
+  // Owner, Nov 20, 2026: "Rejected" in an author's inbox sounded harsher than the decision is.
+  it("a rejected abstract reads NOT ACCEPTED in the email, under a heading and a message that never say rejected", () => {
+    const v = buildAbstractDecisionVars({ status: "REJECTED", reviewNotes: null, reviewScore: null });
+    expect(v.newStatus).toBe("NOT ACCEPTED");
+    expect(`${v.newStatus} ${v.statusHeading} ${v.statusMessage}`).not.toMatch(/reject/i);
+    expect(buildAbstractDecisionVars({ status: "UNDER_REVIEW", reviewNotes: null, reviewScore: null }).newStatus).toBe("UNDER REVIEW");
+  });
   it("no notes renders an empty block and no score renders empty (never undefined, which the renderer treats as an unknown token and refuses); feedback-only overrides the heading", () => {
     expect(buildAbstractDecisionVars({ status: "ACCEPTED", reviewNotes: null, reviewScore: null })).toMatchObject({ reviewNotes: "", reviewScore: "", statusHeading: "Abstract Accepted!" });
     expect(buildAbstractDecisionVars({ status: "ACCEPTED", reviewNotes: null, reviewScore: null, feedbackOnly: true }).statusHeading).toBe("Reviewer Feedback Received");

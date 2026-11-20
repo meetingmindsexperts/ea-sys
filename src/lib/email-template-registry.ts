@@ -396,7 +396,7 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
     { key: "theme", description: "Abstract theme name — blank if none" },
     { key: "authorName", description: "Submitting author's full name (with title)" },
     { key: "coAuthorNames", description: "Co-author names, comma-separated; prints None when the abstract has no co-authors" },
-    { key: "newStatus", description: "New status (e.g. ACCEPTED)" },
+    { key: "newStatus", description: "New status (e.g. ACCEPTED; a rejected abstract reads NOT ACCEPTED)" },
     { key: "statusHeading", description: "Status heading text" },
     { key: "statusMessage", description: "Status description text" },
     { key: "reviewNotes", description: "Reviewer notes" },

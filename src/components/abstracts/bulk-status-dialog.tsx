@@ -54,7 +54,8 @@ type BulkStatus = NonNullable<BulkAbstractUpdateInput["status"]>;
 const STATUS_CHOICES: { value: BulkStatus; label: string }[] = [
   { value: "UNDER_REVIEW", label: "Under review" },
   { value: "ACCEPTED", label: "Accepted" },
-  { value: "REJECTED", label: "Rejected" },
+  // The word everyone reads for a rejected abstract (abstract-status-label.ts).
+  { value: "REJECTED", label: "Not accepted" },
   { value: "REVISION_REQUESTED", label: "Revision requested" },
   { value: "WITHDRAWN", label: "Withdrawn" },
 ];

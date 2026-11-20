@@ -32,6 +32,8 @@ Submitting an abstract used to give the author a free Faculty registration on an
 - **What it is afterwards:** a registration made Faculty by hand stands on its own. Deleting the speaker does not delete it, and a speaker's decline does not cancel it.
 - **Moved back later** (Change type), it is an ordinary delegate registration again and takes a seat.
 
+**A rejected abstract reads "Not accepted".** In the decision email the status line (`{{newStatus}}`) said REJECTED under a heading and a message that were already gentle; it now says NOT ACCEPTED. The same word is used wherever the status is shown: the Abstracts page and its filters, Set status, the Speakers and Registrations filters, the reviewers' pages and the shared view. Only the word changes: the stored status, the exports, the API and the assistant still say REJECTED, so nothing that reads them is affected. (Owner, November 20.)
+
 **Who counts as invited, for someone who has submitted (November 20, after two reviews):** the organisers put them on the Faculty type. That is a speaker the organisers added themselves whose registration is on Faculty, or a registration made Faculty by hand (Add registration as Faculty, or Make Faculty). Three simpler signals were tried and dropped:
 
 - **The Faculty type alone:** the old abstract sign-up gave every author a Faculty registration on an event with no presenter rates, so 33 authors on MEHF2027 and 2 on hemnet2026 would have moved onto the Invited tab, where "Email listed" and the certificates' default group reach them. They stay with the submitters, as before, until an organiser moves them off Faculty.

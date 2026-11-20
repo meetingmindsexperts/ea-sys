@@ -1,5 +1,6 @@
 "use client";
 
+import { abstractStatusLabel } from "@/lib/abstract-status-label";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -72,7 +73,7 @@ function ReviewRows({ heading, rows }: { heading: string; rows: Row[] }) {
                     </Badge>
                   )}
                   <Badge variant="outline" className="text-xs">
-                    {row.status.replace(/_/g, " ")}
+                    {abstractStatusLabel(row.status)}
                   </Badge>
                 </div>
 
