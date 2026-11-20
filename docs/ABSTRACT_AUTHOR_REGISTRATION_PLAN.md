@@ -1,6 +1,6 @@
 # Abstract authors are not Faculty: registration and the Presenter mark
 
-**Status: IN BUILD.** Steps 1, 2, 3 and 4a built Nov 20, 2026; the rest not started. Owner, Nov 19, 2026. Amends decision D4 of
+**Status: IN BUILD.** Steps 1, 2, 3, 4 and 4a built Nov 20, 2026; steps 5 to 8 not started. Owner, Nov 19, 2026. Amends decision D4 of
 [PRESENTER_REGISTRATION_PLAN.md](PRESENTER_REGISTRATION_PLAN.md); everything else
 in that plan stands.
 
@@ -162,7 +162,10 @@ decides on its own page. Set payment status, Set badge
 type, Cancel. Same permission keys as the single edit; the result names every
 row skipped and why; no re-pricing (a registration keeps its rate, R1).
 
-**Step 4. Complimentary offered at acceptance** (A1). Where an organiser sets
+**Step 4. Complimentary offered at acceptance** (A1). BUILT Nov 20, 2026
+(`src/services/presenter-service.ts`, `POST abstracts/make-presenters`; the box
+is in Set status or type and in the list's status dialog, not yet on the
+abstract's own page; it starts unticked every time). Where an organiser sets
 Accepted (the abstract's page, the list's accept button, Set status on ticked
 abstracts), a tick box: "Also make their registration Complimentary, with a
 Presenter badge". Ticked, it runs step 3's actions for those authors and

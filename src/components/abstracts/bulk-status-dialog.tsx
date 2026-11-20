@@ -33,7 +33,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { useBulkUpdateAbstracts, type BulkAbstractUpdateInput } from "@/hooks/use-api";
+import { useBulkUpdateAbstracts, useMakePresenters, type BulkAbstractUpdateInput } from "@/hooks/use-api";
+import { describeMakePresenters, makePresentersNeedsAttention } from "@/lib/make-presenters-outcome";
 import { describeBulkUpdate, unfinishedIds, type BulkUpdateReport } from "@/lib/abstract-bulk-update-outcome";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
@@ -110,6 +111,7 @@ function BulkStatusBody({
   eventId,
   eventSettings,
   abstracts,
+  canMakePresenters,
   onFinished,
   onClose,
   onBusy,
@@ -117,6 +119,8 @@ function BulkStatusBody({
   eventId: string;
   eventSettings: unknown;
   abstracts: BulkStatusAbstract[];
+  /** May this person make the accepted authors' registrations Complimentary (registrations.bulk)? */
+  canMakePresenters: boolean;
   /** The change ran: these ids stay ticked (skipped or not reached); the rest are done. */
   onFinished: (stillTicked: string[]) => void;
   onClose: () => void;
@@ -124,6 +128,9 @@ function BulkStatusBody({
   onBusy: (busy: boolean) => void;
 }) {
   const update = useBulkUpdateAbstracts(eventId);
+  const makePresenters = useMakePresenters(eventId);
+  // Owner, Nov 20, 2026: offered when accepting, never done silently.
+  const [presentersTicked, setPresentersTicked] = useState(false);
   const [status, setStatus] = useState<BulkStatus | null>(null);
   const [type, setType] = useState<string | null>(null);
   const [notifyAuthors, setNotifyAuthors] = useState(false);
@@ -143,6 +150,7 @@ function BulkStatusBody({
   const busy = update.isPending;
   const nothingChosen = status === null && type === null;
   const alreadyAsChosen = abstracts.filter((a) => (status === null || a.status === status) && (type === null || a.presentationType === type)).length;
+  const offersPresenters = canMakePresenters && status === "ACCEPTED";
   // The review-count rule is the server's to judge: without the override, some may be skipped.
   const mayBeFewer = gated && !forceStatus && affected > 0;
   const blocked = nothingChosen || affected === 0 || (withdrawing && !withdrawConfirmed);
@@ -159,7 +167,23 @@ function BulkStatusBody({
         ...(emails && notifyAuthors && { notifyAuthors: true }),
         ...(gated && forceStatus && { forceStatus: true }),
       });
-      setReport(describeBulkUpdate(totals, numberOf));
+      const described = describeBulkUpdate(totals, numberOf);
+      // The accepted ones, whether this change accepted them or they already were.
+      const acceptedNow = [...totals.changed, ...totals.unchanged];
+      if (offersPresenters && presentersTicked && acceptedNow.length > 0) {
+        try {
+          const outcome = await makePresenters.mutateAsync(acceptedNow);
+          described.lines.push(...describeMakePresenters(outcome, numberOf));
+          if (makePresentersNeedsAttention(outcome)) described.level = "warning";
+        } catch (error) {
+          // The statuses are set; only the registrations were not touched. Say so, with the way to do it.
+          described.level = "warning";
+          described.lines.push(
+            `The registrations were not changed (${error instanceof Error ? error.message : "it failed"}). Do it from Registrations: filter Abstract accepted, tick them, Payment, badge or cancel.`,
+          );
+        }
+      }
+      setReport(described);
       onFinished(unfinishedIds(totals));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update the abstracts");
@@ -237,6 +261,20 @@ function BulkStatusBody({
           </label>
         )}
 
+        {offersPresenters && (
+          <label htmlFor="bulk-abstract-presenters" className="flex cursor-pointer items-start gap-2.5 rounded-md border p-3">
+            <Checkbox id="bulk-abstract-presenters" className="mt-0.5" checked={presentersTicked} onCheckedChange={(c) => setPresentersTicked(c === true)} disabled={busy} />
+            <span className="text-sm">
+              <span className="font-medium">Also make the authors&apos; registrations Complimentary, with a Presenter badge</span>
+              <span className="block text-xs text-muted-foreground">
+                Left unticked, their registrations stay as they are: do it later from Registrations, filter Abstract
+                accepted. Ticked, the author&apos;s own portal shows Complimentary at once, before any announcement, and
+                a registration with a payment on it is left as it is and named.
+              </span>
+            </span>
+          </label>
+        )}
+
         {gated && (
           <label htmlFor="bulk-abstract-force" className="flex cursor-pointer items-start gap-2.5 rounded-md border p-3">
             <Checkbox id="bulk-abstract-force" className="mt-0.5" checked={forceStatus} onCheckedChange={(c) => setForceStatus(c === true)} disabled={busy} />
@@ -295,6 +333,7 @@ export function BulkStatusDialog({
   eventId,
   eventSettings,
   abstracts,
+  canMakePresenters,
   open,
   onOpenChange,
   onFinished,
@@ -303,6 +342,7 @@ export function BulkStatusDialog({
   /** The event's settings JSON: which presentation types it offers. */
   eventSettings: unknown;
   abstracts: BulkStatusAbstract[];
+  canMakePresenters: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onFinished: (stillTicked: string[]) => void;
@@ -332,6 +372,7 @@ export function BulkStatusDialog({
             eventId={eventId}
             eventSettings={eventSettings}
             abstracts={snapshot}
+            canMakePresenters={canMakePresenters}
             onFinished={onFinished}
             onClose={() => onOpenChange(false)}
             onBusy={setBusy}

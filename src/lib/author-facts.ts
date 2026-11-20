@@ -16,6 +16,9 @@
  * client-safe; `loadAuthorFacts` is the server's reader.
  */
 
+/** The badge type an accepted author is given ("Make presenters"). */
+export const PRESENTER_BADGE_TYPE = "Presenter";
+
 /** A person's abstracts, summed up as the organiser thinks of them. */
 export type AbstractOutcome =
   /** At least one accepted: a presenter. */

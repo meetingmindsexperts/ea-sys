@@ -97,3 +97,23 @@ export async function loadAuthorFacts(eventId: string): Promise<FactsFor> {
     };
   };
 }
+
+/**
+ * The other direction: a speaker's LIVE registration on the event, by the same
+ * two ways (the pointer, else the same address), never a cancelled one.
+ * Returns the function that answers for one speaker record.
+ */
+export async function loadLiveRegistrationOf(
+  eventId: string,
+): Promise<(speaker: { sourceRegistrationId: string | null; email: string }) => string | null> {
+  const live = await db.registration.findMany({
+    where: { eventId, status: { not: "CANCELLED" } },
+    select: { id: true, attendee: { select: { email: true } } },
+  });
+  const ids = new Set(live.map((r) => r.id));
+  const byAddress = new Map(live.map((r) => [sameAddress(r.attendee.email), r.id]));
+  return (speaker) => {
+    if (speaker.sourceRegistrationId && ids.has(speaker.sourceRegistrationId)) return speaker.sourceRegistrationId;
+    return byAddress.get(sameAddress(speaker.email)) ?? null;
+  };
+}

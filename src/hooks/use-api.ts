@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
+import type { MakePresentersOutcome } from "@/lib/make-presenters-outcome";
 import type { ReviewScoreScale } from "@/lib/abstract-score";
 import { useIsMutating, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -1179,6 +1180,25 @@ export function useBulkUpdateRegistrations(eventId: string) {
   return useMutation({
     mutationFn: (input: BulkRegistrationUpdateInput) => bulkUpdateRegistrationsInRounds(eventId, input),
     // Settled: a change that stopped part-way still changed rows.
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+    },
+  });
+}
+
+/**
+ * Make the authors of accepted abstracts presenters (their registration
+ * Complimentary, with a Presenter badge): POST abstracts/make-presenters.
+ */
+export function useMakePresenters(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (abstractIds: string[]) =>
+      fetchApi<MakePresentersOutcome>(`/api/events/${eventId}/abstracts/make-presenters`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ abstractIds }),
+      }),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
     },

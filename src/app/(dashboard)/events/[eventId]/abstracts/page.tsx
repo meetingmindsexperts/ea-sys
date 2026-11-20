@@ -63,7 +63,8 @@ import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { abstractMatchesSearch, type AbstractSearchOptions } from "@/lib/abstract-search";
 import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
-import { useAbstracts, useSpeakers, useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
+import { useAbstracts, useSpeakers, useTracks, useEvent, useAbstractThemes, useMakePresenters, queryKeys } from "@/hooks/use-api";
+import { describeMakePresenters, makePresentersNeedsAttention } from "@/lib/make-presenters-outcome";
 import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abstract-sub-theme-select";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
@@ -226,6 +227,10 @@ export default function AbstractsPage() {
   // Managers edit, approve/reject, change presentation type, assign
   // reviewers and force a status: the backend PUT's abstracts.update.
   const isAbstractManager = useCan("abstracts.update", eventId) === "allowed";
+  // Making an accepted author's registration Complimentary is a change to
+  // registrations: the key of the bulk action it runs (plan step 4).
+  const canMakePresenters = useCan("registrations.bulk", eventId) === "allowed";
+  const makePresenters = useMakePresenters(eventId);
   const canReview    = isAbstractManager || isReviewer;
   // Management writes (CSV import, bulk email, add abstract) are blocked by
   // denyReviewer for MEMBER/ONSITE/etc. The previous `!isSubmitter && !isReviewer`
@@ -342,6 +347,8 @@ export default function AbstractsPage() {
     status: "",
     forceStatus: false,
   });
+  // Offered when accepting, never done silently (owner, Nov 20, 2026).
+  const [makePresenterTicked, setMakePresenterTicked] = useState(false);
 
   // Create abstract mutation
   const createAbstractMutation = useMutation({
@@ -406,11 +413,25 @@ export default function AbstractsPage() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_result, { abstractId, data }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+      // The Registrations list labels its rows by this status (author-facts.ts).
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+      const serial = formatAbstractSerial(selectedAbstract?.serialId ?? null);
       setIsReviewDialogOpen(false);
       setSelectedAbstract(null);
       toast.success("Status updated");
+      if (data.status !== "ACCEPTED" || !makePresenterTicked || !canMakePresenters) return;
+      setMakePresenterTicked(false);
+      makePresenters.mutate([abstractId], {
+        onSuccess: (outcome) => {
+          const text = describeMakePresenters(outcome, () => serial).join(" ");
+          if (makePresentersNeedsAttention(outcome)) toast.warning(text, { duration: 12000 });
+          else toast.success(text);
+        },
+        // The status is set; only the registration was not touched.
+        onError: (err: Error) => toast.error(`${serial}: the registration was not changed (${err.message}). Do it from Registrations.`, { duration: 12000 }),
+      });
     },
     onError: (err: Error) => toast.error(err.message || "Failed to save review"),
   });
@@ -1072,6 +1093,20 @@ export default function AbstractsPage() {
                       </span>
                     </label>
                   )}
+                  {canMakePresenters && reviewData.status === "ACCEPTED" && (
+                    <label className="flex items-start gap-2 text-sm text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={makePresenterTicked}
+                        onChange={(e) => setMakePresenterTicked(e.target.checked)}
+                      />
+                      <span>
+                        Also make the author&apos;s registration Complimentary, with a Presenter badge. Their own portal
+                        shows it at once, before any announcement. Left unticked, do it later from Registrations.
+                      </span>
+                    </label>
+                  )}
                   <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
                     This sets the abstract&apos;s status. Each reviewer enters their own score under
                     My Reviews, and accepting or rejecting needs the number of scored reviews this
@@ -1197,6 +1232,7 @@ export default function AbstractsPage() {
                 eventId={eventId}
                 eventSettings={event?.settings}
                 abstracts={selectedAbstracts}
+                canMakePresenters={canMakePresenters}
                 open={bulkStatusOpen}
                 onOpenChange={setBulkStatusOpen}
                 // What was skipped or not reached stays ticked, to act on next.

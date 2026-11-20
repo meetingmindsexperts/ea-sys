@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useBulkUpdateRegistrations, type BulkRegistrationUpdateInput, type BulkRegistrationUpdateOutcome } from "@/hooks/use-api";
+import { PRESENTER_BADGE_TYPE } from "@/lib/author-facts";
 
 /** What the dialog needs to know about a ticked registration: how to name it in the report. */
 export interface BulkUpdateRegistration {
@@ -32,8 +33,6 @@ export interface BulkUpdateRegistration {
 
 type PaymentChoice = "keep" | NonNullable<BulkRegistrationUpdateInput["paymentStatus"]>;
 type BadgeChoice = "keep" | "set" | "clear";
-
-export const PRESENTER_BADGE_TYPE = "Presenter";
 
 const PAYMENT_CHOICES: { value: PaymentChoice; label: string }[] = [
   { value: "keep", label: "Leave as it is" },
