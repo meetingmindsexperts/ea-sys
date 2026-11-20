@@ -1136,6 +1136,8 @@ export interface BulkRegistrationSkip {
   part: "paymentStatus" | "badgeType" | "cancel" | "all";
   code: string;
   message: string;
+  /** For the presenters preset's BADGE_KEPT: the badge type that was kept. */
+  badgeType?: string;
 }
 export interface BulkRegistrationUpdateOutcome {
   changed: string[];

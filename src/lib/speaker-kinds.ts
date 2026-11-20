@@ -1,6 +1,21 @@
 /**
  * Who a speaker is to the event, for the Speakers page tabs (owner, Oct 27): invited by the organisers, or
  * someone who submitted an abstract (a submitter, and its presenter once accepted). Pure, client-safe.
+ *
+ * INVITED AND AN AUTHOR (owner, Nov 20, 2026: authors are kept apart from the faculty "except for those who are
+ * invited and submitted, and submitted and later got invited"). Someone who has submitted is listed with the
+ * invited speakers on ONE fact: their registration is on the Faculty type. That type is only ever given to a
+ * speaker the organisers chose (the companion made when staff add a speaker, or "Make Faculty" for someone who
+ * submitted first), so it is the organisers' own statement, and they can change it.
+ *
+ * What is deliberately NOT read for this (review of 8eaa3550, MED):
+ *   - the sign-up door on the record (`submitterSource`). It is stamped on an organiser-made record the moment
+ *     that speaker signs in through the abstract link, and it is null on a record staff made only to enter an
+ *     author's abstract, so it says neither "invited" nor "not invited" about someone who submitted.
+ *   - a place on the programme. An accepted author given a talk is scheduled like any speaker and is still an
+ *     author. (With nothing submitted, a place on the programme does count: signupKind.)
+ *
+ * The Registrations page's Speaker filter asks this same function (author-facts-server.ts).
  */
 export type SpeakerKind = "all" | "invited" | "submitters" | "proposers";
 
@@ -13,8 +28,17 @@ type WithSubmissions = {
   abstracts?: { status: string }[];
   sessionProposals?: { status: string }[];
   submitterSource?: string | null;
+  /** Their live registration is on the Faculty type: invited, whatever they submitted. Absent reads as no. */
+  onFacultyType?: boolean;
   _count?: { sessions?: number; topicSpeakers?: number };
 };
+
+/**
+ * Is the registration a speaker record points at a live one on the Faculty type? The pointer is enough here:
+ * a Faculty registration is only ever made for a speaker record, and making it sets the pointer.
+ */
+export const registrationOnFacultyType = (registration: { status: string; ticketType: { isFaculty: boolean } | null } | null | undefined) =>
+  !!registration && registration.status !== "CANCELLED" && registration.ticketType?.isFaculty === true;
 
 /** Abstracts and proposals that do not make anyone a submitter: one only started, or taken back (review MED, Oct 27). */
 const NOT_SUBMITTED = new Set(["DRAFT", "WITHDRAWN"]);
@@ -45,10 +69,11 @@ function signupKind(s: WithSubmissions): Exclude<SpeakerKind, "all"> {
 }
 
 /**
- * Each speaker is in exactly one group: abstract submitter, else session proposer, else (with nothing submitted)
- * the sign-up door they came through, else invited.
+ * Each speaker is in exactly one group: on the Faculty type (invited, whatever they submitted), else abstract
+ * submitter, else session proposer, else (with nothing submitted) the sign-up door they came through, else invited.
  */
 export function speakerKindOf(s: WithSubmissions): Exclude<SpeakerKind, "all"> {
+  if (s.onFacultyType === true) return "invited";
   if (isSubmitter(s)) return "submitters";
   if (isProposer(s)) return "proposers";
   return signupKind(s);

@@ -10,8 +10,10 @@
  * new payment status or cancelled here: it is skipped and named, and decided
  * on that registration's own page.
  *
- * "Make presenters" is a preset, not a second action: Complimentary and a
- * Presenter badge, the two fields below filled in.
+ * "Make presenters" is a preset of the same action, sent by name: the server
+ * applies the presenter rules (Complimentary and a Presenter badge; a
+ * registration on the Faculty type is left alone, a badge type someone set
+ * is kept). Those two answers are shown as notes, not as failures.
  */
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
@@ -59,8 +61,15 @@ function names(ids: string[], labelOf: (id: string) => string): string {
   return ids.length > MAX_NAMES ? `${shown}; and ${ids.length - MAX_NAMES} more` : shown;
 }
 
+/** The presenters preset's own two answers (registration-bulk-service.ts): notes, not failures. */
+const isPresetAnswer = (code: string) => code === "FACULTY" || code === "BADGE_KEPT";
+/** The registrations with something not done: counted once each, however many parts were skipped. */
+const notDoneIds = (outcome: BulkRegistrationUpdateOutcome) =>
+  [...new Set(outcome.skipped.filter((s) => !isPresetAnswer(s.code)).map((s) => s.registrationId))];
+
 function Report({ outcome, labelOf }: { outcome: BulkRegistrationUpdateOutcome; labelOf: (id: string) => string }) {
-  const clean = outcome.skipped.length === 0 && !outcome.interrupted;
+  const notDone = notDoneIds(outcome).length;
+  const clean = notDone === 0 && !outcome.interrupted;
   const Icon = clean ? CheckCircle2 : AlertTriangle;
   return (
     <div className="space-y-3" aria-live="polite">
@@ -68,7 +77,7 @@ function Report({ outcome, labelOf }: { outcome: BulkRegistrationUpdateOutcome; 
         <Icon className={`h-4 w-4 ${clean ? "text-green-600" : "text-amber-600"}`} />
         {plural(outcome.changed.length)} changed
         {outcome.unchanged.length > 0 ? `, ${outcome.unchanged.length} already as chosen` : ""}
-        {outcome.skipped.length > 0 ? `, ${outcome.skipped.length} not done` : ""}.
+        {notDone > 0 ? `, ${notDone} not done` : ""}.
       </p>
       {/* Named, not only counted: the person checks that these are the ones they meant. */}
       {outcome.changed.length > 0 && (
@@ -135,7 +144,8 @@ function Body({
     try {
       const result = await update.mutateAsync({ registrationIds: ids, ...input });
       setOutcome(result);
-      onFinished([...new Set([...result.skipped.map((s) => s.registrationId), ...result.remaining])]);
+      // Still ticked: what was not done or not reached. A row the preset left alone on purpose is done.
+      onFinished([...new Set([...notDoneIds(result), ...result.remaining])]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "The change could not be made");
     } finally {
@@ -186,7 +196,8 @@ function Body({
             variant={presenters ? "default" : "outline"}
             aria-pressed={presenters}
             disabled={busy || cancelConfirmed}
-            onClick={() => setPresenters((on) => !on)}
+            // The fields below are not sent with the preset, so they go back to "leave as it is".
+            onClick={() => { setPresenters((on) => !on); setPayment("keep"); setBadge("keep"); }}
           >
             Make presenters
           </Button>
@@ -265,7 +276,7 @@ function Body({
             Cancel {plural(ids.length)}
           </Button>
         ) : (
-          <Button onClick={apply} disabled={busy || nobody || nothingChosen || !badgeReady}>
+          <Button onClick={apply} disabled={busy || nobody || nothingChosen || (!presenters && !badgeReady)}>
             {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Apply to {plural(ids.length)}
           </Button>

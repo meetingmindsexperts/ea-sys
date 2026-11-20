@@ -86,6 +86,12 @@ beforeEach(() => {
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
 });
 
+/** The bulk move's writes of the new type (the write that clears a leaving row's Faculty badge is not one). */
+const typeWrites = () =>
+  mockDb._tx.registration.updateMany.mock.calls
+    .map((c) => c[0] as { where: Record<string, unknown>; data: Record<string, unknown> })
+    .filter((c) => "ticketTypeId" in c.data);
+
 describe("bulk-type — soldCount oversell guard", () => {
   beforeEach(() => {
     mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "T", name: "Physician", quantity: 100 });
@@ -342,9 +348,28 @@ describe("bulk-type — soldCount oversell guard", () => {
 
     const res = await bulkType(req({ registrationIds: ["r1", "r3"], ticketTypeId: "X" }), { params });
     expect(res.status).toBeLessThan(400);
-    const datas = mockDb._tx.registration.updateMany.mock.calls.map((c) => c[0].data as Record<string, unknown>);
+    const datas = typeWrites().map((c) => c.data);
     expect(datas).toHaveLength(2);
     for (const d of datas) expect(d.badgeType).toBe("Exhibitor");
+  });
+
+  // Review of 8eaa3550 (MED): a row leaving the speakers' type kept its "Faculty" badge and printed FACULTY.
+  it("a row leaving the Faculty type has its own Faculty badge cleared first, and only that badge", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ pricingTiers: [], id: "T", name: "Physician", quantity: 100, price: 400 });
+    mockDb.registration.findMany.mockResolvedValue([
+      { id: "r5", ticketTypeId: "fac", attendeeId: "a5", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "SPEAKER_COMPANION", paymentStatus: "COMPLIMENTARY", refundedAmount: 0, _count: { payments: 0, invoices: 0 } },
+    ]);
+    mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await bulkType(req({ registrationIds: ["r5"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBeLessThan(400);
+    const first = mockDb._tx.registration.updateMany.mock.calls[0][0] as { where: Record<string, unknown>; data: Record<string, unknown> };
+    // Only rows on the Faculty type carrying exactly that badge: a hand-set "Faculty" on a delegate type is not matched.
+    expect(first.where).toMatchObject({ id: { in: ["r5"] }, badgeType: "Faculty", ticketType: { isFaculty: true } });
+    expect(first.data).toEqual({ badgeType: null });
+    // And the move itself never writes a badge for an ordinary destination.
+    for (const w of typeWrites()) expect(w.data).not.toHaveProperty("badgeType");
   });
 
   it("all-settled batch never writes originalPrice", async () => {
@@ -357,9 +382,8 @@ describe("bulk-type — soldCount oversell guard", () => {
 
     const res = await bulkType(req({ registrationIds: ["r4"], ticketTypeId: "T" }), { params });
     expect(res.status).toBeLessThan(400);
-    expect(mockDb._tx.registration.updateMany).toHaveBeenCalledTimes(1);
-    const data = mockDb._tx.registration.updateMany.mock.calls[0][0].data as Record<string, unknown>;
-    expect(data.originalPrice).toBeUndefined();
+    expect(typeWrites()).toHaveLength(1);
+    expect(typeWrites()[0].data.originalPrice).toBeUndefined();
   });
 });
 

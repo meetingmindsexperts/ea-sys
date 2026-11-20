@@ -20,7 +20,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { loadLiveRegistrationOf } from "@/lib/author-facts-server";
-import { bulkUpdateRegistrations, MAX_BULK_REGISTRATION_UPDATES } from "@/services/registration-bulk-service";
+import { bulkUpdateRegistrations, isPresetAnswer, MAX_BULK_REGISTRATION_UPDATES } from "@/services/registration-bulk-service";
 
 export interface MakePresentersInput {
   eventId: string;
@@ -39,13 +39,13 @@ export type MakePresentersResult =
       /** Already Complimentary with the badge. */
       already: string[];
       /** The author's registration was left as it is, or only given the badge: why. */
-      skipped: { abstractId: string; part: string; code: string; message: string }[];
+      skipped: { abstractId: string; part: string; code: string; message: string; badgeKept?: string }[];
       /** Accepted, and the author holds no live registration on the event. */
       noRegistration: string[];
       /** The author is invited faculty (on the Faculty type): left exactly as it is. */
       faculty: string[];
       /** Made Complimentary, and the badge type someone had set was kept. */
-      badgeKept: { abstractId: string; badgeType: string }[];
+      badgeKept: { abstractId: string; badgeType: string; made: boolean }[];
       /** Not accepted (or not on the event): nothing is done for these. */
       notAccepted: string[];
       /** Not reached in the time one call may take: send these again. */
@@ -105,23 +105,35 @@ export async function makePresenters(input: MakePresentersInput): Promise<MakePr
     });
     if (!result.ok) return result;
 
-    // The preset's two own answers are not failures: they are said in their own words.
-    const facultySkips = result.skipped.filter((s) => s.code === "FACULTY");
-    const badgeSkips = result.skipped.filter((s) => s.code === "BADGE_KEPT");
-    const refusals = result.skipped.filter((s) => s.code !== "FACULTY" && s.code !== "BADGE_KEPT");
+    // Each registration is answered ONCE (review of 8eaa3550, MED: a paid row
+    // with a kept badge was reported as "Made Complimentary" and as left
+    // alone, both at once). In this order: on Faculty; refused in any part;
+    // a kept badge; made; already as it should be.
+    const changed = new Set(result.changed);
+    const faculty = new Set(result.skipped.filter((s) => s.code === "FACULTY").map((s) => s.registrationId));
+    const keptBadgeOf = new Map(result.skipped.filter((s) => s.code === "BADGE_KEPT").map((s) => [s.registrationId, s.badgeType ?? ""]));
+    const refusals = result.skipped.filter((s) => !isPresetAnswer(s.code));
     const refused = new Set(refusals.map((s) => s.registrationId));
+    const settled = (id: string) => !refused.has(id) && !faculty.has(id);
     return {
       ok: true,
-      // A row whose payment status was refused is reported as skipped, not made.
-      made: abstractsOf(result.changed.filter((id) => !refused.has(id))),
+      made: abstractsOf(result.changed.filter((id) => settled(id) && !keptBadgeOf.has(id))),
       already: abstractsOf(result.unchanged),
       skipped: refusals.flatMap((s) =>
-        (abstractsByRegistration.get(s.registrationId) ?? []).map((abstractId) => ({ abstractId, part: s.part, code: s.code, message: s.message })),
+        (abstractsByRegistration.get(s.registrationId) ?? []).map((abstractId) => ({
+          abstractId,
+          part: s.part,
+          code: s.code,
+          message: s.message,
+          // The badge was not set either, where one someone chose was kept.
+          ...(keptBadgeOf.has(s.registrationId) && { badgeKept: keptBadgeOf.get(s.registrationId) }),
+        })),
       ),
       noRegistration,
-      faculty: abstractsOf(facultySkips.map((s) => s.registrationId)),
-      badgeKept: badgeSkips.flatMap((s) =>
-        (abstractsByRegistration.get(s.registrationId) ?? []).map((abstractId) => ({ abstractId, badgeType: s.badgeType ?? "" })),
+      faculty: abstractsOf([...faculty]),
+      // `made`: its payment status was set to Complimentary now; false: it already was.
+      badgeKept: [...keptBadgeOf].filter(([id]) => settled(id)).flatMap(([id, badgeType]) =>
+        (abstractsByRegistration.get(id) ?? []).map((abstractId) => ({ abstractId, badgeType, made: changed.has(id) })),
       ),
       notAccepted,
       remaining: abstractsOf(result.remaining),

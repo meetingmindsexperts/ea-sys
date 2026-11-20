@@ -14,7 +14,11 @@ const { abstractFindMany, registrationFindMany, bulkSpy, logger } = vi.hoisted((
 
 vi.mock("@/lib/db", () => ({ db: { abstract: { findMany: abstractFindMany }, registration: { findMany: registrationFindMany }, speaker: { findMany: vi.fn() } } }));
 vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
-vi.mock("@/services/registration-bulk-service", () => ({ bulkUpdateRegistrations: bulkSpy, MAX_BULK_REGISTRATION_UPDATES: 500 }));
+vi.mock("@/services/registration-bulk-service", () => ({
+  bulkUpdateRegistrations: bulkSpy,
+  MAX_BULK_REGISTRATION_UPDATES: 500,
+  isPresetAnswer: (code: string) => code === "FACULTY" || code === "BADGE_KEPT",
+}));
 
 import { makePresenters } from "@/services/presenter-service";
 
@@ -61,8 +65,36 @@ describe("makePresenters", () => {
       ],
     });
     const result = await makePresenters(input(["a1", "a2"]));
-    // The exhibitor WAS made Complimentary: a kept badge is not a failure.
-    expect(result).toMatchObject({ ok: true, made: ["a2"], faculty: ["a1"], badgeKept: [{ abstractId: "a2", badgeType: "Exhibitor" }], skipped: [] });
+    // The exhibitor WAS made Complimentary: a kept badge is not a failure. It is answered once, under the
+    // kept badge, and not also as "made with a Presenter badge".
+    expect(result).toMatchObject({ ok: true, made: [], faculty: ["a1"], badgeKept: [{ abstractId: "a2", badgeType: "Exhibitor", made: true }], skipped: [] });
+  });
+
+  // Review of 8eaa3550 (MED): the report said "Made Complimentary" for rows that were not.
+  it("a paid registration with a kept badge is refused once, with the badge named, and never 'made'", async () => {
+    abstractFindMany.mockResolvedValue([accepted("a1", "paid@x.com")]);
+    bulkSpy.mockResolvedValue({
+      ok: true, changed: [], unchanged: [], remaining: [],
+      skipped: [
+        { registrationId: "reg-paid", part: "badgeType", code: "BADGE_KEPT", message: "Its badge type was kept: Exhibitor.", badgeType: "Exhibitor" },
+        { registrationId: "reg-paid", part: "paymentStatus", code: "HAS_MONEY", message: "Has a payment on it." },
+      ],
+    });
+    const result = await makePresenters(input(["a1"]));
+    expect(result).toMatchObject({
+      ok: true, made: [], already: [], badgeKept: [],
+      skipped: [{ abstractId: "a1", part: "paymentStatus", code: "HAS_MONEY", message: "Has a payment on it.", badgeKept: "Exhibitor" }],
+    });
+  });
+
+  it("already Complimentary with a kept badge is 'already', on every run, never 'made' again", async () => {
+    abstractFindMany.mockResolvedValue([accepted("a1", "exhibitor@x.com")]);
+    bulkSpy.mockResolvedValue({
+      ok: true, changed: [], unchanged: [], remaining: [],
+      skipped: [{ registrationId: "reg-exhibitor", part: "badgeType", code: "BADGE_KEPT", message: "Its badge type was kept: Exhibitor.", badgeType: "Exhibitor" }],
+    });
+    const result = await makePresenters(input(["a1"]));
+    expect(result).toMatchObject({ ok: true, made: [], skipped: [], badgeKept: [{ abstractId: "a1", badgeType: "Exhibitor", made: false }] });
   });
 
   it("the pointer is preferred to the address, and a cancelled pointer falls back to the live row on the same address", async () => {

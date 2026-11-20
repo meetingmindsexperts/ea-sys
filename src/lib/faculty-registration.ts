@@ -32,6 +32,21 @@ export function facultyBadgeType(role: CommitteeRole): string {
   return "Faculty";
 }
 
+/**
+ * The badge a speaker's Faculty registration is made with, when they are on no committee.
+ *
+ * LEAVING THE FACULTY TYPE CLEARS IT (review of 8eaa3550, MED): moved onto a delegate type, a registration
+ * still carrying exactly this badge would print FACULTY for someone the organisers have just said is not
+ * faculty, and "Make presenters" would then keep it as a badge set by hand. `badgeOnLeavingFaculty` is spread
+ * into the write of both type changes (the single edit and the bulk move). A committee badge, or any other the
+ * team chose, is kept: it says something the type did not.
+ */
+export const FACULTY_BADGE = facultyBadgeType("NONE");
+
+export function badgeOnLeavingFaculty(current: { badgeType: string | null; onFacultyType: boolean }): { badgeType?: null } {
+  return current.onFacultyType && (current.badgeType ?? "").trim() === FACULTY_BADGE ? { badgeType: null } : {};
+}
+
 /** The committee tags: "Committee" whenever there is a role, plus the split's own tag. */
 export function committeeTags(role: CommitteeRole): string[] {
   if (role === "ORGANIZING") return ["Committee", "Organizing Committee"];

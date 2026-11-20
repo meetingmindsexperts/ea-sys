@@ -5,6 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
+import { FACULTY_BADGE } from "@/lib/faculty-registration";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
@@ -227,6 +228,13 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         group.ids.push(r.id);
         byPrice.set(key, group);
       }
+      // Off the speakers' type: its own "Faculty" badge goes with it, as on the
+      // single edit (badgeOnLeavingFaculty). Before the type is written, while
+      // the row still says which type it is leaving; the rows are locked.
+      await tx.registration.updateMany({
+        where: { id: { in: moving.map((r) => r.id) }, eventId, badgeType: FACULTY_BADGE, ticketType: { isFaculty: true } },
+        data: { badgeType: null },
+      });
       for (const { price, tierId, ids } of byPrice.values()) {
         await tx.registration.updateMany({
           where: { id: { in: ids }, eventId },

@@ -317,6 +317,45 @@ describe("guards + sentinels come back as result values", () => {
     expect(mockDb._tx.ticketType.updateMany.mock.calls.length + mockDb._tx.$executeRaw.mock.calls.length).toBeGreaterThan(0);
   });
 
+  // Review of 8eaa3550 (MED): moved onto a delegate type, the companion's own "Faculty" badge stayed, so the
+  // person printed FACULTY and "Make presenters" kept it as a badge set by hand.
+  describe("leaving the speakers' type clears its own Faculty badge", () => {
+    const onFaculty = (over: Record<string, unknown>) =>
+      existing({ ticketTypeId: "tt-fac", paymentStatus: "COMPLIMENTARY", createdSource: "SPEAKER_COMPANION", ticketType: { isFaculty: true }, ...over });
+    const written = () => mockDb._tx.registration.updateMany.mock.calls.at(-1)![0].data;
+    beforeEach(() => mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt1", isFaculty: false, name: "Physician" }));
+
+    it("the badge 'Faculty' goes with the type", async () => {
+      mockDb.registration.findFirst.mockResolvedValue(onFaculty({ badgeType: "Faculty" }));
+      expect((await updateRegistration({ ...base, ticketTypeId: "tt1" })).ok).toBe(true);
+      expect(written().badgeType).toBeNull();
+    });
+
+    it("a committee badge, or any other the team chose, is kept", async () => {
+      mockDb.registration.findFirst.mockResolvedValue(onFaculty({ badgeType: "Scientific Committee" }));
+      await updateRegistration({ ...base, ticketTypeId: "tt1" });
+      expect(written()).not.toHaveProperty("badgeType");
+    });
+
+    it("a badge sent in the same save wins", async () => {
+      mockDb.registration.findFirst.mockResolvedValue(onFaculty({ badgeType: "Faculty" }));
+      await updateRegistration({ ...base, ticketTypeId: "tt1", badgeType: "VIP" });
+      expect(written().badgeType).toBe("VIP");
+    });
+
+    it("a 'Faculty' badge set by hand on a delegate type is never touched, by a type change or any other save", async () => {
+      mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt9", badgeType: "Faculty", ticketType: { isFaculty: false } }));
+      await updateRegistration({ ...base, ticketTypeId: "tt1" });
+      expect(written()).not.toHaveProperty("badgeType");
+    });
+
+    it("a save that does not change the type leaves a Faculty registration's badge alone", async () => {
+      mockDb.registration.findFirst.mockResolvedValue(onFaculty({ badgeType: "Faculty" }));
+      await updateRegistration({ ...base, notes: "arrives late" });
+      expect(written()).not.toHaveProperty("badgeType");
+    });
+  });
+
   it("a speaker's companion moved off Faculty keeps its source (unchanged behaviour)", async () => {
     mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt-fac", paymentStatus: "COMPLIMENTARY", createdSource: "SPEAKER_COMPANION" }));
     mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt1", isFaculty: false, name: "Physician" });

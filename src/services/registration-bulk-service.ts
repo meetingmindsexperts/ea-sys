@@ -96,6 +96,9 @@ export interface BulkRegistrationSkip {
   badgeType?: string;
 }
 
+/** The presenters preset's own two answers: what it is meant to do, never a failure. */
+export const isPresetAnswer = (code: string) => code === "FACULTY" || code === "BADGE_KEPT";
+
 export type BulkUpdateRegistrationsResult =
   | { ok: true; changed: string[]; unchanged: string[]; skipped: BulkRegistrationSkip[]; remaining: string[] }
   | { ok: false; code: "NOTHING_TO_CHANGE" | "TOO_MANY" | "UNKNOWN"; message: string };
@@ -197,7 +200,8 @@ async function bulkUpdateOne(input: BulkUpdateRegistrationsInput, registrationId
 
   const presenters = input.preset === "presenters";
   if (presenters && row.ticketType?.isFaculty) {
-    skip("all", { code: "FACULTY", message: "Invited faculty: already free, with a Faculty badge. Left as it is." });
+    // Says only what was read: a Faculty registration can still be Unpaid, or carry a committee badge.
+    skip("all", { code: "FACULTY", message: "On the Faculty type, the invited speakers' own. Left as it is." });
     return { changed: false, skips };
   }
   const paymentTarget = presenters ? PaymentStatus.COMPLIMENTARY : input.paymentStatus;
@@ -246,6 +250,10 @@ export async function bulkUpdateRegistrations(input: BulkUpdateRegistrationsInpu
     const ids = [...new Set(input.registrationIds)];
     const nothingAsked = input.paymentStatus === undefined && input.badgeType === undefined && !input.cancel && !input.preset;
     if (ids.length === 0 || nothingAsked) return refuse("NOTHING_TO_CHANGE", "Choose registrations and what to change.");
+    // The preset IS the change: with a field beside it, one of the two would be dropped without a word.
+    if (input.preset && (input.paymentStatus !== undefined || input.badgeType !== undefined || input.cancel)) {
+      return refuse("NOTHING_TO_CHANGE", "Make presenters is not combined with another change.");
+    }
     if (ids.length > MAX_BULK_REGISTRATION_UPDATES) {
       return refuse("TOO_MANY", `Up to ${MAX_BULK_REGISTRATION_UPDATES} registrations at a time.`);
     }
@@ -275,12 +283,14 @@ export async function bulkUpdateRegistrations(input: BulkUpdateRegistrationsInpu
     }
 
     if (changed.length > 0) refreshEventStats(eventId);
-    if (skipped.length > 0) {
+    // The preset's own two answers are what it is meant to do, not something that went wrong.
+    const refusals = skipped.filter((s) => !isPresetAnswer(s.code));
+    if (refusals.length > 0) {
       apiLogger.warn({
         msg: "registration-bulk-update:some-skipped",
         eventId,
         userId: input.actorUserId,
-        skipped: skipped.map((s) => ({ registrationId: s.registrationId, part: s.part, code: s.code })),
+        skipped: refusals.map((s) => ({ registrationId: s.registrationId, part: s.part, code: s.code })),
       });
     }
     apiLogger.info({

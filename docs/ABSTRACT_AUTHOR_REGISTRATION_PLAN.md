@@ -194,6 +194,20 @@ created or charged.
 (5a, T1): no type or rate step when they already hold a registration on the
 event; a line says what they are registered as.
 
+**Settled in the build, Nov 20, 2026 (review of `8eaa3550`): how "invited" is
+told for someone who has submitted.** One fact: their registration is on the
+Faculty type. Not the sign-up door on the speaker record (it is stamped on an
+invited speaker's record when they sign in to submit, and absent on a record
+staff made to enter an author's abstract), and not a place on the programme
+(an accepted author given a talk is scheduled like any speaker and is still
+an author). With nothing submitted, the older rules stand: a record the
+organisers made, or a place on the programme. `speakerKindOf` in
+`src/lib/speaker-kinds.ts` is the one rule; the Registrations filter asks it
+with each row's type. Consequences: an invited speaker on a delegate type who
+submits is listed as an author until Make Faculty (step 6); and the authors
+the old sign-up put on Faculty read as invited until step 8 moves them.
+Leaving the Faculty type clears its own "Faculty" badge.
+
 **Step 5. The Speakers page keeps authors apart from invited faculty** (P4).
 
 **Step 6. Make a speaker's registration Faculty.** (Owner, Nov 20, 2026: built

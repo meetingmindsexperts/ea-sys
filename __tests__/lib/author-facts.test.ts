@@ -60,7 +60,7 @@ describe("the filters", () => {
 
 /** A speaker record as the reader selects it. */
 const speaker = (id: string, email: string, over: Record<string, unknown> = {}) => ({
-  id, email, sourceRegistrationId: null, submitterSource: null, abstracts: [], sessions: [], _count: { topicSpeakers: 0 }, ...over,
+  id, email, sourceRegistrationId: null, submitterSource: null, abstracts: [], sessionProposals: [], sessions: [], _count: { topicSpeakers: 0 }, ...over,
 });
 const abstract = (status: string, over: Record<string, unknown> = {}) => ({ status, eventSession: null, sessionTopic: null, ...over });
 const reg = (id: string, email: string, over: Record<string, unknown> = {}) => ({ id, status: "CONFIRMED", createdSource: "PUBLIC_REGISTER", attendee: { email }, ...over });
@@ -145,6 +145,25 @@ describe("loadAuthorFacts", () => {
     expect(factsFor(reg("r3", "author@x.com", { ticketType: { isFaculty: false } })).speakerPlace).toBeNull();
     // A delegate on the Faculty type by mistake, with no speaker record at all, is not made a speaker by it.
     expect(factsFor(reg("r4", "nobody@x.com", { ticketType: { isFaculty: true } })).speakerPlace).toBeNull();
+  });
+
+  // Review of 8eaa3550 (MED): "the organisers made the record" was read from the sign-up door being absent.
+  // The door is stamped on an invited speaker's record the moment they sign in to submit, and is absent on a
+  // record staff made only to enter an author's abstract. For someone who submitted, the type alone decides.
+  it("for someone who submitted, only the Faculty type says invited: never the sign-up door on the record", async () => {
+    findMany.mockResolvedValue([
+      // Staff made the record to enter this author's abstract; she is on a delegate type.
+      speaker("s1", "entered@x.com", { sourceRegistrationId: "r1", abstracts: [abstract("SUBMITTED")] }),
+      // Staff made the record, nothing submitted: invited, as always.
+      speaker("s2", "invited@x.com", { sourceRegistrationId: "r2" }),
+      // A session proposer the organisers then granted a Faculty registration.
+      speaker("s3", "proposer@x.com", { sourceRegistrationId: "r3", submitterSource: "proposal", sessionProposals: [{ status: "SUBMITTED" }] }),
+    ]);
+    const factsFor = await loadAuthorFacts("ev1");
+    expect(factsFor(reg("r1", "entered@x.com", { ticketType: { isFaculty: false } }))).toEqual({ abstractOutcome: "awaiting", speakerPlace: null });
+    expect(factsFor(reg("r2", "invited@x.com", { ticketType: { isFaculty: false } })).speakerPlace).toBe("record");
+    expect(factsFor(reg("r3", "proposer@x.com", { ticketType: { isFaculty: true } })).speakerPlace).toBe("record");
+    expect(factsFor(reg("r3", "proposer@x.com", { ticketType: { isFaculty: false } })).speakerPlace).toBeNull();
   });
 
   // Review of b4493d67 (MED): the sign-up is the PERSON's, not the registration's.

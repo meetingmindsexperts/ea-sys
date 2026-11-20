@@ -15,6 +15,7 @@
  */
 import { db } from "@/lib/db";
 import { abstractOutcomeOf, type AuthorFacts, type SpeakerPlace } from "@/lib/author-facts";
+import { speakerKindOf } from "@/lib/speaker-kinds";
 
 type RegistrationRow = {
   id: string;
@@ -29,7 +30,10 @@ type PersonFacts = {
   statuses: string[];
   /** Came through the abstract sign-up door ("abstract" or "both"), whatever made the registration. */
   signedUpForAbstracts: boolean;
-  place: SpeakerPlace | null;
+  /** A session role, a topic, or an abstract of theirs placed on the agenda (a cancelled session is not it). */
+  onProgramme: boolean;
+  /** What the Speakers page's rule reads (speaker-kinds.ts), kept so each row asks it with its own type. */
+  submissions: { abstracts: { status: string }[]; sessionProposals: { status: string }[]; submitterSource: string | null };
 };
 
 const NO_FACTS: AuthorFacts = { abstractOutcome: null, speakerPlace: null };
@@ -50,6 +54,7 @@ export async function loadAuthorFacts(eventId: string): Promise<FactsFor> {
       submitterSource: true,
       // An accepted abstract is put on the agenda by its own id, with no speaker row for its author.
       abstracts: { select: { status: true, eventSession: { select: { status: true } }, sessionTopic: { select: { id: true } } } },
+      sessionProposals: { select: { status: true } },
       sessions: { select: { session: { select: { status: true } } } },
       _count: { select: { topicSpeakers: true } },
     },
@@ -69,18 +74,11 @@ export async function loadAuthorFacts(eventId: string): Promise<FactsFor> {
       s.sessions.some((r) => r.session.status !== "CANCELLED") ||
       s._count.topicSpeakers > 0 ||
       s.abstracts.some((a) => (a.eventSession !== null && a.eventSession.status !== "CANCELLED") || a.sessionTopic !== null);
-    // Off the programme, "a speaker" is one the organisers invited: a record
-    // THEY made (no sign-up door on it), whatever the person submitted since
-    // (owner, Nov 20, 2026: authors are kept apart "except those who are
-    // invited and submitted"). Someone who is there only because they signed
-    // up to submit is an author, not a speaker. The other way to be invited,
-    // a registration on the Faculty type, is judged per row below.
-    const invited = !s.submitterSource;
-    const offProgramme: SpeakerPlace | null = invited ? "record" : null;
     const facts: PersonFacts = {
       statuses: s.abstracts.map((a) => a.status),
       signedUpForAbstracts: s.submitterSource === "abstract" || s.submitterSource === "both",
-      place: onProgramme ? "programme" : offProgramme,
+      onProgramme,
+      submissions: { abstracts: s.abstracts, sessionProposals: s.sessionProposals, submitterSource: s.submitterSource },
     };
     if (s.sourceRegistrationId) file(byRegistration, s.sourceRegistrationId, s.id, facts);
     file(byAddress, sameAddress(s.email), s.id, facts);
@@ -95,9 +93,21 @@ export async function loadAuthorFacts(eventId: string): Promise<FactsFor> {
     ]);
     const all = [...people.values()];
     const signedUp = registration.createdSource === "PUBLIC_SUBMITTER" || all.some((p) => p.signedUpForAbstracts);
-    const onProgramme = all.some((p) => p.place === "programme");
-    // On the Faculty type: invited, whichever door their speaker record first came through.
-    const invited = all.some((p) => p.place === "record") || (all.length > 0 && registration.ticketType?.isFaculty === true);
+    const onProgramme = all.some((p) => p.onProgramme);
+    // Off the programme, "a speaker" is one the organisers invited: the
+    // Speakers page's own rule, asked with THIS row's type (speaker-kinds.ts).
+    // On the Faculty type they are invited whatever they submitted (owner,
+    // Nov 20, 2026: authors are kept apart "except those who are invited and
+    // submitted"); otherwise someone who is there because they submitted is
+    // an author, not a speaker.
+    //
+    // UNTIL THE AUTHORS ALREADY ON FACULTY ARE MOVED (plan step 8; review of
+    // 8eaa3550, MED): before Nov 20, 2026 an abstract sign-up with no
+    // presenter rate was given a Faculty registration, and nothing stored
+    // tells those rows from an invited speaker's. They read as invited here
+    // and on the Speakers page until an organiser changes their type.
+    const onFacultyType = registration.ticketType?.isFaculty === true;
+    const invited = all.some((p) => speakerKindOf({ ...p.submissions, onFacultyType }) === "invited");
     const offProgramme: SpeakerPlace | null = invited ? "record" : null;
     return {
       abstractOutcome: abstractOutcomeOf(all.flatMap((p) => p.statuses), signedUp),

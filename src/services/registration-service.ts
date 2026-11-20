@@ -31,6 +31,7 @@ import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
+import { badgeOnLeavingFaculty } from "@/lib/faculty-registration";
 import { syncToContact } from "@/lib/contact-sync";
 import { changedContactFields, contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -1471,7 +1472,8 @@ export async function updateRegistration(
     const [existing, event] = await Promise.all([
       db.registration.findFirst({
         where: { id: registrationId, eventId },
-        include: { attendee: true },
+        // isFaculty: a move OFF the speakers' type clears its own badge (badgeOnLeavingFaculty).
+        include: { attendee: true, ticketType: { select: { isFaculty: true } } },
       }),
       db.event.findFirst({
         where: { id: eventId },
@@ -1756,6 +1758,9 @@ export async function updateRegistration(
         ...(billingAccountId !== undefined && { billingAccountId }),
         ...(input.payerReference !== undefined && { payerReference: input.payerReference || null }),
         ...(input.attendeeIsGuarantor !== undefined && { attendeeIsGuarantor: input.attendeeIsGuarantor }),
+        // Off the speakers' type: its own "Faculty" badge goes with it. A badge
+        // the form sends in the same save, written next, wins.
+        ...(isChangingType && badgeOnLeavingFaculty({ badgeType: existing.badgeType, onFacultyType: existing.ticketType?.isFaculty === true })),
         ...(input.badgeType !== undefined && { badgeType: input.badgeType }),
         ...(input.dtcmBarcode !== undefined && { dtcmBarcode: input.dtcmBarcode || null }),
         ...(ticketTypeId && { ticketTypeId }),

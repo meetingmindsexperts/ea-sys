@@ -120,6 +120,53 @@ describe("the presenters preset", () => {
     const result = await bulkUpdateRegistrations(input({ preset: "presenters" }));
     expect(skipsOf(result)).toEqual([["paid", "paymentStatus", "HAS_MONEY"]]);
     expect(result).toMatchObject({ ok: true, changed: ["paid"], unchanged: ["done"] });
+    // The one write is the badge alone (review of 8eaa3550, LOW: the skip was asserted, the write was not).
+    expect(updates()).toHaveLength(1);
+    expect(updates()[0]).toMatchObject({ registrationId: "paid", badgeType: "Presenter" });
+    expect(updates()[0]).not.toHaveProperty("paymentStatus");
+  });
+
+  // Every kind of money, under the preset too: the payment status is never written.
+  it.each([
+    ["a payment recorded", { _count: { payments: 1, invoices: 0 } }, "HAS_MONEY"],
+    ["an invoice issued", { _count: { payments: 0, invoices: 1 } }, "HAS_MONEY"],
+    ["partly refunded", { refundedAmount: 50 }, "HAS_MONEY"],
+    ["payment in progress", { paymentStatus: "PENDING" }, "HAS_MONEY"],
+    ["an open card checkout", { stripeCheckoutSessionId: "cs_1" }, "CHECKOUT_OPEN"],
+    ["sponsor-paid", { paymentStatus: "INCLUSIVE" }, "SPONSOR_PAID"],
+    ["a group member", { groupId: "g1" }, "GROUP_MEMBER"],
+  ])("under the preset, %s: no payment status is written", async (_name, over, code) => {
+    rows = [row("r1", over)];
+    const result = await bulkUpdateRegistrations(input({ preset: "presenters" }));
+    expect(skipsOf(result)).toEqual([["r1", "paymentStatus", code]]);
+    for (const write of updates()) expect(write).not.toHaveProperty("paymentStatus");
+  });
+
+  it("with money AND a badge someone set, nothing at all is written", async () => {
+    rows = [row("paid", { paymentStatus: "PAID", badgeType: "Exhibitor" })];
+    const result = await bulkUpdateRegistrations(input({ preset: "presenters" }));
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, changed: [], unchanged: [] });
+    expect(skipsOf(result)).toEqual([["paid", "badgeType", "BADGE_KEPT"], ["paid", "paymentStatus", "HAS_MONEY"]]);
+  });
+
+  // Review of 8eaa3550 (LOW): only the route's schema stopped a preset sent with a field.
+  it.each([
+    ["a payment status", { paymentStatus: "UNPAID" as const }],
+    ["a badge type", { badgeType: "VIP" }],
+    ["a cancel", { cancel: true }],
+  ])("refuses the preset together with %s, and touches nothing", async (_name, extra) => {
+    rows = [row("author")];
+    const result = await bulkUpdateRegistrations(input({ preset: "presenters", ...extra }));
+    expect(result).toMatchObject({ ok: false, code: "NOTHING_TO_CHANGE" });
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(cancelSpy).not.toHaveBeenCalled();
+  });
+
+  it("what the preset leaves alone on purpose is not logged as a warning", async () => {
+    rows = [row("invited", { ticketType: { isFaculty: true } }), row("exhibitor", { paymentStatus: "COMPLIMENTARY", badgeType: "Exhibitor" })];
+    await bulkUpdateRegistrations(input({ preset: "presenters" }));
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.objectContaining({ msg: "registration-bulk-update:some-skipped" }));
   });
 
   // The general fields do exactly what was asked: setting a badge by hand is a person's choice.

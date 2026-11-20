@@ -2,7 +2,7 @@
  * The Speakers page tabs (owner, Oct 27) and who "Email" reaches from them (review HIGHs, Oct 27).
  */
 import { describe, it, expect } from "vitest";
-import { canEmailListed, emailRecipientIds, isProposer, isSubmitter, matchesKind, speakerKindOf } from "@/lib/speaker-kinds";
+import { canEmailListed, emailRecipientIds, isProposer, isSubmitter, matchesKind, registrationOnFacultyType, speakerKindOf } from "@/lib/speaker-kinds";
 
 const invited = { id: "a", abstracts: [] as { status: string }[] };
 const submitter = { id: "b", abstracts: [{ status: "SUBMITTED" }, { status: "DRAFT" }] };
@@ -51,6 +51,35 @@ describe("sign-ups who have submitted nothing (MEHF 2027, Oct 27)", () => {
   it("a submission still decides first, whatever the door", () => {
     expect(speakerKindOf({ abstracts: [{ status: "SUBMITTED" }], submitterSource: "proposal" })).toBe("submitters");
     expect(speakerKindOf({ abstracts: [], sessionProposals: [{ status: "SUBMITTED" }], submitterSource: "abstract" })).toBe("proposers");
+  });
+});
+
+// Owner, Nov 20, 2026: authors are kept apart from the faculty "except for those who are invited and submitted,
+// and submitted and later got invited".
+describe("invited and an author", () => {
+  it("on the Faculty type they are listed with the invited speakers, whatever they submitted and whichever door", () => {
+    expect(speakerKindOf({ abstracts: [{ status: "ACCEPTED" }], submitterSource: null, onFacultyType: true })).toBe("invited");
+    expect(speakerKindOf({ abstracts: [{ status: "SUBMITTED" }], submitterSource: "abstract", onFacultyType: true })).toBe("invited");
+    expect(speakerKindOf({ abstracts: [], sessionProposals: [{ status: "SUBMITTED" }], submitterSource: "proposal", onFacultyType: true })).toBe("invited");
+    expect(speakerKindOf({ abstracts: [], submitterSource: "abstract", onFacultyType: true })).toBe("invited");
+  });
+
+  // Review of 8eaa3550 (MED): the sign-up door says nothing about someone who submitted. It is stamped on an
+  // invited speaker's record when they sign in to submit, and absent on a record staff made to enter an abstract.
+  it("off the Faculty type a submission decides, whether or not a sign-up door is on the record", () => {
+    expect(speakerKindOf({ abstracts: [{ status: "ACCEPTED" }], submitterSource: null, onFacultyType: false })).toBe("submitters");
+    expect(speakerKindOf({ abstracts: [{ status: "ACCEPTED" }], submitterSource: null })).toBe("submitters");
+    expect(speakerKindOf({ abstracts: [{ status: "SUBMITTED" }], submitterSource: "abstract" })).toBe("submitters");
+    // A caller who may not read the sign-up door is not told "invited" by its absence.
+    expect(speakerKindOf({ abstracts: [{ status: "SUBMITTED" }] })).toBe("submitters");
+  });
+
+  it("the registration a speaker record points at is on the Faculty type only while it is live", () => {
+    expect(registrationOnFacultyType({ status: "CONFIRMED", ticketType: { isFaculty: true } })).toBe(true);
+    expect(registrationOnFacultyType({ status: "CANCELLED", ticketType: { isFaculty: true } })).toBe(false);
+    expect(registrationOnFacultyType({ status: "CONFIRMED", ticketType: { isFaculty: false } })).toBe(false);
+    expect(registrationOnFacultyType({ status: "CONFIRMED", ticketType: null })).toBe(false);
+    expect(registrationOnFacultyType(null)).toBe(false);
   });
 });
 

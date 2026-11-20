@@ -29,8 +29,8 @@ describe("describeMakePresenters", () => {
       ],
     };
     expect(describeMakePresenters(outcome, numberOf)).toEqual([
-      "Payment status left as it is (the badge was set): A-3, A-4. Has a payment on it.",
-      "Payment status left as it is (the badge was set): A-5. Paid by a sponsor.",
+      "Payment status left as it is (the badge is Presenter): A-3, A-4. Has a payment on it.",
+      "Payment status left as it is (the badge is Presenter): A-5. Paid by a sponsor.",
     ]);
     expect(makePresentersNeedsAttention(outcome)).toBe(true);
   });
@@ -44,13 +44,23 @@ describe("describeMakePresenters", () => {
   // Review of 46993de5 (HIGH): Faculty stays Faculty, and a badge set by hand is kept.
   it("invited faculty are said to be left as they are, and that is not a problem", () => {
     const outcome = { ...NONE, faculty: ["2"] };
-    expect(describeMakePresenters(outcome, numberOf)).toEqual(["Invited faculty, left as they are (already free, badge Faculty): A-2."]);
+    expect(describeMakePresenters(outcome, numberOf)).toEqual(["On the Faculty type (invited speakers), left as they are: A-2."]);
     expect(makePresentersNeedsAttention(outcome)).toBe(false);
   });
 
   it("a kept badge is named with the badge, one line per badge", () => {
-    const outcome = { ...NONE, made: ["4", "5"], badgeKept: [{ abstractId: "4", badgeType: "Exhibitor" }, { abstractId: "5", badgeType: "Exhibitor" }] };
-    expect(describeMakePresenters(outcome, numberOf)[1]).toBe('Made Complimentary, badge kept as "Exhibitor": A-4, A-5.');
+    const outcome = { ...NONE, badgeKept: [{ abstractId: "4", badgeType: "Exhibitor", made: true }, { abstractId: "5", badgeType: "Exhibitor", made: true }] };
+    expect(describeMakePresenters(outcome, numberOf)).toEqual(['Made Complimentary, badge kept as "Exhibitor": A-4, A-5.']);
+  });
+
+  // Review of 8eaa3550 (MED): "Made Complimentary" was said of rows that were not.
+  it("says 'made' only where it was set in this run, and a refused row names the badge it kept", () => {
+    const already = { ...NONE, badgeKept: [{ abstractId: "4", badgeType: "Exhibitor", made: false }] };
+    expect(describeMakePresenters(already, numberOf)).toEqual(['Already Complimentary, badge kept as "Exhibitor": A-4.']);
+    expect(makePresentersNeedsAttention(already)).toBe(false);
+    const paid = { ...NONE, skipped: [{ abstractId: "7", part: "paymentStatus", code: "HAS_MONEY", message: "Has a payment on it.", badgeKept: "Exhibitor" }] };
+    expect(describeMakePresenters(paid, numberOf)).toEqual(['Left as it is (payment status not changed, badge kept as "Exhibitor"): A-7. Has a payment on it.']);
+    expect(makePresentersNeedsAttention(paid)).toBe(true);
   });
 
   it("an abstract no longer accepted when it ran is said, and needs a look", () => {
