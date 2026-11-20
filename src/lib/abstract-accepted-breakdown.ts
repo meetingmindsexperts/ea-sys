@@ -2,10 +2,17 @@
  * The Accepted card on the Abstracts page, split by presentation type (owner,
  * Nov 20, 2026: "how many accepted as oral and how many accepted as poster").
  *
- * Every type with at least one accepted abstract is listed, in the order the
- * type picker shows them, and accepted abstracts with no type yet are counted
- * as their own entry, so the parts always add up to the card's number: a
- * card that said "12 accepted: Oral 5, Poster 4" would leave three unexplained.
+ * Every type with at least one accepted abstract is listed, Oral and Poster
+ * first (the order of `PRESENTATION_TYPE_LABELS`, which a test pins), and
+ * accepted abstracts with no type at all are counted as their own entry, so
+ * the parts always add up to the card's number: a card that said "12
+ * accepted: Oral 5, Poster 4" would leave three unexplained.
+ *
+ * It counts `presentationType`, the organiser's decision, which STARTS as what
+ * the author asked for (abstract-requested-type.ts). So an abstract accepted
+ * without anyone setting its type is counted under the author's request, and
+ * "Oral or Poster" is, in practice, the accepted abstracts still to be decided
+ * one way or the other. "No type yet" is rare: a type is required to submit.
  *
  * Client-safe: a pure count over the rows the page already holds.
  */

@@ -954,14 +954,17 @@ export default function AbstractsPage() {
             <div className="text-2xl font-bold text-green-600">{stats.accepted}</div>
             {/* By presentation type: the parts add up to the number above. */}
             {acceptedTypes.length > 0 && (
-              <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+              // One type per line, the count at the right: six cards share the
+              // row, and a part that could not wrap spilled out of a narrow card
+              // ("Oral or Poster 12" at a 1024px window; review of 4c2f36a8).
+              <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
                 {acceptedTypes.map((t) => (
-                  // One part never breaks across lines ("No type yet 1").
-                  <span key={t.type ?? "none"} className="whitespace-nowrap">
-                    {t.label} <span className="font-medium text-foreground">{t.count}</span>
-                  </span>
+                  <li key={t.type ?? "none"} className="flex items-baseline justify-between gap-2">
+                    <span>{t.label}</span>
+                    <span className="font-medium text-foreground">{t.count}</span>
+                  </li>
                 ))}
-              </p>
+              </ul>
             )}
           </CardContent>
         </Card>

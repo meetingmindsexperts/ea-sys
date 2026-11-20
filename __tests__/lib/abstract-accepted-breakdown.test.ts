@@ -21,7 +21,7 @@ describe("acceptedByPresentationType", () => {
   it("the parts add up to the accepted total: other types and abstracts with no type are listed too", () => {
     const rows = [a("ACCEPTED", "POSTER"), a("ACCEPTED", "ORAL_POSTER"), a("ACCEPTED", null), a("ACCEPTED", ""), a("ACCEPTED", "VIDEO"), a("ACCEPTED", "ORAL")];
     const out = acceptedByPresentationType(rows);
-    // The picker's order, then the untyped last.
+    // Oral and Poster first (the labels' own order), then the untyped last.
     expect(out.map((t) => `${t.label} ${t.count}`)).toEqual(["Oral 1", "Poster 1", "Oral or Poster 1", "Video 1", `${NO_PRESENTATION_TYPE_LABEL} 2`]);
     expect(out.reduce((n, t) => n + t.count, 0)).toBe(rows.length);
   });

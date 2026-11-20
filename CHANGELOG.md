@@ -8,7 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### The Accepted card on Abstracts says how many are oral and how many are poster (November 20)
 
-Under the number of accepted abstracts, the card now lists them by presentation type: "Oral 12  Poster 8". Any other type in use (Oral or Poster, Video, Workshop) and accepted abstracts with no type decided ("No type yet") are listed too, so the parts always add up to the card's number.
+Under the number of accepted abstracts, the card now lists them by presentation type, one per line: Oral 12, Poster 8. Any other type in use (Oral or Poster, Video, Workshop) is listed too, so the parts always add up to the card's number.
+
+- **"Oral or Poster" is the undecided ones.** An abstract's type starts as what its author asked for. Accepting it without setting the type leaves it there, so the "Oral or Poster" line is the accepted abstracts still to be decided one way or the other. Set the type when you accept (Set status or type on the ticked rows) and they move to Oral or Poster.
 
 ### Members no longer see invoices (November 20)
 
