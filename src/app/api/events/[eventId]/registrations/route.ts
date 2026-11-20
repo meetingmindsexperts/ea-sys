@@ -575,7 +575,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "events/registrations:author-filter-not-permitted", eventId, userId: orgCtx.userId, fromApiKey: orgCtx.fromApiKey });
       return NextResponse.json({ error: "You cannot filter by abstract or speaker on this event", code: "FILTER_NOT_PERMITTED" }, { status: 403 });
     }
-    const authorFactsPromise = canReadAuthorFacts ? loadAuthorFacts(eventId) : null;
+    // Asked for, not given to every reader of this list: check-in, the onsite
+    // desk, Communications and Invoices load the same rows and use none of it
+    // (review of b4493d67). The Registrations page asks; a filter implies it.
+    const wantsAuthorFacts = canReadAuthorFacts && (searchParams.get("authorFacts") === "1" || !!abstractFilter || !!speakerFilter);
 
     const cancelledPaid = registrations.filter(
       (r) => r.status === "CANCELLED" && r.paymentStatus === "PAID",
@@ -631,7 +634,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       taxLabel: event.taxLabel ?? null,
     };
     const answeredByReg = answeredSurveysPromise ? await answeredSurveysPromise : null;
-    const authorFactsFor = authorFactsPromise ? await authorFactsPromise : null;
+    const authorFactsFor = wantsAuthorFacts ? await loadAuthorFacts(eventId) : null;
     // The Abstract and Speaker filters, judged by the same function that labels each row.
     const narrowed =
       authorFactsFor && (abstractFilter || speakerFilter)

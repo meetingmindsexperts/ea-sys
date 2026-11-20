@@ -965,6 +965,8 @@ export function useAssignAbstractReviewer(eventId: string, abstractId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstractReviewers(eventId, abstractId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+      // The Registrations list labels each row by its person's abstracts (author-facts.ts).
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       // The Reviewers page counts each reviewer's assignments.
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
     },
@@ -981,6 +983,8 @@ export function useUnassignAbstractReviewer(eventId: string, abstractId: string)
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstractReviewers(eventId, abstractId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+      // The Registrations list labels each row by its person's abstracts (author-facts.ts).
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       // The Reviewers page counts each reviewer's assignments.
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
     },
@@ -1109,6 +1113,8 @@ export function useBulkUpdateAbstracts(eventId: string) {
     // Settled: a change that stopped part-way still changed rows.
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+      // The Registrations list labels each row by its person's abstracts (author-facts.ts).
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
     },
   });
 }

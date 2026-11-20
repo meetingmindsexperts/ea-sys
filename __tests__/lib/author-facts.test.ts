@@ -58,27 +58,89 @@ describe("the filters", () => {
   });
 });
 
+/** A speaker record as the reader selects it. */
+const speaker = (id: string, email: string, over: Record<string, unknown> = {}) => ({
+  id, email, sourceRegistrationId: null, submitterSource: null, abstracts: [], sessionProposals: [], sessions: [], _count: { topicSpeakers: 0 }, ...over,
+});
+const abstract = (status: string, over: Record<string, unknown> = {}) => ({ status, eventSession: null, sessionTopic: null, ...over });
+const reg = (id: string, email: string, over: Record<string, unknown> = {}) => ({ id, status: "CONFIRMED", createdSource: "PUBLIC_REGISTER", attendee: { email }, ...over });
+
 describe("loadAuthorFacts", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("answers per registration from the LINKED speaker record, in one query for the event", async () => {
+  it("answers per registration in one query for the event", async () => {
     findMany.mockResolvedValue([
-      { sourceRegistrationId: "r-presenter", abstracts: [{ status: "ACCEPTED" }], _count: { sessions: 0, topicSpeakers: 0 } },
-      { sourceRegistrationId: "r-faculty", abstracts: [], _count: { sessions: 2, topicSpeakers: 0 } },
-      { sourceRegistrationId: "r-both", abstracts: [{ status: "REJECTED" }], _count: { sessions: 0, topicSpeakers: 1 } },
+      speaker("s1", "presenter@x.com", { sourceRegistrationId: "r-presenter", submitterSource: "abstract", abstracts: [abstract("ACCEPTED")] }),
+      speaker("s2", "faculty@x.com", { sourceRegistrationId: "r-faculty", sessions: [{ session: { status: "SCHEDULED" } }] }),
+      speaker("s3", "invited@x.com", { sourceRegistrationId: "r-invited" }),
     ]);
     const factsFor = await loadAuthorFacts("ev1");
     expect(findMany).toHaveBeenCalledTimes(1);
-    expect(findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", sourceRegistrationId: { not: null } });
-    expect(factsFor({ id: "r-presenter", createdSource: "PUBLIC_SUBMITTER" })).toEqual({ abstractOutcome: "accepted", speakerPlace: "record" });
-    expect(factsFor({ id: "r-faculty", createdSource: "SPEAKER_COMPANION" })).toEqual({ abstractOutcome: null, speakerPlace: "programme" });
-    expect(factsFor({ id: "r-both", createdSource: "SPEAKER_COMPANION" })).toEqual({ abstractOutcome: "rejected", speakerPlace: "programme" });
+    expect(findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1" });
+    // An author is not "a speaker" for having a speaker record: the Speakers page's own rule.
+    expect(factsFor(reg("r-presenter", "presenter@x.com"))).toEqual({ abstractOutcome: "accepted", speakerPlace: null });
+    expect(factsFor(reg("r-faculty", "faculty@x.com"))).toEqual({ abstractOutcome: null, speakerPlace: "programme" });
+    expect(factsFor(reg("r-invited", "invited@x.com"))).toEqual({ abstractOutcome: null, speakerPlace: "record" });
+    expect(factsFor(reg("r-delegate", "delegate@x.com"))).toEqual({ abstractOutcome: null, speakerPlace: null });
   });
 
-  it("a delegate with no speaker record has no facts; an abstract sign-up with no abstract yet is 'nothing submitted'", async () => {
-    findMany.mockResolvedValue([]);
+  // Review of b4493d67 (HIGH): nothing links a speaker to a registration made
+  // afterwards (the public form, Add Registration), so the pointer alone
+  // called an accepted author "No abstract".
+  it("an author who registered AFTER signing up is found by their address, whatever its case", async () => {
+    findMany.mockResolvedValue([speaker("s1", "Late.Author@X.com", { submitterSource: "abstract", abstracts: [abstract("ACCEPTED")] })]);
     const factsFor = await loadAuthorFacts("ev1");
-    expect(factsFor({ id: "r-delegate", createdSource: "PUBLIC_REGISTER" })).toEqual({ abstractOutcome: null, speakerPlace: null });
-    expect(factsFor({ id: "r-signed-up", createdSource: "PUBLIC_SUBMITTER" })).toEqual({ abstractOutcome: "none-submitted", speakerPlace: null });
+    expect(factsFor(reg("r-late", "late.author@x.com"))).toEqual({ abstractOutcome: "accepted", speakerPlace: null });
+    // A look-alike address is another person: the match is exact, never a pattern.
+    expect(factsFor(reg("r-other", "late_author@x.com")).abstractOutcome).toBeNull();
+  });
+
+  it("a cancelled registration carries nothing, even where an old pointer still names it; the person's live one does", async () => {
+    findMany.mockResolvedValue([speaker("s1", "a@x.com", { sourceRegistrationId: "r-cancelled", abstracts: [abstract("ACCEPTED")] })]);
+    const factsFor = await loadAuthorFacts("ev1");
+    expect(factsFor(reg("r-cancelled", "a@x.com", { status: "CANCELLED" }))).toEqual({ abstractOutcome: null, speakerPlace: null });
+    expect(factsFor(reg("r-new", "a@x.com")).abstractOutcome).toBe("accepted");
+  });
+
+  it("a record found by its pointer and by its address counts once; two records of one person both count", async () => {
+    findMany.mockResolvedValue([
+      speaker("s1", "a@x.com", { sourceRegistrationId: "r1", abstracts: [abstract("REJECTED")] }),
+      speaker("s2", "other@x.com", { sourceRegistrationId: "r1", abstracts: [abstract("ACCEPTED")] }),
+    ]);
+    const factsFor = await loadAuthorFacts("ev1");
+    expect(factsFor(reg("r1", "a@x.com")).abstractOutcome).toBe("accepted");
+  });
+
+  // Review of b4493d67 (MED): an accepted abstract is placed on the agenda by
+  // its own id, with no speaker row for its author.
+  it("on the programme: a session or topic role, or an accepted abstract placed on the agenda; never a cancelled session", async () => {
+    findMany.mockResolvedValue([
+      speaker("s1", "oral@x.com", { submitterSource: "abstract", abstracts: [abstract("ACCEPTED", { sessionTopic: { id: "t1" } })] }),
+      speaker("s2", "session@x.com", { submitterSource: "abstract", abstracts: [abstract("ACCEPTED", { eventSession: { status: "SCHEDULED" } })] }),
+      speaker("s3", "topic@x.com", { _count: { topicSpeakers: 1 } }),
+      speaker("s4", "gone@x.com", { sessions: [{ session: { status: "CANCELLED" } }] }),
+    ]);
+    const factsFor = await loadAuthorFacts("ev1");
+    expect(factsFor(reg("r1", "oral@x.com")).speakerPlace).toBe("programme");
+    expect(factsFor(reg("r2", "session@x.com")).speakerPlace).toBe("programme");
+    expect(factsFor(reg("r3", "topic@x.com")).speakerPlace).toBe("programme");
+    // Invited by the organisers, their only session cancelled: invited, not on the programme.
+    expect(factsFor(reg("r4", "gone@x.com")).speakerPlace).toBe("record");
+  });
+
+  // Review of b4493d67 (MED): the sign-up is the PERSON's, not the registration's.
+  it("'nothing submitted' follows the door the person came through, whatever made their registration", async () => {
+    findMany.mockResolvedValue([
+      speaker("s1", "delegate-first@x.com", { sourceRegistrationId: "r1", submitterSource: "abstract" }),
+      speaker("s2", "both@x.com", { sourceRegistrationId: "r2", submitterSource: "both" }),
+      speaker("s3", "proposer@x.com", { sourceRegistrationId: "r3", submitterSource: "proposal" }),
+    ]);
+    const factsFor = await loadAuthorFacts("ev1");
+    expect(factsFor(reg("r1", "delegate-first@x.com")).abstractOutcome).toBe("none-submitted");
+    expect(factsFor(reg("r2", "both@x.com", { createdSource: "SPEAKER_COMPANION" })).abstractOutcome).toBe("none-submitted");
+    // A session proposer never signed up to submit an abstract.
+    expect(factsFor(reg("r3", "proposer@x.com")).abstractOutcome).toBeNull();
+    // An abstract sign-up registration with no speaker record at all still counts.
+    expect(factsFor(reg("r4", "nobody@x.com", { createdSource: "PUBLIC_SUBMITTER" })).abstractOutcome).toBe("none-submitted");
   });
 });

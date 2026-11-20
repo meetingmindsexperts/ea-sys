@@ -40,17 +40,22 @@ vi.mock("@/lib/schemas", async (importOriginal) => ({
 import { GET } from "@/app/api/events/[eventId]/registrations/route";
 
 const row = (id: string, createdSource: string) => ({
-  id, status: "CONFIRMED", paymentStatus: "COMPLIMENTARY", createdSource, attendee: { firstName: id, lastName: "X", tags: [] },
+  id, status: "CONFIRMED", paymentStatus: "COMPLIMENTARY", createdSource, attendee: { firstName: id, lastName: "X", email: `${id}@x.com`, tags: [] },
 });
 const REGS = [row("r-presenter", "PUBLIC_SUBMITTER"), row("r-rejected", "PUBLIC_SUBMITTER"), row("r-faculty", "SPEAKER_COMPANION"), row("r-delegate", "PUBLIC_REGISTER")];
+const speaker = (id: string, over: Record<string, unknown>) => ({
+  id, email: `${id}@elsewhere.com`, sourceRegistrationId: null, submitterSource: null, abstracts: [], sessionProposals: [], sessions: [], _count: { topicSpeakers: 0 }, ...over,
+});
+const abstract = (status: string) => ({ status, eventSession: null, sessionTopic: null });
 const SPEAKERS = [
-  { sourceRegistrationId: "r-presenter", abstracts: [{ status: "ACCEPTED" }], _count: { sessions: 0, topicSpeakers: 0 } },
-  { sourceRegistrationId: "r-rejected", abstracts: [{ status: "REJECTED" }], _count: { sessions: 0, topicSpeakers: 0 } },
-  { sourceRegistrationId: "r-faculty", abstracts: [], _count: { sessions: 1, topicSpeakers: 0 } },
+  speaker("s1", { sourceRegistrationId: "r-presenter", submitterSource: "abstract", abstracts: [abstract("ACCEPTED")] }),
+  speaker("s2", { sourceRegistrationId: "r-rejected", submitterSource: "abstract", abstracts: [abstract("REJECTED")] }),
+  speaker("s3", { sourceRegistrationId: "r-faculty", sessions: [{ session: { status: "SCHEDULED" } }] }),
 ];
 
 const params = { params: Promise.resolve({ eventId: "ev1" }) };
-const get = async (qs = "") => {
+// The Registrations page asks for the facts (`authorFacts=1`); a filter implies them.
+const get = async (qs = "?authorFacts=1") => {
   const res = await GET(new Request(`http://localhost/x${qs}`), params);
   return { status: res.status, body: await res.json() };
 };
@@ -70,11 +75,33 @@ describe("the facts on each row", () => {
     expect(status).toBe(200);
     const facts = Object.fromEntries(body.map((r: { id: string; abstractOutcome: unknown; speakerPlace: unknown }) => [r.id, [r.abstractOutcome, r.speakerPlace]]));
     expect(facts).toEqual({
-      "r-presenter": ["accepted", "record"],
-      "r-rejected": ["rejected", "record"],
+      "r-presenter": ["accepted", null],
+      "r-rejected": ["rejected", null],
       "r-faculty": [null, "programme"],
       "r-delegate": [null, null],
     });
+  });
+
+  // Review of b4493d67: check-in, the onsite desk, Communications and Invoices
+  // load this list and use none of it. They do not ask, and are not charged the query.
+  it("a reader of the list that does not ask gets no facts, and no extra query", async () => {
+    const { status, body } = await get("");
+    expect(status).toBe(200);
+    expect("abstractOutcome" in body[0]).toBe(false);
+    expect(mockDb.speaker.findMany).not.toHaveBeenCalled();
+  });
+
+  // Review of b4493d67 (MED): without this, removing the permission check passed every test.
+  it("a role that reads registrations but not abstracts on this event gets no facts, and its filter is refused", async () => {
+    // The webinar team on a conference: the desk surface, no abstracts.
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: "WEBINARS", userId: "w1" });
+    const plain = await get();
+    expect(plain.status).toBe(200);
+    expect("abstractOutcome" in plain.body[0]).toBe(false);
+    expect(mockDb.speaker.findMany).not.toHaveBeenCalled();
+    const filtered = await get("?abstract=accepted");
+    expect(filtered.status).toBe(403);
+    expect(filtered.body.code).toBe("FILTER_NOT_PERMITTED");
   });
 
   it("an API key's rows are as they were: no facts, and no extra query", async () => {
@@ -102,8 +129,9 @@ describe("the Abstract and Speaker filters", () => {
     expect(ids((await get("?abstract=rejected")).body)).toEqual(["r-rejected"]);
     expect(ids((await get("?abstract=none")).body)).toEqual(["r-faculty", "r-delegate"]);
     expect(ids((await get("?speaker=programme")).body)).toEqual(["r-faculty"]);
-    expect(ids((await get("?speaker=none")).body)).toEqual(["r-delegate"]);
-    expect(ids((await get("?abstract=rejected&speaker=record")).body)).toEqual(["r-rejected"]);
+    // Authors are not speakers: "Not a speaker" is the delegates and the authors.
+    expect(ids((await get("?speaker=none")).body)).toEqual(["r-presenter", "r-rejected", "r-delegate"]);
+    expect(ids((await get("?abstract=rejected&speaker=none")).body)).toEqual(["r-rejected"]);
   });
 
   it("an unknown value is refused and logged, not ignored", async () => {

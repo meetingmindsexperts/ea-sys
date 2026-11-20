@@ -299,6 +299,29 @@ describe("registrations CSV export", () => {
     return { assigned, status };
   };
 
+  // Nov 20, 2026 (author-facts.ts): the file follows the Abstract and Speaker
+  // filters, by the same function that labels the rows on screen.
+  it("narrows the file by the Abstract filter and records it", async () => {
+    const accepted = { ...REG, id: "reg_accepted", serialId: 4 };
+    // The facts are for a reader of abstracts and speakers on THIS event, so the event must say what it is.
+    mockDb.event.findFirst.mockResolvedValue(EVENT_WITH_FACTS);
+    mockLoadRecipientReport.mockResolvedValue(REPORT);
+    mockDb.registration.findMany.mockResolvedValue([REG, accepted]);
+    mockDb.speaker.findMany.mockResolvedValue([
+      {
+        id: "s1", email: "author@x.test", sourceRegistrationId: "reg_accepted", submitterSource: "abstract",
+        abstracts: [{ status: "ACCEPTED", eventSession: null, sessionTopic: null }], sessionProposals: [], sessions: [], _count: { topicSpeakers: 0 },
+      },
+    ]);
+    const res = (await call("export=csv&abstract=accepted")) as unknown as { body: string };
+    expect(res.body.trim().split("\n")).toHaveLength(2); // the header and the one accepted author
+    expect(mockRecordExport.mock.calls[0][1]).toMatchObject({ rowCount: 1, filters: { abstract: "accepted" } });
+
+    mockRecordExport.mockClear();
+    await call("export=sales&speaker=none");
+    expect(mockRecordExport.mock.calls[0][1]).toMatchObject({ rowCount: 2, filters: { variant: "sales", speaker: "none" } });
+  });
+
   it("says which certificate each registration is assigned and where it stands", async () => {
     mockDb.event.findFirst.mockResolvedValue(EVENT_WITH_FACTS);
     mockLoadRecipientReport.mockResolvedValue(REPORT);
@@ -406,6 +429,9 @@ describe("registrations page export URL", () => {
       // downloads the whole attendee book.
       ["sponsorId", "sponsorFilter"],
       ["q", "searchQuery"],
+      // Nov 20, 2026: the Abstract and Speaker filters (author-facts.ts).
+      ["abstract", "abstractFilter"],
+      ["speaker", "speakerFilter"],
     ] as const) {
       expect(body, `export URL omits ${param}`).toContain(`p.set("${param}"`);
       expect(body, `export URL doesn't read ${state}`).toContain(state);

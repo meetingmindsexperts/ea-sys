@@ -8,9 +8,9 @@
  * when an abstract is withdrawn or a decision is reversed.
  *
  * ONE answer for the Registrations list, its filters, its export and the
- * Presenter mark. The person is the speaker record LINKED to the registration
- * (`Speaker.sourceRegistrationId`), the same link every sign-up and grant
- * writes; a registration with no linked speaker has no facts.
+ * Presenter mark. The person is the speaker record that points at the
+ * registration or carries its address (author-facts-server.ts says why both);
+ * a registration with neither, and a cancelled one, has no facts.
  *
  * The pure half (`abstractOutcomeOf`, the labels, the filter matchers) is
  * client-safe; `loadAuthorFacts` is the server's reader.
@@ -27,7 +27,12 @@ export type AbstractOutcome =
   /** Signed up to submit, or holds only drafts or withdrawn abstracts. */
   | "none-submitted";
 
-/** Where a speaker stands: on a session or topic of the programme, or a speaker record only. */
+/**
+ * Where a speaker stands: on the programme (a session, a topic, or an accepted
+ * abstract placed on the agenda), or INVITED by the organisers and not on it
+ * yet. Someone with a speaker record only because they signed up to submit is
+ * an author, not a speaker (the Speakers page's own rule, speaker-kinds.ts).
+ */
 export type SpeakerPlace = "programme" | "record";
 
 export interface AuthorFacts {
@@ -45,13 +50,13 @@ export const ABSTRACT_FILTER_LABELS: Record<AbstractFilter, string> = {
   accepted: "Abstract accepted (presenters)",
   awaiting: "Abstract awaiting a decision",
   rejected: "Abstract rejected",
-  "none-submitted": "Signed up, nothing submitted",
+  "none-submitted": "Nothing submitted (signed up, a draft, or withdrawn)",
   none: "No abstract",
 };
 
 export const SPEAKER_FILTER_LABELS: Record<SpeakerFilter, string> = {
-  programme: "Speaker on the programme",
-  record: "Speaker, not on the programme",
+  programme: "On the programme",
+  record: "Invited speaker, not on the programme yet",
   none: "Not a speaker",
 };
 
@@ -60,8 +65,8 @@ const AWAITING_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"];
 /**
  * One person's outcome from their abstracts' statuses. Accepted beats
  * awaiting beats rejected: one accepted abstract makes a presenter whatever
- * became of the others. `signedUp` is "their registration was made by the
- * abstract sign-up", which counts even before a first draft exists.
+ * became of the others. `signedUp` is "they came through the abstract
+ * sign-up", which counts even before a first draft exists.
  */
 export function abstractOutcomeOf(statuses: readonly string[], signedUp: boolean): AbstractOutcome | null {
   if (statuses.includes("ACCEPTED")) return "accepted";

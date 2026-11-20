@@ -257,13 +257,13 @@ export default function RegistrationsPage() {
   // filtering in JS. The status/payment/ticket filters stay client-side
   // for now — refactoring those would invalidate cached pages on every
   // filter flip.
-  const serverFilters =
-    tagFilter.length > 0 || sponsorFilter
-      ? {
-          ...(tagFilter.length > 0 ? { tags: tagFilter.join(",") } : {}),
-          ...(sponsorFilter ? { sponsorId: sponsorFilter } : {}),
-        }
-      : undefined;
+  const serverFilters = {
+    // This page shows each row's abstract outcome and place on the programme
+    // (author-facts.ts); the other readers of this list do not ask for them.
+    authorFacts: "1",
+    ...(tagFilter.length > 0 ? { tags: tagFilter.join(",") } : {}),
+    ...(sponsorFilter ? { sponsorId: sponsorFilter } : {}),
+  };
   const registrationsQuery = useRegistrations(eventId, serverFilters);
   const registrations = (registrationsQuery.data ?? []) as Registration[];
   const { isLoading: loading, isFetching, refetch: refetchRegistrations } = registrationsQuery;
@@ -1538,7 +1538,10 @@ export default function RegistrationsPage() {
         recipientIds={formFilterRecipientIds(selectedIds, completionNarrowed, filteredRegistrations)}
         recipientCount={selectedIds.size > 0 ? selectedIds.size : filteredRegistrations.length}
         selectionMode={selectedIds.size > 0 || completionNarrowed ? "selected" : "all"}
-        fixedListOnly={completionNarrowed && selectedIds.size === 0}
+        // Whatever is ticked: with a filter on that the send cannot express, a
+        // scheduled "everyone matching at send time" would go to the whole
+        // event, not the list on screen (review of b4493d67, HIGH).
+        fixedListOnly={completionNarrowed}
         statusFilter={statusFilter}
         paymentStatusFilter={paymentFilter}
         ticketTypeFilters={ticketFilters}

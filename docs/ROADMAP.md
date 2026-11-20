@@ -66,6 +66,20 @@ Every reviewer email now opens in the email dialog with Preview, and the invitat
 6. **Test gaps.** Nothing renders `BulkEmailDialog`, the Reviewers page, `EmailTypePicker` or `AbstractReviewersCard`: the invitation's routing in the dialog (named or all, the upload guard, the scheduling guard) is pinned only by the browser check made by hand on Nov 19. The preview route's test passes the permission check by a mock.
 7. **Older, found by the review, not changed:** `email-preview` answers 404 for an event it cannot find without a log line; "Send to all N reviewers" shows the size of the selection, not of the pool, when a ticked selection is scheduled as "matching" on a page that does not pass `fixedListOnly`; the Reviewers list shows the speaker record's address while the invitation goes to the account's, which can differ; the event's own CC list and a reviewer's additional email still receive set-password links (owner, Nov 10), so "the link was sent to this address" in accept-invitation is not strict.
 
+## Registrations' Abstract and Speaker filters: what the Nov 20 review of step 2 left (recorded Nov 20, 2026): not started
+
+Review of `b4493d67` (0 BLOCKER, 2 HIGH, 4 MED, 7 LOW). Both HIGHs and the four MEDs are fixed in the commit after it. Recorded, not fixed:
+
+1. **The onsite desk sees the Accepted presenter mark and both filters** (LOW, owner's call). No new data: the desk role already holds "see abstracts" on the events it is assigned to. But this is the first screen where temporary staff see decisions before they are announced. If not wanted: give the desk the mark only, or neither.
+2. **The filter refusal (403) comes after the list query** (LOW): the two permission checks need only the event and could run before it.
+3. **A second copy of a visibility rule** (LOW): the route restates what `submissionVisibilityFor()` (`speaker-submission-visibility.ts`) answers for abstracts on a person.
+4. **The CSV follows the filters but has no outcome column** (LOW), so an unfiltered file cannot say who is a presenter. Adding a column moves others; with the owner's pending answer on the abstracts CSV column.
+5. **The labels can be up to five minutes old after a change made elsewhere** (rest of MED-1): changing an abstract's status from the Abstracts LIST now refreshes this page; the abstract's own page and the Agenda (who is on the programme) do not. The CSV export is always fresh.
+6. **Older, found by the review, not from this change:**
+   - **The survey filter is not sent to the export**: with "Answered: X" on, the file holds more rows than the screen.
+   - **Ticked rows survive a filter change** (`selectedIds` is never pruned), so Change Type, Tags, Assign certificate, Send form, Request ID, Print Selected and the new Payment, badge or cancel act on rows no longer shown. The toolbar's count is the only cue.
+   - **The clear-filters button leaves the tag and sponsor filters on**, and with only a sponsor filter on, the Email action still means everyone.
+
 ## Abstract authors' registration: what the Nov 20 review of step 1 left (recorded Nov 20, 2026): not started
 
 Review of `08f6b291` (0 BLOCKER, 1 HIGH, 2 MED, 6 LOW). The HIGH and both MEDs are fixed in the commit after it; these are what was recorded, not fixed. Plan: [ABSTRACT_AUTHOR_REGISTRATION_PLAN.md](ABSTRACT_AUTHOR_REGISTRATION_PLAN.md).
