@@ -88,6 +88,7 @@ import { POST as badgesPOST } from "@/app/api/events/[eventId]/registrations/bad
 import { GET as badgePreviewGET } from "@/app/api/events/[eventId]/registrations/badges/preview/route";
 import { PATCH as bulkTagsPATCH } from "@/app/api/events/[eventId]/registrations/bulk-tags/route";
 import { PATCH as bulkTypePATCH } from "@/app/api/events/[eventId]/registrations/bulk-type/route";
+import { POST as bulkUpdatePOST } from "@/app/api/events/[eventId]/registrations/bulk-update/route";
 import { POST as importContactsPOST } from "@/app/api/events/[eventId]/registrations/import-contacts/route";
 import { POST as importCsvPOST } from "@/app/api/events/[eventId]/import/registrations/route";
 import { POST as completionPOST } from "@/app/api/events/[eventId]/import/registrations/send-completion-emails/route";
@@ -184,6 +185,9 @@ const CASES: HandlerCase[] = [
   { name: "GET registrations/badges/preview", handler: badgePreviewGET, method: "GET" },
   { name: "PATCH registrations/bulk-tags", handler: bulkTagsPATCH, method: "PATCH", body: { registrationIds: ["r1"], tags: ["vip"], mode: "add" } },
   { name: "PATCH registrations/bulk-type", handler: bulkTypePATCH, method: "PATCH", body: { registrationIds: ["r1"], ticketTypeId: "tt1" } },
+  // Added Nov 20, 2026 (payment status, badge type or cancel on ticked rows).
+  { name: "POST registrations/bulk-update (payment status and badge)", handler: bulkUpdatePOST, method: "POST", body: { registrationIds: ["r1"], paymentStatus: "COMPLIMENTARY", badgeType: "Presenter" } },
+  { name: "POST registrations/bulk-update (cancel)", handler: bulkUpdatePOST, method: "POST", body: { registrationIds: ["r1"], cancel: true } },
   { name: "POST registrations/import-contacts", handler: importContactsPOST, method: "POST", body: { contactIds: ["ct1"] } },
   { name: "POST import/registrations (JSON, not multipart)", handler: importCsvPOST, method: "POST", body: {} },
   {

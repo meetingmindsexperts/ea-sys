@@ -66,6 +66,18 @@ Every reviewer email now opens in the email dialog with Preview, and the invitat
 6. **Test gaps.** Nothing renders `BulkEmailDialog`, the Reviewers page, `EmailTypePicker` or `AbstractReviewersCard`: the invitation's routing in the dialog (named or all, the upload guard, the scheduling guard) is pinned only by the browser check made by hand on Nov 19. The preview route's test passes the permission check by a mock.
 7. **Older, found by the review, not changed:** `email-preview` answers 404 for an event it cannot find without a log line; "Send to all N reviewers" shows the size of the selection, not of the pool, when a ticked selection is scheduled as "matching" on a page that does not pass `fixedListOnly`; the Reviewers list shows the speaker record's address while the invitation goes to the account's, which can differ; the event's own CC list and a reviewer's additional email still receive set-password links (owner, Nov 10), so "the link was sent to this address" in accept-invitation is not strict.
 
+## Bulk payment status, badge or cancel: what the Nov 20 review of step 3 left (recorded Nov 20, 2026): not started
+
+Review of `345400df` (0 BLOCKER, 1 HIGH, 5 MED, 8 LOW). The HIGH and the five MEDs are fixed in the commit after it. Recorded, not fixed:
+
+1. **OLDER, HIGH, for the owner: the assistant's own bulk tool has none of these rules.** `bulk_update_registration_status` (`src/lib/agent/tools/registrations.ts`, key `registrations.bulk`, which API keys hold) sets Cancelled on paid, invoiced and group registrations without the cancel permission, sets Paid with no payment recorded, sets Inclusive with no sponsor, hand-flips Checked in, and writes one history entry for the lot, on up to 200 ids. The dashboard now says "money never disappears in bulk" and the assistant does not. Fix: route the tool through `bulkUpdateRegistrations` (it already accepts `source: "mcp" | "agent"`) and keep the other status changes on the single update. It changes what a connected assistant can do, so it is the owner's call when.
+2. **A third copy of "nothing else is attached to the price"** (LOW): `moneyRefusal` in the bulk service, `repriceable` in the bulk type route and `settlementBlocker` in `promo-settlement.ts` overlap and differ. One predicate and one select for all three.
+3. **Back to owing can leave "owes 0.00" rows** (LOW): a row made Complimentary by a code that covered the whole fee, or a Faculty row, set to Unpaid owes nothing. Skip a row that would end owing nothing.
+4. **The report counts** (LOW): a row with its badge set and its payment status skipped is in both "changed" and "not done".
+5. **A dropped connection on the first request loses the report** (LOW): the work was done; running it again is safe and changes nothing twice.
+6. **The cancel path's wider reach** (LOW, older): cancelling without a refund cancels a speaker's Faculty registration (the speaker loses the badge and check-in), leaves `checkedInAt` on a checked-in row, and leaves an accommodation booking and a DET-bought DTCM ticket in place. One at a time before; many at a time now, behind the typed confirmation. And the single edit accepts Paid to Complimentary with no guard: only the bulk has the caution.
+7. **Tests not written** (LOW): the hook's rounds (no progress, interrupted), the dialog's states, the lock token against the real update service.
+
 ## Registrations' Abstract and Speaker filters: what the Nov 20 review of step 2 left (recorded Nov 20, 2026): not started
 
 Review of `b4493d67` (0 BLOCKER, 2 HIGH, 4 MED, 7 LOW). Both HIGHs and the four MEDs are fixed in the commit after it. Recorded, not fixed:

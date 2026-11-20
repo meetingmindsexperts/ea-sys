@@ -6,6 +6,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import {
@@ -21,8 +22,9 @@ import {
  *   POST { registrationIds, paymentStatus?, badgeType?, cancel? }
  *
  * The Registrations page sends its ticked rows. `registrations.bulk` opens it,
- * as it opens the bulk type change; a cancel also needs `registrations.cancel`,
- * the key of the Cancel button it runs. Each row's change is the single
+ * as it opens the bulk type change. What it then does needs the key of the
+ * single action it repeats, judged on this event: `registrations.update` for
+ * a payment status or a badge type, `registrations.cancel` for a cancel. Each row's change is the single
  * registration's own code (registration-bulk-service.ts); a row with money on
  * it is never given a new payment status or cancelled here, and comes back in
  * `skipped` with its reason.
@@ -46,7 +48,8 @@ const bodySchema = z
     registrationIds: z.array(z.string().min(1).max(100)).min(1).max(MAX_BULK_REGISTRATION_UPDATES),
     paymentStatus: z.enum(BULK_PAYMENT_STATUSES).optional(),
     /** A badge type, or an empty string to clear it. */
-    badgeType: z.string().trim().max(60).optional(),
+    // The registration's own page allows 50.
+    badgeType: z.string().trim().max(50).optional(),
     cancel: z.literal(true).optional(),
   })
   .strict()
@@ -80,18 +83,27 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const { registrationIds, paymentStatus, badgeType, cancel } = parsed.data;
 
-    // Cancelling many is the Cancel button many times: it needs that button's key too.
-    if (cancel && !can(gate.principal, "registrations.cancel")) {
-      apiLogger.warn({ msg: "registrations/bulk-update:cancel-not-permitted", eventId, userId: session.user.id });
-      return NextResponse.json({ error: "You cannot cancel registrations", code: "CANCEL_NOT_PERMITTED" }, { status: 403 });
-    }
-
     return await runWithTenant(orgGuard.orgId, async () => {
       // The event must be one the grant reaches: the service checks only the event id.
-      const event = await findGatedEvent(gate, { select: { id: true } });
+      const event = await findGatedEvent(gate, { select: { id: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } } });
       if (!event) {
         apiLogger.warn({ msg: "registrations/bulk-update:event-not-found", eventId, userId: session.user.id });
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
+      }
+      // Cancelling many is the Cancel button many times: it needs that button's
+      // key too, judged on THIS event (a grant scoped to webinars does not
+      // reach a conference).
+      const eventFacts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
+      if (cancel && (!eventFacts || !can(gate.principal, "registrations.cancel", { event: eventFacts }))) {
+        apiLogger.warn({ msg: "registrations/bulk-update:cancel-not-permitted", eventId, userId: session.user.id });
+        return NextResponse.json({ error: "You cannot cancel registrations on this event", code: "CANCEL_NOT_PERMITTED" }, { status: 403 });
+      }
+      // A payment status or a badge type is the registration's own edit, many
+      // times: it needs that edit's key too. "Bulk changes" alone was for tags
+      // and the type (review of 345400df).
+      if (!cancel && (!eventFacts || !can(gate.principal, "registrations.update", { event: eventFacts }))) {
+        apiLogger.warn({ msg: "registrations/bulk-update:update-not-permitted", eventId, userId: session.user.id });
+        return NextResponse.json({ error: "You cannot edit registrations on this event", code: "UPDATE_NOT_PERMITTED" }, { status: 403 });
       }
 
       const rl = checkRateLimit({ key: `registration-bulk-update:${session.user.id}`, limit: RATE_LIMIT, windowMs: RATE_WINDOW_SECONDS * 1000 });

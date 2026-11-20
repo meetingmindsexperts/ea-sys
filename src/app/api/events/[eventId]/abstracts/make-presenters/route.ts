@@ -19,9 +19,9 @@ import { MAX_BULK_REGISTRATION_UPDATES } from "@/services/registration-bulk-serv
  *   POST { abstractIds }
  *
  * The Abstracts page calls it when the organiser ticks the box while
- * accepting. It changes REGISTRATIONS, so it asks the key of the bulk action
- * it runs (`registrations.bulk`), and `abstracts.read` to name abstracts at
- * all. Only accepted abstracts' authors are touched; the rules are the bulk
+ * accepting. It changes REGISTRATIONS, so it asks the keys of the bulk action
+ * it runs (`registrations.bulk` and `registrations.update`), and
+ * `abstracts.read` to name abstracts at all, each judged on this event. Only accepted abstracts' authors are touched; the rules are the bulk
  * action's (presenter-service.ts → registration-bulk-service.ts).
  */
 interface RouteParams {
@@ -61,10 +61,15 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
       }
       // Judged on THIS event: a grant scoped to webinars says nothing about a conference's abstracts.
-      const eventFacts = eventFactsOf({ ...event, staffUserIds: event.staffAssignments.map((a) => a.userId) });
+      const eventFacts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
       if (!eventFacts || !can(gate.principal, "abstracts.read", { event: eventFacts })) {
         apiLogger.warn({ msg: "abstracts/make-presenters:abstracts-not-readable", eventId, userId: session.user.id });
         return NextResponse.json({ error: "You cannot see abstracts on this event", code: "ABSTRACTS_NOT_READABLE" }, { status: 403 });
+      }
+      // It sets a payment status and a badge: the registration's own edit, and its key.
+      if (!can(gate.principal, "registrations.update", { event: eventFacts })) {
+        apiLogger.warn({ msg: "abstracts/make-presenters:update-not-permitted", eventId, userId: session.user.id });
+        return NextResponse.json({ error: "You cannot edit registrations on this event", code: "UPDATE_NOT_PERMITTED" }, { status: 403 });
       }
 
       // The same budget as the bulk action it runs.

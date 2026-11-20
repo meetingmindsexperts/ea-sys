@@ -493,7 +493,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("registrations.export", "Registrations", "Export registrations", "Download the registrations list, with contact details, as a spreadsheet.", ES),
   app("registrations.checkin", "Registrations", "Check in", "Check attendees in and undo a mistaken check-in.", E),
   app("registrations.badges.print", "Registrations", "Print badges", "Preview and print badges.", E),
-  app("registrations.bulk", "Registrations", "Bulk changes", "Change tags or the registration type on many registrations at once.", E),
+  app("registrations.bulk", "Registrations", "Bulk changes", "Change tags or the registration type on many registrations at once. With Edit registrations: also the payment status and the badge type. With Cancel registrations: also cancel many.", E),
   app("registrations.email", "Registrations", "Email a registrant", "Send an email to one registration from its page.", E),
   app("registrations.email.change", "Registrations", "Change a registrant's email", "Move a registration, and the account linked to it, to a new email address.", E),
   app("registrations.share", "Registrations", "Share registration views", "Create and manage read-only registration links for people without a sign-in.", E),

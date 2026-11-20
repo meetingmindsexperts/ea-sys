@@ -67,6 +67,14 @@ describe("POST abstracts/make-presenters", () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "abstracts/make-presenters:abstracts-not-readable" }));
   });
 
+  it("it sets a payment status and a badge, so it needs the edit key on this event too", async () => {
+    canSpy.mockImplementation((_p: unknown, key: string) => key !== "registrations.update");
+    const res = await post({ abstractIds: ["a1"] });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("UPDATE_NOT_PERMITTED");
+    expect(makeSpy).not.toHaveBeenCalled();
+  });
+
   it("refuses no ids, an unknown field, or a body that is not JSON; 401 signed out; 404 off the grant; 429 limited", async () => {
     for (const body of [{ abstractIds: [] }, { abstractIds: ["a1"], paymentStatus: "PAID" }, {}, "not json"]) {
       expect((await post(body)).status).toBe(400);

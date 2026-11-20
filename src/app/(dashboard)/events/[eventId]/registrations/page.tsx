@@ -475,6 +475,8 @@ export default function RegistrationsPage() {
 
     return matchesSearch && matchesStatus && matchesPayment && matchesTicket && matchesSurvey && matchesCompletion && matchesEvidence && matchesAuthor;
   });
+  // The ticked rows that are in the list now showing (the bulk payment, badge or cancel acts on these only).
+  const tickedInView = filteredRegistrations.filter((r) => selectedIds.has(r.id));
   // The rows carry these only for a reader who may see abstracts and speakers here.
   const showsAuthorFilters = registrations.some((r) => r.abstractOutcome !== undefined);
   // The bulk send cannot express the form filter or the ID and document filter, so with either on
@@ -1446,11 +1448,17 @@ export default function RegistrationsPage() {
         eventId={eventId}
         open={bulkUpdateOpen}
         onOpenChange={setBulkUpdateOpen}
-        registrations={registrations
-          .filter((r) => selectedIds.has(r.id))
-          .map((r) => ({ id: r.id, label: `${formatSerialId(r.serialId)} ${r.attendee.firstName} ${r.attendee.lastName}`.trim() }))}
+        // Only the ticked rows that are in the list now showing. A row ticked
+        // under another filter is left out and counted, never changed unseen
+        // (review of 345400df: the page keeps ticks across filter changes).
+        registrations={tickedInView.map((r) => ({ id: r.id, label: `${formatSerialId(r.serialId)} ${r.attendee.firstName} ${r.attendee.lastName}`.trim() }))}
+        hiddenCount={selectedIds.size - tickedInView.length}
         canCancel={canCancelRegistrations}
-        onFinished={(stillTicked) => setSelectedIds(new Set(stillTicked))}
+        onFinished={(stillTicked) => {
+          const inView = new Set(tickedInView.map((r) => r.id));
+          // What was hidden stays ticked, as it was; what was done is unticked.
+          setSelectedIds((prev) => new Set([...[...prev].filter((id) => !inView.has(id)), ...stillTicked]));
+        }}
       />
 
       {/* Bulk Tag Dialog */}

@@ -1367,6 +1367,12 @@ export interface UpdateRegistrationInput {
   requestIp?: string | null;
   /** Optimistic-lock token; when absent the write is id-only (warn-logged). */
   expectedUpdatedAt?: string | null;
+  /**
+   * A caller changing many registrations refreshes the event's counts ONCE
+   * itself (registration-bulk-service.ts): one recompute per row is nine
+   * queries each, racing each other.
+   */
+  skipStatsRefresh?: boolean;
   status?: RegistrationStatus;
   /** Validated against the admin-settable subset (review H12). */
   paymentStatus?: string;
@@ -1900,7 +1906,7 @@ export async function updateRegistration(
       }));
     }
 
-    refreshEventStats(eventId);
+    if (!input.skipStatsRefresh) refreshEventStats(eventId);
 
     // A cancel kills any still-open Stripe payment tab. Fire-and-forget.
     if (status === "CANCELLED" && existing.status !== "CANCELLED") {

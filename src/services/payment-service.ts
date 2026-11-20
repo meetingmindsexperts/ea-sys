@@ -859,6 +859,8 @@ export interface CancelRegistrationInput {
   refund: boolean;
   source: PaymentSource;
   issuedByUserId?: string | null;
+  /** A caller cancelling many refreshes the event's counts once itself (registration-bulk-service.ts). */
+  skipStatsRefresh?: boolean;
 }
 
 export type CancelRegistrationErrorCode =
@@ -1024,7 +1026,7 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
       return { ok: true, cancel: { status: "CANCELLED", refunded, refund: refundSummary } };
     }
 
-    refreshEventStats(eventId);
+    if (!input.skipStatsRefresh) refreshEventStats(eventId);
 
     // Group-invoice drift flag (group review H4): cancelling a group member
     // leaves the consolidated invoice billing for them. Fire-and-forget.

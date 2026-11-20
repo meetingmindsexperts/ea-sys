@@ -14,7 +14,9 @@
  * member's row are NOT given a new payment status or cancelled here. They are
  * skipped with the reason, and the person decides on that registration's own
  * page, where the refund and the credit note are. A badge type is harmless
- * and is set on every row.
+ * and is set on every row. The money is looked at AGAIN immediately before
+ * each row's change, not once for the whole run: a desk payment taken while a
+ * long run is under way must be seen (review of 345400df).
  *
  * "Make presenters" (an accepted author becomes Complimentary with a
  * Presenter badge) is nothing more than a call of this with both fields.
@@ -63,6 +65,8 @@ export type BulkRegistrationSkipCode =
   | "HAS_MONEY"
   | "SPONSOR_PAID"
   | "GROUP_MEMBER"
+  /** A card payment may be in progress in an open checkout. */
+  | "CHECKOUT_OPEN"
   /** The single change refused it; `message` carries its own words. */
   | "REFUSED";
 
@@ -78,6 +82,19 @@ export type BulkUpdateRegistrationsResult =
   | { ok: true; changed: string[]; unchanged: string[]; skipped: BulkRegistrationSkip[]; remaining: string[] }
   | { ok: false; code: "NOTHING_TO_CHANGE" | "TOO_MANY" | "UNKNOWN"; message: string };
 
+/** What is read of a registration to decide; `invoices` counts the ones not cancelled. */
+const ROW_SELECT = {
+  id: true,
+  status: true,
+  paymentStatus: true,
+  badgeType: true,
+  groupId: true,
+  refundedAmount: true,
+  stripeCheckoutSessionId: true,
+  updatedAt: true,
+  _count: { select: { payments: true, invoices: { where: { status: { not: "CANCELLED" } } } } },
+} as const;
+
 type Row = {
   id: string;
   status: string;
@@ -85,6 +102,7 @@ type Row = {
   badgeType: string | null;
   groupId: string | null;
   refundedAmount: unknown;
+  stripeCheckoutSessionId: string | null;
   updatedAt: Date;
   _count: { payments: number; invoices: number };
 };
@@ -105,13 +123,31 @@ function moneyRefusal(row: Row): { code: BulkRegistrationSkipCode; message: stri
   return null;
 }
 
+/**
+ * An open card checkout on a row that still owes: someone may be paying the
+ * old price this minute (promo-settlement.ts treats it the same way). Its
+ * payment status is left alone; a cancel closes the checkout itself.
+ */
+function checkoutRefusal(row: Row): { code: BulkRegistrationSkipCode; message: string } | null {
+  if (!row.stripeCheckoutSessionId) return null;
+  return { code: "CHECKOUT_OPEN", message: "A card payment may be in progress. Change it on the registration's own page." };
+}
+
 type RowOutcome = { changed: boolean; skips: BulkRegistrationSkip[] };
 
 /** One registration: what applies to it, through the single registration's own paths. */
-async function bulkUpdateOne(input: BulkUpdateRegistrationsInput, row: Row): Promise<RowOutcome> {
+async function bulkUpdateOne(input: BulkUpdateRegistrationsInput, registrationId: string): Promise<RowOutcome> {
   const skips: BulkRegistrationSkip[] = [];
   const skip = (part: BulkRegistrationSkip["part"], refusal: { code: BulkRegistrationSkipCode; message: string }) =>
-    skips.push({ registrationId: row.id, part, ...refusal });
+    skips.push({ registrationId, part, ...refusal });
+
+  // Read NOW, immediately before this row's change, and scoped to the event
+  // (an id from elsewhere is simply not found).
+  const row: Row | null = await db.registration.findFirst({ where: { id: registrationId, eventId: input.eventId }, select: ROW_SELECT });
+  if (!row) {
+    skip("all", { code: "NOT_FOUND", message: "This registration is not on the event." });
+    return { changed: false, skips };
+  }
 
   if (row.status === "CANCELLED") {
     // Already cancelled is what a cancel asks for; nothing else is set on a cancelled row.
@@ -133,6 +169,7 @@ async function bulkUpdateOne(input: BulkUpdateRegistrationsInput, row: Row): Pro
       refund: false,
       source: input.source === "rest" ? "rest" : "mcp",
       issuedByUserId: input.actorUserId,
+      skipStatsRefresh: true,
     });
     if (!result.ok) skip("cancel", { code: "REFUSED", message: result.message });
     return { changed: result.ok, skips };
@@ -140,8 +177,9 @@ async function bulkUpdateOne(input: BulkUpdateRegistrationsInput, row: Row): Pro
 
   const wantsPayment = input.paymentStatus !== undefined && row.paymentStatus !== input.paymentStatus;
   const wantsBadge = input.badgeType !== undefined && (row.badgeType ?? "") !== input.badgeType;
-  if (wantsPayment && money) skip("paymentStatus", money);
-  const setPayment = wantsPayment && !money;
+  const paymentRefusal = money ?? checkoutRefusal(row);
+  if (wantsPayment && paymentRefusal) skip("paymentStatus", paymentRefusal);
+  const setPayment = wantsPayment && !paymentRefusal;
   if (!setPayment && !wantsBadge) return { changed: false, skips };
 
   const result = await updateRegistration({
@@ -153,11 +191,14 @@ async function bulkUpdateOne(input: BulkUpdateRegistrationsInput, row: Row): Pro
     requestIp: input.requestIp ?? null,
     // Someone who edited this registration since the list was read wins: the row is skipped, not overwritten.
     expectedUpdatedAt: row.updatedAt.toISOString(),
+    skipStatsRefresh: true,
     ...(setPayment && { paymentStatus: input.paymentStatus }),
     ...(wantsBadge && { badgeType: input.badgeType === "" ? null : input.badgeType }),
   });
   if (!result.ok) {
-    skip(setPayment ? "paymentStatus" : "badgeType", { code: "REFUSED", message: result.message });
+    // One write carried both parts, so neither was done.
+    const onePart = setPayment ? "paymentStatus" : "badgeType";
+    skip(setPayment && wantsBadge ? "all" : onePart, { code: "REFUSED", message: result.message });
     return { changed: false, skips };
   }
   return { changed: true, skips };
@@ -177,22 +218,6 @@ export async function bulkUpdateRegistrations(input: BulkUpdateRegistrationsInpu
       return refuse("TOO_MANY", `Up to ${MAX_BULK_REGISTRATION_UPDATES} registrations at a time.`);
     }
 
-    // Scoped to the event, so an id from elsewhere is simply not found.
-    const rows = await db.registration.findMany({
-      where: { id: { in: ids }, eventId },
-      select: {
-        id: true,
-        status: true,
-        paymentStatus: true,
-        badgeType: true,
-        groupId: true,
-        refundedAmount: true,
-        updatedAt: true,
-        _count: { select: { payments: true, invoices: { where: { status: { not: "CANCELLED" } } } } },
-      },
-    });
-    const byId = new Map(rows.map((r) => [r.id, r]));
-
     const changed: string[] = [];
     const unchanged: string[] = [];
     const skipped: BulkRegistrationSkip[] = [];
@@ -205,13 +230,8 @@ export async function bulkUpdateRegistrations(input: BulkUpdateRegistrationsInpu
         remaining.push(...ids.slice(index));
         break;
       }
-      const row = byId.get(id);
-      if (!row) {
-        skipped.push({ registrationId: id, part: "all", code: "NOT_FOUND", message: "This registration is not on the event." });
-        continue;
-      }
       try {
-        const outcome = await bulkUpdateOne(input, row);
+        const outcome = await bulkUpdateOne(input, id);
         skipped.push(...outcome.skips);
         if (outcome.changed) changed.push(id);
         else if (outcome.skips.length === 0) unchanged.push(id);

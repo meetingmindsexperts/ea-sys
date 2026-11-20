@@ -47,7 +47,7 @@ const DONE = { ok: true, changed: ["r1"], unchanged: [], skipped: [], remaining:
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "ORGANIZER", organizationId: "org1" } });
-  mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", eventType: "CONFERENCE", staffAssignments: [] });
   rateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   canSpy.mockReturnValue(true);
   bulkSpy.mockResolvedValue(DONE);
@@ -72,12 +72,23 @@ describe("POST registrations/bulk-update", () => {
     expect(res.status).toBe(403);
     expect((await res.json()).code).toBe("CANCEL_NOT_PERMITTED");
     expect(canSpy.mock.calls[0][1]).toBe("registrations.cancel");
+    // Judged on this event, not "somewhere".
+    expect(canSpy.mock.calls[0][2]).toMatchObject({ event: { organizationId: "org1", eventType: "CONFERENCE" } });
     expect(bulkSpy).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "registrations/bulk-update:cancel-not-permitted" }));
-    // A payment status or a badge asks for no second key.
-    canSpy.mockClear();
-    expect((await post({ registrationIds: ["r1"], badgeType: "Presenter" })).status).toBe(200);
-    expect(canSpy).not.toHaveBeenCalled();
+  });
+
+  // Review of 345400df (MED): "Bulk changes" alone was for tags and the type.
+  // Waiving a fee is the registration's own edit, many times.
+  it("a payment status or a badge also needs the edit key, on this event: without it, 403, logged, and nothing runs", async () => {
+    canSpy.mockReturnValue(false);
+    const res = await post({ registrationIds: ["r1"], paymentStatus: "COMPLIMENTARY" });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("UPDATE_NOT_PERMITTED");
+    expect(canSpy.mock.calls[0][1]).toBe("registrations.update");
+    expect(canSpy.mock.calls[0][2]).toMatchObject({ event: { organizationId: "org1", eventType: "CONFERENCE" } });
+    expect(bulkSpy).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "registrations/bulk-update:update-not-permitted" }));
   });
 
   it("refuses: nothing to change, no ids, Paid or Inclusive in bulk, a cancel mixed with another change, an unknown field, not JSON", async () => {
@@ -90,6 +101,7 @@ describe("POST registrations/bulk-update", () => {
       { registrationIds: ["r1"], cancel: true, paymentStatus: "COMPLIMENTARY" },
       { registrationIds: ["r1"], cancel: false },
       { registrationIds: ["r1"], badgeType: "Presenter", status: "CANCELLED" },
+      { registrationIds: ["r1"], badgeType: "x".repeat(51) },
       "not json",
     ]) {
       const res = await post(body);
