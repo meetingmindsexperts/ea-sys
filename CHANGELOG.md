@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The Accepted card on Abstracts says how many are oral and how many are poster (November 20)
+
+Under the number of accepted abstracts, the card now lists them by presentation type: "Oral 12  Poster 8". Any other type in use (Oral or Poster, Video, Workshop) and accepted abstracts with no type decided ("No type yet") are listed too, so the parts always add up to the card's number.
+
 ### Members no longer see invoices (November 20)
 
 Owner decision. The built-in Member role loses three permissions: See invoices, Export invoices, and The organisation's invoice book.

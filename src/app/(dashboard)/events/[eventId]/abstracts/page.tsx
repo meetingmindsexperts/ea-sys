@@ -87,6 +87,7 @@ import { BulkReviewersDialog, type BulkReviewerMode } from "@/components/abstrac
 import { BulkStatusDialog } from "@/components/abstracts/bulk-status-dialog";
 import { ReviewerSheetDialog } from "@/components/abstracts/reviewer-sheet-dialog";
 import { SelectAbstractsByIdsDialog } from "@/components/abstracts/select-abstracts-by-ids-dialog";
+import { acceptedByPresentationType } from "@/lib/abstract-accepted-breakdown";
 
 /** The shared labels; this page's own list once called every Oral or Poster abstract "Workshop". */
 function presentationTypeLabel(type: string): string {
@@ -533,6 +534,8 @@ export default function AbstractsPage() {
     withdrawn: abstracts.filter((a) => a.status === "WITHDRAWN").length,
   };
 
+  const acceptedTypes = acceptedByPresentationType(abstracts);
+
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
   // The theme and "no reviewer yet" filters belong to whoever assigns
@@ -949,6 +952,17 @@ export default function AbstractsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{stats.accepted}</div>
+            {/* By presentation type: the parts add up to the number above. */}
+            {acceptedTypes.length > 0 && (
+              <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                {acceptedTypes.map((t) => (
+                  // One part never breaks across lines ("No type yet 1").
+                  <span key={t.type ?? "none"} className="whitespace-nowrap">
+                    {t.label} <span className="font-medium text-foreground">{t.count}</span>
+                  </span>
+                ))}
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
