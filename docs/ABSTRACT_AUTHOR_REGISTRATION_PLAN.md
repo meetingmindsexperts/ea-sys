@@ -173,6 +173,20 @@ reports who was skipped (already paid, no registration, sponsor-paid). Left
 unticked, the team does it later from the Accepted filter. Its default (on or
 off) is remembered per person, never forced.
 
+**Run end to end on Nov 20, 2026** (a local test event, in a headed browser
+against the local database; screenshots in `screenshots/2026-11-20-author-e2e/`):
+nothing on sale, ordinary rates only, then presenter rates with Resident paid
+(150) and Student free; eight sign-ups, an invited faculty member, a delegate
+registered first, a desk payment, accept with and without the box, reject,
+the filters, Make presenters from Registrations, a bulk cancel, the export.
+It found two defects the unit tests and four reviews had not, both fixed
+(`8eaa3550`): Make presenters from the Registrations page overwrote an invited
+speaker's Faculty badge (the presenter rules now live in the bulk action's
+preset, for both pages), and the Invited speaker filter missed an invited
+speaker who had also submitted. Not covered by the run: the author signing in
+and submitting through their own screens (abstracts were entered by staff),
+any email actually arriving (the local server has no mail), and a refund.
+
 **Step 4a. The abstract form does not ask a registered person for a rate** BUILT
 Nov 20, 2026, with step 1. A new account cannot be told (a stranger typing an
 address must not learn it is registered): they pick a type, and nothing is
