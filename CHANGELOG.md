@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Two abstract dialogs: nothing cut off, and wider (November 20)
+
+- **Select abstracts** (Communications, Abstract Submitters): with a long abstract title in the list, the whole dialog was cut off at its right edge: the description, the fields, each row's author, and the Cancel and Use buttons at the bottom. One long title was widening everything past the dialog. Titles are now cut with an ellipsis inside the dialog, and the buttons are back. The dialog is also wider and its list a little taller.
+- **Assign reviewers** (Abstracts, a row's Reviewers button): wider, so a reviewer's name, email, role and buttons sit on one line.
+
 ### Filter the Abstracts list by status and by presentation type (November 20)
 
 Two filters beside the search on the Abstracts page, shown whenever the event has abstracts: **Status** and **Presentation type**.

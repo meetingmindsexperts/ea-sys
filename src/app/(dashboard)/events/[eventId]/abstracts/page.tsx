@@ -1198,8 +1198,12 @@ export default function AbstractsPage() {
         open={!!reviewersForAbstract}
         onOpenChange={(open) => !open && setReviewersForAbstract(null)}
       >
-        {/* No description: the abstract's title under the heading says what this is. */}
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl" aria-describedby={undefined}>
+        {/* No description: the abstract's title under the heading says what this is.
+            Wide (owner, Nov 20, 2026: "increase the width"): a reviewer's row
+            holds a name, an email, a count and a button, and the assigned row a
+            conflict switch and a role as well. The column is minmax(0, 1fr) so
+            a long title or address is cut, never widens the dialog past its edge. */}
+        <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-3xl" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle className="text-base">
               Assign reviewers

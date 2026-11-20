@@ -138,8 +138,14 @@ export function AbstractPickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Capped at the viewport and scrollable: with a status filter, a paste
           box and the list, the content is taller than a laptop screen, and a
-          footer below the fold cannot be clicked (found in the local render check). */}
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[660px]">
+          footer below the fold cannot be clicked (found in the local render check).
+          The single column is minmax(0, 1fr), never the default auto: a grid
+          column grows to its widest unbreakable content, and one long abstract
+          title (they are shown on one line, cut with an ellipsis) widened the
+          column past the dialog, so the heading, the fields and the footer's
+          buttons were all cut off at the right edge (organiser's screenshot,
+          MEHF2027, Nov 20, 2026). */}
+      <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ListChecks className="h-5 w-5" />
@@ -219,7 +225,7 @@ export function AbstractPickerDialog({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <div className="max-h-52 overflow-y-auto rounded-md border">
+            <div className="max-h-64 overflow-y-auto rounded-md border">
               {visible.length > 0 && (
                 <label className="sticky top-0 flex cursor-pointer items-center gap-2 border-b bg-muted/60 px-2.5 py-2 text-xs font-medium">
                   <Checkbox
