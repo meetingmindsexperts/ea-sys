@@ -34,9 +34,9 @@ const registerSchema = presenterDetailsSchema.extend({
     // behavior) or "proposal" (the session-proposal register page). Gates below
     // branch on it; the created account/Speaker is identical either way.
     source: z.enum(["abstract", "proposal"]).default("abstract"),
-    /** Presenter rate the submitter chose. Ignored on proposals and on events
-     *  with no presenter tiers configured (plan D4). The TIER and the price are
-     *  resolved server-side, never taken from the client. */
+    /** The registration type the submitter chose (author-rates.ts). Ignored on
+     *  proposals and when nothing is on offer to an author. The RATE and the
+     *  price are resolved server-side, never taken from the client. */
     ticketTypeId: z.string().max(100).optional(),
     /** The chosen type's ID and document switches decide which of these are required (Nov 4, 2026). */
     ...presenterEvidenceShape,
@@ -393,16 +393,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
     });
 
-    // Provision the companion registration (the "attendee facet") so a
-    // self-registered submitter-speaker still gets a badge / entry barcode /
-    // check-in / survey / certificate via the normal registration machinery —
-    // mirroring createSpeaker + the import paths. Without this the submitter
-    // route's raw speaker.create left these faculty with no scannable code.
-    // SESSION-PROPOSAL signups are linkOnly (owner decision Aug 5, 2026): NO
-    // auto comp registration — the organizer grants comp or payable per
-    // person; an existing same-email registration is still linked.
-    // Failure-isolated: a hiccup must NOT fail the account create; the backfill
-    // script recovers any that fail.
+    // The author's registration (presenter-signup.ts): on the type they chose,
+    // to pay later, so they have a badge / entry barcode / check-in / survey /
+    // certificate through the normal registration machinery. Never a Faculty
+    // registration (Nov 20, 2026); someone already registered keeps theirs.
+    // SESSION-PROPOSAL signups are linkOnly (owner decision Aug 5, 2026): the
+    // organizer grants comp or payable per person; an existing same-email
+    // registration is still linked.
+    // Failure-isolated: a hiccup must NOT fail the account create; the
+    // organisers give a registration from the speaker's Grant button.
     // Non-null only when a payable presenter registration was created; drives
     // the fee block + quote attachment on the welcome email below.
     let feeExtras: Awaited<ReturnType<typeof ensureSubmitterRegistration>> = null;

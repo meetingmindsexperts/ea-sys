@@ -134,7 +134,11 @@ is written to the history with who did it.
 Each step is its own commit, reviewed, deployable alone.
 
 **Step 1. Abstract sign-up never creates a Faculty registration.** BUILT Nov 20,
-2026 (`src/lib/author-rates.ts`, `presenter-signup.ts`).
+2026 (`src/lib/author-rates.ts`, `presenter-signup.ts`). After its review: the
+ordinary rate is only ever an open rate whose name is ticked for the main
+Register link, and a registration type's own price is never offered, so an
+event priced by type alone (no rates; one draft event on production) offers
+authors nothing and the organisers give the registration.
 Replace the D4 branch in `ensureSubmitterRegistration` with the outcome of P1.
 Both doors are covered because both call it. Tests: an abstract sign-up on an
 event without presenter rates creates no Faculty registration; a session

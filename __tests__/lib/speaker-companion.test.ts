@@ -17,6 +17,7 @@ const registrationFindFirst = vi.fn();
 const registrationUpdateMany = vi.fn();
 const speakerUpdate = vi.fn();
 const speakerFindUnique = vi.fn();
+const speakerFindMany = vi.fn();
 const txAttendeeCreate = vi.fn();
 const txRegistrationCreate = vi.fn();
 // H2 (Aug 5 2026): the create-path link is a CONDITIONAL updateMany claim.
@@ -47,6 +48,7 @@ vi.mock("@/lib/db", () => ({
     speaker: {
       update: (...a: unknown[]) => speakerUpdate(...a),
       findUnique: (...a: unknown[]) => speakerFindUnique(...a),
+      findMany: (...a: unknown[]) => speakerFindMany(...a),
     },
     // Tenant-stamp source: the helper resolves the event's org on the create path.
     event: {
@@ -65,7 +67,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/utils", () => ({ generateBarcode: () => "BC-TEST-123" }));
 vi.mock("@/lib/registration-serial", () => ({ getNextSerialId: vi.fn(async () => 7) }));
 
-import { ensureFacultyTicketType, ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
+import { ensureCompanionsForSpeakerEmails, ensureFacultyTicketType, ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
 
 const base = {
   id: "spk_1",
@@ -340,5 +342,22 @@ describe("ensureFacultyTicketType beside an ordinary Faculty", () => {
     await ensureFacultyTicketType("evt_1");
     const counted = ticketTypeFindFirst.mock.calls[1][0].select._count.select.registrations.where.paymentStatus.in;
     expect([...counted].sort()).toEqual(["FAILED", "INCLUSIVE", "PAID", "PENDING", "REFUNDED"]);
+  });
+});
+
+// Nov 20, 2026 (review of 08f6b291): Faculty is for the speakers the organisers
+// invite. A speaker CSV re-import passes every row's address here, including
+// people already on the event who came through the abstract or proposal door
+// and hold no registration yet; they must not be put on Faculty by it.
+describe("ensureCompanionsForSpeakerEmails", () => {
+  it("only ever looks at speakers who did NOT come through the abstract or proposal door", async () => {
+    speakerFindMany.mockResolvedValue([]);
+    await ensureCompanionsForSpeakerEmails("evt_1", ["author@x.com", "invited@x.com"]);
+    expect(speakerFindMany.mock.calls[0][0].where).toEqual({
+      eventId: "evt_1",
+      email: { in: ["author@x.com", "invited@x.com"] },
+      sourceRegistrationId: null,
+      submitterSource: null,
+    });
   });
 });

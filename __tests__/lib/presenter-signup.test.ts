@@ -84,7 +84,7 @@ const SPEAKER = {
 };
 
 /** A registration type's own columns, as the resolver selects them. */
-const TYPE_COLUMNS = { isActive: true, price: 0, currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null };
+const TYPE_COLUMNS = { isActive: true, quantity: 999999, soldCount: 0 };
 const OPEN_RATE = { currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null };
 
 /** One registration type carrying an open presenter tier. */
@@ -202,10 +202,24 @@ describe("an event with no presenter rates: the ordinary rate on sale, never Fac
     expect(ensureCompanionSpy).not.toHaveBeenCalled();
   });
 
-  it("a type with no rates is sold at its own price", async () => {
-    findManySpy.mockResolvedValue([{ id: "tt-phys", name: "Physician", ...TYPE_COLUMNS, price: 300, pricingTiers: [] }]);
+  // Review of 08f6b291 (HIGH): organisers close rates with the Active switch and
+  // leave the type's own price at 0.00, and an event priced by type alone can
+  // have a type that is itself "Complimentary". The query returns active rates
+  // only; a type with none open sells nothing, at any price.
+  it("a type with no open rate sells nothing: no registration at the type's own price", async () => {
+    findManySpy.mockResolvedValue([{ id: "tt-phys", name: "Physician", ...TYPE_COLUMNS, pricingTiers: [] }]);
     await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
-    expect(createAndLinkSpy.mock.calls[0][0]).toMatchObject({ ticketTypeId: "tt-phys", pricingTierId: null });
+    expect(createAndLinkSpy).not.toHaveBeenCalled();
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
+  });
+
+  it("a free rate kept for staff (Complimentary) is never sold to an author", async () => {
+    findManySpy.mockResolvedValue(ordinaryType([
+      { id: "t-comp", name: "Complimentary", price: 0, sortOrder: 0, ...OPEN_RATE },
+      { id: "t-std", name: "Standard", price: 500, sortOrder: 1, ...OPEN_RATE },
+    ]));
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+    expect(createAndLinkSpy.mock.calls[0][0].pricingTierId).toBe("t-std");
   });
 
   it("never sells a sponsor's rate, even when it sorts first", async () => {
@@ -213,7 +227,9 @@ describe("an event with no presenter rates: the ordinary rate on sale, never Fac
       { id: "t-spon", name: "Sponsored", price: 0, sortOrder: 0, ...OPEN_RATE },
       { id: "t-eb", name: "Early Bird", price: 400, sortOrder: 1, ...OPEN_RATE },
     ]));
-    await ensureSubmitterRegistration({ ...BASE, eventSettings: { codeRequiredTiers: ["sponsored"] }, ticketTypeId: "tt-phys" });
+    // Ticked for the main link AND marked sponsor-only: the sponsor mark wins.
+    const eventSettings = { mainRegisterTiers: ["sponsored", "early-bird"], codeRequiredTiers: ["sponsored"] };
+    await ensureSubmitterRegistration({ ...BASE, eventSettings, ticketTypeId: "tt-phys" });
     expect(createAndLinkSpy.mock.calls[0][0].pricingTierId).toBe("t-eb");
   });
 
@@ -222,7 +238,8 @@ describe("an event with no presenter rates: the ordinary rate on sale, never Fac
     await ensureSubmitterRegistration({ ...BASE, eventSettings: { registrationOpen: false }, ticketTypeId: "tt-phys" });
     expect(createAndLinkSpy).not.toHaveBeenCalled();
     expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
-    expect(apiLogger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "presenter-signup:no-rate-on-offer" }));
+    // warn: production keeps warnings in the log table, and this is the only sign of it.
+    expect(apiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "presenter-signup:no-rate-on-offer" }));
   });
 
   it("a type whose rates are all closed offers nothing: its own price (0 on an event priced by rate) is never the fallback", async () => {
@@ -272,6 +289,13 @@ describe("the Faculty registration is never made for submitting an abstract", ()
 });
 
 describe("someone already registered on the event keeps that registration", () => {
+  // Review of 08f6b291 (MED): unescaped, "_" matched any character, so
+  // ann_lee@ counted as registered because ann.lee@ is, and got nothing.
+  it("asks with the escaped match, so a look-alike address is not 'already registered'", async () => {
+    await ensureSubmitterRegistration({ ...BASE, speaker: { ...SPEAKER, email: "ann_lee@hospital.org" }, ticketTypeId: "tt-phys" });
+    expect(heldRegistrationSpy.mock.calls[0][0].where.attendee.email).toEqual({ equals: "ann\\_lee@hospital.org", mode: "insensitive" });
+  });
+
   // Invited faculty who submit, or a delegate who registered first: first registration wins.
   it("links it and creates nothing, whatever was chosen on the form, without pricing anything", async () => {
     heldRegistrationSpy.mockResolvedValue({ id: "reg-faculty" });

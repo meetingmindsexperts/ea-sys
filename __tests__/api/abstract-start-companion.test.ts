@@ -293,7 +293,7 @@ describe("abstract-start — lookup, then confirmed details", () => {
     mockDb.ticketType.findMany.mockResolvedValueOnce([
       {
         id: "tt-stu", name: "Student", isActive: true, requiresStudentId: true,
-        price: 0, currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null,
+        quantity: 999999, soldCount: 0,
         pricingTiers: [{ id: "tier-p", name: "Presenter", price: 0, currency: "USD", sortOrder: 3,
           quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null }],
       },
@@ -303,6 +303,39 @@ describe("abstract-start — lookup, then confirmed details", () => {
     expect(((await res.json()) as { code: string }).code).toBe("IDENTITY_EVIDENCE_REQUIRED");
     expect(upsertSpy).not.toHaveBeenCalled();
     expect(ensureCompanionSpy).not.toHaveBeenCalled();
+  });
+
+  // Nov 20, 2026: an invited speaker who signs in to submit keeps the Faculty
+  // registration they hold, and is not made to pick a type and a rate.
+  it("a signed-in person already registered here is not asked for a type, and nothing is created", async () => {
+    // Once: only the unregistered attempt prices anything.
+    mockDb.ticketType.findMany.mockResolvedValueOnce([
+      {
+        id: "tt-phys", name: "Physician", isActive: true,
+        quantity: 999999, soldCount: 0,
+        pricingTiers: [{ id: "tier-p", name: "Presenter", price: 400, currency: "USD", sortOrder: 3,
+          quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null }],
+      },
+    ]);
+    // Not registered: a rate is on offer, so a type is required.
+    const refused = await POST(makeReq(validBody), params);
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { code: string }).code).toBe("REGISTRATION_TYPE_REQUIRED");
+
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-faculty", attendee: null, ticketType: { name: "Faculty", isFaculty: true } });
+    const res = await POST(makeReq(validBody), params);
+    expect(res.status).toBe(200);
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
+  });
+
+  it("lookup says what the person is registered as, from a registration proven to be theirs", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-faculty", attendee: null, ticketType: { name: "Faculty", isFaculty: true } });
+    const body = (await (await POST(makeReq({ ...validBody, intent: "lookup" }), params)).json()) as { registeredHere: boolean; registeredAs: string | null };
+    expect(body).toMatchObject({ registeredHere: true, registeredAs: "Faculty" });
+    // An address-only match (no registration linked to the account): registered, but not named.
+    mockDb.registration.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "reg-here" });
+    const unnamed = (await (await POST(makeReq({ ...validBody, intent: "lookup" }), params)).json()) as { registeredHere: boolean; registeredAs: string | null };
+    expect(unnamed).toMatchObject({ registeredHere: true, registeredAs: null });
   });
 
   it("lookup with a wrong password is a 401 and reveals nothing", async () => {

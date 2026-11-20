@@ -21,6 +21,7 @@
  * See src/services/README.md for the shared conventions.
  */
 
+import { equalsIgnoringCase } from "@/lib/like-escape";
 import type { Prisma, RegistrationCreatedSource } from "@prisma/client";
 import { AttendanceMode, PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
@@ -923,7 +924,10 @@ export async function createRegistration(
       const existing = await tx.registration.findFirst({
         where: {
           eventId,
-          attendee: { email: { equals: email, mode: "insensitive" } },
+          // Escaped (like-escape.ts): unescaped, "_" in an address matched any
+          // character, so ann_lee@ was "already registered" as ann.lee@, and the
+          // abstract doors then linked the other person's registration to her.
+          attendee: { email: equalsIgnoringCase(email) },
           status: { notIn: [RegistrationStatus.CANCELLED] },
         },
         select: { id: true },

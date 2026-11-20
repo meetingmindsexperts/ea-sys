@@ -419,7 +419,7 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
     { key: "lastName", description: "Submitter last name" },
     { key: "eventName", description: "Event name" },
     { key: "loginLink", description: "Login page link" },
-    { key: "presenterFeeBlock", description: "Presenter registration fee + quote note. Renders as NOTHING unless the event has presenter rates and this person was placed on one (plan D2/D3)" },
+    { key: "presenterFeeBlock", description: "The author's registration fee + quote note. Renders as NOTHING unless the abstract sign-up made this person a registration with a fee (a presenter rate, or the ordinary rate on an event with none)" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
     ],
     rawHtmlKeys: ["presenterFeeBlock"],

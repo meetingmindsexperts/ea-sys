@@ -46,6 +46,10 @@ async function main() {
   const speakers = await db.speaker.findMany({
     where: {
       sourceRegistrationId: null,
+      // Never an abstract author or a session proposer (Nov 20, 2026): Faculty
+      // is for the speakers the organisers invite, and an author with no
+      // registration is waiting for the organisers' decision, not for this script.
+      submitterSource: null,
       ...(eventFilter ? { eventId: eventFilter } : {}),
     },
     select: SPEAKER_SELECT,

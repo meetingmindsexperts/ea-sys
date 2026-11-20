@@ -37,6 +37,7 @@ import {
 import { createAndLinkPayableRegistration } from "@/lib/presenter-registration";
 import { isPresenterPayNowEnabled } from "@/lib/presenter-registration-settings";
 import { authorRateOptions } from "@/lib/author-rates";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
 import { tierAvailability } from "@/lib/public-availability";
 import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
@@ -129,8 +130,8 @@ export interface PresenterSignupInput {
 export type PresenterRateSelection =
   /** Nothing is on offer to an author right now: link only, never a free registration. */
   | { kind: "none" }
-  /** A rate is on sale and the submitter's choice resolved to it (null: a type with no rates, at its own price). */
-  | { kind: "resolved"; ticketTypeId: string; pricingTierId: string | null; policy: TypeEvidencePolicy }
+  /** A rate is on sale and the submitter's choice resolved to it. */
+  | { kind: "resolved"; ticketTypeId: string; pricingTierId: string; policy: TypeEvidencePolicy }
   /**
    * Rates ARE on offer, but no usable one was chosen: either the field was
    * absent, or it named a type whose rate is closed, sold out or does not
@@ -156,12 +157,9 @@ export async function resolvePresenterRateSelection(
       id: true,
       name: true,
       isActive: true,
-      price: true,
-      currency: true,
+      // The type's own seat limit is the ceiling over its rates (tierAvailability).
       quantity: true,
       soldCount: true,
-      salesStart: true,
-      salesEnd: true,
       ...IDENTITY_EVIDENCE_SELECT,
       ...SUPPORTING_DOCUMENT_POLICY_SELECT,
       pricingTiers: {
@@ -188,13 +186,6 @@ export async function resolvePresenterRateSelection(
       id: tt.id,
       name: tt.name,
       isActive: tt.isActive,
-      price: Number(tt.price),
-      currency: tt.currency,
-      // A type with no rates is sold at its own price, inside its own dates and seats.
-      canPurchase:
-        tt.soldCount < tt.quantity &&
-        (!tt.salesStart || tt.salesStart <= now) &&
-        (!tt.salesEnd || tt.salesEnd >= now),
       pricingTiers: tt.pricingTiers.map((t) => ({
         id: t.id,
         name: t.name,
@@ -207,7 +198,11 @@ export async function resolvePresenterRateSelection(
         canPurchase: tierAvailability(t, tt, now).canPurchase,
       })),
     })),
-    { registrationOpen: settings.registrationOpen !== false, codeRequiredTiers: readCodeRequiredTiers(eventSettings) },
+    {
+      registrationOpen: settings.registrationOpen !== false,
+      codeRequiredTiers: readCodeRequiredTiers(eventSettings),
+      mainRegisterTiers: settings.mainRegisterTiers,
+    },
   );
   // Empty is meaningful, not an error: nothing is on sale for an author, so
   // the sign-up links what exists and creates nothing (never a free place).
@@ -244,7 +239,9 @@ export async function holdsLiveRegistration(eventId: string, email: string): Pro
   const existing = await db.registration.findFirst({
     where: {
       eventId,
-      attendee: { email: { equals: email, mode: "insensitive" } },
+      // The escaped match: an unescaped one reads "_" as "any character", so
+      // ann_lee@ would count as registered because ann.lee@ is (review of 08f6b291).
+      attendee: { email: equalsIgnoringCase(email) },
       status: { not: "CANCELLED" },
     },
     select: { id: true },
@@ -273,8 +270,12 @@ export async function checkPresenterRateSelection(
   eventId: string,
   source: string,
   ticketTypeId: string | null | undefined,
-  /** Who is signing up and what they gave for the chosen type's ID and document switches. */
-  applicant: { email: string; evidence?: PresenterEvidenceInput } | undefined,
+  /**
+   * Who is signing up and what they gave for the chosen type's ID and document
+   * switches. `passwordChecked`: the caller has just proven the account is
+   * theirs (the sign-in door); the new-account door has proven nothing.
+   */
+  applicant: { email: string; evidence?: PresenterEvidenceInput; passwordChecked?: boolean } | undefined,
   /** The event's settings JSON (the registration switch, the sponsor-only rates). */
   eventSettings: unknown,
 ): Promise<
@@ -288,14 +289,18 @@ export async function checkPresenterRateSelection(
 
   // Someone already registered on the event (invited faculty, a delegate who
   // registered first) keeps that registration: nothing is created, so there is
-  // no rate to choose and nothing to verify. Until Nov 20, 2026 they were still
-  // made to pick a type and a rate that was never charged.
-  if (applicant && (await holdsLiveRegistration(eventId, applicant.email))) return { ok: true };
+  // nothing to verify. A SIGNED-IN person is not asked for a rate either
+  // (until Nov 20, 2026 they had to pick a type and a rate that was never
+  // charged). A new account still is: answering differently for a registered
+  // address would tell a stranger which addresses are registered (review of
+  // 08f6b291), and the new-account form shows the choice to everyone.
+  const registered = applicant ? await holdsLiveRegistration(eventId, applicant.email) : false;
+  if (registered && applicant?.passwordChecked) return { ok: true };
 
   const selection = await resolvePresenterRateSelection(eventId, ticketTypeId, eventSettings);
   if (selection.kind === "none") return { ok: true };
   if (selection.kind === "resolved") {
-    if (!applicant || !asksForEvidence(selection.policy)) return { ok: true };
+    if (!applicant || registered || !asksForEvidence(selection.policy)) return { ok: true };
     return checkPresenterEvidence(selection.policy, eventId, applicant.evidence);
   }
 
@@ -339,7 +344,9 @@ export async function ensureSubmitterRegistration(
       // Nothing is on sale for an author (owner, Nov 20, 2026): no registration
       // is made, and never the free Faculty one this branch made until then.
       // The organisers give one later; the line is what tells them it happened.
-      apiLogger.info({ msg: "presenter-signup:no-rate-on-offer", eventId: speaker.eventId, speakerId: speaker.id });
+      // warn, not info: production keeps warnings in the log table, and this
+      // is the only sign that an author signed up with no registration.
+      apiLogger.warn({ msg: "presenter-signup:no-rate-on-offer", eventId: speaker.eventId, speakerId: speaker.id });
       await ensureSpeakerCompanionRegistration(speaker, { linkOnly: true, expectedLink });
       return null;
     }

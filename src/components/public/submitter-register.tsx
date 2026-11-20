@@ -107,6 +107,7 @@ interface Event {
   /** The registration switch and the sponsor-only rates, as the public event API sends them. */
   registrationOpen?: boolean;
   codeRequiredTiers?: string[];
+  mainRegisterTiers?: string[];
 }
 
 const VARIANT_COPY: Record<
@@ -277,7 +278,11 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
    */
   const rateOptions =
     variant === "abstract"
-      ? authorRateOptions(event?.ticketTypes, { registrationOpen: event?.registrationOpen, codeRequiredTiers: event?.codeRequiredTiers })
+      ? authorRateOptions(event?.ticketTypes, {
+          registrationOpen: event?.registrationOpen,
+          codeRequiredTiers: event?.codeRequiredTiers,
+          mainRegisterTiers: event?.mainRegisterTiers,
+        })
       : [];
   const offersRates = rateOptions.length > 0;
   const [loading, setLoading] = useState(true);
@@ -789,7 +794,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                       <span className="block text-base font-medium text-slate-800 truncate">
                         {o.ticketTypeName}
                       </span>
-                      {o.tierName && <span className="block text-xs text-slate-400">{o.tierName}</span>}
+                      <span className="block text-xs text-slate-400">{o.tierName}</span>
                     </span>
                   </span>
                   <span className="text-base font-semibold text-slate-800 whitespace-nowrap tabular-nums">
@@ -799,9 +804,9 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
               ))}
             </div>
             <p className="text-sm text-slate-400">
-              You will receive a quote by email. Payment is not required to
-              submit your abstract, and the organizing team will confirm your
-              fee once your submission has been reviewed.
+              Payment is not required to submit your abstract. If a fee
+              applies you will receive a quote by email, and the organizing
+              team will confirm your fee once your submission has been reviewed.
             </p>
             <FormMessage />
           </FormItem>

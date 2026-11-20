@@ -83,12 +83,11 @@ export interface PresenterTicketTypeCandidate {
 /**
  * One registration type and the rate an author is offered on it: its presenter
  * rate, or (an event with none, author-rates.ts) its ordinary rate on sale.
- * `tierId` is null only for a type that has no rates and is sold at its own price.
  */
 export interface PresenterRateOption {
   ticketTypeId: string;
   ticketTypeName: string;
-  tierId: string | null;
+  tierId: string;
   tierName: string;
   price: number;
   currency: string;

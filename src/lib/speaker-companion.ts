@@ -451,7 +451,10 @@ export async function ensureCompanionsForSpeakerEmails(
   if (emails.length === 0) return summary;
 
   const speakers = await db.speaker.findMany({
-    where: { eventId, email: { in: emails }, sourceRegistrationId: null },
+    // Not someone who came through the abstract or proposal door: they hold
+    // the registration their sign-up gave them, or none until the organisers
+    // decide, and are never put on Faculty by a re-import (Nov 20, 2026).
+    where: { eventId, email: { in: emails }, sourceRegistrationId: null, submitterSource: null },
     select: {
       id: true,
       eventId: true,

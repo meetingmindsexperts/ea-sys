@@ -308,7 +308,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       event.id,
       parsed.data.source,
       parsed.data.ticketTypeId,
-      { email: emailLower, evidence: parsed.data },
+      { email: emailLower, evidence: parsed.data, passwordChecked: true },
       event.settings,
     );
     if (!rateCheck.ok) {
@@ -426,10 +426,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       source: parsed.data.source,
       ticketTypeId: parsed.data.ticketTypeId ?? null,
       evidence: parsed.data,
-      // The rate the person chose on the details page (Sep 29, 2026). Where the
-      // event charges presenters it is required above; where it charges
-      // nothing they get the complimentary companion (D4) or keep the
-      // registration they already hold.
+      // The registration type the person chose on the details page (Sep 29,
+      // 2026). Where a rate is on offer it is required above; someone already
+      // registered keeps that registration; with nothing on offer no
+      // registration is made (never Faculty: Nov 20, 2026, author-rates.ts).
       expectedLink: null,
       requestIp: getClientIp(req),
     });

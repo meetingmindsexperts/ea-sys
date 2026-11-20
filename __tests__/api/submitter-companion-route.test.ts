@@ -135,7 +135,7 @@ describe("submitter route — presenter rate is required when the event charges"
         id: "tt-phys",
         name: "Physician",
         isActive: true,
-        price: 0, currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null,
+        quantity: 999999, soldCount: 0,
         pricingTiers: [
           { id: "tier-p", name: "Presenter", price: 125, currency: "USD", sortOrder: 3,
             quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null },
@@ -424,7 +424,7 @@ describe("submitter route — the chosen type's student ID and document", () => 
         id: "tt-stu",
         name: "Student",
         isActive: true,
-        price: 0, currency: "USD", quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null,
+        quantity: 999999, soldCount: 0,
         requiresStudentId: true,
         requiresStudentIdExpiry: true,
         requiresDocument: true,
@@ -473,12 +473,28 @@ describe("submitter route — the chosen type's student ID and document", () => 
     expect(res.status).toBeLessThan(400);
   });
 
-  it("asks nothing of someone already registered for the event: nothing new is created", async () => {
+  it("asks no ID or document of someone already registered for the event: nothing new is created", async () => {
     withStudentRate();
     mockDb.registration.findFirst.mockResolvedValue({ id: "reg-existing" });
     const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-stu" }), { params });
 
     expect(res.status).toBeLessThan(400);
+  });
+
+  // Review of 08f6b291 (MED): this door has proven nothing about who is asking.
+  // Answering differently for a registered address would tell a stranger which
+  // addresses are registered, so a new account always chooses a type.
+  it("a NEW account on a registered address is still asked for a type: the answer does not depend on who is registered", async () => {
+    withStudentRate();
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-existing" });
+    const registered = await POST(makeReq(validBody), { params });
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    const unregistered = await POST(makeReq(validBody), { params });
+
+    expect(registered.status).toBe(400);
+    expect(unregistered.status).toBe(400);
+    expect((await registered.json()).code).toBe("REGISTRATION_TYPE_REQUIRED");
+    expect((await unregistered.json()).code).toBe("REGISTRATION_TYPE_REQUIRED");
   });
 });
 

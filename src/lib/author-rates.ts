@@ -7,8 +7,21 @@
  *
  *   - the event has presenter rates (a "Presenter..." rate on any type): the
  *     presenter rate on sale for each type that has one, as since Aug 11, 2026;
- *   - it has none: each type's ORDINARY rate on sale now, the one a delegate
- *     registering today would get, so the journey is the same on every event.
+ *   - it has none: each type's ORDINARY rate on sale now, the one the main
+ *     Register link would sell a delegate today: the first open rate, in the
+ *     organiser's order, among the rate names ticked for the main link
+ *     (Settings, Registration; Early Bird, Standard, Onsite unless changed),
+ *     so the journey is the same on every event.
+ *
+ * WHAT IS NEVER AN ORDINARY RATE (review of 08f6b291, HIGH): a rate that is
+ * not ticked for the main link (a "Complimentary" or "Inclusive" rate at 0.00
+ * exists on real events for staff to assign, and the first version sold it to
+ * any author), a sponsor's rate, a presenter rate, and a registration type's
+ * OWN price. Organisers open and close rates with the Active switch and leave
+ * the type's own price at 0.00, so a type with no open rate has nothing on
+ * sale; and an event priced by type alone, with no rates (one draft event on
+ * production), can have a type that is itself called "Complimentary". An
+ * author is only ever offered a real, open, main-link rate.
  *
  * Before this an event with no presenter rates gave every submitter a free
  * Faculty registration; Faculty is for the people the organisers invite.
@@ -23,7 +36,8 @@
  * is the price charged, and the door never takes a rate or a price from the
  * browser. Client-safe: pure, no Node imports.
  */
-import { tierNeedsSponsorCode } from "@/lib/code-required-tiers";
+import { registerTierSlug } from "@/lib/main-register-tiers";
+import { mainLinkTiers } from "@/lib/public-availability";
 import {
   isPresenterTierName,
   presenterRateOptions,
@@ -31,19 +45,16 @@ import {
   type PresenterTicketTypeCandidate,
 } from "@/lib/presenter-tiers";
 
-/** A registration type as the public event API returns it, with its own price for a type that has no rates. */
-export type AuthorRateTypeCandidate = PresenterTicketTypeCandidate & {
-  price?: number | string | null;
-  currency?: string | null;
-  /** The type's own availability (its dates and seats), computed server-side. */
-  canPurchase?: boolean;
-};
+/** A registration type as the public event API returns it. */
+export type AuthorRateTypeCandidate = PresenterTicketTypeCandidate;
 
 export interface AuthorRateContext {
   /** The event's registration switch (Settings, Registration). Off: no ordinary rate is offered. */
   registrationOpen?: boolean;
   /** Rates that need a sponsor's code (code-required-tiers.ts): never offered here. */
   codeRequiredTiers?: readonly string[] | null;
+  /** The rate names ticked for the main Register link (main-register-tiers.ts); the default when absent. */
+  mainRegisterTiers?: unknown;
 }
 
 /** Does any type on the event carry a presenter rate? Then presenter rates are what authors are offered. */
@@ -55,21 +66,14 @@ export function eventHasPresenterRates(ticketTypes: AuthorRateTypeCandidate[] | 
 }
 
 /**
- * One type's ordinary rate on sale now: the first open rate in the organiser's
- * order that is neither a presenter rate nor a sponsor's. A type that HAS rates
- * and none open offers nothing (its own price is usually 0 on an event priced
- * by rate, and falling back to it once let people register free); a type with
- * no rates at all is sold at its own price.
+ * One type's ordinary rate on sale now: the first open rate, in the
+ * organiser's order, whose name is one the main Register link sells
+ * (`mainLinkNames`: ticked, and not a sponsor's). None open: the type offers
+ * nothing. Its own price is never the fallback.
  */
-function ordinaryRateOption(tt: AuthorRateTypeCandidate, sponsorLinkSlugs: readonly string[]): PresenterRateOption | null {
-  const tiers = tt.pricingTiers ?? [];
-  if (tiers.length === 0) {
-    const price = Number(tt.price);
-    if (tt.canPurchase === false || !Number.isFinite(price)) return null;
-    return { ticketTypeId: tt.id, ticketTypeName: tt.name, tierId: null, tierName: "", price, currency: tt.currency || "USD" };
-  }
-  const open = tiers
-    .filter((t) => t.canPurchase !== false && !isPresenterTierName(t.name) && !tierNeedsSponsorCode(t.name, sponsorLinkSlugs))
+function ordinaryRateOption(tt: AuthorRateTypeCandidate, mainLinkNames: readonly string[]): PresenterRateOption | null {
+  const open = (tt.pricingTiers ?? [])
+    .filter((t) => t.canPurchase !== false && !isPresenterTierName(t.name) && mainLinkNames.includes(registerTierSlug(t.name)))
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   const tier = open[0];
   if (!tier) return null;
@@ -87,9 +91,10 @@ export function authorRateOptions(
   if (eventHasPresenterRates(ticketTypes)) return presenterRateOptions(ticketTypes);
   // Ordinary rates are the public form's rates, so the public form's switch governs them.
   if (context.registrationOpen === false) return [];
-  const sponsorLinkSlugs = context.codeRequiredTiers ?? [];
+  // The names the main Register link sells: ticked, minus sponsor-only rates.
+  const mainLinkNames = mainLinkTiers(context.mainRegisterTiers, context.codeRequiredTiers);
   return ticketTypes
     .filter((tt) => tt.isActive !== false)
-    .map((tt) => ordinaryRateOption(tt, sponsorLinkSlugs))
+    .map((tt) => ordinaryRateOption(tt, mainLinkNames))
     .filter((o): o is PresenterRateOption => o !== null);
 }
