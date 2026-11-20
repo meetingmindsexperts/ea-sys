@@ -64,6 +64,7 @@ import {
   EyeOff,
   ConciergeBell,
   IdCard,
+  CreditCard,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -96,6 +97,7 @@ import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { excludedAsNoBalance, excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
+import { BulkRegistrationUpdateDialog } from "@/components/registrations/bulk-update-dialog";
 import {
   ABSTRACT_FILTER_LABELS,
   ABSTRACT_FILTER_VALUES,
@@ -291,6 +293,8 @@ export default function RegistrationsPage() {
   const canImport = useCan("registrations.import", eventId) === "allowed";
   const canReadContacts = useCan("contacts.read") === "allowed";
   const canBulk = useCan("registrations.bulk", eventId) === "allowed";
+  // Cancelling many is the Cancel button many times: it needs that button's key.
+  const canCancelRegistrations = useCan("registrations.cancel", eventId) === "allowed";
   const canSendEmail = useCan("communications.send", eventId) === "allowed";
   const canOpenCommunications = useCan("templates.read", eventId) === "allowed";
   const canImportDtcm = useCan("dtcm.import", eventId) === "allowed";
@@ -364,6 +368,7 @@ export default function RegistrationsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [bulkUpdateOpen, setBulkUpdateOpen] = useState(false);
   const [assignCertificateOpen, setAssignCertificateOpen] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   // "Select by IDs" — paste a list (registration #, full ID, or email) copied
@@ -773,6 +778,16 @@ export default function RegistrationsPage() {
               >
                 <ArrowRightLeft className="mr-2 h-4 w-4" />
                 Change Type
+              </Button>
+            )}
+            {canBulk && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setBulkUpdateOpen(true)}
+              >
+                <CreditCard className="mr-2 h-4 w-4" />
+                Payment, badge or cancel
               </Button>
             )}
             {canBulk && (
@@ -1424,6 +1439,18 @@ export default function RegistrationsPage() {
         kind="registration"
         ids={[...selectedIds]}
         onDone={() => setSelectedIds(new Set())}
+      />
+
+      {/* Payment status, badge type or cancel, on the ticked rows */}
+      <BulkRegistrationUpdateDialog
+        eventId={eventId}
+        open={bulkUpdateOpen}
+        onOpenChange={setBulkUpdateOpen}
+        registrations={registrations
+          .filter((r) => selectedIds.has(r.id))
+          .map((r) => ({ id: r.id, label: `${formatSerialId(r.serialId)} ${r.attendee.firstName} ${r.attendee.lastName}`.trim() }))}
+        canCancel={canCancelRegistrations}
+        onFinished={(stillTicked) => setSelectedIds(new Set(stillTicked))}
       />
 
       {/* Bulk Tag Dialog */}

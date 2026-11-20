@@ -1113,6 +1113,72 @@ export function useBulkUpdateAbstracts(eventId: string) {
   });
 }
 
+// ============ REGISTRATIONS: the general actions on ticked rows ============
+/** What POST registrations/bulk-update takes (registration-bulk-service.ts). */
+export interface BulkRegistrationUpdateInput {
+  registrationIds: string[];
+  paymentStatus?: "COMPLIMENTARY" | "UNPAID" | "UNASSIGNED";
+  /** A badge type; an empty string clears it. */
+  badgeType?: string;
+  cancel?: true;
+}
+export interface BulkRegistrationSkip {
+  registrationId: string;
+  part: "paymentStatus" | "badgeType" | "cancel" | "all";
+  code: string;
+  message: string;
+}
+export interface BulkRegistrationUpdateOutcome {
+  changed: string[];
+  unchanged: string[];
+  skipped: BulkRegistrationSkip[];
+  remaining: string[];
+  /** Why the change stopped before the end, when it did. */
+  interrupted: string | null;
+}
+
+/** The server works for about 25 seconds per request and answers the ids it did not reach: several requests behind one press. */
+async function bulkUpdateRegistrationsInRounds(eventId: string, input: BulkRegistrationUpdateInput): Promise<BulkRegistrationUpdateOutcome> {
+  const total: BulkRegistrationUpdateOutcome = { changed: [], unchanged: [], skipped: [], remaining: input.registrationIds, interrupted: null };
+  for (let round = 0; round < MAX_BULK_UPDATE_ROUNDS && total.remaining.length > 0; round++) {
+    let page: Omit<BulkRegistrationUpdateOutcome, "interrupted">;
+    try {
+      page = await fetchApi<Omit<BulkRegistrationUpdateOutcome, "interrupted">>(`/api/events/${eventId}/registrations/bulk-update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...input, registrationIds: total.remaining }),
+      });
+    } catch (err) {
+      // Nothing was done at all: let the caller show the error.
+      if (round === 0) throw err;
+      total.interrupted = err instanceof Error ? err.message : "The change stopped";
+      return total;
+    }
+    total.changed.push(...page.changed);
+    total.unchanged.push(...page.unchanged);
+    total.skipped.push(...page.skipped);
+    // A request that reached nothing would loop for ever: stop and say so.
+    if (page.remaining.length >= total.remaining.length) {
+      total.interrupted = "The change made no progress";
+      return total;
+    }
+    total.remaining = page.remaining;
+  }
+  if (total.remaining.length > 0) total.interrupted = "The change is taking unusually long";
+  return total;
+}
+
+export function useBulkUpdateRegistrations(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: BulkRegistrationUpdateInput) => bulkUpdateRegistrationsInRounds(eventId, input),
+    // Settled: a change that stopped part-way still changed rows.
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+    },
+  });
+}
+
 export function useBulkUnassignAbstractReviewers(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({

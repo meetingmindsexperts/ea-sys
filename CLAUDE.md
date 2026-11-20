@@ -436,6 +436,7 @@ Clients (including AI agents) should parse `retryAfterSeconds` and back off. Do 
 | Certificate assignments `/api/events/[id]/certificates/assignments` (per user; assign and remove) | 300 | 1 hr |
 | Bulk reviewer assignment `/api/events/[id]/abstracts/reviewer-assignments` (per user; assign and remove, up to 5,000 pairs a request) | 60 | 1 hr |
 | Bulk status and type `/api/events/[id]/abstracts/bulk-update` (per user; requests, up to 500 abstracts each, a long change is several) | 60 | 1 hr |
+| Bulk payment status, badge or cancel `/api/events/[id]/registrations/bulk-update` (per user; requests, up to 500 registrations each) | 60 | 1 hr |
 | Delete an abstract `DELETE /api/events/[id]/abstracts/[abstractId]` (per user; attempts, one abstract a request) | 60 | 1 hr |
 | Form fields read `/api/public/person-fields` (per IP; every form asks once per page) | 600 | 60 s |
 | Form fields save `/api/organization/person-fields` (per organisation, shared by everyone who may edit the list) | 60 | 1 hr |

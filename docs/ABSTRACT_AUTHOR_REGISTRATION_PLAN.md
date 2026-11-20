@@ -1,6 +1,6 @@
 # Abstract authors are not Faculty: registration and the Presenter mark
 
-**Status: IN BUILD.** Steps 1, 2 and 4a built Nov 20, 2026; the rest not started. Owner, Nov 19, 2026. Amends decision D4 of
+**Status: IN BUILD.** Steps 1, 2, 3 and 4a built Nov 20, 2026; the rest not started. Owner, Nov 19, 2026. Amends decision D4 of
 [PRESENTER_REGISTRATION_PLAN.md](PRESENTER_REGISTRATION_PLAN.md); everything else
 in that plan stands.
 
@@ -154,7 +154,11 @@ this person's abstract outcome" for the filter, the mark, the count and the
 Speakers page (step 5). Also a count: "Accepted authors without a
 registration", so nobody arrives with no badge.
 
-**Step 3. The general actions on ticked rows:** Set payment status, Set badge
+**Step 3. The general actions on ticked rows:** BUILT Nov 20, 2026
+(`src/services/registration-bulk-service.ts`, `POST registrations/bulk-update`,
+the "Payment, badge or cancel" button). A row with an invoice on it is
+skipped and named, not cancelled-and-comped as A3 first said: the person
+decides on its own page. Set payment status, Set badge
 type, Cancel. Same permission keys as the single edit; the result names every
 row skipped and why; no re-pricing (a registration keeps its rate, R1).
 
