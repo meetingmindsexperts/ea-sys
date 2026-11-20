@@ -123,7 +123,10 @@ describe("buildRoleTail — role-aware differentiation", () => {
     // it) and runs the registration desk. The old guidance told a MEMBER that
     // money was hidden from them, which was wrong for three months; pin the
     // corrected policy edges rather than the exact wording.
-    expect(member.toLowerCase()).toContain("financial figures included");
+    expect(member.toLowerCase()).toContain("amounts included");
+    // Not invoices, since Nov 20, 2026 (owner): the assistant must not send a
+    // Member to an Invoices page that refuses them.
+    expect(member).toMatch(/NOT invoices/);
     expect(member.toLowerCase()).toContain("registration desk");
     expect(member).not.toMatch(/hidden from this role|cannot see financial/i);
   });

@@ -77,6 +77,18 @@ Review of `c332aea6` (0 BLOCKER, 0 HIGH, 4 MED, 7 LOW). All four MEDs are fixed 
 5. **LOW: a send resumed after a crash, with the template edited in between** to add an abstract token, skips each author's first abstract (the resume list holds that abstract's id from the per-author run).
 6. **Older, beside it:** a per-author send resumed after a crash can mail an author twice (the resume key is the first abstract the query happened to return, and the query has no order); an abstract title or reviewer note containing `{{...}}` aborts the whole send (the values are not passed through `untokened`); the count route cuts the ticked list at 500 and takes it in the query string; the reminder's preview omits the typed note; a per-author send keeps a recipient whose author has no email address, which the count drops.
 
+## Members no longer see invoices: what the Nov 20 review left (recorded Nov 20, 2026): not started
+
+Review of `fef1c1db` (0 BLOCKER, 0 HIGH, 2 MED, 9 LOW). Fixed in the commit after it: the Invoices cards on the event Overview and Event Setup were still offered to a Member (the MED this change introduced), the help assistant and three documents still said a Member reads invoices, and the refusal on the registration sheet's own invoice routes had no test. Recorded, not fixed:
+
+1. **MED, older, and the limit of this change: the public document link returns a registration's invoice or quote to anyone holding its id**, signed in or not (`/api/public/events/{slug}/registrations/{id}/document`, 30 an hour per address). A Member sees every registration id, so "no invoice or quote PDF" holds against the screens, not against someone who builds that address. Already here as the per-registration document token (P1a); this is one more reason for it.
+2. **For the owner: "View receipt" in Payment History is still shown to a Member.** It opens the card processor's receipt, or the stored proof of a bank transfer, not our receipt PDF. Kept as part of the payment; say if it should go too.
+3. **For the owner: Onsite staff keep invoices, quotes and the invoice export on their assigned events**, so a temp now sees more of them than an internal Member does.
+4. **LOW: a Member's own registration page** (`/e/{slug}/my-registration`, signed in as staff) asks the invoice list, is answered "not found" and logs a warning on each visit; the page then offers one "Download Quote" button, which returns their invoice once paid, and no Receipt. The fix is to treat an organisation account as the owner of a registration whose `userId` is theirs, in the three registrant invoice routes.
+5. **LOW, older:** the registration Activity timeline shows email subjects and attachment file names, which carry invoice and receipt numbers; a Member can put their own address as an attendee's additional email and receive the payment confirmation with its PDFs (it takes a real, audited payment); "Issue credit note" and "Refund" are shown to Member and Onsite and refused, and "Resend invoice + receipt" to Onsite; the assistant's dashboard map lists the Invoices link whatever the caller holds.
+
+Production on Nov 20, 2026: 3 Member accounts, none with a custom role, and no custom role carries an invoice permission.
+
 ## ID and document request, title and CC: what the Nov 20 review left (recorded Nov 20, 2026): not started
 
 Review of `286140d0` (0 BLOCKER, 0 HIGH, 0 MED, 2 LOW). Nothing needed fixing. Recorded:

@@ -124,6 +124,10 @@ describe("registrant /quote — finance boundary", () => {
     const res = await quoteGET(req(), { params: Promise.resolve({ registrationId: "r1" }) });
     expect(res.status).toBe(404); // not 403 — guard let it through, row just absent
     expect(mockDb.registration.findFirst).toHaveBeenCalled();
+    // A Member holds no invoices since Nov 20, 2026: past the amounts guard,
+    // the lookup's event filter matches no event, so the row is never found.
+    // MUTATION: give MEMBER invoices.read back and the filter is the organisation's events.
+    expect(mockDb.registration.findFirst.mock.calls[0][0].where.event).toEqual({ id: { in: [] } });
   });
 
   it("REGISTRANT owner is NOT blocked by denyFinance (owner-scoped exempt branch)", async () => {

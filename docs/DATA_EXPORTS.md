@@ -24,8 +24,8 @@ Everyone else is either narrower or excluded, with two known gaps in §6.
 |---|---|---|---|---|
 | **Registrations CSV** | `canExportRegistrations` | SUPER_ADMIN · ADMIN · ORGANIZER · ONSITE · WEBINARS · API keys | ✅ | 10/hr |
 | **Contacts CSV** (org address book, incl. private notes) | `canExportContacts` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER | ✅ | 10/hr |
-| **Org invoice ledger** (csv · QuickBooks · PDF zip) | `invoices.ledger` (since Oct 5, 2026) | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER (ONSITE refused since Oct 5, 2026) | ✅ | — |
-| **Event invoices** | `invoices.export` (since Oct 5, 2026) | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · ONSITE (assigned events) · WEBINARS (webinars) | ✅ | — |
+| **Org invoice ledger** (csv · QuickBooks · PDF zip) | `invoices.ledger` (since Oct 5, 2026) | SUPER_ADMIN · ADMIN · ORGANIZER (ONSITE refused since Oct 5, 2026; MEMBER no longer since Nov 20, 2026) | ✅ | — |
+| **Event invoices** | `invoices.export` (since Oct 5, 2026) | SUPER_ADMIN · ADMIN · ORGANIZER · ONSITE (assigned events) · WEBINARS (webinars); MEMBER no longer since Nov 20, 2026 | ✅ | — |
 | **Reimbursements CSV** — passport numbers, IBANs | `denyReviewer` | SUPER_ADMIN · ADMIN · ORGANIZER | ✅ | — |
 | **Travel grants CSV** | `denyReviewer` | SUPER_ADMIN · ADMIN · ORGANIZER | ✅ | — |
 | **RSVP roster CSV** | `denyReviewer` | SUPER_ADMIN · ADMIN · ORGANIZER | ✅ | — |

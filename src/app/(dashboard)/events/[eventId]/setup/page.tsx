@@ -311,7 +311,10 @@ export default async function SetupPage({ params }: SetupPageProps) {
   ] = result;
   if (!event) notFound();
 
-  const canFinance = can(principalFromSession(session), "finance.view");
+  // The Invoices card opens the Invoices page, which asks for invoices.read
+  // on top of seeing amounts (not a Member's, since Nov 20, 2026).
+  const canFinance =
+    can(principalFromSession(session), "finance.view") && can(principalFromSession(session), "invoices.read");
   const visibleCards = [
     ...SETUP_CARDS,
     ...(isVenueModuleEnabled() ? [VENUE_CARD] : []),

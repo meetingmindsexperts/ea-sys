@@ -13,8 +13,8 @@ import { runWithTenant } from "@/lib/tenant-context";
  * Organization-wide invoice hub — every Invoice-model document (invoices,
  * receipts, credit notes) across ALL of the org's events, filterable by
  * year / month / event / type / status. Powers the org-level Invoices page
- * in the sidebar. Gated on `invoices.ledger` (SUPER_ADMIN, ADMIN, ORGANIZER,
- * MEMBER). Org-scoped via `organizationId` so it never crosses tenants.
+ * in the sidebar. Gated on `invoices.ledger` (SUPER_ADMIN, ADMIN, ORGANIZER;
+ * not MEMBER since Nov 20, 2026). Org-scoped via `organizationId` so it never crosses tenants.
  *
  * WEBINARS and ONSITE are finance-capable for their DESK duties (payment
  * amounts on their own events), but this is an ORG-WIDE ledger covering every

@@ -95,7 +95,12 @@ export default async function EventPage({ params }: EventPageProps) {
 
   const isRestricted =
     session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
-  const canFinance = can(principalFromSession(session), "finance.view");
+  // The Invoices & Quotes card is a link to the Invoices page: seeing amounts
+  // is not enough, the page asks for invoices.read (a Member sees amounts and
+  // holds no invoices since Nov 20, 2026; review of fef1c1db: the card was
+  // still offered and led to "no access").
+  const canFinance =
+    can(principalFromSession(session), "finance.view") && can(principalFromSession(session), "invoices.read");
 
   // The Invoices & Quotes card shows only once its page has something to list
   // (owner, Nov 18, 2026): an invoice, receipt or credit note, or a quote,

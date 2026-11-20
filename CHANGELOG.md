@@ -14,10 +14,11 @@ Under the number of accepted abstracts, the card now lists them by presentation 
 
 Owner decision. The built-in Member role loses three permissions: See invoices, Export invoices, and The organisation's invoice book.
 
-- **Gone for a Member:** the Invoices page on every event, the organisation's Invoices page, the invoice export, and the invoice, receipt and quote downloads on a registration (the buttons are no longer shown). The assistant's "list invoices" is refused for a Member too.
+- **Gone for a Member:** the Invoices page on every event (its sidebar entry and its cards on the event Overview and Event Setup), the organisation's Invoices page, the invoice export, and the invoice, receipt and quote downloads on a registration (the buttons are no longer shown). A payer's name on the Registrations list is no longer a link to the payer's invoices. The assistant's "list invoices" is refused for a Member too.
 - **Kept:** prices, payment status and the Billing & Payments tab on a registration, and recording a payment at the desk.
-- **To give them back to one person:** a custom role with those three permissions (Settings, Roles).
-- **Foot gun:** a Member who is registered for an event themselves can no longer download their own invoice or quote from their registration page while signed in to their staff account.
+- **To give them back to one person:** a custom role with those three permissions, made by a super admin.
+- **Still shown:** "View receipt" beside a payment in Payment History (the card processor's receipt or the stored proof of a bank transfer, part of the payment, not our invoice).
+- **Foot gun:** this hides invoices on the screens. The public document link of a registration (the one in the attendee's own emails) still returns its invoice or quote to anyone who has the registration's id, signed in or not; that is an older gap, on the roadmap. A Member registered for an event themselves sees one "Download Quote" button on their own registration page, which gives their invoice once paid, and no Receipt button.
 - Takes effect for the three Member accounts on production as soon as it is deployed; nobody has to sign in again.
 
 ### The ID and document request greets "Dr." and copies the person's second address (November 20)
