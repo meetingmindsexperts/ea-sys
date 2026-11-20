@@ -232,7 +232,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const eventFacts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
     const mayReadRegistrations =
       !!session?.user && !ownSpeakerOnly && visibility.abstracts && eventFacts !== null && can(gate.principal, "registrations.read", { event: eventFacts });
-    const acceptedAuthors = mayReadRegistrations ? speakers.filter((s) => s.abstracts.some((a) => a.status === "ACCEPTED")) : [];
+    const acceptedAuthors = mayReadRegistrations ? speakers.filter((s) => (s.abstracts ?? []).some((a) => a.status === "ACCEPTED")) : [];
     const registered = acceptedAuthors.length > 0 ? await registeredAmong(eventId, acceptedAuthors) : null;
     const acceptedIds = new Set(acceptedAuthors.map((s) => s.id));
 

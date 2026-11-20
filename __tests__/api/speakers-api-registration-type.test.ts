@@ -99,7 +99,9 @@ describe("the two reads", () => {
     expect(rows[0].sourceRegistration).toEqual({ serialId: 75 });
     expect(rows[3].sourceRegistration).toBeNull();
     const select = mockDb.speaker.findMany.mock.calls[0][0].include.sourceRegistration.select;
-    expect(select).toEqual({ serialId: true, status: true, ticketType: { select: { name: true, isFaculty: true } } });
+    // createdSource: how the registration was made (by hand as Faculty, or the automatic one), read for the
+    // Speakers page's Invited tab and, like the others, never sent.
+    expect(select).toEqual({ serialId: true, status: true, createdSource: true, ticketType: { select: { name: true, isFaculty: true } } });
   });
 
   it("GET /speakers/{id} serves the same value", async () => {
