@@ -509,14 +509,26 @@ function abstractRecipientWhere(args: {
   emailType: string;
   status: string | undefined;
   recipientIds: string[] | undefined;
+  /** The send goes once per abstract (abstractSendPerAbstract). */
+  perAbstract: boolean;
 }): Prisma.AbstractWhereInput {
   const parsed = args.status ? abstractStatusSchema.safeParse(args.status) : null;
   const explicitStatus = parsed?.success ? parsed.data : undefined;
   const statusWhere = explicitStatus ?? defaultAbstractStatusFilter(args.emailType);
+  // A saved template has no status scope of its own. Once it goes per abstract
+  // it tells each author about one abstract, so it never reaches a draft or a
+  // withdrawn one, whatever status was chosen: without this floor a template
+  // sent to "all" mailed "A-012: DRAFT" to every draft (review of c332aea6).
+  // AND, never a replacement: an explicit DRAFT then matches nothing.
+  const floor: Prisma.AbstractWhereInput =
+    args.emailType === "template" && args.perAbstract
+      ? { AND: [{ status: { notIn: [...ABSTRACT_NOT_RESENDABLE_STATUSES] } }] }
+      : {};
   return {
     eventId: args.eventId,
     ...(args.recipientIds?.length ? { id: { in: args.recipientIds } } : {}),
     ...(statusWhere ? { status: statusWhere } : {}),
+    ...floor,
   };
 }
 
@@ -540,18 +552,17 @@ export async function countAbstractEmailRecipients(args: {
 }): Promise<number> {
   assertValidBulkEmailFilters("abstracts", args.status ? { status: args.status } : undefined);
   assertAbstractTypeStatus(args.emailType, args.status);
-  const [rows, perAbstract] = await Promise.all([
-    db.abstract.findMany({
-      where: abstractRecipientWhere({
-        eventId: args.eventId,
-        emailType: args.emailType,
-        status: args.status,
-        recipientIds: args.recipientIds,
-      }),
-      select: { id: true, speaker: { select: { email: true } } },
+  const perAbstract = await abstractSendPerAbstract(args.eventId, args.emailType, args.templateSlug);
+  const rows = await db.abstract.findMany({
+    where: abstractRecipientWhere({
+      eventId: args.eventId,
+      emailType: args.emailType,
+      status: args.status,
+      recipientIds: args.recipientIds,
+      perAbstract,
     }),
-    abstractSendPerAbstract(args.eventId, args.emailType, args.templateSlug),
-  ]);
+    select: { id: true, speaker: { select: { email: true } } },
+  });
   if (perAbstract) return rows.length;
   return new Set(rows.map((r) => abstractAuthorKey(r.speaker.email)).filter(Boolean)).size;
 }
@@ -568,7 +579,8 @@ async function abstractSendPerAbstract(
 ): Promise<boolean> {
   if (emailType !== "template" || !templateSlug) return abstractSendIsPerAbstract(emailType, []);
   const tpl = await loadActiveEventTemplateRow(eventId, templateSlug);
-  return abstractSendIsPerAbstract(emailType, tpl ? [tpl.subject, tpl.htmlContent, tpl.textContent] : []);
+  // Subject and HTML only: what a send is refused over (see the rule's header).
+  return abstractSendIsPerAbstract(emailType, tpl ? [tpl.subject, tpl.htmlContent] : []);
 }
 
 /** What the send reads of each abstract; the preview reads the same. */
@@ -646,9 +658,9 @@ export async function previewAbstractEmailVars(args: {
   emailType: string;
   status?: string;
   recipientIds?: string[];
-  /** The text of the template being previewed (it decides per abstract or per author). */
+  /** The subject and HTML of the template being previewed (they decide per abstract or per author). */
   templateTexts: ReadonlyArray<string | null | undefined>;
-}): Promise<{ vars: Record<string, string | number>; shownFor: string } | null> {
+}): Promise<{ vars: Record<string, string | number>; shownFor: string; perAbstract: boolean } | null> {
   try {
     assertValidBulkEmailFilters("abstracts", args.status ? { status: args.status } : undefined);
     assertAbstractTypeStatus(args.emailType, args.status);
@@ -657,12 +669,14 @@ export async function previewAbstractEmailVars(args: {
     apiLogger.warn({ msg: "email-preview:abstract-audience-invalid", eventId: args.eventId, emailType: args.emailType, status: args.status, code: err.code });
     return null;
   }
+  const perAbstract = abstractSendIsPerAbstract(args.emailType, args.templateTexts);
   const row = await db.abstract.findFirst({
     where: abstractRecipientWhere({
       eventId: args.eventId,
       emailType: args.emailType,
       status: args.status,
       recipientIds: args.recipientIds,
+      perAbstract,
     }),
     orderBy: [{ serialId: "asc" }, { createdAt: "asc" }],
     select: ABSTRACT_RECIPIENT_SELECT,
@@ -676,14 +690,14 @@ export async function previewAbstractEmailVars(args: {
     firstName: speaker.firstName,
     lastName: speaker.lastName,
     speakerName: `${speaker.firstName} ${speaker.lastName}`,
+    authorName,
   };
-  if (!abstractSendIsPerAbstract(args.emailType, args.templateTexts)) {
-    return { vars: greeting, shownFor: authorName };
-  }
+  if (!perAbstract) return { vars: greeting, shownFor: authorName, perAbstract };
   const ab = abstractContextOf(row);
   return {
     vars: { ...greeting, ...abstractOwnVars(args.emailType, ab, speaker) },
     shownFor: ab.serialId != null ? `abstract ${formatAbstractSerial(ab.serialId)}` : `the abstract "${ab.title}"`,
+    perAbstract,
   };
 }
 
@@ -1630,7 +1644,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     const abstracts = await db.abstract.findMany({
       // ONE where for the send and for the audience count the dialog shows
       // (countAbstractEmailRecipients), so the number cannot drift from the mail.
-      where: abstractRecipientWhere({ eventId, emailType, status: filters?.status, recipientIds }),
+      where: abstractRecipientWhere({ eventId, emailType, status: filters?.status, recipientIds, perAbstract }),
       select: ABSTRACT_RECIPIENT_SELECT,
     });
     const seen = new Set<string>();
@@ -2186,6 +2200,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // per-abstract types add that abstract's own tokens via the SAME
       // builders the automatic emails use (preview == send == bulk).
       vars.managementLink = buildAbstractManagementLink(event.slug);
+      // The author's name is theirs, not one abstract's: filled on a per-author
+      // send too (it was set only per abstract, so "Dear {{authorName}}" in a
+      // saved template was refused; review of c332aea6).
+      vars.authorName = formatPersonName(recipient.title, recipient.firstName, recipient.lastName);
       const ab = recipient.abstract;
       if (ab) {
         Object.assign(

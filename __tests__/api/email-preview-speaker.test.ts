@@ -61,13 +61,14 @@ vi.mock("@/lib/email", () => ({
   })),
   renderTemplate: (html: string, vars: Record<string, string>, rawKeys?: Set<string>) => {
     mockRender(html, vars, rawKeys);
-    return html.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
+    return html.replace(/\{\{(\w+)\}\}/g, (t, k) => vars[k] ?? t);
   },
   // Faithful-enough fake: substitutes tokens from vars (escaping fidelity is
   // pinned by the real helper's own unit suite).
+  // An unknown token stays as typed, as the real helpers leave it.
   renderMessageValue: (m: string, vars: Record<string, string>) =>
-    m.replace(/\{\{(\w+)\}\}/g, (_, k) => String(vars[k] ?? "")),
-  renderTemplatePlain: (s: string, vars: Record<string, string>) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? ""),
+    m.replace(/\{\{(\w+)\}\}/g, (t, k) => String(vars[k] ?? t)),
+  renderTemplatePlain: (s: string, vars: Record<string, string>) => s.replace(/\{\{(\w+)\}\}/g, (t, k) => vars[k] ?? t),
   wrapWithBranding: (html: string) => html,
   inlineCss: (html: string) => html,
 }));
@@ -381,6 +382,7 @@ describe("email-preview with abstractAudience (Nov 20, 2026)", () => {
     mockAbstractPreview.mockResolvedValue({
       vars: { lastName: "Skouri", abstractNumber: "A-004", newStatus: "NOT ACCEPTED", reviewNotes: "<div>Notes</div>" },
       shownFor: "abstract A-004",
+      perAbstract: true,
     });
     const res = await POST(req({ slug: "abstract-not-accepted", abstractAudience: { emailType: "template", status: "REJECTED", recipientIds: ["abs-4"] } }), params);
     expect(res.status).toBe(200);
@@ -392,11 +394,31 @@ describe("email-preview with abstractAudience (Nov 20, 2026)", () => {
     // The audience as the dialog sent it, and the text of the template being previewed.
     expect(mockAbstractPreview).toHaveBeenCalledWith({
       eventId: "ev1", emailType: "template", status: "REJECTED", recipientIds: ["abs-4"],
-      templateTexts: ["{{abstractNumber}}: {{newStatus}}", "<p>Dear {{lastName}}, {{reviewNotes}}</p>", "T"],
+      // Subject and HTML only: the plain-text part decides nothing.
+      templateTexts: ["{{abstractNumber}}: {{newStatus}}", "<p>Dear {{lastName}}, {{reviewNotes}}</p>"],
     });
     // The reviewer-notes block is our own markup: raw, as the send renders it.
     expect((mockRender.mock.calls.at(-1)?.[2] as Set<string>).has("reviewNotes")).toBe(true);
-    expect(body.htmlContent).toContain("<div>Notes</div>");
+    expect(body).not.toHaveProperty("unfilled");
+  });
+
+  // Review of c332aea6. MUTATION: stop deleting the abstract's tokens for a
+  // per-author send and the body reads the sample "A-007" under the real name.
+  it("an email that goes once per author leaves an abstract's tokens unfilled, as that send would, and names them", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({ subject: "{{subject}}", htmlContent: "<p>Dear {{lastName}}</p>{{message}}", textContent: "", branding: { eventName: "Ev" } } as never);
+    vi.mocked(buildEventPreviewVariables).mockImplementationOnce(((_e: unknown, _u: unknown, extra: Record<string, string>) => ({
+      lastName: "Casison", abstractNumber: "A-007", newStatus: "ACCEPTED", abstractTitle: "Sample", ...extra,
+    })) as never);
+    mockAbstractPreview.mockResolvedValue({ vars: { lastName: "Skouri" }, shownFor: "Dr. Hadi Skouri", perAbstract: false });
+    const res = await POST(
+      req({ slug: "custom-notification", customSubject: "About {{abstractNumber}}", customMessage: "It is {{newStatus}}.", abstractAudience: { emailType: "custom" } }),
+      params,
+    );
+    const body = (await res.json()) as { subject: string; htmlContent: string; unfilled?: string[] };
+    expect(body.subject).toBe("About {{abstractNumber}}");
+    expect(body.htmlContent).toContain("It is {{newStatus}}.");
+    expect(body.htmlContent).not.toContain("ACCEPTED");
+    expect(body.unfilled).toEqual(["abstractNumber", "newStatus"]);
   });
 
   it("keeps the samples, and names no one, when the audience is empty", async () => {

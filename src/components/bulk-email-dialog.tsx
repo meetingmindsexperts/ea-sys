@@ -240,10 +240,16 @@ function getEmailTypes(recipientType: RecipientType): EmailTypeOption[] {
 }
 
 /** Whose copy the preview shows, when the server says (an abstracts send). */
-function previewNote(shownFor: string | undefined, emails: number): string | undefined {
+function previewNote(shownFor: string | undefined, emails: number, unfilled: string[] | undefined): string | undefined {
   if (!shownFor) return undefined;
-  if (emails > 1) return `Shown as it goes for ${shownFor}, the first of ${emails}. Each email carries its own details.`;
-  return `Shown as it goes for ${shownFor}.`;
+  const whose =
+    emails > 1
+      ? `Shown as it goes for ${shownFor}, the first of ${emails}. Each email carries its own details.`
+      : `Shown as it goes for ${shownFor}.`;
+  if (!unfilled?.length) return whose;
+  // An email that goes once per author cannot name one abstract.
+  const tokens = unfilled.map((t) => `{{${t}}}`).join(", ");
+  return `${whose} This email goes once per author, so ${tokens} cannot be filled and the send would be refused. To send one email per abstract, put the text in a saved template.`;
 }
 
 function getDefaultEmailType(recipientType: RecipientType): string {
@@ -488,7 +494,7 @@ export function BulkEmailDialog({
   );
   const certTemplateOptions = certTemplatesQuery.data?.templates ?? [];
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string; shownFor?: string } | null>(null);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string; shownFor?: string; unfilled?: string[] } | null>(null);
 
   // Computed once on mount; server-side validation re-checks at submit time.
   const [minScheduledFor] = useState(() => computeMinScheduledFor());
@@ -1328,7 +1334,7 @@ export function BulkEmailDialog({
                   This will send your saved{savedTemplateName ? ` “${savedTemplateName}”` : ""}{" "}
                   template, rendered with this event&apos;s details and branding for each recipient.
                   {savedTemplatePerAbstract &&
-                    " It names an abstract's own details (its number, title or status), so it goes once per abstract, each email with that abstract's own: an author with two abstracts receives two."}
+                    " It names an abstract's own details (its number, title or status), so it goes once per abstract, each email with that abstract's own: an author with two abstracts receives two. Drafts and withdrawn abstracts are never included."}
                 </p>
               )}
               {emailType === "abstract-confirmation" && (
@@ -1891,7 +1897,7 @@ export function BulkEmailDialog({
         onOpenChange={setPreviewOpen}
         subject={previewData.subject}
         htmlContent={previewData.htmlContent}
-        note={previewNote(previewData.shownFor, displayCount)}
+        note={previewNote(previewData.shownFor, displayCount, previewData.unfilled)}
       />
     )}
     </>

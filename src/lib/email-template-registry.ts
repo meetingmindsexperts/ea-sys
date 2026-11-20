@@ -1041,6 +1041,24 @@ export const BULK_SPEAKER_VARIABLES: readonly string[] = ["honorarium", "honorar
 export const BULK_PRESENTER_VARIABLES: readonly string[] = ["presenterAgreementAttachment", "presenterAgreementLink"];
 
 /**
+ * One abstract's own tokens (Nov 20, 2026): its number, title, type, theme and
+ * co-authors, and its decision as it stands. A saved template that names any
+ * of them in its subject or body is sent to abstract authors once per ABSTRACT,
+ * each email filled from that abstract (`abstractSendIsPerAbstract` in
+ * bulk-email-audience.ts, which builds its set from this list). Sent to
+ * another audience they stay unfilled and the send's unresolved-token guard
+ * says so, as for the speaker tokens above. Pinned to the builders' own keys
+ * by `bulk-email-abstract-audience.test.ts`.
+ */
+export const BULK_ABSTRACT_OWN_VARIABLES: readonly string[] = [
+  "abstractNumber", "abstractTitle", "presentationType", "theme", "coAuthorNames",
+  "newStatus", "statusHeading", "statusMessage", "reviewNotes", "reviewScore",
+];
+
+/** Filled on every send to abstract authors, whether it goes per abstract or per author. */
+export const BULK_ABSTRACT_AUTHOR_VARIABLES: readonly string[] = ["authorName", "managementLink"];
+
+/**
  * What a CUSTOM template's editor lists, grouped by who the email goes to
  * (Sep 25, 2026). The panel used to show only the four event tokens, so an
  * organiser reading it concluded that a copy of the speaker invitation could
@@ -1100,6 +1118,24 @@ export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hin
     ],
   },
   {
+    label: "Sent to abstract authors",
+    hint: "Filled when the audience is abstract submitters. Naming any of an abstract's own details sends one email per abstract, each with its own; drafts and withdrawn abstracts are left out.",
+    variables: [
+      { key: "authorName", description: "The author's full name with title" },
+      { key: "managementLink", description: "Their link to sign in and see their abstracts" },
+      { key: "abstractNumber", description: "The abstract's number, e.g. A-007 (one email per abstract)" },
+      { key: "abstractTitle", description: "The abstract's title (one email per abstract)" },
+      { key: "presentationType", description: "Its presentation type, e.g. Oral (one email per abstract)" },
+      { key: "theme", description: "Its theme (one email per abstract)" },
+      { key: "coAuthorNames", description: "Its co-authors, or None (one email per abstract)" },
+      { key: "newStatus", description: "Its status as it stands, e.g. ACCEPTED or NOT ACCEPTED (one email per abstract)" },
+      { key: "statusHeading", description: "A heading for that status (one email per abstract)" },
+      { key: "statusMessage", description: "A sentence for that status (one email per abstract)" },
+      { key: "reviewNotes", description: "The reviewers' notes to the author, in a box; empty when none (one email per abstract)" },
+      { key: "reviewScore", description: "The mean review score; empty when none (one email per abstract)" },
+    ],
+  },
+  {
     label: "Sent to registrations",
     hint: "Filled when the audience is registrations.",
     variables: [
@@ -1155,6 +1191,13 @@ export function templateAllowedTokenKeys(slug: string): string[] {
     for (const k of BULK_CONDITIONAL_VARIABLES) allowed.add(k);
     for (const k of BULK_SPEAKER_VARIABLES) allowed.add(k);
     for (const k of BULK_PRESENTER_VARIABLES) allowed.add(k);
+  }
+  // A saved template only: a send to abstract authors fills these for it. A
+  // system template keeps its own list, so an abstract token typed into, say,
+  // the registration confirmation is still flagged.
+  if (!spec) {
+    for (const k of BULK_ABSTRACT_OWN_VARIABLES) allowed.add(k);
+    for (const k of BULK_ABSTRACT_AUTHOR_VARIABLES) allowed.add(k);
   }
   for (const k of [...allowed]) allowed.add(`${k}Text`);
   return [...allowed];

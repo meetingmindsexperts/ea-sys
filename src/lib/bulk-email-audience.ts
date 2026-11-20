@@ -156,6 +156,7 @@ export function excludedAsNoBalance(
 
 import type { AbstractStatus } from "@prisma/client";
 import { findUnresolvedTokens } from "@/lib/template-tokens";
+import { BULK_ABSTRACT_OWN_VARIABLES } from "@/lib/email-template-registry";
 
 /** Types that send one email per ABSTRACT (the rest go once per author). */
 export const PER_ABSTRACT_EMAIL_TYPES: ReadonlySet<string> = new Set([
@@ -168,18 +169,7 @@ export const PER_ABSTRACT_EMAIL_TYPES: ReadonlySet<string> = new Set([
  * score). An email that names any of them can only be written about a single
  * abstract, so it is sent once per abstract.
  */
-export const ABSTRACT_OWN_TOKENS: ReadonlySet<string> = new Set([
-  "abstractNumber",
-  "abstractTitle",
-  "presentationType",
-  "theme",
-  "coAuthorNames",
-  "newStatus",
-  "statusHeading",
-  "statusMessage",
-  "reviewNotes",
-  "reviewScore",
-]);
+export const ABSTRACT_OWN_TOKENS: ReadonlySet<string> = new Set(BULK_ABSTRACT_OWN_VARIABLES);
 
 /** Does this text name any of an abstract's own tokens? */
 export function namesAbstractOwnToken(texts: ReadonlyArray<string | null | undefined>): boolean {
@@ -193,6 +183,15 @@ export function namesAbstractOwnToken(texts: ReadonlyArray<string | null | undef
  * filled, so an organiser's own "not accepted" email (number, title, status)
  * previewed with samples and was refused at the send. The send, the count the
  * dialog shows and the preview all ask here.
+ *
+ * `templateTexts` is the template's SUBJECT and HTML body, never its plain-text
+ * part: those two are what a send is refused over, so a template naming a token
+ * only in a stale text part sent before, once per author, and still does
+ * (review of c332aea6).
+ *
+ * A per-abstract template never reaches a draft or a withdrawn abstract
+ * (`abstractRecipientWhere` in bulk-email.ts): there is nothing to tell their author
+ * about, and a draft is not shown to staff.
  */
 export function abstractSendIsPerAbstract(
   emailType: string,

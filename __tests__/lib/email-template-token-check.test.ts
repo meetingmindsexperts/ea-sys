@@ -26,6 +26,8 @@ import {
   CUSTOM_TEMPLATE_VARIABLE_GROUPS,
   isUnlistedCustomTemplateToken,
   BULK_CONDITIONAL_VARIABLES,
+  BULK_ABSTRACT_OWN_VARIABLES,
+  BULK_ABSTRACT_AUTHOR_VARIABLES,
   EMAIL_TEMPLATE_SPECS,
   templateAllowedTokenKeys,
 } from "@/lib/email-template-registry";
@@ -185,6 +187,31 @@ describe("BULK_BASE_VARIABLES stays in step with the real sender", () => {
       expect(src).toContain(`vars.${k} =`);
       expect(templateAllowedTokenKeys("faculty-welcome")).toContain(k);
     }
+  });
+});
+
+describe("a saved template may name an abstract's tokens (Nov 20, 2026, review of c332aea6)", () => {
+  // A send to abstract authors fills them, once per abstract. The editor used
+  // to warn "sends using it will be refused" and the agent refused the save.
+  it("accepts every abstract token in a custom template, and still flags them in a system template that is not about abstracts", () => {
+    const custom = templateAllowedTokenKeys("abstract-not-accepted");
+    for (const k of [...BULK_ABSTRACT_OWN_VARIABLES, ...BULK_ABSTRACT_AUTHOR_VARIABLES]) expect(custom).toContain(k);
+    const confirmation = templateAllowedTokenKeys("registration-confirmation");
+    for (const k of ["abstractNumber", "newStatus", "reviewNotes"]) expect(confirmation).not.toContain(k);
+  });
+
+  it("the two author tokens are assigned for every abstracts recipient in the bulk sender", () => {
+    const sender = readFileSync(join(process.cwd(), "src/lib/bulk-email.ts"), "utf8");
+    for (const k of BULK_ABSTRACT_AUTHOR_VARIABLES) expect(sender).toContain(`vars.${k} =`);
+  });
+
+  it("the email dialog names its abstracts audience to the preview and the count, a saved template as \"template\" with its slug", () => {
+    const dialog = readFileSync(join(process.cwd(), "src/components/bulk-email-dialog.tsx"), "utf8");
+    expect(dialog).toContain('emailType: isSavedTemplate ? "template" : emailType,');
+    expect(dialog).toContain("{ recipientType: \"abstracts\", ...abstractAudience, templateSlug: savedTemplateSlug }");
+    const preview = dialog.slice(dialog.indexOf("const handlePreview"), dialog.indexOf("const handleSend"));
+    expect(preview).toContain("abstractAudience: {");
+    expect(preview).toContain("emailType: abstractAudience.emailType,");
   });
 });
 

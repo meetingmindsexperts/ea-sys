@@ -1932,7 +1932,7 @@ export function usePreviewEmailBySlug(eventId: string) {
       /** An abstracts send: the preview is the first email it would produce. */
       abstractAudience?: { emailType: string; status?: string; recipientIds?: string[] };
     }) =>
-      fetchApi<{ subject: string; htmlContent: string; shownFor?: string }>(
+      fetchApi<{ subject: string; htmlContent: string; shownFor?: string; unfilled?: string[] }>(
         `/api/events/${eventId}/email-preview`,
         {
           method: "POST",

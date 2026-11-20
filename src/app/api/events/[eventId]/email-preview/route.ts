@@ -20,6 +20,8 @@ import {
 import { buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { previewAbstractEmailVars } from "@/lib/bulk-email";
+import { ABSTRACT_OWN_TOKENS } from "@/lib/bulk-email-audience";
+import { findUnresolvedTokens } from "@/lib/template-tokens";
 import { buildSpeakerEmailContext } from "@/lib/speaker-agreement";
 import { buildAbstractConfirmationVars } from "@/lib/abstract-notifications";
 import { buildTravelGrantBlock, type TravelGrantBlockStatus } from "@/lib/travel-grant/block";
@@ -58,7 +60,9 @@ const previewSchema = z.object({
     .object({
       emailType: z.string().min(1).max(100),
       status: z.string().max(50).optional(),
-      recipientIds: z.array(z.string().min(1).max(100)).max(5000).optional(),
+      // No count cap of its own: the send takes any number, and the middleware
+      // bounds every API body (a cap here refused a preview the send accepted).
+      recipientIds: z.array(z.string().min(1).max(100)).optional(),
     })
     .optional(),
   // Target reviewer: slug === "reviewer-invitation" only. The Reviewers page
@@ -407,17 +411,22 @@ export async function POST(req: Request, { params }: RouteParams) {
     // audience rule and var builders (previewAbstractEmailVars). An empty
     // audience keeps the samples; the dialog refuses that send anyway.
     let shownFor: string | undefined;
+    // An email that goes once per AUTHOR fills none of an abstract's own
+    // tokens: the preview must not fill them from the samples either.
+    let perAuthorAbstractSend = false;
     if (abstractAudience) {
       const first = await previewAbstractEmailVars({
         eventId,
         emailType: abstractAudience.emailType,
         status: abstractAudience.status,
         recipientIds: abstractAudience.recipientIds?.length ? abstractAudience.recipientIds : undefined,
-        templateTexts: [eventTemplate.subject, eventTemplate.htmlContent, eventTemplate.textContent],
+        // Subject and HTML: what the send and the count decide from.
+        templateTexts: [eventTemplate.subject, eventTemplate.htmlContent],
       });
       if (first) {
         speakerVars = { ...speakerVars, ...first.vars };
         shownFor = first.shownFor;
+        perAuthorAbstractSend = !first.perAbstract;
       }
     }
 
@@ -441,6 +450,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Target speaker (when previewing from a speaker's dialog) wins over the
     // sample/signed-in-user greeting and the representative speaker's blocks.
     const mergedVars: Record<string, string | number> = { ...sampleVars, ...speakerVars };
+    // Left unfilled, exactly as that send would leave them: the samples said
+    // "A-007 is ACCEPTED" under a note naming the real author, for an email
+    // the send then refused (review of c332aea6). They render as the bare
+    // {{token}}, and the response names them.
+    if (perAuthorAbstractSend) {
+      for (const k of ABSTRACT_OWN_TOKENS) delete mergedVars[k];
+    }
     if (slug === "webinar-thank-you" && !thankYouSurvey) {
       mergedVars.surveyBlock = "";
       mergedVars.surveyBlockText = "";
@@ -491,7 +507,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
     const wrappedHtml = inlineCss(wrapWithBranding(renderedBody, eventTemplate.branding));
 
-    return NextResponse.json({ subject: renderedSubject, htmlContent: wrappedHtml, ...(shownFor ? { shownFor } : {}) });
+    const unfilled = perAuthorAbstractSend
+      ? findUnresolvedTokens(renderedSubject, renderedBody).filter((t) => ABSTRACT_OWN_TOKENS.has(t))
+      : [];
+    return NextResponse.json({
+      subject: renderedSubject,
+      htmlContent: wrappedHtml,
+      ...(shownFor ? { shownFor } : {}),
+      ...(unfilled.length ? { unfilled } : {}),
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error previewing email by slug" });

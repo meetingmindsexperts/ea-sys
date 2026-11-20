@@ -92,11 +92,14 @@ describe("count == send", () => {
     const per = await GET(req("recipientType=abstracts&emailType=template&templateSlug=not-accepted&status=REJECTED"), params);
     expect((await per.json()).count).toBe(2);
     expect(templateFindUnique.mock.calls[0][0].where).toEqual({ eventId_slug: { eventId: "ev1", slug: "not-accepted" } });
-    expect(abstractFindMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", status: "REJECTED" });
+    // Per abstract: never a draft or a withdrawal, the send's own floor.
+    expect(abstractFindMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", status: "REJECTED", AND: [{ status: { notIn: ["DRAFT", "WITHDRAWN"] } }] });
 
-    templateFindUnique.mockResolvedValue({ subject: "News", htmlContent: "<p>{{lastName}}</p>", textContent: null, isActive: true });
+    // A token only in the plain-text part decides nothing: per author, no floor.
+    templateFindUnique.mockResolvedValue({ subject: "News", htmlContent: "<p>{{lastName}}</p>", textContent: "{{abstractTitle}}", isActive: true });
     const author = await GET(req("recipientType=abstracts&emailType=template&templateSlug=news"), params);
     expect((await author.json()).count).toBe(1);
+    expect(abstractFindMany.mock.calls[1][0].where).toEqual({ eventId: "ev1" });
   });
 
   it("ticked ids restrict the count inside the type's scope, exactly like recipientIds on the send", async () => {

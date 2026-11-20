@@ -112,8 +112,6 @@ describe("abstractSendIsPerAbstract: one email per abstract, or one per author (
   it("a saved template is per abstract only when its own text names one abstract's tokens", () => {
     expect(abstractSendIsPerAbstract("template", ["Decision on {{abstractNumber}}", "<p>Hi</p>"])).toBe(true);
     expect(abstractSendIsPerAbstract("template", ["News", "<p>Status: {{newStatus}}</p>", null])).toBe(true);
-    // In the plain-text part only: still an email about one abstract.
-    expect(abstractSendIsPerAbstract("template", ["News", "<p>Hi</p>", "About {{abstractTitle}}"])).toBe(true);
     expect(abstractSendIsPerAbstract("template", ["News", "<p>Dear {{title}} {{lastName}}, see {{managementLink}}</p>"])).toBe(false);
     expect(abstractSendIsPerAbstract("template", [])).toBe(false);
   });
