@@ -294,6 +294,22 @@ off by default, behind a confirmation. For MM Group's own events the house
 rule above stands and it is left off (no production event has it on). Paying
 later from the person's portal is untouched either way.
 
+**Step 8, decided Nov 20, 2026 (owner: "MEHF, let's make it manual"): no
+backfill tool is built.** The organisers move the authors themselves. On
+production that day: 33 sign-up speakers on Faculty on MEHF2027, of which 29
+are authors (11 Student, 4 Resident, 10 Physician, 2 Allied Health, 1
+Academia, 1 Others) and 4 are on the programme (#016, #100, #101, #102) and
+stay; 2 Physician authors on hemnet2026. How: Registrations, Registration
+type Faculty with Speaker "Not a speaker" lists the authors; tick a
+profession's rows and Change Type. What the move does and does not do: the
+"Faculty" badge is cleared; the registration stays Complimentary at price 0
+(to make one owe, edit it, pick the Presenter rate and set the payment status
+to Unassigned); and, being a speaker's registration by origin, it is not
+counted on the type's or the event's seat counter, which matters only where a
+type or the event has a limit (MEHF2027 and hemnet2026 have none). Until
+moved, they are listed as authors everywhere, and Make presenters leaves a
+registration on the Faculty type alone.
+
 **Step 8. The authors already on Faculty, and the words.** With steps 2 and 3
 the 22 on MEHF2027 are a filter (Faculty type + has an abstract + not on the
 programme) and a Change type; no list or script is built for them. The sign-up
