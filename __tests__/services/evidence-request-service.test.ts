@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, sendEmailSpy } = vi.hoisted(() => {
+const { mockDb, sendEmailSpy, renderedVars } = vi.hoisted(() => {
   // Token hashing needs it; CI has no .env.
   process.env.NEXTAUTH_SECRET = "test-secret";
   return {
@@ -14,15 +14,24 @@ const { mockDb, sendEmailSpy } = vi.hoisted(() => {
     verificationToken: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({}) },
   },
   sendEmailSpy: vi.fn(),
+  renderedVars: [] as Record<string, string>[],
   };
 });
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock("@/lib/email", () => ({
-  getEventTemplate: vi.fn().mockResolvedValue({ subject: "s", htmlContent: "{{evidenceItems}} {{evidenceLink}}", textContent: "t", branding: {} }),
-  renderAndWrap: (_t: unknown, vars: Record<string, string>) => ({ subject: "s", htmlContent: `${vars.evidenceItems}|${vars.evidenceLink}`, textContent: "t" }),
+vi.mock("@/lib/email", async (importOriginal) => ({
+  getEventTemplate: vi.fn().mockResolvedValue({
+    subject: "s", htmlContent: "{{evidenceItems}} {{evidenceLink}}", textContent: "t",
+    branding: { emailCcAddresses: ["Office@Event.org", "r1@x.org"] },
+  }),
+  renderAndWrap: (_t: unknown, vars: Record<string, string>) => {
+    renderedVars.push(vars);
+    return { subject: "s", htmlContent: `${vars.evidenceItems}|${vars.evidenceLink}`, textContent: "t" };
+  },
   brandingFrom: () => undefined,
+  // The real rule: the event's addresses, then the person's own, never the recipient twice.
+  brandingCc: (await importOriginal<typeof import("@/lib/email")>()).brandingCc,
   sendEmail: sendEmailSpy,
 }));
 
@@ -57,6 +66,7 @@ const INPUT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  renderedVars.length = 0;
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", slug: "MEHF2027", timezone: "Asia/Dubai" });
   sendEmailSpy.mockResolvedValue({ success: true });
 });
@@ -73,6 +83,28 @@ describe("sendEvidenceRequests", () => {
     expect(mockDb.verificationToken.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ identifier: "evidence:r1" }) }),
     );
+  });
+
+  // Organiser-reported, Nov 20, 2026: the email read "Dear DR. ..." and no copy
+  // reached anyone. MUTATION: restore `${title}.` and the first fails; drop the
+  // cc line and the second fails.
+  it("greets with the title as it is written, \"Dr.\", never the stored value with a full stop", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      person("r1", { attendee: { ...person("r1").attendee, title: "DR" } }),
+      person("r2"),
+    ]);
+    await sendEvidenceRequests({ ...INPUT, registrationIds: ["r1", "r2"] });
+    expect(renderedVars.map((v) => v.title)).toEqual(["Dr.", ""]);
+  });
+
+  it("copies the event's CC addresses and the person's additional email, and never the recipient again", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      person("r1", { attendee: { ...person("r1").attendee, additionalEmail: "second@home.org" } }),
+    ]);
+    await sendEvidenceRequests({ ...INPUT, registrationIds: ["r1"] });
+    // r1@x.org is on the event's list too: it is the recipient, so it is not copied.
+    expect(sendEmailSpy.mock.calls[0][0].cc).toEqual([{ email: "office@event.org" }, { email: "second@home.org" }]);
+    expect(mockDb.registration.findMany.mock.calls[0][0].select.attendee.select).toMatchObject({ additionalEmail: true });
   });
 
   it("skips, with a reason each, anyone with nothing to give", async () => {

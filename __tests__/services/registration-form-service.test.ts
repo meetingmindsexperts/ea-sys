@@ -36,7 +36,8 @@ vi.mock("@/lib/email", () => ({
   sendEmail: sendEmailMock,
   getEventTemplate: getEventTemplateMock,
   renderAndWrap: (tpl: { subject: string; htmlContent: string; textContent: string }, vars: Record<string, string>) => ({
-    subject: tpl.subject,
+    // The greeting's title rides in the subject so a test can read it.
+    subject: `${tpl.subject}|title=${vars.title}`,
     htmlContent: tpl.htmlContent.replace("{{registrationFormLink}}", vars.registrationFormLink).replace("{{linkExpiresIn}}", vars.linkExpiresIn),
     textContent: "",
   }),
@@ -284,6 +285,8 @@ describe("sendRegistrationForms", () => {
     expect(email.to).toEqual([{ email: "a@x.test", name: "Ann Lee" }]);
     expect(email.htmlContent).toMatch(/complete-registration\?token=/);
     expect(email.htmlContent).toContain("10 days");
+    // The stored title is "DR"; the greeting reads "Dr.", never "DR." (Nov 20, 2026).
+    expect(email.subject).toBe("Complete|title=Dr.");
   });
 
   it("a failed email removes the link but keeps the stamp", async () => {

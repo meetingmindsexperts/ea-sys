@@ -22,7 +22,8 @@ import {
   evidenceRequestPath,
   type EvidenceRequestSkipReason,
 } from "@/lib/evidence-request";
-import { brandingFrom, getEventTemplate, renderAndWrap, sendEmail } from "@/lib/email";
+import { brandingCc, brandingFrom, getEventTemplate, renderAndWrap, sendEmail } from "@/lib/email";
+import { getTitleLabel } from "@/lib/utils";
 
 export interface EvidenceRequestSkip {
   registrationId: string;
@@ -88,7 +89,7 @@ export async function sendEvidenceRequests(input: SendEvidenceRequestsInput): Pr
       supportingDocumentUrl: true,
       ticketType: { select: { name: true, ...IDENTITY_EVIDENCE_SELECT, ...SUPPORTING_DOCUMENT_POLICY_SELECT } },
       attendee: {
-        select: { title: true, firstName: true, lastName: true, email: true, memberId: true, studentId: true, studentIdExpiry: true },
+        select: { title: true, firstName: true, lastName: true, email: true, additionalEmail: true, memberId: true, studentId: true, studentIdExpiry: true },
       },
     },
   });
@@ -119,7 +120,8 @@ export async function sendEvidenceRequests(input: SendEvidenceRequestsInput): Pr
         appUrl: input.appUrl,
       });
       const vars = {
-        title: reg.attendee.title ? `${reg.attendee.title}.` : "",
+        // "Dr.", never the stored "DR" with a full stop added (organiser-reported, Nov 20, 2026).
+        title: getTitleLabel(reg.attendee.title),
         firstName: reg.attendee.firstName,
         lastName: reg.attendee.lastName,
         ticketType: reg.ticketType?.name ?? "",
@@ -131,8 +133,13 @@ export async function sendEvidenceRequests(input: SendEvidenceRequestsInput): Pr
         organizerSignature: input.organizerSignature ?? "",
       };
       const rendered = renderAndWrap(template, vars, template.branding);
+      const to = [{ email: reg.attendee.email, name: `${reg.attendee.firstName} ${reg.attendee.lastName}` }];
       const result = await sendEmail({
-        to: [{ email: reg.attendee.email, name: `${reg.attendee.firstName} ${reg.attendee.lastName}` }],
+        to,
+        // The event's CC addresses and the person's own additional email, as on
+        // their other registration emails. It was sent with neither, so the 38
+        // of 50 people on one send who rely on a second address never saw it.
+        cc: brandingCc(template.branding, to, [reg.attendee.additionalEmail]),
         subject: rendered.subject,
         htmlContent: rendered.htmlContent,
         textContent: rendered.textContent,

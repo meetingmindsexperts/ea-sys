@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The ID and document request greets "Dr." and copies the person's second address (November 20)
+
+Two faults in the email sent from Registrations, Request ID / Document, both reported by an organiser:
+
+- **Title:** the greeting read "Dear DR. ..." (the stored value with a full stop added). It now reads "Dr.", "Prof.", "Mr." and so on, as every other email does. The Send Registration Form email had the same slip and is fixed with it.
+- **CC:** the request went to the main address only. It now copies the event's CC addresses (Settings, Email) and the person's additional email, like their other registration emails. On the last MEHF2027 send, 38 of 50 people had an additional email that was not copied.
+- **Foot gun:** the copy carries the same personal link as the main email, so anyone on the event's CC list can open it. The Send Registration Form email is still sent to the main address only.
+
 ### Emails to abstract authors: the preview shows the real abstract, and your own template can name it (November 20)
 
 Previewing an email to abstract authors showed a built-in sample, "A-007, ACCEPTED", whichever abstracts were chosen: an organiser previewing the email for a not accepted abstract read "ACCEPTED".

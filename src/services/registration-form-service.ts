@@ -34,6 +34,7 @@ import {
 } from "@/lib/registration-form-link";
 import { isRegistrationFormCompleted } from "@/lib/registration-completion";
 import { brandingFrom, getEventTemplate, renderAndWrap, sendEmail } from "@/lib/email";
+import { getTitleLabel } from "@/lib/utils";
 
 export type RegistrationFormSource = "rest" | "bulk";
 
@@ -478,7 +479,8 @@ export async function sendRegistrationForms(input: SendRegistrationFormsInput): 
         appUrl: input.appUrl,
       });
       const vars = {
-        title: person.title ? `${person.title}.` : "",
+        // "Dr.", never the stored "DR" with a full stop added (the same slip as the ID request's).
+        title: getTitleLabel(person.title),
         firstName: person.firstName,
         lastName: person.lastName,
         ticketType: person.ticketTypeName ?? "",
