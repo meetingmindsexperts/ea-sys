@@ -16,6 +16,25 @@ The organisers' complaint behind it: a person who submits an abstract sees
 read the abstract. They are not faculty. Once accepted they are **presenters**,
 and if rejected they are ordinary delegates.
 
+### The owner's model (Nov 20, 2026)
+
+> "Abstracts go through presenter registration, and we share the link by
+> email, so why do they have to be Faculty? If they are accepted they can be
+> presenters with badge and complimentary registration and everything. If they
+> are not accepted, they attend by paying if [their type is] paid, if not, free."
+
+In one table:
+
+| The author's abstract is | Their registration |
+|---|---|
+| Not decided yet | On their own profession type, at the presenter rate they chose at sign-up; owing if that rate has a price, free if not |
+| **Accepted** | Same type, **Complimentary**, badge **Presenter** |
+| **Not accepted** | Same type; **pays** if it has a price, **free** if it does not |
+
+This settles P2 (Presenter is a mark and a badge, not a registration type) and
+P3 (a rejected author pays their type's fee). Section 5a lists the cases the
+table does not answer.
+
 ## 2. How a submitter ends up on Faculty today
 
 Both abstract sign-up doors (`/submitter` for a new account, `abstract-start`
@@ -78,7 +97,9 @@ tick the filtered rows, then Change type (already built, see §6). Also a
 count: "Accepted authors without a registration", so nobody arrives with no
 badge.
 
-**Step 3. Presenter on the badge** (shape decided in P2).
+**Step 3. "Make presenters"**: the bulk action on Registrations for ticked
+accepted authors: Complimentary and badge Presenter, skipping and naming
+anyone with money on their registration (5a, A1 to A3, A7, B1).
 
 **Step 4. The authors already on Faculty.**
 A read-only list per event (name, email, abstract status, the registration's
@@ -133,7 +154,8 @@ by abstract sign-up). Step 6 is the way out.
   before a decision, and every conference that takes abstracts can set
   presenter rates (MEHF2027 already has).
 
-**P2. Presenter: a registration type, or a mark?**
+**P2. Presenter: a registration type, or a mark?** DECIDED Nov 20, 2026: (a),
+a mark and a badge; the author keeps their profession type.
 
 - **(a) A mark read from the accepted abstract**, on Registrations, the badge
   and the stats; the person keeps their profession type and their presenter
@@ -148,7 +170,9 @@ by abstract sign-up). Step 6 is the way out.
 - **Recommendation: (a), with (b) left open** for an event that wants a
   separate Presenter fee.
 
-**P3. A rejected physician on a Complimentary registration.**
+**P3. A rejected physician on a Complimentary registration.** DECIDED Nov 20,
+2026: a rejected author pays their type's fee (free types stay free). What is
+left open is in 5a (R1 to R3).
 Keep free, or set to the delegate fee? Per person or a rule? (D6 of the August
 plan says nothing happens automatically; this plan keeps that.)
 
@@ -169,6 +193,88 @@ them there too, or leave the Speakers page as it is?
 - **Recommendation: as above.** The alternative, keeping the payment on a
   Faculty registration, would leave money attached to a type every finance
   report treats as free.
+
+## 5a. Edge cases the model does not answer
+
+Read on production on Nov 20, 2026 (MEHF2027) where a number is given. Each
+has a recommendation; the owner rules.
+
+### When an abstract is accepted
+
+- **A1. Automatic, or one action by the team?** Decisions are applied first
+  and announced later, and an accepted abstract can be un-accepted (it has
+  happened on production). If the registration turns Complimentary the moment
+  the status is set, the author's portal shows it before the announcement.
+  **Recommendation:** not automatic. On the Registrations page, filter
+  "Accepted", tick all, one action "Make presenters" (Complimentary, badge
+  Presenter), done by the team on announcement day.
+- **A2. Already paid** (Pay Now switched on, or paid from the portal).
+  Complimentary then means a refund and a credit note. Never automatic: the
+  action skips them and lists them. None on MEHF2027 today (no payment,
+  invoice or promo code on any of the 94 sign-up registrations).
+- **A3. An invoice issued or a promo code applied, nothing paid.** The invoice
+  is cancelled with a note, the code's use released; listed in the result.
+- **A4. Several abstracts** (29 authors). One accepted is enough to be a
+  presenter; the rest rejected changes nothing.
+- **A5. Accepted, then withdrawn or the decision reversed.** Nothing
+  automatic; the filter gets "Presenter with no accepted abstract" so the team
+  sees them and decides.
+- **A6. Co-authors** are names on the abstract, not accounts. Only the
+  submitting author is a presenter. A co-author who will present instead
+  registers as a delegate and the team makes them a presenter by hand.
+- **A7. Sponsor-paid (Inclusive) or group registrations.** Left as they are:
+  the fee is already covered and the sponsor's attribution must not be lost.
+  They still get the Presenter badge.
+
+### When it is not accepted
+
+- **R1. Which price?** The presenter rate quoted at sign-up, or the delegate
+  rate on sale when they pay? On MEHF2027 the two are equal today (Presenter
+  = Early Bird: Physician 400, Nurse and Allied Health 200), but Standard is
+  500 and 250. **Recommendation:** honour the quote they were given at sign-up.
+- **R2. A rejected author who will not attend** stays as an owing
+  registration: counted as a delegate, holding a seat, chased by payment
+  reminders. **Recommendation:** the rejection email says how to cancel, and
+  the filter "Rejected, owing" lets the team cancel in bulk after a date they
+  choose. No automatic cancel.
+- **R3. Residents and students** are free either way on MEHF2027 (every rate
+  is 0): nothing to do.
+
+### Never decided
+
+- **N1. Signed up through the abstract door and never submitted anything:**
+  13 people on MEHF2027 (9 free, 4 owing). They hold a registration like any
+  delegate. Harmless here because the presenter rate equals the delegate rate;
+  where an organiser sets the presenter rate BELOW the delegate rate it is a
+  discount for anyone who opens the abstract form. **Recommendation:** treat
+  as not accepted (they pay the quoted rate); show them under "No submitted
+  abstract" in the filter.
+- **N2. Still under review or revision requested when the event opens:** stays
+  as at sign-up (owing or free); the desk handles it like any delegate.
+
+### People with two roles
+
+- **T1. Invited speaker who also submits:** Faculty stays (first registration
+  wins, section 4a), badge Faculty. An accepted abstract adds nothing they do
+  not have.
+- **T2. Submitted first, invited later:** step 6, Make Faculty.
+- **T3. Registered as a delegate first, then submitted** (14 on MEHF2027, all
+  free so far). Their delegate registration is the one. If accepted after
+  PAYING as a delegate, Complimentary is a refund: same rule as A2.
+- **T4. A committee member or reviewer who submits:** Faculty stays, as T1.
+
+### Around it
+
+- **B1. Badge.** "Presenter" is set by the Make presenters action. A badge
+  already printed says something else: the result lists who needs a reprint.
+  The barcode does not change.
+- **B2. The emails.** The acceptance email says the registration is
+  complimentary; the rejection email says they are welcome to attend, the fee,
+  and how to cancel. Both are template wording, checked in step 5.
+- **B3. Counts.** A presenter stays a delegate on their own type in every
+  count (decision D5 of the August plan); the Presenter mark is a filter and
+  a figure beside it, not a separate bucket.
+- **B4. Events with no presenter rates:** decision P1.
 
 ## 6. What exists and needs nothing
 
