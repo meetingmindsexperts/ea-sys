@@ -234,6 +234,10 @@ export function RegistrationDetailSheet({
   // ONSITE + MEMBER now SEE money (they record payments) — canViewFinance
   // includes them, so the Billing tab + Payment Summary + amounts show.
   const showFinance = useCan("finance.view") === "allowed";
+  // The invoice, receipt and quote PDFs: seeing amounts is not enough (a
+  // Member sees amounts and holds no invoices; owner, Nov 20, 2026). Without
+  // it the routes answer "not found", so the buttons are not offered.
+  const canReadInvoices = useCan("invoices.read", eventId) === "allowed";
   // Narrower than finance and narrower than the desk: admin/organizer only
   // (src/lib/supporting-document-visibility.ts). Hidden rather than rendered
   // as a dead link — a row whose only action 403s is worse than no row, and it
@@ -2603,7 +2607,7 @@ export function RegistrationDetailSheet({
                           )}
                         </div>
                       )}
-                    {!!f && f.subtotal > 0 && (
+                    {!!f && f.subtotal > 0 && canReadInvoices && (
                       <Button variant="outline" size="sm" asChild className="w-full">
                         <a href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/quote`} download>
                           <Download className="mr-2 h-4 w-4" /> Download Quote
@@ -3111,18 +3115,19 @@ export function RegistrationDetailSheet({
                 </section>
               )}
 
-              {/* Print Badge + Download Quote + Send Email (3 buttons in a row) */}
-              {!isReviewer && !isEditing && (
+              {/* Print Badge + Download Quote + Send Email (3 buttons in a row);
+                  nothing at all when none of the three is offered. */}
+              {!isReviewer && !isEditing && (!isWebinarEvent || canReadInvoices || canEmail) && (
                 <section className={cn(
                   "rounded-xl border border-slate-200 bg-white px-5 py-4",
                   activeTab !== "activity" && "hidden",
                 )}>
-                  {/* Desk operators (ONSITE/MEMBER) get Print Badge + Download
-                      Quote (they see finance now); Send Email stays admin/
-                      organizer, so the grid is 2 cols for them, 3 otherwise. */}
+                  {/* One column per button offered: Print Badge (not on a
+                      webinar), Download Quote (with invoices.read: not a
+                      Member), Send Email (admin and organizer). */}
                   <div className={cn(
                     "grid gap-2",
-                    ACTION_GRID_COLS[(isWebinarEvent ? 0 : 1) + 1 + (canEmail ? 1 : 0)],
+                    ACTION_GRID_COLS[(isWebinarEvent ? 0 : 1) + (canReadInvoices ? 1 : 0) + (canEmail ? 1 : 0)],
                   )}>
                   {!isWebinarEvent && (
                   <Button
@@ -3135,11 +3140,13 @@ export function RegistrationDetailSheet({
                     Print Badge
                   </Button>
                   )}
+                  {canReadInvoices && (
                   <Button variant="outline" size="sm" asChild>
                     <a href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/quote`} download>
                       <Download className="mr-2 h-4 w-4" /> Download Quote
                     </a>
                   </Button>
+                  )}
                   {canEmail && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -3312,7 +3319,7 @@ export function RegistrationDetailSheet({
                       </div>
 
                       {/* Download Invoice — only meaningful once payment has settled */}
-                      {selectedRegistration.paymentStatus === "PAID" && (
+                      {selectedRegistration.paymentStatus === "PAID" && canReadInvoices && (
                         <div className="pt-2 border-t border-slate-100">
                           <div className="text-xs font-medium text-slate-600 uppercase tracking-wide mb-2">
                             Download

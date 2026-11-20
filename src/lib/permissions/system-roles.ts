@@ -104,7 +104,10 @@ const org = (...keys: PermissionKey[]): Grant[] => keys.map((permission) => ({ p
 
 // ── Building blocks, named for the boundary they come from ──────────────────
 
-/** Read-only event keys every org-wide staff role reads (MEMBER, the read-everything role, defines the set). */
+/**
+ * Read-only event keys the org-wide staff roles read. MEMBER reads all of
+ * them but the invoice pair (`MEMBER_EVENT_READ`, owner, Nov 20, 2026).
+ */
 const EVENT_READ: PermissionKey[] = [
   "events.read",
   "registrations.read",
@@ -123,6 +126,17 @@ const EVENT_READ: PermissionKey[] = [
   "webinar.analytics.read",
   "analytics.read",
 ];
+
+/**
+ * What a MEMBER reads on an event: everything above except invoices (owner,
+ * Nov 20, 2026: "hide invoices for members"). No Invoices page on an event, no
+ * invoice export, and no invoice, receipt or quote PDF, which every door finds
+ * through `invoices.read`. Amounts on a registration and recording a payment
+ * at the desk stay (`finance.view`, `payments.record`). A custom role can give
+ * the keys back to one person.
+ */
+const MEMBER_HIDDEN_INVOICE_KEYS: ReadonlySet<PermissionKey> = new Set(["invoices.read", "invoices.export"]);
+const MEMBER_EVENT_READ: PermissionKey[] = EVENT_READ.filter((k) => !MEMBER_HIDDEN_INVOICE_KEYS.has(k));
 
 /** `REGISTRATION_DESK_ALLOW`: what a desk role does beside reading. */
 const DESK: PermissionKey[] = ["registrations.create", "registrations.update", "registrations.checkin", "registrations.badges.print", "payments.record"];
@@ -420,15 +434,17 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     key: "MEMBER",
     name: "Member",
     baseRole: "MEMBER",
-    // Internal read-everything staff, money included (June 17 2026), with the
-    // desk. No CRM and no Budgets since Oct 7, 2026 (owner): a custom role adds
-    // either. No codes, no event exports (it keeps the contacts export; owner,
+    // Internal read-everything staff, amounts included (June 17 2026), with the
+    // desk. No invoices since Nov 20, 2026 (owner): neither an event's Invoices
+    // page and PDFs (`MEMBER_EVENT_READ`) nor the organisation's invoice book
+    // (`invoices.ledger`). No CRM and no Budgets since Oct 7, 2026 (owner): a
+    // custom role adds any of these. No codes, no event exports (it keeps the contacts export; owner,
     // Oct 23, 2026), no supporting documents, no per-event activity
     // (`canWrite`), no RSVP roster. Lists a speaker's documents but
     // cannot open the files (`speakers.documents.open`; owner, Oct 2, 2026).
     grants: [
-      ...at("ALL", ...EVENT_READ, ...DESK, "speakers.documents.read"),
-      ...org("invoices.ledger", "billingAccounts.read", "users.read", "contacts.read", "contacts.export", "contacts.export.sensitive", "agent.use", "finance.view", "hr.read", "hr.write"),
+      ...at("ALL", ...MEMBER_EVENT_READ, ...DESK, "speakers.documents.read"),
+      ...org("billingAccounts.read", "users.read", "contacts.read", "contacts.export", "contacts.export.sensitive", "agent.use", "finance.view", "hr.read", "hr.write"),
       ...org(...BLUEPRINT_MEMBER),
     ],
     impliedPersonGrants: [],

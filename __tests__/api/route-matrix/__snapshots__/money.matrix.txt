@@ -103,7 +103,7 @@ GET registrations/[registrationId]/quote
   OPERATOR    404 r       404 r       404 r       404 r
   ADMIN       404 r       404 r       404 r       404
   ORGANIZER   404 r       404 r       404 r       404
-  MEMBER      404 r       404 r       404 r       404
+  MEMBER      403         403         403         403
   ONSITE      404         404 r       404         404
   WEBINARS    404         404         404 r       404
   CRM_USER    403         403         403         403
@@ -179,7 +179,7 @@ GET invoices
   OPERATOR    403         403         403         403
   ADMIN       200 r       200 r       200 r       404
   ORGANIZER   200 r       200 r       200 r       404
-  MEMBER      200 r       200 r       200 r       404
+  MEMBER      403         403         403         403
   ONSITE      404         200 r       404         404
   WEBINARS    404         404         200 r       404
   CRM_USER    403         403         403         403
@@ -217,7 +217,7 @@ GET invoices/[invoiceId]
   OPERATOR    404 e       404 e       404 e       404 e
   ADMIN       404 e       404 e       404 e       404
   ORGANIZER   404 e       404 e       404 e       404
-  MEMBER      404 e       404 e       404 e       404
+  MEMBER      403         403         403         403
   ONSITE      404         404 e       404         404
   WEBINARS    404         404         404 e       404
   CRM_USER    403         403         403         403
@@ -255,7 +255,7 @@ GET invoices/[invoiceId]/pdf
   OPERATOR    404 e       404 e       404 e       404 e
   ADMIN       404 e       404 e       404 e       404
   ORGANIZER   404 e       404 e       404 e       404
-  MEMBER      404 e       404 e       404 e       404
+  MEMBER      403         403         403         403
   ONSITE      404         404 e       404         404
   WEBINARS    404         404         404 e       404
   CRM_USER    403         403         403         403
@@ -293,7 +293,7 @@ GET invoices/export
   OPERATOR    200 r w     200 r w     200 r w     200 r w
   ADMIN       200 r w     200 r w     200 r w     404
   ORGANIZER   200 r w     200 r w     200 r w     404
-  MEMBER      200 r w     200 r w     200 r w     404
+  MEMBER      403         403         403         403
   ONSITE      404         200 r w     404         404
   WEBINARS    404         404         200 r w     404
   CRM_USER    403         403         403         403
@@ -312,7 +312,7 @@ GET /api/invoices (org ledger)
   OPERATOR    403
   ADMIN       200
   ORGANIZER   200
-  MEMBER      200
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -331,7 +331,7 @@ GET /api/invoices/export (org ledger)
   OPERATOR    403
   ADMIN       200 w
   ORGANIZER   200 w
-  MEMBER      200 w
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -388,7 +388,7 @@ GET /api/billing-accounts/[billingAccountId]
   OPERATOR    403
   ADMIN       404
   ORGANIZER   404
-  MEMBER      404
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403

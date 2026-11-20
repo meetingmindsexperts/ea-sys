@@ -4,8 +4,8 @@ ADMIN · conference: -
 ADMIN · webinar: -
 ORGANIZER · conference: -
 ORGANIZER · webinar: -
-MEMBER · conference: certificates, dinner, export, media, reimbursements, reviewers, rsvp, travel-grants
-MEMBER · webinar: certificates, dinner, export, media, reimbursements, reviewers, rsvp, travel-grants
+MEMBER · conference: certificates, dinner, export, invoices, media, reimbursements, reviewers, rsvp, travel-grants
+MEMBER · webinar: certificates, dinner, export, invoices, media, reimbursements, reviewers, rsvp, travel-grants
 ONSITE · conference: accommodation, agent, certificates, communications, dinner, email-templates, export, media, reimbursements, reviewers, rsvp, survey, travel-grants
 ONSITE · webinar: accommodation, agent, certificates, communications, dinner, email-templates, export, media, reimbursements, reviewers, rsvp, survey, travel-grants
 WEBINARS · conference: abstracts, accommodation, agenda, agent, analytics, certificates, communications, dinner, email-templates, export, imports, invoices, media, promo-codes, reimbursements, reviewers, rsvp, session-proposals, speakers, sponsors, survey, tickets, travel-grants, webinar

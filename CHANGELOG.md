@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Members no longer see invoices (November 20)
+
+Owner decision. The built-in Member role loses three permissions: See invoices, Export invoices, and The organisation's invoice book.
+
+- **Gone for a Member:** the Invoices page on every event, the organisation's Invoices page, the invoice export, and the invoice, receipt and quote downloads on a registration (the buttons are no longer shown). The assistant's "list invoices" is refused for a Member too.
+- **Kept:** prices, payment status and the Billing & Payments tab on a registration, and recording a payment at the desk.
+- **To give them back to one person:** a custom role with those three permissions (Settings, Roles).
+- **Foot gun:** a Member who is registered for an event themselves can no longer download their own invoice or quote from their registration page while signed in to their staff account.
+- Takes effect for the three Member accounts on production as soon as it is deployed; nobody has to sign in again.
+
 ### The ID and document request greets "Dr." and copies the person's second address (November 20)
 
 Two faults in the email sent from Registrations, Request ID / Document, both reported by an organiser:
