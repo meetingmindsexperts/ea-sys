@@ -35,6 +35,14 @@ This settles P2 (Presenter is a mark and a badge, not a registration type) and
 P3 (a rejected author pays their type's fee). Section 5a lists the cases the
 table does not answer.
 
+**Presenter registration is always pay later (owner, Nov 20, 2026).** "We
+don't offer Pay Now, we always suggest to pay later." The abstract sign-up
+never shows or emails a Pay Now link; the fee is quoted and paid later, from
+the person's own portal or offline, once the organisers have decided. The
+August plan made this a per-event switch (Settings, Presenter registration,
+Show Pay Now), off by default; it is off on all 30 production events that
+carry the setting (read Nov 20, 2026) and step 7 removes it.
+
 ## 2. How a submitter ends up on Faculty today
 
 Both abstract sign-up doors (`/submitter` for a new account, `abstract-start`
@@ -111,6 +119,12 @@ anything.
 **Step 4a. The abstract form does not ask a registered person for a rate**
 (5a, T1): no type or rate step when they already hold a registration on the
 event; a line says what they are registered as.
+
+**Step 7. Remove the presenter Pay Now switch.** Settings loses "Presenter
+registration, Show Pay Now"; the reader (`isPresenterPayNowEnabled`) answers
+no for every event, whatever an old setting says; the welcome email never
+carries a Pay Now button. Paying later from the person's portal is untouched:
+that IS the pay-later route. The user guide's paragraph on the switch goes.
 
 **Step 5. Copy and docs.** The sign-up page and welcome email say what the
 person registered as; CLAUDE.md, the user guide, ROADMAP, CHANGELOG.
@@ -212,10 +226,16 @@ has a recommendation; the owner rules.
   **Recommendation:** not automatic. On the Registrations page, filter
   "Accepted", tick all, one action "Make presenters" (Complimentary, badge
   Presenter), done by the team on announcement day.
-- **A2. Already paid** (Pay Now switched on, or paid from the portal).
-  Complimentary then means a refund and a credit note. Never automatic: the
-  action skips them and lists them. None on MEHF2027 today (no payment,
-  invoice or promo code on any of the 94 sign-up registrations).
+- **A2. Already paid.** DECIDED Nov 20, 2026. Through presenter registration
+  this should not arise: it never offers Pay Now. It can still happen two
+  ways: the author paid later from their portal before the decision, or they
+  registered and paid as an ordinary delegate and then submitted (T3). In both
+  the owner's rule is **refund, then Complimentary**. Never automatic: Make
+  presenters skips them and lists them; the team refunds through the existing
+  refund flow (credit note first) and then sets Complimentary. None on
+  MEHF2027 today (no payment, invoice or promo code on any of the 94 sign-up
+  registrations). To check in the build: that a fully refunded registration
+  can then be set Complimentary on the sheet.
 - **A3. An invoice issued or a promo code applied, nothing paid.** The invoice
   is cancelled with a note, the code's use released; listed in the result.
 - **A4. Several abstracts** (29 authors). One accepted is enough to be a
@@ -232,15 +252,16 @@ has a recommendation; the owner rules.
 
 ### When it is not accepted
 
-- **R1. Which price?** The presenter rate quoted at sign-up, or the delegate
-  rate on sale when they pay? On MEHF2027 the two are equal today (Presenter
-  = Early Bird: Physician 400, Nurse and Allied Health 200), but Standard is
-  500 and 250. **Recommendation:** honour the quote they were given at sign-up.
-- **R2. A rejected author who will not attend** stays as an owing
-  registration: counted as a delegate, holding a seat, chased by payment
-  reminders. **Recommendation:** the rejection email says how to cancel, and
-  the filter "Rejected, owing" lets the team cancel in bulk after a date they
-  choose. No automatic cancel.
+- **R1. Which price?** DECIDED Nov 20, 2026: the price stays at the rate they
+  registered on. Someone who registered at the early bird rate pays the early
+  bird rate, whenever they pay. (On MEHF2027 Presenter = Early Bird: Physician
+  400, Nurse and Allied Health 200; Standard is 500 and 250.) Nothing to
+  build: a registration keeps its rate, and no bulk action here re-prices.
+- **R2. A rejected author who will not attend.** DECIDED Nov 20, 2026: the
+  organiser cancels the registration; nothing is cancelled automatically.
+  Until then it is an owing registration: counted as a delegate, holding a
+  seat, chased by payment reminders. The filter "Rejected, owing" (step 2) is
+  how the team finds them.
 - **R3. Residents and students** are free either way on MEHF2027 (every rate
   is 0): nothing to do.
 
@@ -291,8 +312,9 @@ submit an abstract, or after.
   Make Faculty, on that person's registration sheet. Until it is built: set
   Complimentary and badge Faculty by hand (they still count as a delegate).
 - **T3. Registered as a delegate first, then submitted** (14 on MEHF2027, all
-  free so far). Their delegate registration is the one. If accepted after
-  PAYING as a delegate, Complimentary is a refund: same rule as A2.
+  free so far). Their delegate registration is the one. DECIDED Nov 20, 2026:
+  if they PAID as a delegate and are then accepted, the organisers refund them
+  and make the registration Complimentary (the steps are in A2).
 - **T4. A committee member or reviewer who submits:** Faculty stays, as T1.
 
 ### Around it
@@ -347,7 +369,6 @@ submit an abstract, or after.
 
 ## 8. Not in scope
 
-- Changing presenter rates, the Pay Now switch, or what the welcome email
-  quotes (August plan).
+- Changing presenter rates or what the welcome email quotes (August plan).
 - Automatic moves on acceptance or rejection (D6 stands).
 - Session proposals (unchanged since Aug 5).
