@@ -77,6 +77,13 @@ Review of `c332aea6` (0 BLOCKER, 0 HIGH, 4 MED, 7 LOW). All four MEDs are fixed 
 5. **LOW: a send resumed after a crash, with the template edited in between** to add an abstract token, skips each author's first abstract (the resume list holds that abstract's id from the per-author run).
 6. **Older, beside it:** a per-author send resumed after a crash can mail an author twice (the resume key is the first abstract the query happened to return, and the query has no order); an abstract title or reviewer note containing `{{...}}` aborts the whole send (the values are not passed through `untokened`); the count route cuts the ticked list at 500 and takes it in the query string; the reminder's preview omits the typed note; a per-author send keeps a recipient whose author has no email address, which the count drops.
 
+## Dialogs cut off by one long line: what the Nov 20 review left (recorded Nov 20, 2026): not started
+
+Review of `daf0f89c` (0 BLOCKER, 0 HIGH, 1 MED, 7 LOW). Fixed in the commit after it: the same fault in four older dialogs (the MED: bulk Assign and Remove reviewers; the pasted reviewer sheet; the two Select by IDs), the missing gutter on a tablet, an unbroken "not found" token, an inert `line-clamp-1` on the Assign reviewers title, and the Assign reviewers rows checked with a real pool. Recorded, not fixed:
+
+1. **For the owner: the fault belongs to the shared dialog, not to these six.** `DialogContent` (`src/components/ui/dialog.tsx`) is a one-column grid whose column grows to its widest unbreakable content, so any dialog that shows one-line text from a person (a title, a name, an address) can be widened past its own edge. Six are now capped by hand. Capping the column in the shared component fixes every dialog at once (about 150 uses, 16 of them flex and unaffected); the risk is a dialog with a wide table that grows the column today and would then spill out of its own box, so the wide ones need a look first.
+2. **LOW, older: on a phone, a reviewer's workload count is the first thing cut** in the Assign reviewers rows (the address and "N assigned" share one line, the count last).
+
 ## Abstract list filters: what the Nov 20 review left (recorded Nov 20, 2026): not started
 
 Review of `022bbb70` (0 BLOCKER, 0 HIGH, 1 MED, 3 LOW). Fixed in the commit after it: a filter choice that no abstract had any more was remembered out of sight, could not be cleared and re-applied by itself when an abstract next took that status (it is now forgotten); the search was squeezed between the tablet and desktop widths (the row wraps below the large width); the page's wiring had no test (source pins). Recorded, not fixed:

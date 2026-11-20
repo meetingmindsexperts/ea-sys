@@ -1202,13 +1202,17 @@ export default function AbstractsPage() {
             Wide (owner, Nov 20, 2026: "increase the width"): a reviewer's row
             holds a name, an email, a count and a button, and the assigned row a
             conflict switch and a role as well. The column is minmax(0, 1fr) so
-            a long title or address is cut, never widens the dialog past its edge. */}
-        <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-3xl" aria-describedby={undefined}>
+            a long name or address is cut in its row, never widens the dialog
+            past its edge. The width keeps a gutter on a tablet (the bare
+            max-w-3xl was edge to edge between 640 and 800px). */}
+        <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-[min(48rem,calc(100%-2rem))]" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle className="text-base">
               Assign reviewers
               {reviewersForAbstract && (
-                <span className="block text-sm font-normal text-muted-foreground mt-0.5 line-clamp-1">
+                // The whole title, wrapped: it is how the organiser knows which
+                // abstract this is. (A line-clamp-1 here never took effect.)
+                <span className="mt-0.5 block text-sm font-normal text-muted-foreground">
                   {reviewersForAbstract.title}
                 </span>
               )}

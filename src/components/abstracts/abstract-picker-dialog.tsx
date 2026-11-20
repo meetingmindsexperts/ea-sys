@@ -145,7 +145,7 @@ export function AbstractPickerDialog({
           column past the dialog, so the heading, the fields and the footer's
           buttons were all cut off at the right edge (organiser's screenshot,
           MEHF2027, Nov 20, 2026). */}
-      <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-[min(48rem,calc(100%-2rem))]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ListChecks className="h-5 w-5" />
@@ -205,7 +205,8 @@ export function AbstractPickerDialog({
               </Button>
             </div>
             {matchResult && (
-              <p className="text-xs">
+              // break-words: one long unbroken token (addresses joined with "|") wraps.
+              <p className="break-words text-xs">
                 <span className="font-medium">{matchResult.matched} matched</span>
                 {matchResult.unmatched.length > 0 && (
                   <span className="text-muted-foreground">

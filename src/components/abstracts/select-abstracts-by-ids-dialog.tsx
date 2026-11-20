@@ -102,7 +102,8 @@ export function SelectAbstractsByIdsDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[520px]">
+      {/* minmax(0, 1fr): one long unbroken pasted token wraps, never widens the dialog. */}
+      <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ListChecks className="h-5 w-5" />

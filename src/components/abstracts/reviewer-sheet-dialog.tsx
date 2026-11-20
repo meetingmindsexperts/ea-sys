@@ -409,7 +409,8 @@ export function ReviewerSheetDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[640px]">
+      {/* minmax(0, 1fr): a long pasted name is cut in its row, never widens the dialog. */}
+      <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ClipboardPaste className="h-5 w-5" />
