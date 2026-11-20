@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Filter the Abstracts list by status and by presentation type (November 20)
+
+Two filters beside the search on the Abstracts page, shown whenever the event has abstracts: **Status** and **Presentation type**.
+
+- **Only what is there:** each filter offers the values the listed abstracts actually have, with a count ("Accepted (12)", "Poster (8)"), so no choice shows an empty list by itself. Abstracts with no type have their own choice, "No type".
+- **They combine** with each other, with the search, and with the theme and "No reviewer yet" filters. "Select all" ticks exactly what is shown, so "Accepted" plus "Oral or Poster" then Set status or type is how to decide the undecided ones.
+- **Nothing matches:** the page says so and offers "Clear the filters". A filter left on a status that no abstract has any more (the last one was just accepted) goes back to "All statuses" by itself.
+- Everyone who sees the list gets them: staff, reviewers (over the abstracts assigned to them) and authors (over their own).
+
 ### Review scores by reviewer: who scored which abstract, and what under each criterion (November 20)
 
 A new spreadsheet for admins and organisers, from the Abstracts page's Export menu ("Review scores by reviewer (.csv)") or the "Review scores (.csv)" button on the Reviewers page. Both give the same file.

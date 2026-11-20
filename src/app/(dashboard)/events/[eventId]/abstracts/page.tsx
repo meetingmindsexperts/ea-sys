@@ -88,6 +88,7 @@ import { BulkStatusDialog } from "@/components/abstracts/bulk-status-dialog";
 import { ReviewerSheetDialog } from "@/components/abstracts/reviewer-sheet-dialog";
 import { SelectAbstractsByIdsDialog } from "@/components/abstracts/select-abstracts-by-ids-dialog";
 import { acceptedByPresentationType } from "@/lib/abstract-accepted-breakdown";
+import { ALL as ALL_VALUES, abstractFilterOptions, effectiveListFilter, matchesListFilters } from "@/lib/abstract-list-filters";
 
 /** The shared labels; this page's own list once called every Oral or Poster abstract "Workshop". */
 function presentationTypeLabel(type: string): string {
@@ -302,6 +303,9 @@ export default function AbstractsPage() {
   // The list's search box: a filter over the abstracts already loaded
   // (src/lib/abstract-search.ts). For everyone who sees the list.
   const [searchQuery, setSearchQuery] = useState("");
+  // Status and presentation type: everyone's filters, beside the search.
+  const [statusChoice, setStatusChoice] = useState<string>(ALL_VALUES);
+  const [typeChoice, setTypeChoice] = useState<string>(ALL_VALUES);
   // Open and mode apart: the mode must outlive the close, or the Remove
   // dialog's title read "Assign reviewers" while it faded out.
   const [bulkMode, setBulkMode] = useState<BulkReviewerMode>("assign");
@@ -542,12 +546,18 @@ export default function AbstractsPage() {
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
+  // The status and type filters offer only what the listed abstracts have, and
+  // a choice nothing has any more reads as "all" (abstract-list-filters.ts).
+  const filterOptions = abstractFilterOptions(abstracts);
+  const statusFilter = effectiveListFilter(statusChoice, filterOptions.statuses);
+  const typeFilter = effectiveListFilter(typeChoice, filterOptions.types);
+
   // The theme and "no reviewer yet" filters belong to whoever assigns
-  // reviewers; the search is everyone's. Both narrow the same list, so
-  // "Select all" ticks exactly what the search and the filters leave shown.
-  const filteredAbstracts = canAssignReviewers
-    ? abstracts.filter((a) => matchesReviewerFilters(a, themeFilter, unassignedOnly))
-    : abstracts;
+  // reviewers; status, type and the search are everyone's. All narrow the same
+  // list, so "Select all" ticks exactly what the search and the filters leave shown.
+  const filteredAbstracts = abstracts
+    .filter((a) => !canAssignReviewers || matchesReviewerFilters(a, themeFilter, unassignedOnly))
+    .filter((a) => matchesListFilters(a, { status: statusFilter, type: typeFilter }));
   const searching = searchQuery.trim() !== "";
   // What the search reads beyond the abstract's own fields: the two labels the
   // row shows as badges, and the author's email for staff only (a reviewer is
@@ -562,7 +572,13 @@ export default function AbstractsPage() {
     ? filteredAbstracts.filter((a) => abstractMatchesSearch(a, searchQuery, searchOptionsFor(a)))
     : filteredAbstracts;
   // A reviewer filter can be what hides the abstract someone searched for.
-  const reviewerFiltersOn = canAssignReviewers && filteredAbstracts.length !== abstracts.length;
+  const reviewerFiltersOn = filteredAbstracts.length !== abstracts.length;
+  const clearFilters = () => {
+    setThemeFilter(ALL_THEMES);
+    setUnassignedOnly(false);
+    setStatusChoice(ALL_VALUES);
+    setTypeChoice(ALL_VALUES);
+  };
   const shownIds = shownAbstracts.map((a) => a.id);
   // From the list, not the id set: an abstract deleted since it was ticked drops out.
   const selectedAbstracts = abstracts.filter((a) => selectedIds.has(a.id));
@@ -1198,14 +1214,43 @@ export default function AbstractsPage() {
             {listWording(isSubmitter, isReviewer).heading}
           </h2>
           {abstracts.length > 0 && (
-            <div className="flex w-full items-center gap-3 sm:w-auto">
+            <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:flex-nowrap">
               {/* The reviewer toolbar below already says "Showing N of M" to
                   whoever has it; this is the count for everyone else. */}
-              {searching && !canAssignReviewers && (
+              {(searching || reviewerFiltersOn) && !canAssignReviewers && (
                 <span className="shrink-0 text-sm text-muted-foreground" aria-live="polite">
-                  {shownAbstracts.length} of {filteredAbstracts.length}
+                  {shownAbstracts.length} of {abstracts.length}
                 </span>
               )}
+              {/* Status and presentation type, for everyone who sees the list,
+                  shown whenever there are abstracts (this whole row is). Only
+                  values the listed abstracts have are offered, each with its count. */}
+              <Select value={statusFilter} onValueChange={setStatusChoice}>
+                <SelectTrigger className="h-9 w-[170px] shrink-0" aria-label="Filter by status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_VALUES}>All statuses</SelectItem>
+                  {filterOptions.statuses.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label} ({o.count})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={typeFilter} onValueChange={setTypeChoice}>
+                <SelectTrigger className="h-9 w-[170px] shrink-0" aria-label="Filter by presentation type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_VALUES}>All types</SelectItem>
+                  {filterOptions.types.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label} ({o.count})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="relative w-full sm:w-80">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -1296,20 +1341,15 @@ export default function AbstractsPage() {
               <p className="text-muted-foreground text-center py-8 break-words">
                 {noMatchMessage(searching ? searchQuery.trim() : "", reviewerFiltersOn)}
               </p>
-              {searching && (
+              {(searching || reviewerFiltersOn) && (
                 <div className="-mt-4 flex flex-wrap justify-center gap-x-2 pb-4">
-                  <Button type="button" variant="link" onClick={() => setSearchQuery("")}>
-                    Clear the search
-                  </Button>
+                  {searching && (
+                    <Button type="button" variant="link" onClick={() => setSearchQuery("")}>
+                      Clear the search
+                    </Button>
+                  )}
                   {reviewerFiltersOn && (
-                    <Button
-                      type="button"
-                      variant="link"
-                      onClick={() => {
-                        setThemeFilter(ALL_THEMES);
-                        setUnassignedOnly(false);
-                      }}
-                    >
+                    <Button type="button" variant="link" onClick={clearFilters}>
                       Clear the filters
                     </Button>
                   )}
