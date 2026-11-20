@@ -533,11 +533,23 @@ export interface EventSpeakerProfile {
   submitterSource?: string | null;
 }
 
+/**
+ * AN ORGANISER-MADE RECORD KEEPS ITS EMPTY DOOR WHEN ITS SPEAKER SIGNS IN TO
+ * SUBMIT AN ABSTRACT (Nov 20, 2026; review of 66969977). "No door on the
+ * record" is how the Speakers page, the Registrations filter and the
+ * certificates tell a speaker the organisers added from someone who signed up
+ * (speaker-kinds.ts). The abstract door used to stamp "abstract" over it, so
+ * an invited speaker who submitted read as a sign-up from then on. The stamp
+ * bought nothing there: an empty door already shows the abstracts surface
+ * (submitter-surfaces.ts). The proposal door still stamps, because the
+ * proposals surface needs it before a first proposal exists.
+ */
 function submitterSourceStamp(
   existingSource: string | null | undefined,
   incomingSource: string | null | undefined,
 ): { submitterSource?: string } {
   if (!incomingSource) return {};
+  if (!existingSource && incomingSource === "abstract") return {};
   if (existingSource && existingSource !== incomingSource) return { submitterSource: "both" };
   return { submitterSource: incomingSource };
 }

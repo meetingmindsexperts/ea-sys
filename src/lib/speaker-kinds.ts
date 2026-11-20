@@ -14,9 +14,11 @@
  *   - the Faculty type alone. Until Nov 20, 2026 an abstract sign-up with no presenter rate was GIVEN a Faculty
  *     registration, so a sign-up door on the record plus an automatic Faculty registration is what any author
  *     of that time has (33 on one production event). They stay with the submitters, where they always were,
- *     until an organiser moves them off Faculty or confirms them with Make Faculty.
- *   - the sign-up door alone. It is stamped on an invited speaker's record the moment they sign in to submit,
- *     and it is absent on a record staff made only to enter an author's abstract.
+ *     until an organiser moves them off Faculty.
+ *   - the sign-up door alone. It is absent on a record staff made only to enter an author's abstract, and
+ *     until Nov 20, 2026 the abstract door stamped it on an invited speaker's record when they signed in to
+ *     submit (it no longer does: `submitterSourceStamp` in speaker-companion.ts; a record stamped before then
+ *     keeps the stamp until it is corrected by hand).
  *   - a place on the programme. An accepted author given a talk is scheduled like any speaker and is still an
  *     author. (With nothing submitted, a place on the programme does count: signupKind.)
  *

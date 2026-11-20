@@ -25,8 +25,11 @@ import { makeRegistrationFaculty, type MakeFacultyErrorCode } from "@/services/m
  * It gives a free Faculty registration, so it needs the key that gives a
  * speaker one (`speakers.companion.grant`), and it is an edit of the
  * registration, so it needs `registrations.update` on this event too. The
- * desk holds the second and not the first. The rules themselves are the
- * service's (make-faculty-service.ts).
+ * desk holds the second and not the first. Where a fee is owed it also needs
+ * `finance.view` (the amount is shown and waived), and where an invoice is
+ * open, `invoices.write` on the event (it is cancelled): without them such a
+ * registration is refused with `NEEDS_FINANCE` and no figure. The rules
+ * themselves are the service's (make-faculty-service.ts).
  */
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -50,6 +53,8 @@ const HTTP_STATUS: Record<MakeFacultyErrorCode, number> = {
   NO_SPEAKER: 409,
   SPEAKER_HAS_OTHER_REGISTRATION: 409,
   HAS_PAYMENT: 409,
+  PAYMENT_PENDING: 409,
+  NEEDS_FINANCE: 403,
   SPONSOR_PAID: 409,
   GROUP_MEMBER: 409,
   CHECKOUT_OPEN: 409,
@@ -105,6 +110,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         registrationId,
         preview: parsed.data.preview === true,
         confirmWaive: parsed.data.confirmWaive,
+        // A fee owed is named and waived, and an open invoice cancelled: each needs the key
+        // every other door to that asks (custom roles can hold the two above without them).
+        maySeeAmounts: can(gate.principal, "finance.view"),
+        mayCancelInvoices: can(gate.principal, "invoices.write", { event: eventFacts }),
         source: "rest",
         requestIp: getClientIp(req),
       });

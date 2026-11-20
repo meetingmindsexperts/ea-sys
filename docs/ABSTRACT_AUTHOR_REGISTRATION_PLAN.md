@@ -207,11 +207,13 @@ absent on a record staff made to enter an author's abstract); a place on the
 programme (an accepted author given a talk is scheduled like any speaker).
 With nothing submitted, the older rules stand. `speakerKindOf` in
 `src/lib/speaker-kinds.ts` is the one rule; the Registrations filter asks it
-with each row's own facts. Consequences: an invited speaker on a delegate
-type who submits, and an invited speaker who signs in to submit (the door is
-stamped), are listed as authors until Make Faculty is used on them, which on
-a registration already on Faculty only confirms it. Leaving the Faculty type
-clears its own "Faculty" badge.
+with each row's own facts. The abstract door no longer stamps a record the
+organisers made (review of `66969977`), so an invited speaker who signs in to
+submit stays invited. Consequences: an invited speaker on a delegate type who
+submits is listed as an author until Make Faculty is used on them; and a
+record the door stamped BEFORE Nov 20, 2026 (an invited speaker who had
+already signed in to submit) reads as a sign-up until step 8 corrects it.
+Leaving the Faculty type clears its own "Faculty" badge.
 
 **Step 5. The Speakers page keeps authors apart from invited faculty** (P4).
 BUILT Nov 20, 2026. The tabs existed (Invited speakers, Abstract submitters,
@@ -237,10 +239,15 @@ speaker record that points at the registration or carries its address, and
 that record is then pointed at it; a fully refunded registration moves and
 keeps saying Refunded; a sponsor-paid one, a group member and one with a card
 checkout open are refused; the badge becomes Faculty where it was blank or
-Presenter, and one the team chose is kept. On a registration ALREADY on the
-Faculty type that the organisers did not put there (the old sign-up's, or an
-invited speaker who signed in to submit) the button reads "Confirm as invited
-faculty" and sets only the mark. The one known case, skourihadi73 on MEHF2027
+Presenter, and one the team chose is kept. After the review of `66969977`:
+what is held is each settled payment less what was refunded from it, read
+before the dialog and again behind the row lock; a fee owed needs
+`finance.view` and an open invoice `invoices.write`, or the move is refused
+with no figure; a payment in progress and any open card checkout refuse it;
+the contact keeps its own category. A first version also "confirmed" a
+registration already on Faculty by re-marking it; that was removed (it
+recorded a waiver that had not happened, and changed how four other features
+treat the speaker's companion). The one known case, skourihadi73 on MEHF2027
 (Physician, Complimentary, badge Faculty), can now be moved.
 (Owner, Nov 20, 2026: built as part of this work, not ahead of it.)
 For the person who submitted first and was invited later (section 4a). On

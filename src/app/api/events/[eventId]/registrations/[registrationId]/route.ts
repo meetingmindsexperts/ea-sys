@@ -23,7 +23,7 @@ import { optimisticLockField } from "@/lib/optimistic-lock";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 import { dtcmCodeWriteRefusal, redactBarcodeFields, registrationForCaller } from "@/lib/barcode-visibility";
 import { eventFactsOf } from "@/lib/permissions/event-facts";
-import { findSpeakerRecordOf, needsFacultyConfirmation } from "@/services/make-faculty-service";
+import { findSpeakerRecordOf } from "@/services/make-faculty-service";
 import { redactSupportingDocumentFields } from "@/lib/supporting-document";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
@@ -145,21 +145,11 @@ const HTTP_STATUS_FOR_UPDATE_CODE: Partial<Record<UpdateRegistrationErrorCode, n
  */
 async function speakerRecordFor(
   eventId: string,
-  registration: { id: string; createdSource: string | null; attendee: { email: string } | null; ticketType: { isFaculty: boolean } | null },
-): Promise<{ id: string; name: string; needsFacultyConfirmation: boolean } | null | undefined> {
+  registration: { id: string; attendee: { email: string } | null },
+): Promise<{ id: string; name: string } | null | undefined> {
   try {
     const speaker = await findSpeakerRecordOf(eventId, registration);
-    if (!speaker) return null;
-    return {
-      id: speaker.id,
-      name: `${speaker.firstName} ${speaker.lastName}`.trim(),
-      // On the Faculty type without the organisers having put them there (make-faculty-service.ts).
-      needsFacultyConfirmation: needsFacultyConfirmation({
-        onFacultyType: registration.ticketType?.isFaculty === true,
-        createdSource: registration.createdSource,
-        submitterSource: speaker.submitterSource,
-      }),
-    };
+    return speaker ? { id: speaker.id, name: `${speaker.firstName} ${speaker.lastName}`.trim() } : null;
   } catch (err) {
     apiLogger.error({ err, msg: "registrations/detail:speaker-record-failed", eventId, registrationId: registration.id });
     return undefined;

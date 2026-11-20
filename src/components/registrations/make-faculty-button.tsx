@@ -26,7 +26,6 @@ interface Plan {
   owing: { amount: number; currency: string } | null;
   invoices: { id: string; invoiceNumber: string }[];
   badge: { from: string | null; to: string | null };
-  alreadyOnFaculty: boolean;
 }
 
 type Answer = { ok?: boolean; moved?: boolean; plan?: Plan; invoicesNotCancelled?: string[]; error?: string; code?: string };
@@ -43,16 +42,12 @@ async function ask(eventId: string, registrationId: string, body: Record<string,
 
 /** What changes, one line each, in the order a person checks them. */
 export function planLines(plan: Plan): string[] {
-  // Already on the Faculty type: the one thing that changes is who is taken to have put them there.
-  if (plan.alreadyOnFaculty) {
-    return [
-      "This registration is already on the Faculty type, from signing up to submit.",
-      "Confirming says the organisers invited this person: they are listed with the invited speakers from now on, on Speakers, Registrations and Certificates.",
-      "Nothing else changes: the registration, its badge and its barcode stay as they are.",
-    ];
-  }
   const from = [plan.fromType, plan.fromRate].filter(Boolean).join(", ");
-  const lines = [`Registration type: ${from || "none"} becomes Faculty, Complimentary. Their delegate seat is released.`];
+  const lines = [
+    // Which speaker record makes this a speaker's registration: it can be found by its address alone.
+    `On the Speakers list as ${plan.speaker.name}.`,
+    `Registration type: ${from || "none"} becomes Faculty, Complimentary. Their delegate seat is released.`,
+  ];
   if (plan.owing) lines.push(`${formatCurrency(plan.owing.amount, plan.owing.currency)} is owed now and will no longer be.`);
   if (plan.invoices.length > 0) {
     lines.push(`${plan.invoices.length === 1 ? "Invoice" : "Invoices"} ${plan.invoices.map((i) => i.invoiceNumber).join(", ")} will be cancelled (kept, not deleted).`);
@@ -64,7 +59,6 @@ export function planLines(plan: Plan): string[] {
 }
 
 function confirmLabel(plan: Plan): string {
-  if (plan.alreadyOnFaculty) return "Confirm";
   return plan.owing ? `Waive ${formatCurrency(plan.owing.amount, plan.owing.currency)} and make Faculty` : "Make Faculty";
 }
 
@@ -72,14 +66,11 @@ export function MakeFacultyButton({
   eventId,
   registrationId,
   personName,
-  alreadyOnFaculty,
   onMoved,
 }: {
   eventId: string;
   registrationId: string;
   personName: string;
-  /** On the Faculty type already, without the organisers having put them there: the action confirms it. */
-  alreadyOnFaculty: boolean;
   /** The move was made: the caller reloads the registration. */
   onMoved: () => void;
 }) {
@@ -112,7 +103,7 @@ export function MakeFacultyButton({
       if (answer.ok && answer.moved) {
         const left = answer.invoicesNotCancelled ?? [];
         if (left.length > 0) toast.warning(`Made Faculty. Could not cancel ${left.join(", ")}: cancel it from Invoices.`, { duration: 15000 });
-        else toast.success(alreadyOnFaculty ? `${personName} is confirmed as invited faculty` : `${personName} is now Faculty`);
+        else toast.success(`${personName} is now Faculty`);
         setOpen(false);
         onMoved();
         return;
@@ -121,6 +112,12 @@ export function MakeFacultyButton({
       if (answer.code === "CONFIRM_WAIVE" && answer.plan) {
         setPlan(answer.plan);
         toast.error("The amount owed has changed. Check it and confirm again.");
+        return;
+      }
+      // The move was made and its answer lost (a dropped connection): the registration is on Faculty.
+      if (answer.code === "ALREADY_FACULTY") {
+        setOpen(false);
+        onMoved();
         return;
       }
       setPlan(null);
@@ -136,12 +133,12 @@ export function MakeFacultyButton({
     <>
       <Button type="button" variant="outline" size="sm" onClick={preview}>
         <GraduationCap className="mr-2 h-4 w-4" />
-        {alreadyOnFaculty ? "Confirm as invited faculty" : "Make Faculty"}
+        Make Faculty
       </Button>
       <Dialog open={open} onOpenChange={(next) => { if (!busy) setOpen(next); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{alreadyOnFaculty ? `Confirm ${personName} as invited faculty` : `Make ${personName} Faculty`}</DialogTitle>
+            <DialogTitle>Make {personName} Faculty</DialogTitle>
             <DialogDescription>
               For a speaker or committee member who registered or submitted an abstract before being invited.
             </DialogDescription>

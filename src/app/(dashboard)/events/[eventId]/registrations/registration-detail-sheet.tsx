@@ -1779,6 +1779,22 @@ export function RegistrationDetailSheet({
                         </span>
                       </p>
                     )}
+                    {/* A speaker who registered or submitted before being invited is stuck on that
+                        registration: this is the one way onto Faculty (owner, Nov 20, 2026). Only for a
+                        registration that belongs to a speaker record, never an ordinary delegate. */}
+                    {!isEditing && canMakeFaculty && selectedRegistration.speakerRecord && selectedRegistration.status !== "CANCELLED" &&
+                      !selectedRegistration.ticketType?.isFaculty && (
+                      <MakeFacultyButton
+                        eventId={eventId}
+                        registrationId={selectedRegistration.id}
+                        personName={`${selectedRegistration.attendee.firstName} ${selectedRegistration.attendee.lastName}`.trim()}
+                        onMoved={() => {
+                          // The Speakers page groups people by this registration's type.
+                          queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
+                          void refreshSelectedRegistration(selectedRegistration.id);
+                        }}
+                      />
+                    )}
                   </div>
                   {/* Webinars print no badges, so no badge type. */}
                   {!isWebinarEvent && (
@@ -1844,22 +1860,9 @@ export function RegistrationDetailSheet({
                   )}
                 </div>
               ) : (
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-3">
                   <ClipboardList className="h-4 w-4 text-muted-foreground" />
                   <div className="font-medium">{displayRegistrationType({ ticketTypeName: selectedRegistration.ticketType?.name, isFaculty: selectedRegistration.ticketType?.isFaculty, attendeeRegistrationType: selectedRegistration.attendee.registrationType })}</div>
-                  {/* A speaker who registered or submitted before being invited is stuck on that
-                      registration: this is the one way onto Faculty (owner, Nov 20, 2026). Only for a
-                      registration that belongs to a speaker record, never an ordinary delegate. */}
-                  {canMakeFaculty && selectedRegistration.speakerRecord && selectedRegistration.status !== "CANCELLED" &&
-                    (!selectedRegistration.ticketType?.isFaculty || selectedRegistration.speakerRecord.needsFacultyConfirmation) && (
-                    <MakeFacultyButton
-                      alreadyOnFaculty={!!selectedRegistration.ticketType?.isFaculty}
-                      eventId={eventId}
-                      registrationId={selectedRegistration.id}
-                      personName={`${selectedRegistration.attendee.firstName} ${selectedRegistration.attendee.lastName}`.trim()}
-                      onMoved={() => { void refreshSelectedRegistration(selectedRegistration.id); }}
-                    />
-                  )}
                 </div>
               )}
 

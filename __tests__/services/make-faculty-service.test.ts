@@ -28,7 +28,7 @@ vi.mock("@/services/registration-service", () => ({ updateRegistration: updateSp
 vi.mock("@/lib/invoice-service", () => ({ cancelInvoice: cancelInvoiceSpy }));
 vi.mock("@/lib/speaker-companion", () => ({ ensureFacultyTicketType: facultyTypeSpy }));
 
-import { makeRegistrationFaculty, needsFacultyConfirmation } from "@/services/make-faculty-service";
+import { makeRegistrationFaculty } from "@/services/make-faculty-service";
 
 const UPDATED_AT = new Date("2026-11-20T08:00:00Z");
 const row = (over: Record<string, unknown> = {}) => ({
@@ -51,8 +51,12 @@ const row = (over: Record<string, unknown> = {}) => ({
   event: { taxRate: null, taxLabel: null },
   ...over,
 });
-const speaker = (over: Record<string, unknown> = {}) => ({ id: "sp1", firstName: "Hadi", lastName: "Skouri", sourceRegistrationId: "r1", submitterSource: "abstract", ...over });
-const input = (over: Record<string, unknown> = {}) => ({ eventId: "ev1", organizationId: "org1", actorUserId: "u1", registrationId: "r1", source: "rest" as const, ...over });
+const speaker = (over: Record<string, unknown> = {}) => ({ id: "sp1", firstName: "Hadi", lastName: "Skouri", sourceRegistrationId: "r1", ...over });
+const input = (over: Record<string, unknown> = {}) => ({
+  eventId: "ev1", organizationId: "org1", actorUserId: "u1", registrationId: "r1", source: "rest" as const, maySeeAmounts: true, mayCancelInvoices: true, ...over,
+});
+/** A payment row as the database holds it: the status is the enum, and a refund is counted on the payment. */
+const payment = (amount: number, refundedAmount = 0) => ({ amount, refundedAmount, status: refundedAmount >= amount ? "REFUNDED" : "PAID" });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -98,12 +102,12 @@ describe("only for a speaker", () => {
 
 describe("money never disappears (P5)", () => {
   it.each([
-    ["paid", { paymentStatus: "PAID" }],
-    ["a card payment in progress", { paymentStatus: "PENDING" }],
-    ["a payment recorded on an unpaid row", { payments: [{ amount: 100, status: "succeeded" }] }],
-    ["partly refunded", { paymentStatus: "PAID", payments: [{ amount: 400, status: "succeeded" }], refundedAmount: 150 }],
+    ["paid by card or at the desk", { paymentStatus: "PAID", payments: [payment(400)] }],
+    ["a payment recorded on a row still marked unpaid (a partial capture)", { payments: [payment(100)] }],
+    ["partly refunded", { paymentStatus: "PAID", payments: [payment(400, 150)], refundedAmount: 150 }],
     ["a paid invoice", { invoices: [{ id: "i1", invoiceNumber: "INV-1", status: "PAID" }] }],
-  ])("%s: refused until it is refunded", async (_name, over) => {
+    ["marked Paid by hand, with no payment recorded", { paymentStatus: "PAID" }],
+  ])("%s: refused until it is refunded or corrected", async (_name, over) => {
     regFindFirst.mockResolvedValue(row(over));
     const result = await makeRegistrationFaculty(input({ confirmWaive: 400 }));
     expect(result).toMatchObject({ ok: false, code: "HAS_PAYMENT" });
@@ -111,14 +115,56 @@ describe("money never disappears (P5)", () => {
     expect(cancelInvoiceSpy).not.toHaveBeenCalled();
   });
 
+  // Review of 66969977 (MED): the first version subtracted the registration's refund total from the payments
+  // still marked PAID, so a refund of one payment hid another that was still held.
+  it.each([
+    ["Complimentary by hand", "COMPLIMENTARY"],
+    ["Unpaid", "UNPAID"],
+  ])("one payment fully refunded and another still held, status %s: refused", async (_name, paymentStatus) => {
+    regFindFirst.mockResolvedValue(row({ paymentStatus, payments: [payment(300, 300), payment(200)], refundedAmount: 300 }));
+    expect(await makeRegistrationFaculty(input({ confirmWaive: 500 }))).toMatchObject({ ok: false, code: "HAS_PAYMENT" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("a payment that lands between the read and the row lock is refused by the update itself", async () => {
+    regFindFirst.mockResolvedValue(row({ paymentStatus: "COMPLIMENTARY" }));
+    updateSpy.mockResolvedValue({ ok: false, code: "FACULTY_HAS_PAYMENT", message: "A payment was recorded on this registration." });
+    expect(await makeRegistrationFaculty(input())).toMatchObject({ ok: false, code: "HAS_PAYMENT" });
+    expect(cancelInvoiceSpy).not.toHaveBeenCalled();
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["paid by a sponsor", { paymentStatus: "INCLUSIVE" }, "SPONSOR_PAID"],
     ["part of a group", { groupId: "g1" }, "GROUP_MEMBER"],
+    ["a payment in progress", { paymentStatus: "PENDING" }, "PAYMENT_PENDING"],
     ["owing with a card checkout open", { stripeCheckoutSessionId: "cs_1" }, "CHECKOUT_OPEN"],
+    // It can still turn the row Paid, whatever the row says now.
+    ["Complimentary with a card checkout still open", { paymentStatus: "COMPLIMENTARY", stripeCheckoutSessionId: "cs_1" }, "CHECKOUT_OPEN"],
   ])("%s: refused", async (_name, over, code) => {
     regFindFirst.mockResolvedValue(row(over));
     expect(await makeRegistrationFaculty(input({ confirmWaive: 400 }))).toMatchObject({ ok: false, code });
     expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  // Review of 66969977 (MED): a custom role can hold the two keys the route asks without seeing amounts or
+  // editing invoices. It is told neither figure and waives nothing.
+  it("without the key to see amounts, a registration that owes is refused, and the answer names no figure", async () => {
+    const result = await makeRegistrationFaculty(input({ maySeeAmounts: false, preview: true }));
+    expect(result).toMatchObject({ ok: false, code: "NEEDS_FINANCE" });
+    expect(JSON.stringify(result)).not.toMatch(/400|AED|plan/);
+    // Nothing owed and no invoice: it needs neither key.
+    regFindFirst.mockResolvedValue(row({ paymentStatus: "COMPLIMENTARY" }));
+    expect(await makeRegistrationFaculty(input({ maySeeAmounts: false, mayCancelInvoices: false }))).toMatchObject({ ok: true, moved: true });
+  });
+
+  it("without the key to edit invoices, a registration with an open invoice is refused, and the invoice is left alone", async () => {
+    regFindFirst.mockResolvedValue(row({ paymentStatus: "COMPLIMENTARY", invoices: [{ id: "i1", invoiceNumber: "INV-7", status: "SENT" }] }));
+    const result = await makeRegistrationFaculty(input({ mayCancelInvoices: false }));
+    expect(result).toMatchObject({ ok: false, code: "NEEDS_FINANCE" });
+    expect(JSON.stringify(result)).not.toContain("INV-7");
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(cancelInvoiceSpy).not.toHaveBeenCalled();
   });
 
   it("owing: refused until the caller sends back the amount it was shown, and the refusal carries the plan", async () => {
@@ -157,7 +203,7 @@ describe("money never disappears (P5)", () => {
   it.each([
     ["Complimentary", { paymentStatus: "COMPLIMENTARY" }],
     ["a free rate", { originalPrice: 0, pricingTier: { name: "Presenter Early Bird", price: 0, currency: "AED" } }],
-    ["fully refunded", { paymentStatus: "REFUNDED", payments: [{ amount: 400, status: "succeeded" }], refundedAmount: 400 }],
+    ["fully refunded", { paymentStatus: "REFUNDED", payments: [payment(400, 400)], refundedAmount: 400 }],
   ])("%s: nothing is owed, so it moves with no confirmation", async (_name, over) => {
     regFindFirst.mockResolvedValue(row(over));
     const result = await makeRegistrationFaculty(input());
@@ -166,7 +212,7 @@ describe("money never disappears (P5)", () => {
   });
 
   it("a fully refunded registration keeps saying Refunded: its payment status is not written", async () => {
-    regFindFirst.mockResolvedValue(row({ paymentStatus: "REFUNDED", payments: [{ amount: 400, status: "succeeded" }], refundedAmount: 400 }));
+    regFindFirst.mockResolvedValue(row({ paymentStatus: "REFUNDED", payments: [payment(400, 400)], refundedAmount: 400 }));
     await makeRegistrationFaculty(input());
     expect(updateSpy.mock.calls[0][0]).not.toHaveProperty("paymentStatus");
   });
@@ -184,7 +230,7 @@ describe("money never disappears (P5)", () => {
 describe("the move", () => {
   it("a preview answers what would happen and changes nothing", async () => {
     const result = await makeRegistrationFaculty(input({ preview: true }));
-    expect(result).toMatchObject({ ok: true, moved: false, plan: { speaker: { id: "sp1", name: "Hadi Skouri" }, badge: { from: null, to: "Faculty" }, alreadyOnFaculty: false } });
+    expect(result).toMatchObject({ ok: true, moved: false, plan: { speaker: { id: "sp1", name: "Hadi Skouri" }, badge: { from: null, to: "Faculty" } } });
     expect(updateSpy).not.toHaveBeenCalled();
     expect(facultyTypeSpy).not.toHaveBeenCalled();
     expect(auditCreate).not.toHaveBeenCalled();
@@ -229,36 +275,22 @@ describe("the move", () => {
 
 describe("already on the Faculty type", () => {
   const onFaculty = (over: Record<string, unknown> = {}) =>
-    row({ paymentStatus: "COMPLIMENTARY", originalPrice: 0, badgeType: "Faculty", createdSource: "SPEAKER_COMPANION", ticketType: { name: "Faculty", isFaculty: true, price: 0, currency: "AED" }, pricingTier: null, ...over });
+    row({ paymentStatus: "COMPLIMENTARY", originalPrice: 0, badgeType: "Faculty", createdSource: "FACULTY_ADMIN", ticketType: { name: "Faculty", isFaculty: true, price: 0, currency: "AED" }, pricingTier: null, ...over });
 
-  it("the automatic registration of someone who came through a sign-up door is confirmed: the mark, and nothing else", async () => {
-    regFindFirst.mockResolvedValue(onFaculty({ invoices: [{ id: "i1", invoiceNumber: "INV-7", status: "SENT" }] }));
-    const result = await makeRegistrationFaculty(input());
-    expect(result).toMatchObject({ ok: true, moved: true, plan: { alreadyOnFaculty: true, owing: null, invoices: [], badge: { from: "Faculty", to: "Faculty" } } });
-    const sent = updateSpy.mock.calls[0][0];
-    expect(sent).toMatchObject({ toFaculty: true, registrationId: "r1" });
-    for (const untouched of ["ticketTypeId", "paymentStatus", "badgeType"]) expect(sent).not.toHaveProperty(untouched);
-    expect(facultyTypeSpy).not.toHaveBeenCalled();
-    expect(cancelInvoiceSpy).not.toHaveBeenCalled();
-  });
-
-  it("an invited speaker's own, and one already made Faculty by hand, have nothing to confirm", async () => {
-    speakerFindFirst.mockResolvedValue(speaker({ submitterSource: null }));
+  it("there is nothing to do, and nothing is changed", async () => {
     regFindFirst.mockResolvedValue(onFaculty());
     expect(await makeRegistrationFaculty(input())).toMatchObject({ ok: false, code: "ALREADY_FACULTY" });
-    speakerFindFirst.mockResolvedValue(speaker());
-    regFindFirst.mockResolvedValue(onFaculty({ createdSource: "FACULTY_ADMIN" }));
-    expect(await makeRegistrationFaculty(input())).toMatchObject({ ok: false, code: "ALREADY_FACULTY" });
     expect(updateSpy).not.toHaveBeenCalled();
+    expect(speakerUpdateMany).not.toHaveBeenCalled();
   });
 
-  it("needsFacultyConfirmation is the one answer for the service and the sheet", () => {
-    expect(needsFacultyConfirmation({ onFacultyType: true, createdSource: "SPEAKER_COMPANION", submitterSource: "abstract" })).toBe(true);
-    expect(needsFacultyConfirmation({ onFacultyType: true, createdSource: "SPEAKER_COMPANION", submitterSource: null })).toBe(false);
-    expect(needsFacultyConfirmation({ onFacultyType: true, createdSource: "FACULTY_ADMIN", submitterSource: "abstract" })).toBe(false);
-    // A delegate found on the type from before the rule: confirming makes it the organisers' doing.
-    expect(needsFacultyConfirmation({ onFacultyType: true, createdSource: "ADMIN_DASHBOARD", submitterSource: null })).toBe(true);
-    expect(needsFacultyConfirmation({ onFacultyType: false, createdSource: "PUBLIC_SUBMITTER", submitterSource: "abstract" })).toBe(false);
+  // Review of 66969977 (LOW): a run that moved the registration and then failed to point the speaker at it
+  // could not be repaired, because the next attempt answered "already".
+  it("a speaker found by address who was never pointed at it is pointed now", async () => {
+    regFindFirst.mockResolvedValue(onFaculty());
+    speakerFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(speaker({ sourceRegistrationId: null }));
+    expect(await makeRegistrationFaculty(input())).toMatchObject({ ok: false, code: "ALREADY_FACULTY" });
+    expect(speakerUpdateMany).toHaveBeenCalledWith({ where: { id: "sp1", eventId: "ev1", sourceRegistrationId: null }, data: { sourceRegistrationId: "r1" } });
   });
 });
 
@@ -277,7 +309,8 @@ describe("the one caller", () => {
         else if (/\.(ts|tsx)$/.test(entry.name) && /\btoFaculty\b/.test(readFileSync(path, "utf8"))) hits.push(path);
       }
     };
-    walk(join(process.cwd(), "src"));
+    // Everywhere code runs from: the app, the worker tier and the one-off scripts.
+    for (const root of ["src", "worker", "scripts"]) walk(join(process.cwd(), root));
     expect(hits.map((h) => h.replace(`${process.cwd()}/`, "")).sort()).toEqual(["src/services/make-faculty-service.ts", "src/services/registration-service.ts"]);
   });
 });

@@ -28,15 +28,16 @@ Submitting an abstract used to give the author a free Faculty registration on an
 
 - **Money:** nothing owed, it moves. A fee owed is named in the dialog ("AED 400.00 is owed now and will no longer be") and waived only on confirming; an open invoice is cancelled, not deleted, and the waiver is written to the history. A payment on it, in part or in full, refuses the move until it is refunded. Paid by a sponsor, part of a group, or a card payment in progress: refused, with the reason.
 - **Badge:** becomes Faculty where it was blank or Presenter; a committee badge or any other the team chose is kept.
-- **Already on Faculty from signing up to submit:** the button reads "Confirm as invited faculty". It changes nothing about the registration; it records that the organisers invited this person, so they are listed with the invited speakers.
+- **Who can waive:** where a fee is owed, the person also needs to be able to see amounts; where an invoice is open, to edit invoices. Otherwise the registration is refused and no figure is shown.
+- **What it is afterwards:** a registration made Faculty by hand stands on its own. Deleting the speaker does not delete it, and a speaker's decline does not cancel it.
 - **Moved back later** (Change type), it is an ordinary delegate registration again and takes a seat.
 
 **Pay Now is never offered at abstract sign-up.** Presenter registration is always pay later (owner, November 20): the sign-up email quotes the fee and attaches the quote, and the author pays from their own portal, or offline, once the abstract is decided. The Settings switch "Ask submitters to pay at submission" is removed; no event had it on. Paying from the portal is unchanged. (Step 7 of the plan.)
 
 **Who counts as invited, for someone who has submitted (November 20, after two reviews):** the organisers put them on the Faculty type. That is a speaker the organisers added themselves whose registration is on Faculty, or a registration made Faculty by hand (Add registration as Faculty, or Make Faculty). Three simpler signals were tried and dropped:
 
-- **The Faculty type alone:** the old abstract sign-up gave every author a Faculty registration on an event with no presenter rates, so 33 authors on MEHF2027 and 2 on hemnet2026 would have moved onto the Invited tab, where "Email listed" and the certificates' default group reach them. They stay with the submitters, as before, until an organiser moves them off Faculty or confirms them.
-- **"The organisers created the speaker record":** an invited speaker who signs in to submit gets the abstract door stamped on their record, and a record staff create only to enter an author's abstract has none.
+- **The Faculty type alone:** the old abstract sign-up gave every author a Faculty registration on an event with no presenter rates, so 33 authors on MEHF2027 and 2 on hemnet2026 would have moved onto the Invited tab, where "Email listed" and the certificates' default group reach them. They stay with the submitters, as before, until an organiser moves them off Faculty.
+- **"The organisers created the speaker record", alone:** a record staff create only to enter an author's abstract looks the same, and until now an invited speaker who signed in to submit had the abstract door stamped on their record. That stamping has stopped: an invited speaker who signs in to submit stays an invited speaker.
 - **A place on the programme:** an accepted author given a talk is scheduled like any speaker.
 
 **Other changes from those reviews:**

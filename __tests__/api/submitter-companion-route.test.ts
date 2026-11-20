@@ -324,6 +324,16 @@ describe("submitter route — submitterSource stamping (a door WIDENS, never nar
     );
   });
 
+  // Nov 20, 2026 (review of 66969977): "no door on the record" is how a speaker the organisers added is told
+  // from someone who signed up (speaker-kinds.ts). The abstract door stamping it made every invited speaker
+  // who submitted read as a sign-up. An empty door already shows the abstracts surface, so nothing is lost.
+  it("the ABSTRACT door leaves an organiser-made record's empty door alone", async () => {
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", userId: "u1", submitterSource: null });
+    await POST(makeReq({ ...validBody, source: "abstract" }), { params });
+    expect(mockDb._tx.speaker.update).toHaveBeenCalled();
+    expect(mockDb._tx.speaker.update.mock.calls.at(-1)![0].data).not.toHaveProperty("submitterSource");
+  });
+
   it("using the OTHER door widens to 'both' (surfaces are independent — MEHF2026 abstract-link bounce)", async () => {
     // A proposal person using /abstract/register gains the Abstracts surface
     // AND keeps Session Proposals — the registers are two separate flows.

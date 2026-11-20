@@ -32,6 +32,7 @@ import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { exhibitorBadgeData } from "@/lib/badge-layout";
 import { badgeOnLeavingFaculty } from "@/lib/faculty-registration";
+import { HELD_PAYMENT_TOLERANCE, heldPaymentSum } from "@/lib/held-payments";
 import { syncToContact } from "@/lib/contact-sync";
 import { changedContactFields, contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -1392,8 +1393,11 @@ export interface UpdateRegistrationInput {
    * as made Faculty BY HAND (FACULTY_ADMIN, the mark of Add registration as
    * Faculty): seatless, so it gives up its delegate seat through the planner
    * like any other move, and a delegate again, with a seat, if it is ever
-   * moved back off. On a row already on the Faculty type it only sets that
-   * mark. No route passes this on.
+   * moved back off. It means nothing without that move. The held-payment
+   * check is made AGAIN here, inside the transaction and behind the row lock
+   * (review of 66969977: a partial desk payment does not touch the
+   * registration row, so the optimistic lock alone cannot see one that lands
+   * after the service's read). No route passes this on.
    */
   toFaculty?: boolean;
   /** An id, or null to clear the tier (→ base price); omit to leave unchanged. */
@@ -1411,6 +1415,14 @@ export interface UpdateRegistrationInput {
   billingZipCode?: string | null;
   billingCountry?: string | null;
   attendee?: UpdateRegistrationAttendeeInput;
+}
+
+async function heldPaymentTotal(tx: Prisma.TransactionClient, registrationId: string): Promise<number> {
+  const payments = await tx.payment.findMany({
+    where: { registrationId, status: { in: ["PAID", "REFUNDED"] } },
+    select: { amount: true, refundedAmount: true, status: true },
+  });
+  return heldPaymentSum(payments);
 }
 
 /** How the row was made, as it reads after a type change (see the two callers' comments in updateRegistration). */
@@ -1440,6 +1452,8 @@ export type UpdateRegistrationErrorCode =
   | "CAPACITY_EXCEEDED"
   | "EVENT_FULL"
   | "REPRICING_BLOCKED"
+  /** Make Faculty only: a payment is held on the row (read behind the row lock). */
+  | "FACULTY_HAS_PAYMENT"
   | "UNKNOWN";
 
 export type UpdatedRegistrationRow = Prisma.RegistrationGetPayload<{
@@ -1675,11 +1689,9 @@ export async function updateRegistration(
     // seatless on a delegate type for good, outside every cap and recount.
     // A speaker's companion keeps its documented behaviour.
     const leavesFaculty = isChangingType && existing.createdSource === "FACULTY_ADMIN";
-    // Make Faculty: put on the speakers' type by a person, or already on it
-    // and now said to be. Seatless from here (the planner releases a delegate
-    // seat below).
-    const stayingOnFaculty = !isChangingType && existing.ticketType?.isFaculty === true;
-    const madeFacultyByHand = input.toFaculty === true && (movesOntoFaculty || stayingOnFaculty);
+    // Make Faculty: put on the speakers' type by a person. Seatless from here
+    // (the planner releases the delegate seat below).
+    const madeFacultyByHand = isChangingType && movesOntoFaculty;
     const nextCreatedSource = createdSourceAfterTypeChange(existing.createdSource, { leavesFaculty, madeFacultyByHand });
 
     const expectedUpdatedAt = input.expectedUpdatedAt ?? null;
@@ -1705,6 +1717,8 @@ export async function updateRegistration(
       const locked = await lockRegistrationIfUnchanged(tx, registrationId, existing.updatedAt);
       if (locked === "gone") throw new Error("REGISTRATION_DISAPPEARED");
       if (locked === "changed") throw new Error("STALE_WRITE");
+      // Make Faculty carries no money: read the payments again now that the row is locked.
+      if (madeFacultyByHand && (await heldPaymentTotal(tx, registrationId)) > HELD_PAYMENT_TOLERANCE) throw new Error("FACULTY_HAS_PAYMENT");
 
       const effectiveStatus = status || existing.status;
       const seatTierId = nextTierId !== undefined ? nextTierId : existing.pricingTierId;
@@ -1860,8 +1874,8 @@ export async function updateRegistration(
         },
       });
     }).catch((err) => {
-      if (err instanceof Error && ["STALE_WRITE", "REGISTRATION_DISAPPEARED", "CAPACITY_EXCEEDED", "EVENT_FULL"].includes(err.message)) {
-        return err.message as "STALE_WRITE" | "REGISTRATION_DISAPPEARED" | "CAPACITY_EXCEEDED" | "EVENT_FULL";
+      if (err instanceof Error && ["STALE_WRITE", "REGISTRATION_DISAPPEARED", "CAPACITY_EXCEEDED", "EVENT_FULL", "FACULTY_HAS_PAYMENT"].includes(err.message)) {
+        return err.message as "STALE_WRITE" | "REGISTRATION_DISAPPEARED" | "CAPACITY_EXCEEDED" | "EVENT_FULL" | "FACULTY_HAS_PAYMENT";
       }
       throw err;
     });
@@ -1876,6 +1890,10 @@ export async function updateRegistration(
     }
     if (registration === "REGISTRATION_DISAPPEARED") {
       return { ok: false, code: "REGISTRATION_NOT_FOUND", message: "Registration not found" };
+    }
+    if (registration === "FACULTY_HAS_PAYMENT") {
+      apiLogger.warn({ msg: "registration:update-faculty-has-payment", registrationId, eventId, source });
+      return { ok: false, code: "FACULTY_HAS_PAYMENT", message: "A payment was recorded on this registration. Refund it before making it Faculty." };
     }
     if (registration === "CAPACITY_EXCEEDED") {
       apiLogger.warn({ msg: "registration:update-capacity-exceeded", registrationId, source });
@@ -1928,13 +1946,14 @@ export async function updateRegistration(
     // the edit as the category: on a Faculty registration that wrote "Faculty"
     // over the contact's own category.
     // The category is said only when this edit moved the registration to
-    // another type (never the Faculty type: that move is refused above), and
-    // then even when no attendee field came with it.
+    // another type, and then even when no attendee field came with it. Never
+    // for a move onto the Faculty type (Make Faculty): the contact keeps its
+    // own profession, whatever the event calls its speakers' type.
     if (attendee || newTicketTypeName) {
       await syncToContact(contactSyncFromAttendee(registration.attendee, {
         organizationId,
         eventId,
-        category: newTicketTypeName,
+        category: movesOntoFaculty ? null : newTicketTypeName,
         only: changedContactFields(existing.attendee, registration.attendee),
       }));
     }

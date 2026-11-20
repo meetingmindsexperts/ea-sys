@@ -224,10 +224,7 @@ export interface Registration {
   // that points at it, or one with the same address); null when there is
   // none. Detail GET only, and only for a caller who may read speakers:
   // the sheet offers "Make Faculty" when it is set.
-  // `needsFacultyConfirmation`: on the Faculty type, but not put there by
-  // the organisers (the old abstract sign-up's registration, or an invited
-  // speaker who later signed in to submit): the sheet offers to confirm it.
-  speakerRecord?: { id: string; name: string; needsFacultyConfirmation: boolean } | null;
+  speakerRecord?: { id: string; name: string } | null;
   // Server-computed on the LIST route only, for cancelled-but-PAID rows:
   // true while the collected money has no covering credit note. Absent for
   // non-finance roles (redacted) and on non-cancelled rows.

@@ -34,6 +34,8 @@ const { mockDb } = vi.hoisted(() => {
     },
     $executeRaw: vi.fn(async () => 1),
     pricingTier: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
+    // Read behind the row lock by Make Faculty only (heldPaymentTotal).
+    payment: { findMany: vi.fn().mockResolvedValue([]) },
     registration: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       findUniqueOrThrow: vi.fn(),
@@ -88,6 +90,7 @@ vi.mock("@/lib/person-tag-sync", () => ({
 // registration-seat / -seat-db / -repricing are REAL (pure or tx-driven).
 
 import { updateRegistration } from "@/services/registration-service";
+import { heldPaymentSum } from "@/lib/held-payments";
 
 const base = {
   eventId: "ev1",
@@ -332,18 +335,43 @@ describe("guards + sentinels come back as result values", () => {
       expect(mockDb._tx.ticketType.updateMany.mock.calls.length + mockDb._tx.$executeRaw.mock.calls.length).toBeGreaterThan(0);
     });
 
-    it("on a registration already on Faculty it sets the mark and nothing else", async () => {
+    it("means nothing without the move: a row already on Faculty, or on a delegate type, is not marked", async () => {
       mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt-fac", paymentStatus: "COMPLIMENTARY", createdSource: "SPEAKER_COMPANION", badgeType: "Faculty", ticketType: { isFaculty: true } }));
-      const r = await updateRegistration({ ...base, toFaculty: true });
-      expect(r.ok).toBe(true);
-      expect(written().createdSource).toBe("FACULTY_ADMIN");
-      for (const untouched of ["ticketTypeId", "paymentStatus", "badgeType", "pricingTierId"]) expect(written()).not.toHaveProperty(untouched);
-    });
-
-    it("means nothing on a delegate type with no move: the row is not marked", async () => {
-      mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt1", createdSource: "PUBLIC_REGISTER", ticketType: { isFaculty: false } }));
       await updateRegistration({ ...base, toFaculty: true, notes: "x" });
       expect(written()).not.toHaveProperty("createdSource");
+      mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt1", createdSource: "PUBLIC_REGISTER", ticketType: { isFaculty: false } }));
+      await updateRegistration({ ...base, toFaculty: true, notes: "y" });
+      expect(written()).not.toHaveProperty("createdSource");
+    });
+
+    // Review of 66969977 (MED): a partial desk payment does not touch the registration row, so the optimistic
+    // lock cannot see one that lands after the service's own read. The payments are read again behind the lock.
+    it("refuses, and writes nothing, when a payment is held once the row is locked", async () => {
+      mockDb.registration.findFirst.mockResolvedValue(existing({ ticketTypeId: "tt1", paymentStatus: "UNASSIGNED", createdSource: "PUBLIC_SUBMITTER", ticketType: { isFaculty: false } }));
+      mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt-fac", isFaculty: true, name: "Faculty", price: 0 });
+      mockDb._tx.payment.findMany.mockResolvedValueOnce([{ amount: 100, refundedAmount: 0, status: "PAID" }]);
+      const r = await updateRegistration({ ...base, ticketTypeId: "tt-fac", toFaculty: true, paymentStatus: "COMPLIMENTARY" });
+      expect(r).toMatchObject({ ok: false, code: "FACULTY_HAS_PAYMENT" });
+      expect(mockDb._tx.registration.updateMany).not.toHaveBeenCalled();
+      expect(mockDb._tx.payment.findMany.mock.calls[0][0].where).toEqual({ registrationId: "reg1", status: { in: ["PAID", "REFUNDED"] } });
+    });
+
+    it("an ordinary type change never reads the payments for this", async () => {
+      mockDb.ticketType.findFirst.mockResolvedValue({ id: "tt2", isFaculty: false, name: "Nurse", price: 100 });
+      await updateRegistration({ ...base, ticketTypeId: "tt2" });
+      expect(mockDb._tx.payment.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("heldPaymentSum", () => {
+    it("is what was collected and not returned, payment by payment", () => {
+      expect(heldPaymentSum([])).toBe(0);
+      expect(heldPaymentSum([{ amount: 400, refundedAmount: 0, status: "PAID" }])).toBe(400);
+      expect(heldPaymentSum([{ amount: 400, refundedAmount: 150, status: "PAID" }])).toBe(250);
+      // One fully refunded, one still held: the refund of the first hides nothing of the second.
+      expect(heldPaymentSum([{ amount: 300, refundedAmount: 300, status: "REFUNDED" }, { amount: 200, refundedAmount: 0, status: "PAID" }])).toBe(200);
+      // Never collected: a failed or pending attempt holds nothing.
+      expect(heldPaymentSum([{ amount: 400, refundedAmount: 0, status: "FAILED" }, { amount: 400, refundedAmount: 0, status: "PENDING" }])).toBe(0);
     });
   });
 
