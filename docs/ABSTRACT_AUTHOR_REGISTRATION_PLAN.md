@@ -87,47 +87,81 @@ It is the only path that puts a submitter on Faculty.
   nothing moved. Whether a rejected physician pays is the organisers' call
   per person (decision P3).
 
-## 4. The steps
+## 4. The approach: a few general tools, not a rule per case
+
+Owner, Nov 20, 2026: "We cannot do each case independently, there will always
+be one or the other edge case we would miss. What we need is generalist work
+that is flexible enough to handle edge cases, even if it is done manually."
+
+So this plan builds no machinery that knows about "a rejected physician" or
+"a delegate who paid and then submitted". It builds three general things, and
+every case in section 5a, and the ones nobody has thought of yet, is handled
+with them by a person:
+
+1. **Facts are read, never stored.** "Presenter" (has an accepted abstract),
+   "author" (has an abstract), "faculty" (on the Faculty type or on the
+   programme) are answered from the abstracts and sessions at the moment of
+   asking. Nothing to keep in step, so nothing goes stale when an abstract is
+   withdrawn or a decision reversed.
+2. **Find anyone.** Registrations gets two more filters beside the ones it has
+   (type, status, payment, tags, sponsor): **Abstract** (accepted, rejected,
+   awaiting a decision, signed up but nothing submitted, no abstract) and
+   **Speaker** (on the programme, a speaker record only, not a speaker). They
+   combine: "rejected and owing", "accepted and not Complimentary", "a
+   speaker, on a delegate type, owing".
+3. **Do anything to the ones ticked.** Today's actions on ticked rows are
+   Change type, tags, email, assign certificate. Added: **Set payment status**
+   (Complimentary, or back to owing), **Set badge type**, **Cancel**. Each is
+   the single registration's own rule run many times, never a second rule:
+   what the sheet would refuse for one person (money paid, an invoice issued)
+   is skipped and named in the result. And the registration sheet can do all
+   of it for one person, Make Faculty included (step 6).
+
+**The only things that happen by themselves** are the ones the owner asked
+for by name: what sign-up creates (step 1), and the Complimentary offered when
+an organiser accepts (step 4, a tick box, never silent). Every shortcut is a
+preset of a general action ("Make presenters" = Set payment status
+Complimentary + Set badge type Presenter on the Accepted filter), so a
+shortcut can never do something the general action cannot undo.
+
+**What stays hard, whatever is ticked:** money never disappears silently (a
+paid registration is refunded first), seats move through the one planner,
+Faculty is only for a registration that belongs to a speaker, and every action
+is written to the history with who did it.
+
+### The steps
 
 Each step is its own commit, reviewed, deployable alone.
 
-**Step 1. Stop the Faculty registration at abstract sign-up.**
-Replace the D4 branch in `ensureSubmitterRegistration` with the outcome chosen
-in P1. Both doors are covered because both call it. Tests: an abstract sign-up
-on an event without presenter rates creates no Faculty registration; a session
+**Step 1. Abstract sign-up never creates a Faculty registration.**
+Replace the D4 branch in `ensureSubmitterRegistration` with the outcome of P1.
+Both doors are covered because both call it. Tests: an abstract sign-up on an
+event without presenter rates creates no Faculty registration; a session
 proposal is unchanged; staff adding a speaker still gets the Faculty companion.
 
-**Step 2. "Abstract" filter and marker on Registrations.**
-A filter with: Accepted (presenters), Rejected, Submitted or under review, Has
-no abstract; and a "Presenter" marker on each row of an accepted author. This
-is what makes the announcement day two bulk actions instead of a hunt:
-tick the filtered rows, then Change type (already built, see §6). Also a
-count: "Accepted authors without a registration", so nobody arrives with no
-badge.
+**Step 2. The Abstract and Speaker filters on Registrations, and the Presenter
+mark** on each row of an accepted author. One shared reader answers "what is
+this person's abstract outcome" for the filter, the mark, the count and the
+Speakers page (step 5). Also a count: "Accepted authors without a
+registration", so nobody arrives with no badge.
 
-**Step 3. "Make presenters"**: the bulk action on Registrations for ticked
-accepted authors: Complimentary and badge Presenter, skipping and naming
-anyone with money on their registration (5a, A1 to A3, A7, B1).
+**Step 3. The general actions on ticked rows:** Set payment status, Set badge
+type, Cancel. Same permission keys as the single edit; the result names every
+row skipped and why; no re-pricing (a registration keeps its rate, R1).
 
-**Step 4. The authors already on Faculty.**
-A read-only list per event (name, email, abstract status, the registration's
-payment status, whether they are on a session) for the team to decide each
-person. The move itself is the existing bulk Change type, which moves a
-registration OFF Faculty and keeps a Complimentary one free. No script writes
-anything.
+**Step 4. Complimentary offered at acceptance** (A1). Where an organiser sets
+Accepted (the abstract's page, the list's accept button, Set status on ticked
+abstracts), a tick box: "Also make their registration Complimentary, with a
+Presenter badge". Ticked, it runs step 3's actions for those authors and
+reports who was skipped (already paid, no registration, sponsor-paid). Left
+unticked, the team does it later from the Accepted filter. Its default (on or
+off) is remembered per person, never forced.
 
 **Step 4a. The abstract form does not ask a registered person for a rate**
 (5a, T1): no type or rate step when they already hold a registration on the
 event; a line says what they are registered as.
 
-**Step 7. Remove the presenter Pay Now switch.** Settings loses "Presenter
-registration, Show Pay Now"; the reader (`isPresenterPayNowEnabled`) answers
-no for every event, whatever an old setting says; the welcome email never
-carries a Pay Now button. Paying later from the person's portal is untouched:
-that IS the pay-later route. The user guide's paragraph on the switch goes.
-
-**Step 5. Copy and docs.** The sign-up page and welcome email say what the
-person registered as; CLAUDE.md, the user guide, ROADMAP, CHANGELOG.
+**Step 5. The Speakers page keeps authors apart from invited faculty** (P4).
 
 **Step 6. Make a speaker's registration Faculty.** (Owner, Nov 20, 2026: built
 as part of this work, not ahead of it. Until then the one known case,
@@ -137,11 +171,23 @@ the registration sheet, a "Make Faculty" action, offered only for a registration
 linked to a speaker record (`Speaker.sourceRegistrationId`), never for an
 ordinary delegate. It moves the registration onto the event's Faculty type,
 Complimentary, through the same seat planner as every type move (the Faculty
-type holds no seat, so the delegate seat is released), and is audited. What
-it does with money is decision P5. Moving back off Faculty is the existing
-Change type. Tests: a registration with no speaker is refused; one with a
-payment is refused until refunded; an owing one moves only with the
-confirmation; the speaker's badge and barcode carry over.
+type holds no seat, so the delegate seat is released), and is audited. Money
+follows P5. Moving back off Faculty is the existing Change type. Tests: a
+registration with no speaker is refused; one with a payment is refused until
+refunded; an owing one moves only with the confirmation; the speaker's badge
+and barcode carry over.
+
+**Step 7. Remove the presenter Pay Now switch.** Settings loses "Presenter
+registration, Show Pay Now"; the reader (`isPresenterPayNowEnabled`) answers
+no for every event, whatever an old setting says; the welcome email never
+carries a Pay Now button. Paying later from the person's portal is untouched:
+that IS the pay-later route. The user guide's paragraph on the switch goes.
+
+**Step 8. The authors already on Faculty, and the words.** With steps 2 and 3
+the 22 on MEHF2027 are a filter (Faculty type + has an abstract + not on the
+programme) and a Change type; no list or script is built for them. The sign-up
+page and welcome email say what the person registered as; CLAUDE.md, the user
+guide, ROADMAP, CHANGELOG.
 
 ## 4a. One person, one registration: which one wins
 
@@ -161,18 +207,35 @@ by abstract sign-up). Step 6 is the way out.
 
 ## 5. Decisions needed
 
-**P1. An event with abstracts but no presenter rates: what does sign-up create?**
+**P1. An event with abstracts but no presenter rates: what does sign-up create?** OPEN.
 
-- **(a) Nothing, link only** (as session proposals since Aug 5). The author
-  submits; once accepted, staff grant a registration from the speaker's Grant
-  button. Simplest and honest. Cost: until granted, no barcode or badge; the
-  step 2 count is the safety net.
-- **(b) A free registration on the type they pick** at sign-up. Keeps everyone
-  registered from day one, but it is a free delegate place for every submitter,
-  rejected ones included, and they count as delegates while still pending.
-- **Recommendation: (a).** It matches the proposals rule, gives nothing away
-  before a decision, and every conference that takes abstracts can set
-  presenter rates (MEHF2027 already has).
+What it is about: "presenter rates" are the special prices an organiser adds
+under each registration type (Physician, Presenter, 400). Where they exist,
+the abstract form asks the author for their type and creates a real
+registration on it, to pay later. Where the organiser added none, the form
+has no price to offer, and until now it gave a free Faculty registration
+instead, which is what the owner has stopped. So something must take its
+place. On production one upcoming event is in this state today (hemnet2026,
+2 abstracts); MEHF2027 has rates.
+
+- **(a) Nothing.** The author submits with no registration. After the
+  decision, staff give one from the speaker's Grant button, or the author
+  registers through the normal form. Cost: no badge or barcode until someone
+  acts, and a different journey from an event that has rates.
+- **(b) The same journey as an event with rates, at the ordinary price.** The
+  form asks for their type and creates a registration on it at the delegate
+  rate on sale that day (Early Bird now), to pay later, no Pay Now. Accepted:
+  Complimentary. Rejected: they pay that rate, or the organiser cancels.
+  Presenter rates then become what they are meant to be: an optional special
+  price, not a switch that changes the whole journey. If no rate is on sale
+  or the type is full, it falls back to (a) and says so in the log.
+- **(c) A free registration on the type they pick.** A free place for every
+  submitter, rejected ones included.
+- **Recommendation: (b)** (changed from (a) on Nov 20, 2026, after the owner's
+  model: "abstracts go through presenter registration"). One journey on every
+  event, and the model's table in section 1 holds everywhere with no special
+  case. Its cost is the one the owner already accepted for events with rates:
+  a submitter counts as a delegate and holds a seat while awaiting a decision.
 
 **P2. Presenter: a registration type, or a mark?** DECIDED Nov 20, 2026: (a),
 a mark and a badge; the author keeps their profession type.
@@ -196,11 +259,18 @@ left open is in 5a (R1 to R3).
 Keep free, or set to the delegate fee? Per person or a rule? (D6 of the August
 plan says nothing happens automatically; this plan keeps that.)
 
-**P4. The Speakers page.** Abstract authors are speaker records (status
-Invited), so the Speakers page lists them beside invited faculty. Separate
-them there too, or leave the Speakers page as it is?
+**P4. The Speakers page.** DECIDED Nov 20, 2026: "Absolutely, keep separate,
+except for those who are invited and submitted, and submitted and later got
+invited." The Speakers page shows invited faculty; people who are only
+abstract authors are in their own list beside it (a tab, "Abstract authors").
+Someone who is both appears with the faculty. To settle in the build: how
+"invited" is told for a person who submitted first. Proposed: on the Faculty
+type, or on the programme (a session or topic). An author the organisers have
+decided to invite but not yet scheduled shows as an author until Make Faculty
+is done, which is the action that says "this one is faculty".
 
-**P5. Make Faculty on a registration with money on it.**
+**P5. Make Faculty on a registration with money on it.** DECIDED Nov 20, 2026:
+as recommended below.
 
 - **No money** (Complimentary, or a free rate, nothing paid, no invoice):
   moves at once.
@@ -221,13 +291,12 @@ has a recommendation; the owner rules.
 
 ### When an abstract is accepted
 
-- **A1. Automatic, or one action by the team?** Decisions are applied first
-  and announced later, and an accepted abstract can be un-accepted (it has
-  happened on production). If the registration turns Complimentary the moment
-  the status is set, the author's portal shows it before the announcement.
-  **Recommendation:** not automatic. On the Registrations page, filter
-  "Accepted", tick all, one action "Make presenters" (Complimentary, badge
-  Presenter), done by the team on announcement day.
+- **A1. Automatic, or one action by the team?** DECIDED Nov 20, 2026: both,
+  the organiser chooses each time. When they mark an abstract Accepted they
+  are offered "make the registration Complimentary now"; or they skip it and
+  the team does it in bulk later (step 4). Worth knowing when ticking it: the
+  author's portal shows Complimentary from that moment, before any
+  announcement email, and un-accepting later does not take it back (A5).
 - **A2. Already paid.** DECIDED Nov 20, 2026. Through presenter registration
   this should not arise: it never offers Pay Now. It can still happen two
   ways: the author paid later from their portal before the decision, or they
@@ -276,8 +345,9 @@ has a recommendation; the owner rules.
   it.** Nothing here turns a Complimentary registration back into an owing
   one: "Rejected, owing" and every bulk action act on owing rows only, and a
   rejected author the team made free stays free. The history already records
-  who set it. Open: whether the team needs it on ticked rows (many at once)
-  or the sheet, one at a time, is enough.
+  who set it. DECIDED Nov 20, 2026 (owner: "go with your recommendation"): it
+  is also offered on ticked rows, as the general Set payment status action of
+  step 3, since that same action is what Make presenters is made of.
 
 ### Never decided
 
@@ -285,9 +355,10 @@ has a recommendation; the owner rules.
   13 people on MEHF2027 (9 free, 4 owing). They hold a registration like any
   delegate. Harmless here because the presenter rate equals the delegate rate;
   where an organiser sets the presenter rate BELOW the delegate rate it is a
-  discount for anyone who opens the abstract form. **Recommendation:** treat
-  as not accepted (they pay the quoted rate); show them under "No submitted
-  abstract" in the filter.
+  discount for anyone who opens the abstract form. DECIDED Nov 20,
+  2026: they are treated as attendees, like any delegate: they keep the
+  registration and pay the rate they registered on. The filter shows them
+  under "signed up, nothing submitted".
 - **N2. Still under review or revision requested when the event opens:** stays
   as at sign-up (owing or free); the desk handles it like any delegate.
 
