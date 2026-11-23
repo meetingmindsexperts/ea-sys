@@ -1282,7 +1282,9 @@ function responsiveImageBlock(src: string, alt: string): string {
 export function normalizeBodyImages(html: string): string {
   return html.replace(/<img\b([^>]*?)\/?>/gi, (match, attrs: string) => {
     if (/\bsrc\s*=\s*["']cid:/i.test(attrs)) return match;
-    const cleaned = attrs
+    const sourced = absoluteImageSrc(attrs);
+    if (KEEP_SIZE_RE.test(sourced)) return keptSizeImage(sourced);
+    const cleaned = sourced
       .replace(/\s(?:width|border)\s*=\s*"[^"]*"/gi, "")
       .replace(/\s(?:width|border)\s*=\s*'[^']*'/gi, "")
       .replace(/\sstyle\s*=\s*"[^"]*"/gi, "")
@@ -1291,6 +1293,53 @@ export function normalizeBodyImages(html: string): string {
     const prefix = cleaned.length > 0 ? ` ${cleaned}` : "";
     return `<img${prefix} width="600" border="0" style="${RESPONSIVE_IMG_STYLE}" />`;
   });
+}
+
+/**
+ * An image the editor saved from our own uploads carries a site-relative
+ * address (`/uploads/media/...`), which shows in the app and points NOWHERE in
+ * a mailbox. Give it the site's full address (Nov 23, 2026: every signature
+ * logo sent from the CRM since October was a broken picture; the header and
+ * footer images were already resolved, the images inside a body never were).
+ * A full address, `data:` and `cid:` are left as they are.
+ */
+function absoluteImageSrc(attrs: string): string {
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com").replace(/\/+$/, "");
+  return attrs.replace(/(\bsrc\s*=\s*)(["'])\/(?!\/)/i, (_m, lead: string, quote: string) => `${lead}${quote}${appUrl}/`);
+}
+
+/** Marks an image that goes out at its own size (a signature's logo), not stretched to the body's 600px. */
+const KEEP_SIZE_ATTR = "data-keep-size";
+const KEEP_SIZE_RE = /\bdata-keep-size\b/i;
+// No `display: block`: the editor places images inline, and a logo beside a line of text must stay beside it.
+const KEPT_SIZE_IMG_STYLE = "max-width: 100%; height: auto; border: 0; outline: none; text-decoration: none;";
+
+/**
+ * A marked image keeps its own size: any `width` / `height` the author gave
+ * stays, nothing is stretched. Only `border` and `style` are reset. The mark is
+ * left on, so running the normaliser twice gives the same result.
+ */
+function keptSizeImage(attrs: string): string {
+  const cleaned = attrs
+    .replace(/\sborder\s*=\s*"[^"]*"/gi, "")
+    .replace(/\sborder\s*=\s*'[^']*'/gi, "")
+    .replace(/\sstyle\s*=\s*"[^"]*"/gi, "")
+    .replace(/\sstyle\s*=\s*'[^']*'/gi, "")
+    .trim();
+  return `<img ${cleaned} border="0" style="${KEPT_SIZE_IMG_STYLE}" />`;
+}
+
+/**
+ * A sender's signature, ready to go into an email: its images are marked to go
+ * out at their own size. Without the mark the body rule above stretches every
+ * image to 600px, right for a banner and wrong for a 135px logo. Every path
+ * that puts `User.emailSignature` into an email passes it through here:
+ * `renderAndWrap` does it for `{{organizerSignature}}`, and the CRM for its own
+ * signature slot.
+ */
+export function signatureHtmlForEmail(html: string | null | undefined): string {
+  if (!html) return "";
+  return html.replace(/<img\b(?![^>]*\bdata-keep-size\b)/gi, `<img ${KEEP_SIZE_ATTR}="1"`);
 }
 
 /** " on <product>" after the organisation's name, unless they are the same words. */
@@ -2340,6 +2389,8 @@ export function renderAndWrap(
   // already builds its own eventDate keeps winning, so this changes nothing for
   // the paths that were already correct and only fills the holes.
   const vars = { organizerSignature: "", ...(branding.eventVars ?? {}), ...variables };
+  // The signature's images keep their own size (a logo is not a banner).
+  if (typeof vars.organizerSignature === "string") vars.organizerSignature = signatureHtmlForEmail(vars.organizerSignature);
   const subject = renderTemplatePlain(template.subject, plain?.subject ? { ...vars, ...plain.subject } : vars);
   const bodyHtml = renderTemplate(template.htmlContent, vars, rawHtmlKeys);
   const wrapped = wrapWithBranding(bodyHtml, branding);

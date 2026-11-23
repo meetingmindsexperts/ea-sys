@@ -30,6 +30,8 @@ vi.mock("@/lib/email", () => ({
   brandingFrom: vi.fn(() => undefined),
   brandingCc: vi.fn(() => undefined),
   sesRfcMessageId: vi.fn((id: string) => `<${id}@ap-south-1.amazonses.com>`),
+  // The signature passes through unchanged here; its marking has its own test (email-body-image-address).
+  signatureHtmlForEmail: (html: string | null | undefined) => html ?? "",
 }));
 
 vi.mock("@/crm/lib/crm-activity", () => ({

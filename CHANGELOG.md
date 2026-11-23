@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Emails: a signature's logo reaches the mailbox, at its own size (November 23, 2026)
+
+Owner: "in organizer signature, logo is not visible."
+
+- **The logo in a signature now shows in the recipient's mailbox.** An image added in the editor from our own library is saved with a site-relative address (`/uploads/media/...`). That shows inside the app and points nowhere in a mailbox. The header and footer images of an email were already given the site's full address; the images inside a body or a signature never were. Every signature logo sent from the CRM since October was a broken picture: 13 emails, which cannot be corrected now
+- **Fixed at the one render step every email passes** (`normalizeBodyImages` in `src/lib/email.ts`), so it holds for event emails as well as the CRM: a site-relative image address becomes the full one. A full address, a `data:` image and an attached (`cid:`) image are left alone
+- **A signature's logo is not stretched.** The body rule fits every image to the 600px width of the email, which is right for a banner and would have made a 135px logo more than four times its size the moment its address was fixed. A signature's images are now marked to keep their own size (`signatureHtmlForEmail`; `renderAndWrap` does it for `{{organizerSignature}}`, the CRM for its own signature slot). A banner in the same body is still fitted
+- Nothing stored changes: a saved signature is read as it is
+
 ### CRM inbox: a sent email shows in its conversation (November 23, 2026)
 
 Reported by the owner with a screenshot: a conversation opened on one line, "Please find our message below / attached.", and the email Sohail had just sent was nowhere to be read.

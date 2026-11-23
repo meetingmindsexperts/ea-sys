@@ -18,7 +18,7 @@
  * row on the deal).
  */
 import type { EmailBranding } from "@/lib/email";
-import { sendEmail, renderAndWrap, brandingFrom, brandingCc, sesRfcMessageId } from "@/lib/email";
+import { sendEmail, renderAndWrap, brandingFrom, brandingCc, sesRfcMessageId, signatureHtmlForEmail } from "@/lib/email";
 import { escapeHtml } from "@/lib/html";
 import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { db } from "@/lib/db";
@@ -374,7 +374,8 @@ async function loadSender(
     select: { emailSignature: true, email: true, firstName: true, lastName: true },
   });
   return {
-    signatureHtml: sender?.emailSignature ?? "",
+    // Marked so its logo goes out at its own size (email.ts, signatureHtmlForEmail).
+    signatureHtml: signatureHtmlForEmail(sender?.emailSignature),
     senderEmail: sender?.email ?? null,
     senderName: [sender?.firstName, sender?.lastName].filter(Boolean).join(" "),
   };
