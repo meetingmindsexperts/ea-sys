@@ -79,6 +79,12 @@ function draw(doc: Doc, r: PostEventReport, company: ReportCompany, logoBuffer: 
   if (r.event.status !== "ended") {
     y = paragraph(doc, y, "The webinar has not ended yet: these figures are so far.", { color: "#b45309", size: 9 });
   }
+  y = paragraph(
+    doc,
+    y,
+    "No attendee is named. Questions and comments are attendees' own words, with email addresses and phone numbers removed.",
+    { color: COLOR_MUTED, size: 8 },
+  );
 
   y = heading(doc, y, "At a glance");
   y = tiles(doc, y, [
@@ -99,6 +105,14 @@ function draw(doc: Doc, r: PostEventReport, company: ReportCompany, logoBuffer: 
 
   y = heading(doc, y, "Attendance");
   y = paragraph(doc, y, attendanceLine(r));
+  if (r.attendance.archived) {
+    y = paragraph(
+      doc,
+      y,
+      "This webinar is more than 90 days old: the minute-by-minute record has been archived, so the time watched, the peak and the devices are not shown.",
+      { color: COLOR_MUTED, size: 8 },
+    );
+  }
   if (r.attendance.devices.length) {
     y = subheading(doc, y, "Watched on");
     y = bars(doc, y, r.attendance.devices, r.attendance.attended);
@@ -122,7 +136,7 @@ function draw(doc: Doc, r: PostEventReport, company: ReportCompany, logoBuffer: 
   }
   for (const s of r.surveys) {
     y = subheading(doc, y, `${sanitizePdfText(s.name)}: ${s.responses} response${s.responses === 1 ? "" : "s"}`);
-    for (const q of s.questions) y = surveyQuestion(doc, y, q);
+    for (const q of s.questions) y = surveyQuestion(doc, y, q, r.commentsIncluded);
   }
 }
 
@@ -140,10 +154,11 @@ function attendanceLine(r: PostEventReport): string {
     a.source === "page"
       ? "Counted on the webinar page: people who reached the live view, and the minutes they watched while it was open."
       : "From Zoom's participant report.";
-  return `${a.attended} attended, ${a.attendanceRate}% of the ${r.registrations.confirmed} confirmed registrations. Average watched ${reportDuration(a.avgWatchSeconds)}, ${reportDuration(a.totalWatchSeconds)} in all. ${source}`;
+  const watched = a.archived ? "" : ` Average watched ${reportDuration(a.avgWatchSeconds)}, ${reportDuration(a.totalWatchSeconds)} in all.`;
+  return `${a.attended} attended, ${a.attendanceRate}% of the ${r.registrations.confirmed} confirmed registrations.${watched} ${source}`;
 }
 
-function surveyQuestion(doc: Doc, y: number, q: ReportSurveyQuestion): number {
+function surveyQuestion(doc: Doc, y: number, q: ReportSurveyQuestion, commentsIncluded: boolean): number {
   y = paragraph(doc, y, sanitizePdfText(q.label), { bold: true, size: 9.5 });
   if (q.type === "rating") {
     const mean = q.mean === null ? "no answers" : `${q.mean.toFixed(1)} out of 5`;
@@ -152,6 +167,9 @@ function surveyQuestion(doc: Doc, y: number, q: ReportSurveyQuestion): number {
     return bars(doc, y, rows, q.count);
   }
   if (q.type === "choice") return bars(doc, y, q.options.map((o) => ({ ...o, label: sanitizePdfText(o.label) })), q.count);
+  if (!commentsIncluded) {
+    return paragraph(doc, y, `${q.count} comment${q.count === 1 ? "" : "s"}, left out of this copy.`, { color: COLOR_MUTED, size: 9 });
+  }
   if (q.comments.length === 0) return paragraph(doc, y, "No comments.", { color: COLOR_MUTED, size: 9 });
   for (const c of q.comments) y = paragraph(doc, y, `"${sanitizePdfText(c)}"`, { size: 9, indent: 8 });
   if (q.comments.length < q.count) {

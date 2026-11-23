@@ -22,11 +22,13 @@ import {
   type EventSurveyColumns,
 } from "@/services/survey-service";
 import { resolveTimezone } from "@/lib/event-time";
+import { WEBINAR_PRESENCE_RETENTION_DAYS } from "@/lib/webinar/presence-archive-worker";
 import {
   COMMENTS_PER_QUESTION_MAX,
   orderQuestions,
   peakOfTimeline,
   percentOf,
+  reportText,
   type PostEventReport,
   type ReportBreakdown,
   type ReportSurvey,
@@ -43,19 +45,22 @@ export interface ReportEvent extends EventSurveyColumns {
   settings: unknown;
 }
 
-export async function loadPostEventReport(event: ReportEvent, opts: { includeSurveys: boolean }): Promise<PostEventReport> {
+export async function loadPostEventReport(
+  event: ReportEvent,
+  opts: { includeSurveys: boolean; includeComments: boolean },
+): Promise<PostEventReport> {
   const webinar = readWebinarSettings(event.settings);
   const sessionId = webinar?.sessionId ?? null;
   const ourPage = webinarVideoSource(event.settings) === "external" || webinar?.viewingMode === "hls";
 
-  const [session, registrations, attendance, questions, surveys] = await Promise.all([
-    sessionId
-      ? db.eventSession.findFirst({ where: { id: sessionId, eventId: event.id }, select: { startTime: true, endTime: true, status: true } })
-      : Promise.resolve(null),
+  const session = sessionId
+    ? await db.eventSession.findFirst({ where: { id: sessionId, eventId: event.id }, select: { startTime: true, endTime: true, status: true } })
+    : null;
+  const [registrations, attendance, questions, surveys] = await Promise.all([
     loadRegistrations(event.id),
-    loadAttendance(event.id, sessionId, ourPage),
+    loadAttendance(event.id, sessionId, ourPage, session?.endTime ?? null),
     loadQuestions(event.id, sessionId),
-    opts.includeSurveys ? loadSurveys(event) : Promise.resolve(null),
+    opts.includeSurveys ? loadSurveys(event, opts.includeComments) : Promise.resolve(null),
   ]);
 
   const confirmed = registrations.confirmed;
@@ -70,9 +75,11 @@ export async function loadPostEventReport(event: ReportEvent, opts: { includeSur
       status: webinarStatusFromTimes(session?.startTime.toISOString(), session?.endTime.toISOString(), session?.status),
     },
     registrations,
-    attendance: { ...attendance, attendanceRate: percentOf(attendance.attended, confirmed) },
+    // Never above 100: someone confirmed can cancel after watching.
+    attendance: { ...attendance, attendanceRate: Math.min(100, percentOf(attendance.attended, confirmed)) },
     questions,
     surveys,
+    commentsIncluded: opts.includeComments,
   };
 }
 
@@ -103,7 +110,12 @@ async function loadRegistrations(eventId: string): Promise<PostEventReport["regi
 
 type AttendanceWithoutRate = Omit<PostEventReport["attendance"], "attendanceRate">;
 
-async function loadAttendance(eventId: string, sessionId: string | null, ourPage: boolean): Promise<AttendanceWithoutRate> {
+async function loadAttendance(
+  eventId: string,
+  sessionId: string | null,
+  ourPage: boolean,
+  endTime: Date | null,
+): Promise<AttendanceWithoutRate> {
   const empty: AttendanceWithoutRate = {
     source: ourPage ? "page" : "zoom",
     attended: 0,
@@ -112,13 +124,29 @@ async function loadAttendance(eventId: string, sessionId: string | null, ourPage
     peak: 0,
     peakAt: null,
     devices: [],
+    archived: false,
   };
   if (!sessionId) return empty;
-  return ourPage ? pageAttendance(eventId, sessionId) : zoomAttendance(eventId, sessionId);
+  if (!ourPage) return zoomAttendance(eventId, sessionId);
+  const archivedBefore = Date.now() - WEBINAR_PRESENCE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  if (endTime && endTime.getTime() < archivedBefore) return archivedPageAttendance(eventId, empty);
+  return pageAttendance(eventId, sessionId);
+}
+
+/**
+ * Past the 90 days the presence record keeps (review of cdec0c859): the durable "joined" marker on the
+ * registration still says who watched; the minutes, the peak and the devices went to the archive.
+ */
+async function archivedPageAttendance(eventId: string, empty: AttendanceWithoutRate): Promise<AttendanceWithoutRate> {
+  const attended = await db.registration.count({
+    where: { eventId, webinarFirstJoinedAt: { not: null }, ...EXCLUDE_FACULTY_WHERE },
+  });
+  return { ...empty, source: "page", attended, archived: true };
 }
 
 async function pageAttendance(eventId: string, sessionId: string): Promise<AttendanceWithoutRate> {
-  const where = { sessionId, eventId };
+  // Faculty (speakers watching their own webinar) are not delegates, as in the registration counts.
+  const where = { sessionId, eventId, registration: EXCLUDE_FACULTY_WHERE };
   const [groups, watched] = await Promise.all([
     db.webinarPresence.groupBy({ by: ["phase"], where, _count: { _all: true }, _sum: { watchedSeconds: true } }),
     db.webinarPresence.findMany({
@@ -146,6 +174,7 @@ async function pageAttendance(eventId: string, sessionId: string): Promise<Atten
     totalWatchSeconds: summary.totalWatchedSeconds,
     ...peakOfTimeline(analytics.timeline),
     devices: analytics.devices,
+    archived: false,
   };
 }
 
@@ -153,6 +182,7 @@ async function zoomAttendance(eventId: string, sessionId: string): Promise<Atten
   const rows = await db.zoomAttendance.findMany({
     where: { eventId, sessionId },
     select: { id: true, email: true, joinTime: true, leaveTime: true, durationSeconds: true },
+    orderBy: { joinTime: "asc" },
     take: REPORT_MAX_ROWS,
   });
   // The rate is taken against the same confirmed count as the rest of the report, so the registered
@@ -161,11 +191,14 @@ async function zoomAttendance(eventId: string, sessionId: string): Promise<Atten
   return {
     source: "zoom",
     attended: figures.attended,
-    avgWatchSeconds: figures.avgWatchSeconds,
+    // Per person, as the page's figure is (Zoom's card averages per join, and a person who rejoined
+    // is two joins: review of cdec0c859).
+    avgWatchSeconds: figures.attended > 0 ? Math.round(figures.totalWatchSeconds / figures.attended) : 0,
     totalWatchSeconds: figures.totalWatchSeconds,
     peak: figures.peakConcurrent,
     peakAt: null,
     devices: [],
+    archived: false,
   };
 }
 
@@ -175,7 +208,13 @@ async function loadQuestions(eventId: string, sessionId: string | null): Promise
     // A dismissed question is the moderator's no (spam, a duplicate): not part of the report.
     db.webinarViewerQuestion.findMany({
       where: { eventId, sessionId, status: { not: "DISMISSED" } },
-      select: { question: true, status: true, createdAt: true, _count: { select: { votes: true } } },
+      // A cancelled registration's vote stops counting, as on the console and the attendee page.
+      select: {
+        question: true,
+        status: true,
+        createdAt: true,
+        _count: { select: { votes: { where: { registration: { status: { not: "CANCELLED" } } } } } },
+      },
       take: REPORT_MAX_ROWS,
     }),
     db.webinarQuestion.findMany({
@@ -203,7 +242,7 @@ async function loadQuestions(eventId: string, sessionId: string | null): Promise
   return { asked: rows.length, answered: rows.filter((r) => r.answered).length, items: orderQuestions(rows) };
 }
 
-async function loadSurveys(event: ReportEvent): Promise<ReportSurvey[]> {
+async function loadSurveys(event: ReportEvent, includeComments: boolean): Promise<ReportSurvey[]> {
   const listed = await listSurveys(event.id, event);
   // An event from before several surveys (no Survey rows) still has its one survey on the event.
   const ids: (string | undefined)[] = listed.length ? listed.filter((s) => s.responseCount > 0).map((s) => s.id) : [undefined];
@@ -223,13 +262,17 @@ async function loadSurveys(event: ReportEvent): Promise<ReportSurvey[]> {
       config,
       responses.map((r) => ({ id: r.id, submittedAt: r.submittedAt, answers: (r.answers ?? {}) as Record<string, SurveyAnswerValue> })),
     );
-    out.push({ name: report.survey?.name ?? "Survey", responses: responses.length, questions: aggregates.map(reportQuestion) });
+    out.push({
+      name: report.survey?.name ?? "Survey",
+      responses: responses.length,
+      questions: aggregates.map((a) => reportQuestion(a, includeComments)),
+    });
   }
   return out;
 }
 
-/** A survey question for the report: no response ids, comments newest first and capped. */
-function reportQuestion(a: QuestionAggregate): ReportSurveyQuestion {
+/** A survey question for the report: no response ids, comments newest first, cleaned and capped. */
+function reportQuestion(a: QuestionAggregate, includeComments: boolean): ReportSurveyQuestion {
   if (a.type === "rating_1_to_5") {
     return { type: "rating", label: a.label, count: a.count, mean: a.mean, distribution: [...a.distribution] };
   }
@@ -239,9 +282,11 @@ function reportQuestion(a: QuestionAggregate): ReportSurveyQuestion {
     const options = [...Object.entries(a.counts), ...Object.entries(a.orphaned)].map(([label, count]) => ({ label, count }));
     return { type: "choice", label: a.label, count: a.count, options };
   }
+  if (!includeComments) return { type: "text", label: a.label, count: a.count, comments: [] };
   const comments = [...a.responses]
     .sort((x, y) => y.submittedAt.getTime() - x.submittedAt.getTime())
     .slice(0, COMMENTS_PER_QUESTION_MAX)
-    .map((r) => r.value);
+    .map((r) => reportText(r.value))
+    .filter((c) => c.length > 0);
   return { type: "text", label: a.label, count: a.count, comments };
 }

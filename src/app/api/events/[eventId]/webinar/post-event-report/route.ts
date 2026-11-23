@@ -21,33 +21,39 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
  * questions and survey results, as JSON for the page at /events/[id]/analytics/report, or with
  * ?format=pdf as the PDF to forward to a client. No names or emails, so the key is the one the
  * webinar's reports already ask, `webinar.analytics.read`; the survey results are in it only for a
- * caller who may also read them (`surveys.read`). A PDF is a few hundred milliseconds of work, so it is
- * limited per person.
+ * caller who may also read them (`surveys.read`). Survey comments go into the PDF only with
+ * ?comments=1, which the report page sends when its box is ticked beside the warning about typed text;
+ * the console's download, which shows no warning, sends nothing and gets none (review of cdec0c859).
+ * Both views read every viewer's record, so both are limited per person.
  */
 export async function GET(req: Request, { params }: RouteParams) {
+  let eventIdForLog: string | undefined;
   try {
     const [session, { eventId }] = await Promise.all([auth(), params]);
+    eventIdForLog = eventId;
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const route = "events/[eventId]/webinar/post-event-report:GET";
     const orgGuard = requireOrgId(session, { route });
     if ("error" in orgGuard) return orgGuard.error;
     const gate = requirePermission(session, "webinar.analytics.read", { route, eventId, onMissing: "hide" });
     if (!gate.ok) return gate.response;
-    const asPdf = new URL(req.url).searchParams.get("format") === "pdf";
+    const search = new URL(req.url).searchParams;
+    const asPdf = search.get("format") === "pdf";
+    // The page shows the comments with its warning beside them; a PDF carries them only when asked.
+    const includeComments = !asPdf || search.get("comments") === "1";
 
-    if (asPdf) {
-      const { allowed, retryAfterSeconds } = checkRateLimit({
-        key: `post-event-report-pdf:${session.user.id}`,
-        limit: 30,
-        windowMs: 3600_000,
-      });
-      if (!allowed) {
-        apiLogger.warn({ eventId, userId: session.user.id, retryAfterSeconds }, "post-event-report:pdf-rate-limited");
-        return NextResponse.json(
-          { error: "Too many downloads. Try again later.", retryAfterSeconds, limit: 30, windowSeconds: 3600 },
-          { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
-        );
-      }
+    const limit = asPdf ? 30 : 120;
+    const { allowed, retryAfterSeconds } = checkRateLimit({
+      key: `post-event-report-${asPdf ? "pdf" : "view"}:${session.user.id}`,
+      limit,
+      windowMs: 3600_000,
+    });
+    if (!allowed) {
+      apiLogger.warn({ eventId, userId: session.user.id, retryAfterSeconds, asPdf }, "post-event-report:rate-limited");
+      return NextResponse.json(
+        { error: "Too many requests for this report. Try again later.", retryAfterSeconds, limit, windowSeconds: 3600 },
+        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+      );
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
@@ -88,7 +94,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
       const facts = eventFactsOf({ ...event, staffUserIds: event.staffAssignments.map((a) => a.userId) });
       const includeSurveys = can(gate.principal, "surveys.read", { event: facts });
-      const report = await loadPostEventReport(event, { includeSurveys });
+      const report = await loadPostEventReport(event, { includeSurveys, includeComments });
 
       if (!asPdf) return NextResponse.json(report, { headers: NO_STORE });
 
@@ -102,7 +108,10 @@ export async function GET(req: Request, { params }: RouteParams) {
         country: org?.companyCountry ?? null,
         logoPath: org?.logo ?? null,
       });
-      apiLogger.info({ eventId, userId: session.user.id, bytes: pdf.length, includeSurveys }, "post-event-report:pdf-generated");
+      apiLogger.info(
+        { eventId, userId: session.user.id, bytes: pdf.length, includeSurveys, includeComments },
+        "post-event-report:pdf-generated",
+      );
       return new NextResponse(new Uint8Array(pdf), {
         status: 200,
         headers: {
@@ -113,7 +122,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       });
     });
   } catch (error) {
-    apiLogger.error({ err: error }, "post-event-report:failed");
+    apiLogger.error({ err: error, eventId: eventIdForLog }, "post-event-report:failed");
     return NextResponse.json({ error: "Failed to build the post-event report" }, { status: 500 });
   }
 }

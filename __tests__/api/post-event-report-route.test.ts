@@ -85,10 +85,17 @@ describe("the post-event report route", () => {
   it("survey results only for a caller who may read them", async () => {
     await GET(req(), ctx);
     expect(h.canSpy).toHaveBeenCalledWith("surveys.read");
-    expect(h.loadSpy.mock.calls[0][1]).toEqual({ includeSurveys: true });
+    expect(h.loadSpy.mock.calls[0][1]).toEqual({ includeSurveys: true, includeComments: true });
     h.canSpy.mockReturnValue(false);
     await GET(req(), ctx);
-    expect(h.loadSpy.mock.calls[1][1]).toEqual({ includeSurveys: false });
+    expect(h.loadSpy.mock.calls[1][1]).toEqual({ includeSurveys: false, includeComments: true });
+  });
+
+  it("the PDF carries survey comments only when asked (the console's download never asks)", async () => {
+    await GET(req("?format=pdf"), ctx);
+    expect(h.loadSpy.mock.calls[0][1]).toMatchObject({ includeComments: false });
+    await GET(req("?format=pdf&comments=1"), ctx);
+    expect(h.loadSpy.mock.calls[1][1]).toMatchObject({ includeComments: true });
   });
 
   it("webinars only: a conference is a logged 409", async () => {
@@ -114,13 +121,13 @@ describe("the post-event report route", () => {
     h.rate.allowed = false;
     const limited = await GET(req("?format=pdf"), ctx);
     expect(limited.status).toBe(429);
-    expect(h.mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "post-event-report:pdf-rate-limited");
+    expect(h.mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1", asPdf: true }), "post-event-report:rate-limited");
   });
 
   it("a failure is a logged 500", async () => {
     h.loadSpy.mockRejectedValue(new Error("boom"));
     const res = await GET(req(), ctx);
     expect(res.status).toBe(500);
-    expect(h.mockLogger.error).toHaveBeenCalledWith(expect.anything(), "post-event-report:failed");
+    expect(h.mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "post-event-report:failed");
   });
 });

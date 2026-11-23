@@ -29,6 +29,7 @@ import {
 import { DEFAULT_EVENT_TIMEZONE } from "@/lib/event-time";
 import { webinarStatusFromTimes } from "@/lib/webinar/console-rules";
 import { WatchAnalyticsCard } from "@/components/webinar/watch-analytics-card";
+import { downloadPostEventReportPdf } from "@/lib/webinar/post-event-report-download";
 import {
   afterSessionTitle,
   CardEmpty,
@@ -103,12 +104,19 @@ export function WebinarAnalyticsSection({ eventId, heading = true }: { eventId: 
         ) : (
           // In the console's Recording tab, for someone who cannot open the Analytics page (and so not
           // the report page under it): the PDF of the same report.
+          // Without survey comments: this button shows no warning about typed text (review of cdec0c859).
           <div>
-            <Button variant="outline" size="sm" asChild>
-              <a href={`/api/events/${eventId}/webinar/post-event-report?format=pdf`} download>
-                <FileText className="mr-2 h-4 w-4" />
-                Download post-event report (PDF)
-              </a>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                downloadPostEventReportPdf(eventId, { includeComments: false }).catch((err) =>
+                  toast.error(err instanceof Error ? err.message : "Could not download the report."),
+                )
+              }
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Download post-event report (PDF)
             </Button>
           </div>
         )}

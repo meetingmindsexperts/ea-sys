@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const h = vi.hoisted(() => ({
   db: {
     eventSession: { findFirst: vi.fn() },
-    registration: { groupBy: vi.fn() },
+    registration: { groupBy: vi.fn(), count: vi.fn() },
     ticketType: { findMany: vi.fn() },
     webinarPresence: { groupBy: vi.fn(), findMany: vi.fn() },
     zoomAttendance: { findMany: vi.fn() },
@@ -31,6 +31,8 @@ import {
   percentOf,
   QUESTION_LIST_MAX,
   reportDuration,
+  reportText,
+  TEXT_MAX_CHARS,
   type PostEventReport,
 } from "@/lib/webinar/post-event-report";
 import { zoomAttendanceFigures, computePeakConcurrent } from "@/lib/webinar/zoom-attendance-kpis";
@@ -134,7 +136,7 @@ describe("the reads", () => {
   });
 
   it("counts delegates only (faculty excluded), confirmed as the attendance base, our page for a custom stream", async () => {
-    const r = await loadPostEventReport(EVENT, { includeSurveys: true });
+    const r = await loadPostEventReport(EVENT, { includeSurveys: true, includeComments: true });
     expect(h.db.registration.groupBy.mock.calls[0][0].where).toMatchObject({ eventId: "ev1", ...EXCLUDE_FACULTY_WHERE });
     expect(r.registrations).toEqual({ registered: 13, confirmed: 10, pending: 3, cancelled: 4, byType: [{ label: "Delegate", count: 13 }] });
     expect(r.attendance).toMatchObject({ source: "page", attended: 5, attendanceRate: 50, avgWatchSeconds: 1800, peak: 2 });
@@ -144,14 +146,14 @@ describe("the reads", () => {
   });
 
   it("a dismissed question is left out; Zoom's and our player's questions are both counted", async () => {
-    const r = await loadPostEventReport(EVENT, { includeSurveys: false });
+    const r = await loadPostEventReport(EVENT, { includeSurveys: false, includeComments: true });
     expect(h.db.webinarViewerQuestion.findMany.mock.calls[0][0].where).toMatchObject({ status: { not: "DISMISSED" } });
     expect(r.questions).toMatchObject({ asked: 2, answered: 1 });
     expect(r.questions.items[0]).toEqual({ question: "Dose?", answered: true, votes: 2, source: "page" });
   });
 
   it("surveys: only those answered, options in the survey's order with renamed answers kept, comments without ids", async () => {
-    const r = await loadPostEventReport(EVENT, { includeSurveys: true });
+    const r = await loadPostEventReport(EVENT, { includeSurveys: true, includeComments: true });
     expect(h.surveys.resolveReportSurvey).toHaveBeenCalledTimes(1);
     const s = r.surveys?.[0];
     expect(s).toMatchObject({ name: "CME survey", responses: 2 });
@@ -170,7 +172,7 @@ describe("the reads", () => {
   });
 
   it("no survey results for a caller who may not read them", async () => {
-    const r = await loadPostEventReport(EVENT, { includeSurveys: false });
+    const r = await loadPostEventReport(EVENT, { includeSurveys: false, includeComments: true });
     expect(r.surveys).toBeNull();
     expect(h.surveys.listSurveys).not.toHaveBeenCalled();
   });
@@ -179,9 +181,53 @@ describe("the reads", () => {
     h.db.zoomAttendance.findMany.mockResolvedValue([
       { id: "1", email: "a@x.com", joinTime: at(0), leaveTime: at(30), durationSeconds: 1800 },
     ]);
-    const r = await loadPostEventReport({ ...EVENT, settings: { webinar: { sessionId: "s1", viewingMode: "embed" } } }, { includeSurveys: false });
+    const r = await loadPostEventReport({ ...EVENT, settings: { webinar: { sessionId: "s1", viewingMode: "embed" } } }, { includeSurveys: false, includeComments: true });
     expect(r.attendance).toMatchObject({ source: "zoom", attended: 1, attendanceRate: 10, devices: [] });
     expect(h.db.webinarPresence.findMany).not.toHaveBeenCalled();
+  });
+
+  it("page attendance leaves faculty out; votes leave out cancelled registrations", async () => {
+    await loadPostEventReport(EVENT, { includeSurveys: false, includeComments: true });
+    expect(h.db.webinarPresence.groupBy.mock.calls[0][0].where).toMatchObject({ registration: EXCLUDE_FACULTY_WHERE });
+    expect(h.db.webinarViewerQuestion.findMany.mock.calls[0][0].select._count).toEqual({
+      select: { votes: { where: { registration: { status: { not: "CANCELLED" } } } } },
+    });
+  });
+
+  it("more than 90 days after the webinar: the joined marker counts attendance, and says the rest is archived", async () => {
+    h.db.eventSession.findFirst.mockResolvedValue({ startTime: new Date("2026-01-01T10:00:00Z"), endTime: new Date("2026-01-01T11:00:00Z"), status: "COMPLETED" });
+    h.db.registration.count.mockResolvedValue(7);
+    const r = await loadPostEventReport(EVENT, { includeSurveys: false, includeComments: true });
+    expect(r.attendance).toMatchObject({ source: "page", attended: 7, archived: true, avgWatchSeconds: 0, devices: [] });
+    expect(h.db.registration.count.mock.calls[0][0].where).toMatchObject({ webinarFirstJoinedAt: { not: null }, ...EXCLUDE_FACULTY_WHERE });
+    expect(h.db.webinarPresence.findMany).not.toHaveBeenCalled();
+  });
+
+  it("comments left out when not asked for, and cleaned when they are", async () => {
+    h.db.surveyResponse.findMany.mockResolvedValue([{ id: "r1", submittedAt: at(70), answers: { q3: "call 0501234567" } }]);
+    const without = await loadPostEventReport(EVENT, { includeSurveys: true, includeComments: false });
+    expect(without.commentsIncluded).toBe(false);
+    expect(without.surveys?.[0].questions[2]).toMatchObject({ type: "text", count: 1, comments: [] });
+    const withComments = await loadPostEventReport(EVENT, { includeSurveys: true, includeComments: true });
+    expect(withComments.surveys?.[0].questions[2]).toMatchObject({ comments: ["call [number removed]"] });
+  });
+
+  it("Zoom's average is per person, not per join", async () => {
+    h.db.zoomAttendance.findMany.mockResolvedValue([
+      { id: "1", email: "a@x.com", joinTime: at(0), leaveTime: at(10), durationSeconds: 600 },
+      { id: "2", email: "a@x.com", joinTime: at(20), leaveTime: at(30), durationSeconds: 600 },
+    ]);
+    const r = await loadPostEventReport({ ...EVENT, settings: { webinar: { sessionId: "s1", viewingMode: "embed" } } }, { includeSurveys: false, includeComments: true });
+    expect(r.attendance).toMatchObject({ attended: 1, avgWatchSeconds: 1200 });
+  });
+});
+
+
+describe("review of cdec0c859", () => {
+  it("typed text loses email addresses and phone or licence numbers, keeps short figures, and is cut", () => {
+    expect(reportText("Mail me at dr.ali@clinic.ae or +971 50 123 4567")).toBe("Mail me at [email removed] or [number removed]");
+    expect(reportText("Licence 12345678, 2 doses in 2026")).toBe("Licence [number removed], 2 doses in 2026");
+    expect(reportText("x".repeat(TEXT_MAX_CHARS + 50))).toHaveLength(TEXT_MAX_CHARS);
   });
 });
 
@@ -191,7 +237,7 @@ describe("the PDF", () => {
       generatedAt: at(90).toISOString(),
       event: { id: "ev1", name: "Improving Outcomes in β-Thalassemia", timezone: "Asia/Dubai", startTime: at(0).toISOString(), endTime: at(60).toISOString(), status: "ended" },
       registrations: { registered: 13, confirmed: 10, pending: 3, cancelled: 4, byType: [{ label: "Delegate", count: 13 }] },
-      attendance: { source: "page", attended: 5, attendanceRate: 50, avgWatchSeconds: 1800, totalWatchSeconds: 9000, peak: 4, peakAt: at(20).toISOString(), devices: [{ label: "Phone", count: 3 }] },
+      attendance: { source: "page", attended: 5, attendanceRate: 50, avgWatchSeconds: 1800, totalWatchSeconds: 9000, peak: 4, peakAt: at(20).toISOString(), devices: [{ label: "Phone", count: 3 }], archived: false },
       questions: { asked: 1, answered: 1, items: [{ question: "ما الجرعة؟ 💊", answered: true, votes: 2, source: "page" }] },
       surveys: [
         {
@@ -204,6 +250,7 @@ describe("the PDF", () => {
           ],
         },
       ],
+      commentsIncluded: true,
     };
     const pdf = await generatePostEventReportPdf(report, {
       name: "MM Group",

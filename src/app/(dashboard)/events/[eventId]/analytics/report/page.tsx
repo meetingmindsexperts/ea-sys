@@ -5,12 +5,15 @@
  * the PDF of the same report one click away. Counts, shares and survey answers only, so it can be
  * forwarded to a client or a sponsor.
  */
+import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { toast } from "sonner";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePostEventReport } from "@/hooks/use-api";
+import { downloadPostEventReportPdf } from "@/lib/webinar/post-event-report-download";
 import { knownTimezone, DEFAULT_EVENT_TIMEZONE } from "@/lib/event-time";
 import {
   percentOf,
@@ -43,6 +46,19 @@ export default function PostEventReportPage() {
 }
 
 function ReportView({ eventId, report: r }: { eventId: string; report: PostEventReport }) {
+  // Comments are the respondents' own words: in the PDF only when ticked here, beside the warning.
+  const [withComments, setWithComments] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const download = async () => {
+    setDownloading(true);
+    try {
+      await downloadPostEventReportPdf(eventId, { includeComments: withComments });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not download the report.");
+    } finally {
+      setDownloading(false);
+    }
+  };
   const tz = knownTimezone(r.event.timezone) ?? DEFAULT_EVENT_TIMEZONE;
   const when = new Intl.DateTimeFormat("en-GB", { timeZone: tz, dateStyle: "medium", timeStyle: "short" });
   return (
@@ -58,11 +74,18 @@ function ReportView({ eventId, report: r }: { eventId: string; report: PostEvent
             {r.event.startTime ? ` · ${when.format(new Date(r.event.startTime))} (${tz})` : ""}
           </p>
         </div>
-        <Button asChild>
-          <a href={`/api/events/${eventId}/webinar/post-event-report?format=pdf`} download>
-            <Download className="mr-2 h-4 w-4" /> Download PDF
-          </a>
-        </Button>
+        <div className="flex flex-col items-end gap-2">
+          <Button onClick={download} disabled={downloading}>
+            {downloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            Download PDF
+          </Button>
+          {r.surveys && r.surveys.length > 0 ? (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" checked={withComments} onChange={(e) => setWithComments(e.target.checked)} />
+              Include survey comments in the PDF
+            </label>
+          ) : null}
+        </div>
       </div>
 
       {r.event.status !== "ended" ? (
@@ -71,8 +94,9 @@ function ReportView({ eventId, report: r }: { eventId: string; report: PostEvent
         </p>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Made to be forwarded: no attendee&apos;s name or email, and questions and comments without who wrote them. A
-        comment is the respondent&apos;s own words, so read it before you send the report on.
+        Made to be forwarded: no attendee&apos;s name or email, and questions and comments without who wrote them, with
+        email addresses and phone numbers removed. A comment is still the respondent&apos;s own words, so the PDF leaves
+        comments out unless you tick the box, and you should read them before you send it on.
       </p>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -94,12 +118,20 @@ function ReportView({ eventId, report: r }: { eventId: string; report: PostEvent
         <Section title="Attendance">
           <p className="text-sm text-muted-foreground">
             {r.attendance.attended} attended, {r.attendance.attendanceRate}% of the {r.registrations.confirmed} confirmed
-            registrations. Average watched {reportDuration(r.attendance.avgWatchSeconds)},{" "}
-            {reportDuration(r.attendance.totalWatchSeconds)} in all.{" "}
+            registrations.{" "}
+            {r.attendance.archived
+              ? null
+              : `Average watched ${reportDuration(r.attendance.avgWatchSeconds)}, ${reportDuration(r.attendance.totalWatchSeconds)} in all. `}
             {r.attendance.source === "page"
               ? "Counted on the webinar page: people who reached the live view, and the minutes they watched while it was open."
               : "From Zoom's participant report."}
           </p>
+          {r.attendance.archived ? (
+            <p className="text-xs text-muted-foreground">
+              This webinar is more than 90 days old: the minute-by-minute record has been archived, so the time watched,
+              the peak and the devices are not shown.
+            </p>
+          ) : null}
           {r.attendance.devices.length ? (
             <>
               <h3 className="pt-2 text-sm font-medium">Watched on</h3>
@@ -130,8 +162,8 @@ function ReportView({ eventId, report: r }: { eventId: string; report: PostEvent
       ) : (
         <Section title="Survey results">
           {r.surveys.length === 0 ? <p className="text-sm text-muted-foreground">No survey answers yet.</p> : null}
-          {r.surveys.map((s) => (
-            <div key={s.name} className="space-y-4">
+          {r.surveys.map((s, si) => (
+            <div key={`${si}-${s.name}`} className="space-y-4">
               <h3 className="text-sm font-semibold">
                 {s.name}: {s.responses} response{s.responses === 1 ? "" : "s"}
               </h3>
@@ -206,12 +238,12 @@ function Tile({ label, value }: { label: string; value: string }) {
 function Bars({ rows, total }: { rows: readonly ReportBreakdown[]; total: number }) {
   return (
     <ul className="space-y-1.5">
-      {rows.map((row) => {
+      {rows.map((row, i) => {
         const share = percentOf(row.count, total);
         return (
-          <li key={row.label} className="text-sm">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="truncate">{row.label}</span>
+          <li key={`${i}-${row.label}`} className="text-sm">
+            <div className="flex min-w-0 items-baseline justify-between gap-3">
+              <span className="min-w-0 truncate">{row.label}</span>
               <span className="tabular-nums text-muted-foreground">
                 <span className="font-medium text-foreground">{row.count}</span> · {share}%
               </span>

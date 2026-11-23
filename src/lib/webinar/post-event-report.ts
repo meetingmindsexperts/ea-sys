@@ -5,8 +5,10 @@
  *
  * Written to be forwarded to a client or a sponsor (owner's choice): counts, shares and survey answers
  * only. It carries no attendee's name or email, no asker's name on a question, and survey comments
- * without who wrote them. A comment is the respondent's own text, so it can name someone; that is the
- * one personal detail it can hold, and the page says so.
+ * without who wrote them. Typed text (a question, a comment) is the person's own words and can name
+ * someone, so (review of cdec0c859): every email address and phone number in it is removed, each is
+ * cut to TEXT_MAX_CHARS, the page asks before comments go into the PDF, and the console's download,
+ * which shows no such warning, leaves comments out.
  *
  * Client-safe: the page imports the types and the small rules here; the reads are in
  * post-event-report-server.ts.
@@ -51,6 +53,12 @@ export interface PostEventReport {
     peakAt: string | null;
     /** Page only: phone, tablet, computer. Empty for Zoom. */
     devices: ReportBreakdown[];
+    /**
+     * Page only: the minute-by-minute record is archived 90 days after the webinar
+     * (webinar-presence-archive), so "attended" is then the people marked as having joined, and the
+     * minutes, the peak and the devices are no longer known.
+     */
+    archived: boolean;
   };
   questions: {
     asked: number;
@@ -60,6 +68,8 @@ export interface PostEventReport {
   };
   /** Null when the caller may not read survey results (surveys.read). */
   surveys: ReportSurvey[] | null;
+  /** False when the survey comments were left out (the console's PDF, or the box unticked). */
+  commentsIncluded: boolean;
 }
 
 export interface ReportQuestion {
@@ -85,6 +95,25 @@ export interface ReportSurvey {
 export const QUESTION_LIST_MAX = 200;
 /** A text question lists this many comments, the newest first. */
 export const COMMENTS_PER_QUESTION_MAX = 50;
+/** A question or a comment is cut to this many characters (a survey answer can hold 10,000). */
+export const TEXT_MAX_CHARS = 1_000;
+
+const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+// Seven or more digits with the spaces, dots, dashes and brackets phone numbers are written with.
+const PHONE = /\+?\d[\d\s().-]{5,}\d/g;
+
+/**
+ * Typed text as the report shows it: email addresses and phone-like numbers removed, cut to
+ * TEXT_MAX_CHARS. A licence or registration number typed into a comment is caught as a long number
+ * too; a short figure ("2 doses", "in 2026") is left alone.
+ */
+export function reportText(text: string): string {
+  const cleaned = text
+    .replace(EMAIL, "[email removed]")
+    .replace(PHONE, (m) => (m.replace(/\D/g, "").length >= 7 ? "[number removed]" : m))
+    .trim();
+  return cleaned.length > TEXT_MAX_CHARS ? `${cleaned.slice(0, TEXT_MAX_CHARS - 1)}…` : cleaned;
+}
 
 /** The share of `part` in `whole`, 0 to 100, rounded; 0 when there is nothing to share. */
 export function percentOf(part: number, whole: number): number {
@@ -96,7 +125,7 @@ export function orderQuestions<T extends ReportQuestion & { askedAt: Date }>(row
   return [...rows]
     .sort((a, b) => b.votes - a.votes || a.askedAt.getTime() - b.askedAt.getTime())
     .slice(0, QUESTION_LIST_MAX)
-    .map(({ question, answered, votes, source }) => ({ question, answered, votes, source }));
+    .map(({ question, answered, votes, source }) => ({ question: reportText(question), answered, votes, source }));
 }
 
 /** The most watching at once on our page, from the per-minute chart. */
