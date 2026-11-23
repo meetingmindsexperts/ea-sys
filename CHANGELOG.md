@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### "Send to all 0" no longer sends, and a list that failed to load says so (November 23, 2026)
+
+The number in the Send Email dialog is counted in the browser, from the list the page has loaded. Who an "everyone matching" email goes to is worked out by the server. So when the dialog said **Send to all 0 registrations**, pressing Send still emailed everyone the filters matched. It needed a list that had failed to load and a click on a saved-template tile, so it was unlikely, but the screen said nobody and the send was real.
+
+- **Send is off when the dialog shows 0 recipients,** on every page that opens it (Communications, Registrations, Speakers, Reviewers), with a line saying why.
+- **Scheduling for later is still allowed at 0:** nobody may match today (no one has paid yet) and people will by the time it goes.
+- **On Communications, a card whose list could not be loaded says so** and offers Try again, in place of a 0 with its template tiles still clickable. The numbers at the top show a dash, not a 0.
+- **A card for a list you may not read** (reviewers, for a role without that permission) says you do not have access, where it used to say 0.
+
 ### The home page says what the platform is (November 23, 2026)
 
 The page at the site's own address had never been edited: it was the starter template from January, offering "Event Management Made Simple", a free trial and a free account. Staff accounts are made by invitation and visitors are attendees, so none of it was true.

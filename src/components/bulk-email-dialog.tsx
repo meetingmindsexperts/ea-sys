@@ -1,7 +1,7 @@
 "use client";
 
 import { templateUsesRsvpToken } from "@/lib/rsvp/button";
-import { OWES_MONEY_FILTER, bulkTemplateSlugFor, namesAbstractOwnToken } from "@/lib/bulk-email-audience";
+import { OWES_MONEY_FILTER, bulkTemplateSlugFor, namesAbstractOwnToken, showsNobodyToSendNow } from "@/lib/bulk-email-audience";
 import { bulkEmailTypeOptionsFor } from "@/lib/email-template-registry";
 
 import { Fragment, useRef, useState } from "react";
@@ -636,6 +636,7 @@ export function BulkEmailDialog({
     return recipientCount;
   };
   const displayCount = computeDisplayCount();
+  const nobodyToSendNow = showsNobodyToSendNow({ displayCount, scheduling });
 
   // Certificate cover-email source picker — copies the chosen source into
   // the editable Subject/Message fields. A later manual edit simply diverges
@@ -1679,6 +1680,12 @@ export function BulkEmailDialog({
                 <span className="ml-2 text-xs font-normal text-muted-foreground">(counting on the server…)</span>
               )}
             </p>
+            {nobodyToSendNow && !isAbstracts && (
+              <p className="text-muted-foreground">
+                Nobody matches, so there is nothing to send.
+                {!isReviewerInvitation && " Change the filters, or schedule it for later to reach whoever matches then."}
+              </p>
+            )}
             {isAbstracts && serverCountQuery.isError && (
               <p className="text-destructive">
                 Couldn&apos;t count recipients on the server, so Send is paused.{" "}
@@ -1896,6 +1903,8 @@ export function BulkEmailDialog({
               // Review MED 4: never enqueue a send the server will resolve to
               // nobody, and never one whose audience could not be counted.
               (isAbstracts && (abstractServerCount == null || abstractServerCount === 0)) ||
+              // What the dialog shows is what is sent: at 0, nothing (bulk-email-audience.ts says why).
+              nobodyToSendNow ||
               // An empty fixed list reaches the server as no ids, which it reads as "everyone matching": never send
               // it (review HIGH, Oct 27: "Email listed (0)" on an empty Speakers tab mailed every speaker).
               (effectiveSelectionMode === "selected" && !resolvesToMatching && effectiveRecipientIds.length === 0)

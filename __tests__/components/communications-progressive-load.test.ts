@@ -30,26 +30,38 @@ describe("Communications page: each card waits for its own list", () => {
   });
 
   it.each([
-    ["registrations", "registrationsLoading"],
-    ["speakers", "speakersLoading"],
-    ["abstracts", "abstractsLoading"],
-    ["reviewers", "reviewersLoading"],
-  ])("the %s card waits for %s and nothing else", (what, flag) => {
-    expect(SOURCE).toContain(`<WhenListArrives loading={${flag}} what="${what}" placeholder="`);
+    ["registrations", "registrationsState"],
+    ["speakers", "speakersState"],
+    ["abstracts", "abstractsState"],
+    ["reviewers", "reviewersState"],
+  ])("the %s card shows its body only for %s", (what, flag) => {
+    expect(SOURCE).toContain(`<WhenListArrives state={${flag}} what="${what}" placeholder="`);
+    // Try again asks for THAT list.
+    expect(SOURCE).toContain(`what="${what}" placeholder=`);
+    expect(SOURCE).toMatch(new RegExp(`what="${what}" placeholder="[^"]+" onRetry=\\{\\(\\) => void ${what}Query\\.refetch\\(\\)\\}>`));
   });
 
-  it("each wait is that list's own first load", () => {
-    expect(SOURCE).toContain("const registrationsLoading = registrationsQuery.isLoading;");
-    expect(SOURCE).toContain("const speakersLoading = speakersQuery.isLoading;");
-    expect(SOURCE).toContain("const abstractsLoading = abstractsQuery.isLoading;");
+  it("each card's state is read from its own list, by the one rule (list-state.ts)", () => {
+    expect(SOURCE).toContain("const registrationsState = listStateOf(registrationsQuery);");
+    expect(SOURCE).toContain("const speakersState = listStateOf(speakersQuery);");
+    expect(SOURCE).toContain("const abstractsState = listStateOf(abstractsQuery);");
   });
 
-  it("the reviewers card also waits while it is not yet known whether this person may read reviewers", () => {
+  it("the reviewers card's state also knows whether this person may read reviewers", () => {
     // The list is asked for only once the answer is "allowed". Until the
-    // session and the event are in, the answer is "loading", the query is
-    // off, and a card waiting on the query alone said "0 recipients" on
-    // every fresh page load.
-    expect(SOURCE).toContain('const reviewersLoading = reviewersQuery.isLoading || reviewersAnswer === "loading";');
+    // session and the event are in, the answer is "loading" and the query is
+    // off: read from the query alone that was "0 recipients" on every fresh
+    // page load, and for someone who may not read reviewers it was 0 for good.
+    expect(SOURCE).toContain("const reviewersState = listStateOf(reviewersQuery, reviewersAnswer);");
+  });
+
+  it("a card's body is shown for a list in hand and for nothing else", () => {
+    // The saved-template tiles inside a card are never disabled and the send
+    // they open goes to everyone the server finds: a card whose list failed
+    // must not show them over a 0.
+    expect(SOURCE).toContain('if (state === "ready") return <>{children}</>;');
+    expect(SOURCE).toContain("Could not load {what}, so nothing can be sent from here yet.");
+    expect(SOURCE).toContain("You do not have access to {what} on this event.");
   });
 
   it("the send dialog is opened from four places, each accounted for below", () => {
@@ -86,12 +98,12 @@ describe("Communications page: each card waits for its own list", () => {
     }
   });
 
-  it("a headline number shows a placeholder, never a 0, while its list is on the way", () => {
+  it("a headline number shows a placeholder while its list is on the way, and a dash when it could not be read: never a 0", () => {
     for (const stat of [
-      "<StatNumber loading={registrationsLoading} value={registrations.length} />",
-      "<StatNumber loading={registrationsLoading} value={paymentSummary.paid} />",
-      "<StatNumber loading={registrationsLoading} value={unpaidRegistrations.length} />",
-      "<StatNumber loading={speakersLoading} value={speakers.length} />",
+      "<StatNumber state={registrationsState} value={registrations.length} />",
+      "<StatNumber state={registrationsState} value={paymentSummary.paid} />",
+      "<StatNumber state={registrationsState} value={unpaidRegistrations.length} />",
+      "<StatNumber state={speakersState} value={speakers.length} />",
     ]) {
       expect(SOURCE).toContain(stat);
     }

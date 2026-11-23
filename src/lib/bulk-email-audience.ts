@@ -265,6 +265,24 @@ export function abstractInSendScope(
 }
 
 /**
+ * Whether Send must be off because the dialog is showing nobody (Nov 23, 2026).
+ *
+ * The count in the dialog is worked out in the browser from the list the page
+ * holds; the audience of an "everyone matching" send is worked out by the
+ * server from the filters. So "Send to all 0 registrations" was a real send:
+ * with a list that had failed to load, or a count that read 0 for any other
+ * reason, pressing Send mailed everyone the filters matched. What the dialog
+ * shows is what is sent, so at 0 nothing is.
+ *
+ * A send scheduled for LATER is left alone: nobody may match today (no one has
+ * paid yet) and people will by the time it goes, which is what "everyone
+ * matching at send time" is for.
+ */
+export function showsNobodyToSendNow(input: { displayCount: number; scheduling: boolean }): boolean {
+  return !input.scheduling && input.displayCount === 0;
+}
+
+/**
  * Email type → template slug for the bulk pipeline, and the (type, audience)
  * resolver. Both come from the template registry (the entry's `bulk` spec) so
  * the dialog, the Communications tiles and the server read ONE map; this

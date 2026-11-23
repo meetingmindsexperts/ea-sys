@@ -77,6 +77,7 @@ import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payme
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { EmailActivityCard } from "@/components/communications/email-activity-card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { listStateOf, type ListState } from "@/lib/list-state";
 
 type RecipientType = "speakers" | "registrations" | "reviewers" | "abstracts";
 
@@ -321,8 +322,12 @@ const REGISTRATION_TILES: RegistrationTile[] = [
  * one (abstracts, the largest by far) held back the registrations and speakers
  * cards that had been ready for a while. Each card now waits for its own list
  * only. Everything a card can do, its saved-template tiles included, sits
- * inside this, so no send can be opened on a list that has not arrived, and
- * a card never shows a 0 for a list that is still on its way.
+ * inside this, so no send can be opened on a list that is not there, and a
+ * card's 0 always means "none": a list still on its way, one that failed to
+ * load and one this person may not read each say so instead (list-state.ts).
+ * That matters most for the saved-template tiles: they are never disabled, and
+ * the send they open goes to everyone the server finds, whatever the card
+ * counted.
  *
  * `placeholder` is the height the card's body usually has once filled (a
  * Tailwind height class). The cards fill in one at a time, and a card that
@@ -331,17 +336,32 @@ const REGISTRATION_TILES: RegistrationTile[] = [
  * on the event and on what the person may do.
  */
 function WhenListArrives({
-  loading,
+  state,
   what,
   placeholder,
+  onRetry,
   children,
 }: {
-  loading: boolean;
+  state: ListState;
   what: string;
   placeholder: string;
+  onRetry: () => void;
   children: ReactNode;
 }) {
-  if (!loading) return <>{children}</>;
+  if (state === "ready") return <>{children}</>;
+  if (state === "denied") {
+    return <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">You do not have access to {what} on this event.</p>;
+  }
+  if (state === "failed") {
+    return (
+      <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/40 p-4 text-sm">
+        <span>Could not load {what}, so nothing can be sent from here yet.</span>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
   return (
     <div role="status" className={`flex flex-col gap-3 ${placeholder}`}>
       <span className="sr-only">Loading {what}</span>
@@ -353,8 +373,10 @@ function WhenListArrives({
 }
 
 /** A headline number, or a placeholder while its list is on the way. */
-function StatNumber({ loading, value }: { loading: boolean; value: number }) {
-  if (loading) return <Skeleton className="my-1 h-6 w-10" aria-hidden="true" />;
+function StatNumber({ state, value }: { state: ListState; value: number }) {
+  if (state === "loading") return <Skeleton className="my-1 h-6 w-10" aria-hidden="true" />;
+  // Not loaded is not 0.
+  if (state !== "ready") return <p className="text-2xl font-bold text-muted-foreground" title="Could not be loaded">–</p>;
   return <p className="text-2xl font-bold">{value}</p>;
 }
 
@@ -417,14 +439,15 @@ export default function CommunicationsPage() {
     ),
   ).sort();
 
-  // Each card waits for its own list (WhenListArrives). The reviewers list is
-  // asked for only once it is known that this person may read it, so "still
-  // finding that out" is waiting too: on a fresh page load the question is
-  // open before the list is even requested, and the card would say 0.
-  const registrationsLoading = registrationsQuery.isLoading;
-  const speakersLoading = speakersQuery.isLoading;
-  const abstractsLoading = abstractsQuery.isLoading;
-  const reviewersLoading = reviewersQuery.isLoading || reviewersAnswer === "loading";
+  // Each card waits for its own list and says so when that list is loading,
+  // failed or not this person's to read (list-state.ts). The reviewers list is
+  // asked for only once it is known that this person may read it, so that
+  // answer is part of its state: on a fresh page load the question is open
+  // before the list is even requested, and the card would say 0.
+  const registrationsState = listStateOf(registrationsQuery);
+  const speakersState = listStateOf(speakersQuery);
+  const abstractsState = listStateOf(abstractsQuery);
+  const reviewersState = listStateOf(reviewersQuery, reviewersAnswer);
 
   // Registration audience filtering lives entirely in the send dialog
   // (BulkEmailDialog "Filter recipients") — no duplicated page-level controls.
@@ -755,7 +778,7 @@ export default function CommunicationsPage() {
                 <Users className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <StatNumber loading={registrationsLoading} value={registrations.length} />
+                <StatNumber state={registrationsState} value={registrations.length} />
                 <p className="text-xs text-muted-foreground">Registrations</p>
               </div>
             </div>
@@ -768,7 +791,7 @@ export default function CommunicationsPage() {
                 <CreditCard className="h-5 w-5 text-green-600" />
               </div>
               <div>
-                <StatNumber loading={registrationsLoading} value={paymentSummary.paid} />
+                <StatNumber state={registrationsState} value={paymentSummary.paid} />
                 <p className="text-xs text-muted-foreground">{paidNote ? `Paid · ${paidNote}` : "Paid"}</p>
               </div>
             </div>
@@ -781,7 +804,7 @@ export default function CommunicationsPage() {
                 <AlertCircle className="h-5 w-5 text-amber-600" />
               </div>
               <div>
-                <StatNumber loading={registrationsLoading} value={unpaidRegistrations.length} />
+                <StatNumber state={registrationsState} value={unpaidRegistrations.length} />
                 <p className="text-xs text-muted-foreground">Unpaid</p>
               </div>
             </div>
@@ -794,7 +817,7 @@ export default function CommunicationsPage() {
                 <Mic className="h-5 w-5 text-purple-600" />
               </div>
               <div>
-                <StatNumber loading={speakersLoading} value={speakers.length} />
+                <StatNumber state={speakersState} value={speakers.length} />
                 <p className="text-xs text-muted-foreground">Speakers</p>
               </div>
             </div>
@@ -816,7 +839,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <WhenListArrives loading={registrationsLoading} what="registrations" placeholder="h-[32rem]">
+            <WhenListArrives state={registrationsState} what="registrations" placeholder="h-[32rem]" onRetry={() => void registrationsQuery.refetch()}>
             {/* Workflow tiles — one-click presets for common sends */}
             {canSend && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -898,7 +921,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <WhenListArrives loading={speakersLoading} what="speakers" placeholder="h-96">
+            <WhenListArrives state={speakersState} what="speakers" placeholder="h-96" onRetry={() => void speakersQuery.refetch()}>
             {/* Workflow tiles — one-click presets for common sends */}
             {canSend && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1057,7 +1080,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <WhenListArrives loading={abstractsLoading} what="abstracts" placeholder="h-48">
+            <WhenListArrives state={abstractsState} what="abstracts" placeholder="h-48" onRetry={() => void abstractsQuery.refetch()}>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-lg bg-muted/50 p-3">
                 <p className="text-2xl font-bold">{abstracts.length}</p>
@@ -1132,7 +1155,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <WhenListArrives loading={reviewersLoading} what="reviewers" placeholder="h-36">
+            <WhenListArrives state={reviewersState} what="reviewers" placeholder="h-36" onRetry={() => void reviewersQuery.refetch()}>
             <div className="rounded-lg bg-muted/50 p-3">
               <p className="text-2xl font-bold">{reviewers.length}</p>
               <p className="text-xs text-muted-foreground">Assigned Reviewers</p>

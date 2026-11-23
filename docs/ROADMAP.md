@@ -47,7 +47,7 @@ Each card on the Communications page appears when its own list arrives (`8ca632a
 - ~~LOW: Scheduled Emails and Email Activity now ask for their data at the same time as the four lists, more than HTTP/1.1's six at a time.~~ Gone Nov 23: the site speaks HTTP/2, which has no such limit.
 - **LOW: the test reads the page's source.** It pins the four waits, the reviewers rule and the list of ways a send is opened; it does not render the page.
 
-**Older, for the owner to rule on (not caused by this change): a saved-template tile on a card whose list FAILED to load opens "Send to all 0 registrations" with Send enabled, and the send goes to everyone.** When a list fails (a 500, a role that may not read it, no connection), the card shows 0: its Send Email, tiles and Select by IDs are disabled at 0, but the "Your templates" tiles are not, the dialog's Send is not disabled at 0 for registrations, speakers or reviewers, and the server works the audience out from the filters. The same 0 also shows for "failed", "offline" and "not allowed" on every card. A fix is a "could not load" state per card and no Send at a count of 0.
+~~Older, for the owner: a saved-template tile on a card whose list FAILED to load opened "Send to all 0 registrations" with Send enabled, and the send went to everyone.~~ Fixed Nov 23 (owner: "yes please"): Send is off whenever the dialog shows 0 and the send is for now (`showsNobodyToSendNow` in `bulk-email-audience.ts`), and each Communications card says "could not load" or "no access" in place of a 0 (`list-state.ts`). CHANGELOG, Nov 23.
 
 ## Events list trimmed: what the Nov 23 review left, and the rest of the page-speed work (recorded Nov 23, 2026): started
 
