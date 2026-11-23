@@ -8,6 +8,14 @@
 -- them, and its inserts get the defaults. No backfill: past webinars have no
 -- record of any of this. Only the parsed device, browser and system are kept,
 -- never the user agent text or an address.
+--
+-- The heartbeat writes this table about 150 times a second during a large
+-- webinar: a lock wait (the hourly backup dump holds a share lock) must fail
+-- fast instead of queueing every heartbeat behind the ALTER. A run that times
+-- out is simply run again.
+
+SET lock_timeout = '10s';
+
 ALTER TABLE "WebinarPresence" ADD COLUMN IF NOT EXISTS "deviceType" TEXT;
 ALTER TABLE "WebinarPresence" ADD COLUMN IF NOT EXISTS "browser" TEXT;
 ALTER TABLE "WebinarPresence" ADD COLUMN IF NOT EXISTS "os" TEXT;

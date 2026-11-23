@@ -38,21 +38,29 @@ export function tallyIsEmpty(t: PlaybackTally): boolean {
 }
 
 /**
- * Takes what a beat carried off the running tally once the beat got through. Not a reset to zero:
- * a stall can end while the beat is in flight, and it must go with the next one.
+ * What a beat takes from the running tally, and what stays (review of 183278032). The page empties the
+ * tally into the beat BEFORE sending and adds it back if the beat fails, so two beats in flight at once
+ * (the first beat, the one sent when the tab shows again, the interval) never carry the same counts.
+ * Buffering goes in whole seconds and the part of a second stays for the next beat, so short stalls
+ * add up instead of each rounding to nothing.
  */
-export function subtractTally(current: PlaybackTally, sent: PlaybackTally): PlaybackTally {
+export function takeTally(t: PlaybackTally): { sent: PlaybackTally; kept: PlaybackTally } {
+  const wholeMs = Math.floor(t.stallMs / 1000) * 1000;
   return {
-    stalls: Math.max(0, current.stalls - sent.stalls),
-    stallMs: Math.max(0, current.stallMs - sent.stallMs),
-    reconnects: Math.max(0, current.reconnects - sent.reconnects),
+    sent: { stalls: t.stalls, stallMs: wholeMs, reconnects: t.reconnects },
+    kept: { stalls: 0, stallMs: t.stallMs - wholeMs, reconnects: 0 },
   };
+}
+
+export function addTally(a: PlaybackTally, b: PlaybackTally): PlaybackTally {
+  return { stalls: a.stalls + b.stalls, stallMs: a.stallMs + b.stallMs, reconnects: a.reconnects + b.reconnects };
 }
 
 /**
  * Most one beat may add. The numbers come from the attendee's own browser and describe only their own
  * viewing, so this is a sanity bound, not a defence: a tab hidden for a while sends what it gathered in
- * one beat, and a broken or edited page must not write a day of buffering into the report.
+ * one beat, and a broken or edited page must not write a day of buffering into the report. The route
+ * trims to it rather than refusing (review of 183278032): a refused beat would lose its watched time too.
  */
 export const BEAT_QUALITY_MAX = { stalls: 50, stallSeconds: 600, reconnects: 20 } as const;
 

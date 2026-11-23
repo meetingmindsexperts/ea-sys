@@ -55,7 +55,7 @@ import {
 } from "@/lib/session-enums";
 import { presenterLabelText } from "@/lib/session-topic-presets";
 import type { PlaybackEvent } from "@/components/zoom/live-player";
-import { emptyTally, subtractTally, tallyIsEmpty, type PlaybackTally, type ViewMode } from "@/lib/webinar/watch-analytics";
+import { addTally, emptyTally, takeTally, tallyIsEmpty, type PlaybackTally, type ViewMode } from "@/lib/webinar/watch-analytics";
 
 /**
  * "9:00 AM GST on Jun 15" — join-availability timestamps must render in the
@@ -520,7 +520,12 @@ export default function PublicSessionPage() {
     async function beat() {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       const joined = isJoiningRef.current;
-      const sent = { ...playbackTallyRef.current };
+      // Taken off the tally before sending, and put back if the beat fails (takeTally).
+      const { sent, kept } = takeTally(playbackTallyRef.current);
+      playbackTallyRef.current = kept;
+      const putBack = () => {
+        playbackTallyRef.current = addTally(playbackTallyRef.current, sent);
+      };
       try {
         const res = await fetch(
           `/api/public/events/${slug}/sessions/${sessionId}/presence`,
@@ -534,10 +539,11 @@ export default function PublicSessionPage() {
             }),
           },
         );
-        // Only what got through leaves the tally; a failed beat's counts go with the next one.
-        if (res.ok) playbackTallyRef.current = subtractTally(playbackTallyRef.current, sent);
+        // A failed beat's counts go with the next one.
+        if (!res.ok) putBack();
       } catch {
-        // tolerate transient failures — next beat retries
+        // tolerate transient failures — next beat retries, with these counts
+        putBack();
       }
     }
     beat();

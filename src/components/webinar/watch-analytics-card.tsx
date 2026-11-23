@@ -10,6 +10,7 @@ import { useMemo, useState, type KeyboardEvent, type PointerEvent } from "react"
 import { Activity } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useWebinarWatchAnalytics, type WebinarWatchAnalytics, type WebinarWatchBreakdown } from "@/hooks/use-api";
+import { DEFAULT_EVENT_TIMEZONE, knownTimezone } from "@/lib/event-time";
 
 function formatSeconds(total: number): string {
   if (total < 60) return `${total}s`;
@@ -22,8 +23,11 @@ function share(part: number, whole: number): string {
   return whole > 0 ? `${Math.round((part / whole) * 100)}%` : "0%";
 }
 
-export function WatchAnalyticsCard({ eventId, timezone }: { eventId: string; timezone: string }) {
+export function WatchAnalyticsCard({ eventId, timezone: storedTimezone }: { eventId: string; timezone: string }) {
   const query = useWebinarWatchAnalytics(eventId);
+  // An unknown stored zone makes every Intl call throw: the chart falls back rather than take the page
+  // down (review of 183278032).
+  const timezone = knownTimezone(storedTimezone) ?? DEFAULT_EVENT_TIMEZONE;
   const data = query.data;
   return (
     <Card>
@@ -252,6 +256,9 @@ function WatchingChart({ points, timezone }: { points: { at: string; watching: n
               vectorEffect="non-scaling-stroke"
             />
           </svg>
+          <span className="sr-only" aria-live="polite">
+            {shown ? `${shown.watching} watching at ${clock.format(new Date(shown.at))}` : ""}
+          </span>
           {shown ? (
             <>
               <div className="pointer-events-none absolute inset-y-0 w-px bg-foreground/40" style={{ left: `${leftPct}%` }} />

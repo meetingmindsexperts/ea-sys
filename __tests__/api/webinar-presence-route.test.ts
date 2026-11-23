@@ -272,6 +272,25 @@ describe("presence heartbeat", () => {
       expect(mockDb.webinarPresence.upsert.mock.calls[0][0].update.watchedMinutes).toBeUndefined();
     });
 
+    it("a lobby beat (the closing screen, the replay) never changes the device the person watched on", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000), watchedMinutes: [] });
+      await callAs({ phase: "lobby" }, IPHONE);
+      const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+      expect(arg.update).not.toHaveProperty("deviceType");
+      expect(arg.update).not.toHaveProperty("os");
+      await callAs({ phase: "joined" }, IPHONE);
+      expect(mockDb.webinarPresence.upsert.mock.calls[1][0].update).toMatchObject({ deviceType: "mobile", os: "iOS" });
+    });
+
+    it("an oversized tally is trimmed, never refused: the beat's watched time still counts", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000), watchedMinutes: [] });
+      const res = await callAs({ phase: "joined", quality: { stalls: 1e9, stallMs: 1e12, reconnects: 1e9 } }, IPHONE);
+      expect(res.status).toBe(200);
+      const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+      expect(arg.update.watchedSeconds).toEqual({ increment: 30 });
+      expect(arg.update.stallSeconds).toEqual({ increment: 600 });
+    });
+
     it("an unknown view is refused as invalid input", async () => {
       const res = await callAs({ phase: "joined", view: "vlc" }, IPHONE);
       expect(res.status).toBe(400);

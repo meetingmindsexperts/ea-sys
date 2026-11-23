@@ -9,7 +9,8 @@ import {
   emptyTally,
   epochMinute,
   minutesToMark,
-  subtractTally,
+  takeTally,
+  addTally,
   tallyIsEmpty,
   TIMELINE_MAX_MINUTES,
   watchingTimeline,
@@ -19,11 +20,24 @@ import { watchAnalytics, watchingRanges, type WatchAnalyticsRow } from "@/lib/we
 const at = (h: number, m: number, s = 0) => new Date(Date.UTC(2026, 11, 20, h, m, s));
 
 describe("the page's tally", () => {
-  it("a beat that got through takes only what it carried: a stall that ended meanwhile goes with the next", () => {
-    const sent = { stalls: 2, stallMs: 3_000, reconnects: 1 };
-    const now = { stalls: 3, stallMs: 5_000, reconnects: 1 };
-    expect(subtractTally(now, sent)).toEqual({ stalls: 1, stallMs: 2_000, reconnects: 0 });
-    expect(tallyIsEmpty(subtractTally(sent, sent))).toBe(true);
+  it("a beat takes the counts and whole seconds of buffering; the part of a second stays for the next", () => {
+    const { sent, kept } = takeTally({ stalls: 3, stallMs: 2_700, reconnects: 1 });
+    expect(sent).toEqual({ stalls: 3, stallMs: 2_000, reconnects: 1 });
+    expect(kept).toEqual({ stalls: 0, stallMs: 700, reconnects: 0 });
+    // Three 300 ms stalls add up to a second instead of rounding to nothing each.
+    let t = emptyTally();
+    for (let i = 0; i < 3; i++) t = addTally(t, { stalls: 1, stallMs: 400, reconnects: 0 });
+    expect(takeTally(t).sent).toEqual({ stalls: 3, stallMs: 1_000, reconnects: 0 });
+  });
+
+  it("taken before the send, so a second beat in flight carries nothing twice; a failed beat puts it back", () => {
+    let tally = { stalls: 2, stallMs: 3_000, reconnects: 0 };
+    const first = takeTally(tally);
+    tally = first.kept;
+    const second = takeTally(tally);
+    expect(tallyIsEmpty(second.sent)).toBe(true);
+    tally = addTally(second.kept, first.sent);
+    expect(tally).toEqual({ stalls: 2, stallMs: 3_000, reconnects: 0 });
     expect(tallyIsEmpty(emptyTally())).toBe(true);
   });
 

@@ -111,7 +111,7 @@ interface LivePlayerProps {
 
 export type PlaybackEvent = { kind: "stall"; ms: number } | { kind: "reconnect" };
 
-/** A stall longer than this is a dropped stream, not buffering: the reconnect counts it instead. */
+/** The most one stall reports; a longer wait that still ended in the picture moving is rare and capped. */
 const STALL_REPORT_MAX_MS = 120_000;
 
 export interface PlayerTimingSample {
@@ -172,18 +172,20 @@ export function LivePlayer({
   // future-proofs it. Updating a ref during render is StrictMode-safe.
   const onStreamStatusChangeRef = useRef(onStreamStatusChange);
   onStreamStatusChangeRef.current = onStreamStatusChange;
-  // Same pattern for the watch analytics callback, and the stall it is timing: when the picture started
-  // waiting, or null. Armed by the first "playing" event, so the first load is never a stall.
+  // Same pattern for the watch analytics callback. The rule (review of 183278032): a stall counts only
+  // when the picture comes back by itself ("waiting" then "playing", while armed), and a reconnect only
+  // when the stream then plays again. Anything else that ends a wait (the host stopping the stream, a
+  // pause, the viewer leaving, a reload) drops it uncounted: the end of every webinar would otherwise
+  // read as a stall and a reconnect for everyone still watching.
   const onPlaybackEventRef = useRef(onPlaybackEvent);
   onPlaybackEventRef.current = onPlaybackEvent;
+  // When the picture started waiting, or null. Armed by "playing", disarmed by a pause or a reload.
   const stallStartedAtRef = useRef<number | null>(null);
   const playbackArmedRef = useRef(false);
-  const endStall = useCallback(() => {
-    const startedAt = stallStartedAtRef.current;
-    if (startedAt === null) return;
+  // A frozen-picture reconnect, counted once the stream plays again.
+  const reconnectPendingRef = useRef(false);
+  const dropStall = useCallback(() => {
     stallStartedAtRef.current = null;
-    const ms = Date.now() - startedAt;
-    if (ms > 0) onPlaybackEventRef.current?.({ kind: "stall", ms: Math.min(ms, STALL_REPORT_MAX_MS) });
   }, []);
 
   const pollStreamStatus = useCallback(async () => {
@@ -370,29 +372,47 @@ export function LivePlayer({
     const video = videoRef.current;
     if (!wantsPlaybackEvents || !video) return;
     const onPlaying = () => {
+      if (reconnectPendingRef.current) {
+        reconnectPendingRef.current = false;
+        onPlaybackEventRef.current?.({ kind: "reconnect" });
+      }
+      const startedAt = stallStartedAtRef.current;
+      stallStartedAtRef.current = null;
+      if (playbackArmedRef.current && startedAt !== null) {
+        const ms = Date.now() - startedAt;
+        if (ms > 0) onPlaybackEventRef.current?.({ kind: "stall", ms: Math.min(ms, STALL_REPORT_MAX_MS) });
+      }
       playbackArmedRef.current = true;
-      endStall();
     };
     const onWaiting = () => {
       if (!playbackArmedRef.current || video.seeking || video.paused || stallStartedAtRef.current !== null) return;
       stallStartedAtRef.current = Date.now();
     };
+    // Resuming after a pause, or an iPhone back from the lock screen, waits for data too: not a stall.
+    const onPause = () => {
+      playbackArmedRef.current = false;
+      dropStall();
+    };
     video.addEventListener("playing", onPlaying);
     video.addEventListener("waiting", onWaiting);
+    video.addEventListener("pause", onPause);
     return () => {
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("waiting", onWaiting);
-      endStall();
+      video.removeEventListener("pause", onPause);
+      dropStall();
     };
-  }, [wantsPlaybackEvents, endStall]);
+  }, [wantsPlaybackEvents, dropStall]);
 
-  // A picture that stops being "playing" (the stream dropped, a reconnect, Retry) ends any stall timed, and
-  // disarms: the reload's own wait for its first frame is part of that drop, not another stall.
+  // A picture that stops being "playing" (the stream dropped or ended, a reconnect, Retry) drops any
+  // stall timed and disarms: the reload's own wait for its first frame is part of that drop. A stream
+  // that went idle or ended was stopped, so a reconnect waiting for it is not counted either.
   useEffect(() => {
     if (status === "playing") return;
-    endStall();
+    dropStall();
     playbackArmedRef.current = false;
-  }, [status, endStall]);
+    if (status === "offline") reconnectPendingRef.current = false;
+  }, [status, dropStall]);
 
   // Timing samples for the console preview (see onTimingSample). Only runs
   // when a caller asks, so attendees pay nothing.
@@ -557,8 +577,8 @@ export function LivePlayer({
           firstFrame: armedAt !== null,
           streak: stallStreakRef.current,
         });
-        endStall();
-        onPlaybackEventRef.current?.({ kind: "reconnect" });
+        dropStall();
+        reconnectPendingRef.current = true;
         video.src = "";
         setStatus("loading");
         setRetryNonce((n) => n + 1);
@@ -569,7 +589,7 @@ export function LivePlayer({
       setIsBehind(behind > BEHIND_LIVE_THRESHOLD_S);
     }, 1000);
     return () => clearInterval(id);
-  }, [status, endStall]);
+  }, [status, dropStall]);
 
   const handleRetry = () => {
     setStatus("loading");

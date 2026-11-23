@@ -15,15 +15,16 @@ import { boundedQuality, minutesToMark, VIEW_MODES } from "@/lib/webinar/watch-a
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
 // view and quality since Nov 23, 2026 (watch-analytics.ts); optional, so a page loaded from the previous
-// image keeps beating. quality is what our stream player counted since the last beat that got through.
+// image keeps beating. quality is what our stream player counted since the last beat that got through:
+// any size is taken and trimmed by boundedQuality, never refused, or the beat's watched time is lost too.
 const presenceSchema = z.object({
   phase: z.enum(["lobby", "joined"]),
   view: z.enum(VIEW_MODES).optional(),
   quality: z
     .object({
-      stalls: z.number().int().min(0).max(100_000),
-      stallMs: z.number().int().min(0).max(86_400_000),
-      reconnects: z.number().int().min(0).max(100_000),
+      stalls: z.number().int().nonnegative(),
+      stallMs: z.number().int().nonnegative(),
+      reconnects: z.number().int().nonnegative(),
     })
     .optional(),
 });
@@ -143,10 +144,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       now,
       known: existing?.watchedMinutes ?? [],
     });
+    // The device is the one the person WATCHED on: written by live-view beats (and the row's first beat,
+    // so a row is never without one). A lobby beat from the closing screen or the replay on a phone
+    // afterwards must not turn a computer viewer into a phone one (review of 183278032).
+    const device = { deviceType: agent.deviceType, browser: agent.browser, os: agent.os };
     const seen = {
-      deviceType: agent.deviceType,
-      browser: agent.browser,
-      os: agent.os,
+      ...(phase === "joined" ? device : {}),
       ...(view ? { viewMode: view } : {}),
     };
 
@@ -165,6 +168,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         // return after an absence does (review of 0b3f34ad: the first beat is nearly always a lobby beat,
         // sent before the room check answers, and admission then made one viewing read as 2).
         joinCount: 1,
+        ...device,
         ...seen,
         stallCount: played.stalls,
         stallSeconds: played.stallSeconds,
