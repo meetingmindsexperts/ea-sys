@@ -106,6 +106,27 @@ export function speakerKindOf(s: WithSubmissions): Exclude<SpeakerKind, "all"> {
 }
 
 /**
+ * The tabs a caller can be shown on the Speakers page. Telling an invited speaker from a submitter needs the
+ * abstracts, and from a proposer the proposals, so a tab whose grouping the caller cannot see is left out
+ * rather than shown wrong.
+ *
+ * A tab is shown only when it tells something apart:
+ *   - Abstract submitters and Session proposers only on an event that has some (owner, Oct 27, 2026);
+ *   - Invited speakers only when someone on the list is NOT invited (owner, Nov 23, 2026). On an event with no
+ *     abstracts and no proposals it listed the same people as All speakers, with the same count beside it.
+ * With one tab left the page shows no tab bar at all.
+ */
+export function visibleSpeakerKinds(readAbstracts: boolean, readProposals: boolean, count: (k: SpeakerKind) => number): SpeakerKind[] {
+  const both = readAbstracts && readProposals;
+  return (["all", "invited", "submitters", "proposers"] as const).filter((k) => {
+    if (k === "invited") return both && count("invited") < count("all");
+    if (k === "submitters") return readAbstracts && count(k) > 0;
+    if (k === "proposers") return both && count(k) > 0;
+    return true;
+  });
+}
+
+/**
  * The tab the Speakers page opens on. Authors are kept apart from the faculty (owner, Nov 20, 2026), so an event
  * that has both opens on the invited speakers; an event with nothing to tell apart, or with no invited speaker
  * to show, opens on everyone. `tabs` is what the caller can be shown: without the Invited tab (the abstracts or

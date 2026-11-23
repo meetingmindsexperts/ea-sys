@@ -2,7 +2,7 @@
  * The Speakers page tabs (owner, Oct 27) and who "Email" reaches from them (review HIGHs, Oct 27).
  */
 import { describe, it, expect } from "vitest";
-import { acceptedWithoutRegistration, canEmailListed, emailRecipientIds, isProposer, isSubmitter, matchesKind, openingKind, registrationFacultyByHand, registrationOnFacultyType, speakerKindOf } from "@/lib/speaker-kinds";
+import { acceptedWithoutRegistration, canEmailListed, emailRecipientIds, isProposer, isSubmitter, matchesKind, openingKind, registrationFacultyByHand, registrationOnFacultyType, speakerKindOf, visibleSpeakerKinds } from "@/lib/speaker-kinds";
 
 const invited = { id: "a", abstracts: [] as { status: string }[] };
 const submitter = { id: "b", abstracts: [{ status: "SUBMITTED" }, { status: "DRAFT" }] };
@@ -118,6 +118,33 @@ describe("the Speakers page: opening tab and the accepted authors with no regist
     expect(openingKind(["all", "submitters"], 4)).toBe("all");
     // Nobody invited yet: never an empty table as the first thing shown.
     expect(openingKind(["all", "invited", "submitters"], 0)).toBe("all");
+  });
+
+  // Owner, Nov 23, 2026: with no abstracts the Invited tab listed the same 52 people as All speakers.
+  // MUTATION: show Invited whenever both can be read (the rule before) and the first two fail.
+  describe("which tabs are shown", () => {
+    const counts = (n: { invited: number; submitters?: number; proposers?: number }) => (k: string) =>
+      k === "all" ? n.invited + (n.submitters ?? 0) + (n.proposers ?? 0) : (n[k as "invited"] ?? 0);
+
+    it("an event with only invited speakers has one tab, so the page shows no tab bar", () => {
+      expect(visibleSpeakerKinds(true, true, counts({ invited: 52 }))).toEqual(["all"]);
+    });
+
+    it("an event with nobody yet has one tab too", () => {
+      expect(visibleSpeakerKinds(true, true, counts({ invited: 0 }))).toEqual(["all"]);
+    });
+
+    it("authors or proposers bring the Invited tab back, beside their own", () => {
+      expect(visibleSpeakerKinds(true, true, counts({ invited: 40, submitters: 12 }))).toEqual(["all", "invited", "submitters"]);
+      expect(visibleSpeakerKinds(true, true, counts({ invited: 40, proposers: 3 }))).toEqual(["all", "invited", "proposers"]);
+      // Nobody invited yet, authors only: the Invited tab still says so (0), apart from the authors.
+      expect(visibleSpeakerKinds(true, true, counts({ invited: 0, submitters: 5 }))).toEqual(["all", "invited", "submitters"]);
+    });
+
+    it("a caller who cannot read what tells the groups apart is never shown the Invited tab", () => {
+      expect(visibleSpeakerKinds(true, false, counts({ invited: 40, submitters: 12 }))).toEqual(["all", "submitters"]);
+      expect(visibleSpeakerKinds(false, false, counts({ invited: 40, submitters: 12 }))).toEqual(["all"]);
+    });
   });
 
   it("counts an accepted author only when told they hold no registration", () => {

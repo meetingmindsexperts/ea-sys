@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Speakers page: no "Invited speakers" tab when everyone is invited (November 23, 2026)
+
+On an event with no abstracts and no session proposals, the Speakers page showed two tabs with the same people and the same count ("All speakers 52", "Invited speakers 52"). The Invited speakers tab now appears only when someone on the list is not invited, that is, once the event has abstract authors or session proposers. With nothing to tell apart there is no tab row at all.
+
 ### The email preview opens in its own window (November 23, 2026)
 
 Pressing **Preview** in an email dialog opened a second box on top of the first. It now opens the email in a separate browser window, laid out like an email in an inbox: the subject and the email itself at desktop or phone width, plus, in the Send Email dialog for abstract authors, a note on whose copy it is. The email dialog stays open behind it, and every preview opens in the same window, so changing the wording and pressing Preview again updates it. The window remembers Desktop or Mobile, closes with Esc, and closes when you leave or sign out of the app.

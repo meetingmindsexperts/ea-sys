@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { StatTile, StatsRow } from "@/components/ui/typography";
-import { acceptedWithoutRegistration, canEmailListed, emailRecipientIds, matchesKind, openingKind, type SpeakerKind } from "@/lib/speaker-kinds";
+import { acceptedWithoutRegistration, canEmailListed, emailRecipientIds, matchesKind, openingKind, visibleSpeakerKinds, type SpeakerKind } from "@/lib/speaker-kinds";
 import { abstractStatusColor, abstractStatusLabel } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,20 +92,6 @@ function sentOrAllowed(speakers: Speaker[], field: "abstracts" | "sessionProposa
   return answer === "allowed";
 }
 
-/**
- * The tabs a caller can be shown. Telling an invited speaker from a submitter needs the abstracts, and from a
- * proposer the proposals, so a tab whose grouping the caller cannot see is left out rather than shown wrong.
- */
-function visibleKinds(readAbstracts: boolean, readProposals: boolean, count: (k: SpeakerKind) => number): SpeakerKind[] {
-  const both = readAbstracts && readProposals;
-  // The Abstract submitters and Session proposers tabs only on an event that has some (owner, Oct 27).
-  return (["all", "invited", "submitters", "proposers"] as const).filter((k) => {
-    if (k === "invited") return both;
-    if (k === "submitters") return readAbstracts && count(k) > 0;
-    if (k === "proposers") return both && count(k) > 0;
-    return true;
-  });
-}
 const ABSTRACT_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED", "ACCEPTED", "REJECTED", "WITHDRAWN", "DRAFT"] as const;
 
 
@@ -182,9 +168,11 @@ export default function SpeakersPage() {
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
   const kindCount = (k: SpeakerKind) => speakers.filter((s) => matchesKind(s, k)).length;
-  const tabKinds = visibleKinds(canReadAbstracts, canReadProposals, kindCount);
+  const tabKinds = visibleSpeakerKinds(canReadAbstracts, canReadProposals, kindCount);
   if (opening === null && !loading && speakers.length > 0) setOpening(openingKind(tabKinds, kindCount("invited")));
-  const kind = chosenKind ?? opening ?? "all";
+  // A tab that is no longer shown (its last author was removed) is not left open out of sight.
+  const wantedKind = chosenKind ?? opening ?? "all";
+  const kind = tabKinds.includes(wantedKind) ? wantedKind : "all";
   const unregistered = speakers.filter(acceptedWithoutRegistration);
   // Off by itself once nobody is left to list: the notice (and its way back) is gone by then.
   const unregisteredOnly = unregisteredAsked && unregistered.length > 0;
@@ -398,7 +386,8 @@ export default function SpeakersPage() {
       )}
 
       {/* Invited speakers and abstract submitters, apart (owner, Oct 27). The Abstract submitters and Session
-          proposers tabs only on an event that has some; no tab bar at all when there is nothing to tell apart. */}
+          proposers tabs only on an event that has some; no tab bar at all when there is nothing to tell apart
+          (visibleSpeakerKinds: an event with only invited speakers has no Invited tab either). */}
       {tabKinds.length > 1 && (
         // No tab is the open one while the notice's list is showing: it reaches across them.
         <Tabs value={unregisteredOnly ? "" : kind} onValueChange={(v) => { setKind(v as SpeakerKind); setUnregisteredOnly(false); setAbstractStatuses([]); setPage(1); setSelectedIds(new Set()); }}>
