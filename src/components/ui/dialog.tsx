@@ -60,7 +60,10 @@ function DialogContent({
       {/* One column that never grows past the dialog (`grid-cols-[minmax(0,1fr)]`, Nov 23, 2026). A grid's
           column otherwise grows to its widest unbreakable content, so one long title, name or address pushed
           the whole dialog, footer buttons included, out past its own edge (six dialogs were capped by hand on
-          Nov 20 before this). A dialog that sets its own columns or is a flex box overrides it as before. */}
+          Nov 20 before this). A dialog that sets its own columns or is a flex box overrides it as before.
+          One thing to know when adding a footer button whose label carries a name: a footer row too wide
+          for the dialog now overflows at its START (it is end-aligned), where a scrolling dialog cannot
+          reach; keep such labels short or let the row wrap. No dialog does this today. */}
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(

@@ -1167,7 +1167,7 @@ export default function CommunicationsPage() {
 
       {/* Bulk Email Dialog */}
       {/* Select by IDs — paste a list, email exactly those registrations.
-          minmax(0, 1fr): one long unbroken pasted token wraps, never widens the dialog. */}
+          One long unbroken pasted token wraps, never widens the dialog (ui/dialog.tsx caps the column). */}
       <Dialog open={selectByIdsOpen} onOpenChange={(o) => { setSelectByIdsOpen(o); if (!o) setMatchResult(null); }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[520px]">
           <DialogHeader>

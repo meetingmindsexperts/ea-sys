@@ -102,7 +102,7 @@ export function SelectAbstractsByIdsDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* minmax(0, 1fr): one long unbroken pasted token wraps, never widens the dialog. */}
+      {/* One long unbroken pasted token wraps, never widens the dialog (ui/dialog.tsx caps the column). */}
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

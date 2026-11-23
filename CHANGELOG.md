@@ -17,10 +17,10 @@ The Communications page showed nothing until four lists had all arrived: registr
 
 ### No dialog can be pushed past its own edge by one long line (November 23, 2026)
 
-A long title, name or email address with no place to break used to widen a whole dialog: its heading, its fields and its Cancel and Save buttons ran off the right edge. Six dialogs were fixed one by one on November 20. The fix now lives in the two shared dialog components, so it holds for all of them (about 150 dialogs and 36 confirmation boxes): the long text is cut or overflows by itself, and everything else stays where it was.
+A long title, name or email address with no place to break used to widen a whole dialog: its heading, its fields and its Cancel and Save buttons ran off the right edge. Six dialogs were fixed one by one on November 20. The fix now lives in the two shared dialog components, so it holds for all of them (about 150 dialogs and 36 confirmation boxes): the long text is cut short, wraps, or sits behind a sideways scroll in a dialog that scrolls, and everything else stays where it was.
 
-- **Nothing changes size.** A dialog is as wide and as tall as before; only content that used to push it out is affected.
-- Checked on fifteen dialogs across Abstracts, Communications, Speakers, Registration types, Agenda, Accommodation, Promo codes, Reimbursements and a confirmation box, at desktop, tablet and phone widths.
+- **No dialog changes width.** A dialog whose content one long item used to stretch now wraps that content at the dialog's own width, so it can be a little taller than before.
+- Checked on ten dialogs of the affected kind across Abstracts, Communications, Speakers, Registration types, Agenda, Accommodation, Reimbursements and a confirmation box, at desktop, tablet and phone widths, plus five of the other kind (laid out differently, never affected) as a control.
 
 ### Speakers page: no "Invited speakers" tab when everyone is invited (November 23, 2026)
 

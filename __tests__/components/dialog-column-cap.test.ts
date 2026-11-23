@@ -61,13 +61,48 @@ describe.each(["src/components/ui/dialog.tsx", "src/components/ui/alert-dialog.t
   });
 });
 
+/**
+ * Each dialog's opening tag, whole: up to the `>` that ends it. A `>` inside a
+ * prop (an arrow function, a comparison) sits inside braces, so braces are
+ * counted (review of ae5ee94f: a tag with `(e) => ...` before its className
+ * hid the class from a `[^>]*` match).
+ */
+function openingTags(source: string): string[] {
+  const tags: string[] = [];
+  for (const match of source.matchAll(/<(?:Alert)?DialogContent\b/g)) {
+    let depth = 0;
+    let end = match.index;
+    for (; end < source.length; end++) {
+      const ch = source[end];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      else if (ch === ">" && depth === 0) break;
+    }
+    tags.push(source.slice(match.index, end + 1));
+  }
+  return tags;
+}
+
+/** The cap restated as the default (no breakpoint prefix): a responsive `md:grid-cols-[...]` is a real choice. */
+const OWN_COPY = /(?<![\w:-])grid-cols-\[minmax\(0,1fr\)\]/;
+
+describe("reading a dialog's opening tag", () => {
+  it("sees a class that follows an arrow-function prop, and ignores a responsive variant", () => {
+    const tag = '<AlertDialogContent onEscapeKeyDown={busy ? (e) => e.preventDefault() : undefined} className="grid-cols-[minmax(0,1fr)]">';
+    expect(openingTags(`${tag}<p>x</p>`)).toEqual([tag]);
+    expect(OWN_COPY.test(tag)).toBe(true);
+    expect(OWN_COPY.test('<DialogContent className="md:grid-cols-[minmax(0,1fr)]">')).toBe(false);
+    expect(OWN_COPY.test('<DialogContent className="max-h-[90vh] overflow-y-auto">')).toBe(false);
+  });
+});
+
 describe("no dialog carries its own copy of the cap", () => {
   // The six hand-made caps of Nov 20 are gone: one rule, in one place. A
   // dialog that needs different columns says so; it never restates the default.
   it("only the two shared components name it on a dialog", () => {
     const offenders = sourceFiles("src")
       .filter((f) => !f.endsWith("ui/dialog.tsx") && !f.endsWith("ui/alert-dialog.tsx"))
-      .filter((f) => /<(Alert)?DialogContent[^>]*grid-cols-\[minmax\(0,1fr\)\]/.test(read(f)));
+      .filter((f) => openingTags(read(f)).some((tag) => OWN_COPY.test(tag)));
     expect(offenders).toEqual([]);
   });
 });

@@ -1220,9 +1220,9 @@ export default function AbstractsPage() {
         {/* No description: the abstract's title under the heading says what this is.
             Wide (owner, Nov 20, 2026: "increase the width"): a reviewer's row
             holds a name, an email, a count and a button, and the assigned row a
-            conflict switch and a role as well. The column is minmax(0, 1fr) so
-            a long name or address is cut in its row, never widens the dialog
-            past its edge. The width keeps a gutter on a tablet (the bare
+            conflict switch and a role as well. A long name or address is cut in
+            its row and never widens the dialog (the shared DialogContent caps
+            its column, ui/dialog.tsx). The width keeps a gutter on a tablet (the bare
             max-w-3xl was edge to edge between 640 and 800px). */}
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[min(48rem,calc(100%-2rem))]" aria-describedby={undefined}>
           <DialogHeader>
