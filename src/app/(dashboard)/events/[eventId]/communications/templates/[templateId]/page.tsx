@@ -77,6 +77,8 @@ export default function EmailTemplateEditorPage() {
   const [textContent, setTextContent] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  // The subject as the send fills it, for the fallback dialog (the editor's own text still reads {{eventName}}).
+  const [previewSubject, setPreviewSubject] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
   // What the last save sent (see the sync below).
@@ -203,14 +205,15 @@ export default function EmailTemplateEditorPage() {
       }
       // The route's subject has its tokens filled as the send fills them; the
       // editor's own text still reads {{eventName}}.
-      if (previewWindow) previewWindow.show({ subject: result.subject || subject, htmlContent: result.htmlContent });
-      else {
-        setPreviewHtml(result.htmlContent);
+      const shown = { subject: result.subject || subject, htmlContent: result.htmlContent };
+      if (!previewWindow?.show(shown)) {
+        setPreviewHtml(shown.htmlContent);
+        setPreviewSubject(shown.subject);
         setPreviewOpen(true);
       }
     } catch (err) {
       console.error("[email-template] operation failed", err);
-      previewWindow?.fail("Failed to generate the preview. Close this window and try again.");
+      previewWindow?.fail("Failed to generate the preview. Go back to the editor and press Preview again.");
       toast.error("Failed to generate preview");
     }
   }, [dirty, saveNow, previewMutation, templateId, subject]);
@@ -551,7 +554,7 @@ export default function EmailTemplateEditorPage() {
       <EmailPreviewDialog
         open={previewOpen}
         onOpenChange={setPreviewOpen}
-        subject={subject}
+        subject={previewSubject ?? subject}
         htmlContent={previewHtml || ""}
       />
     </div>

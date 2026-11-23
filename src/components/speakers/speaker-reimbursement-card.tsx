@@ -327,8 +327,7 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
         customSubject: sendSubject.trim() || undefined,
         customMessage: sendMessage.trim() || undefined,
       });
-      if (previewWindow) previewWindow.show(result);
-      else {
+      if (!previewWindow?.show(result)) {
         setPreviewData(result);
         setPreviewOpen(true);
       }

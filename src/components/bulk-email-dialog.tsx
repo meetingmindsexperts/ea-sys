@@ -688,8 +688,7 @@ export function BulkEmailDialog({
           customSubject: customSubject.trim() || undefined,
           customMessage: customMessage.trim() || undefined,
         });
-if (previewWindow) previewWindow.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) });
-        else {
+        if (!previewWindow?.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) })) {
           setPreviewData(result);
           setPreviewOpen(true);
         }
@@ -705,8 +704,7 @@ if (previewWindow) previewWindow.show({ ...result, note: previewNote(result.show
       const previewWindow = openEmailPreviewWindow();
       try {
         const result = await previewMutation.mutateAsync({ slug: REVIEWER_INVITATION_TYPE, reviewerId: onlyReviewerId });
-if (previewWindow) previewWindow.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) });
-        else {
+        if (!previewWindow?.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) })) {
           setPreviewData(result);
           setPreviewOpen(true);
         }
@@ -742,8 +740,7 @@ if (previewWindow) previewWindow.show({ ...result, note: previewNote(result.show
           },
         }),
       });
-if (previewWindow) previewWindow.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) });
-      else {
+      if (!previewWindow?.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) })) {
         setPreviewData(result);
         setPreviewOpen(true);
       }

@@ -570,13 +570,12 @@ export function RegistrationDetailSheet({
         // matching the send — not the signed-in operator.
         registrationId: selectedRegistration?.id,
       });
-      if (previewWindow) previewWindow.show(result);
-      else {
+      if (!previewWindow?.show(result)) {
         setPreviewData(result);
         setPreviewOpen(true);
       }
     } catch {
-      previewWindow?.fail("Failed to generate the preview. Close this window and try again.");
+      previewWindow?.fail("Failed to generate the preview. Go back to the email and press Preview again.");
       toast.error("Failed to generate preview");
     }
   };

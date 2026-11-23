@@ -328,13 +328,12 @@ export default function SpeakerDetailPage() {
         // number/title/theme (same var builder as the send).
         abstractId: emailType === "abstract-confirmation" ? selectedAbstractId : undefined,
       });
-      if (previewWindow) previewWindow.show(result);
-      else {
+      if (!previewWindow?.show(result)) {
         setPreviewData(result);
         setPreviewOpen(true);
       }
     } catch {
-      previewWindow?.fail("Failed to generate the preview. Close this window and try again.");
+      previewWindow?.fail("Failed to generate the preview. Go back to the email and press Preview again.");
       toast.error("Failed to generate preview");
     }
   };

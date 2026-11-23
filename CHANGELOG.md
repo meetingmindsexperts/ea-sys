@@ -8,10 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### The email preview opens in its own window (November 23, 2026)
 
-Pressing **Preview** in an email dialog opened a second box on top of the first. It now opens the email in a separate browser window, laid out like an email in an inbox: the subject, a note on whose copy it is (when the send goes to several people), and the email itself at desktop or phone width. The email dialog stays open behind it, and every preview opens in the same window, so changing the wording and pressing Preview again updates it.
+Pressing **Preview** in an email dialog opened a second box on top of the first. It now opens the email in a separate browser window, laid out like an email in an inbox: the subject and the email itself at desktop or phone width, plus, in the Send Email dialog for abstract authors, a note on whose copy it is. The email dialog stays open behind it, and every preview opens in the same window, so changing the wording and pressing Preview again updates it. The window remembers Desktop or Mobile, closes with Esc, and closes when you leave or sign out of the app.
 
-- **Everywhere there is a Preview button:** the Send Email dialog (Communications, Registrations, Speakers, Reviewers), a registration's and a speaker's own email, the email template editor, reimbursement, travel grant, RSVP invitations and the speaker form link.
-- **If the browser blocks pop-up windows,** the preview opens in the box over the page as before, so a preview is never lost.
+- **Where:** the Send Email dialog (Communications, Registrations, Speakers, Abstracts, Reviewers, Certificates), a registration's and a speaker's own email, the email template editor, reimbursement, travel grant, RSVP invitations and the speaker form link. The CRM's email preview and the certificate resend preview already show beside their form and are unchanged.
+- **When the window cannot be used,** the preview opens in the box over the page as before: the browser blocks pop-up windows, the window was closed before the preview arrived, or you are on a phone or tablet (where a "window" would be a tab covering the app).
+- **The template editor's preview shows the subject as it will be sent,** with the event's name filled in.
 - **Not shown yet:** the sender. Some emails have their own sender, so the window shows what the preview already knows rather than a guess.
 
 ### Once abstract submissions close, an author can no longer submit from their own portal (November 20)
