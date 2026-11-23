@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Download, Users, ScanBarcode, IdCard, DollarSign, Clock } from "lucide-react";
 import type { EventAnalytics } from "@/lib/event-analytics";
 import { TrafficSection } from "@/components/analytics/traffic-section";
+import { WebinarAnalyticsSection } from "@/components/webinar/webinar-analytics";
+import { useCan } from "@/hooks/use-can";
 
 const STATUS_COLORS: Record<string, string> = {
   CONFIRMED: "bg-emerald-500",
@@ -61,6 +63,9 @@ function Kpi({ icon, label, value, sub }: { icon: React.ReactNode; label: string
 export default function EventAnalyticsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  // The webinar's reports live here since Nov 23, 2026 (owner: "move all analytics to one place"), behind
+  // their own key, the one the Webinar Console's reports asked.
+  const canSeeWebinar = useCan("webinar.analytics.read", eventId) === "allowed";
 
   const { data, isLoading, isError } = useQuery<EventAnalytics>({
     queryKey: ["event-analytics", eventId],
@@ -88,6 +93,8 @@ export default function EventAnalyticsPage() {
   const hourMax = Math.max(1, ...a.checkIn.byHour.map((b) => b.count));
   const staffMax = Math.max(1, ...a.checkIn.byStaff.map((b) => b.count));
   const statusMax = Math.max(1, ...Object.values(a.registrations.byStatus));
+  // A webinar has no check-in desk and no badges (Check-In is hidden from a webinar's sidebar too).
+  const isWebinar = a.event.eventType === "WEBINAR";
 
   return (
     <div className="space-y-6">
@@ -108,8 +115,12 @@ export default function EventAnalyticsPage() {
       {/* Headline KPIs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Kpi icon={<Users className="h-4 w-4" />} label="Registrations" value={a.registrations.total.toLocaleString()} sub={`${a.checkIn.eligible.toLocaleString()} active (not cancelled)`} />
-        <Kpi icon={<ScanBarcode className="h-4 w-4" />} label="Checked in" value={`${a.checkIn.checkedIn.toLocaleString()} (${a.checkIn.rate}%)`} sub={`${a.checkIn.notCheckedIn.toLocaleString()} not yet checked in`} />
-        <Kpi icon={<IdCard className="h-4 w-4" />} label="Badges printed" value={a.badges.printed.toLocaleString()} sub={`${a.badges.reprints.toLocaleString()} reprints · ${a.badges.notPrinted.toLocaleString()} not printed`} />
+        {!isWebinar && (
+          <>
+            <Kpi icon={<ScanBarcode className="h-4 w-4" />} label="Checked in" value={`${a.checkIn.checkedIn.toLocaleString()} (${a.checkIn.rate}%)`} sub={`${a.checkIn.notCheckedIn.toLocaleString()} not yet checked in`} />
+            <Kpi icon={<IdCard className="h-4 w-4" />} label="Badges printed" value={a.badges.printed.toLocaleString()} sub={`${a.badges.reprints.toLocaleString()} reprints · ${a.badges.notPrinted.toLocaleString()} not printed`} />
+          </>
+        )}
         {a.revenue ? (
           <Kpi
             icon={<DollarSign className="h-4 w-4" />}
@@ -117,9 +128,10 @@ export default function EventAnalyticsPage() {
             value={a.revenue.collected.length ? a.revenue.collected.map((c) => `${c.currency} ${c.amount.toLocaleString()}`).join(" · ") : "—"}
             sub={`${a.revenue.outstandingCount.toLocaleString()} outstanding`}
           />
-        ) : (
+        ) : null}
+        {!a.revenue && !isWebinar ? (
           <Kpi icon={<Clock className="h-4 w-4" />} label="Peak check-in" value={a.checkIn.peakHour ? `${String(a.checkIn.peakHour.hour).padStart(2, "0")}:00` : "—"} sub={a.checkIn.peakHour ? `${a.checkIn.peakHour.count} in that hour` : undefined} />
-        )}
+        ) : null}
       </div>
 
       {/*
@@ -130,6 +142,8 @@ export default function EventAnalyticsPage() {
         rest rather than as a footnote to it.
       */}
       <TrafficSection eventId={a.event.id} />
+
+      {isWebinar && canSeeWebinar ? <WebinarAnalyticsSection eventId={eventId} /> : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Section title="Registrations by status">
@@ -156,6 +170,8 @@ export default function EventAnalyticsPage() {
           )) : <p className="text-sm text-slate-400">No data.</p>}
         </Section>
 
+        {!isWebinar && (
+          <>
         <Section title="Check-ins by hour of day">
           {a.checkIn.byHour.length ? a.checkIn.byHour.map((b) => (
             <Bar key={b.hour} label={`${String(b.hour).padStart(2, "0")}:00`} count={b.count} max={hourMax} color="bg-violet-500" />
@@ -175,6 +191,8 @@ export default function EventAnalyticsPage() {
             {a.badges.totalPrints.toLocaleString()} total prints incl. {a.badges.reprints.toLocaleString()} reprints.
           </div>
         </Section>
+          </>
+        )}
 
         {a.revenue && (
           <Section title="Registrations by payment status">
@@ -186,7 +204,8 @@ export default function EventAnalyticsPage() {
       </div>
 
       {/* Per-attendee check-in log — individual records (name, email, exact
-          time, who checked them in, method). Newest first. */}
+          time, who checked them in, method). Newest first. Not on a webinar. */}
+      {!isWebinar && (
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
           <CardTitle className="text-sm font-semibold uppercase tracking-wide text-slate-700">
@@ -239,6 +258,7 @@ export default function EventAnalyticsPage() {
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

@@ -51,7 +51,8 @@ export interface CheckInLogEntry {
 }
 
 export interface EventAnalytics {
-  event: { id: string; name: string; startDate: string; timezone: string };
+  /** eventType since Nov 23, 2026: the Analytics page shows a webinar's reports, and no check-in or badges. */
+  event: { id: string; name: string; startDate: string; timezone: string; eventType: string | null };
   generatedAt: string;
   registrations: {
     total: number;
@@ -106,7 +107,7 @@ export async function computeEventAnalytics(
 ): Promise<EventAnalytics | null> {
   const event = await db.event.findUnique({
     where: { id: eventId },
-    select: { id: true, name: true, startDate: true, timezone: true },
+    select: { id: true, name: true, startDate: true, timezone: true, eventType: true },
   });
   if (!event) return null;
 
@@ -252,6 +253,7 @@ export async function computeEventAnalytics(
       name: event.name,
       startDate: event.startDate.toISOString(),
       timezone: tz,
+      eventType: event.eventType,
     },
     generatedAt: new Date().toISOString(),
     registrations: {

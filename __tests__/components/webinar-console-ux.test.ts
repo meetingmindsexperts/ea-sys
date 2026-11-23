@@ -7,12 +7,14 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 
 const page = readFileSync("src/app/(dashboard)/events/[eventId]/webinar/page.tsx", "utf8");
+// The webinar's reports, moved from the console's Analytics tab to the event's Analytics page (Nov 23, 2026).
+const reports = readFileSync("src/components/webinar/webinar-analytics.tsx", "utf8");
 
-function body(name: string): string {
-  const start = page.indexOf(`function ${name}(`);
+function body(name: string, source = page): string {
+  const start = source.indexOf(`function ${name}(`);
   expect(start).toBeGreaterThan(-1);
-  const next = page.indexOf("\nfunction ", start + 10);
-  return page.slice(start, next === -1 ? undefined : next);
+  const next = source.indexOf("\nfunction ", start + 10);
+  return source.slice(start, next === -1 ? undefined : next);
 }
 
 describe("the Webinar Console", () => {
@@ -60,11 +62,11 @@ describe("the Webinar Console", () => {
   });
 
   it("in custom stream mode Zoom's attendance is Zoom participants, without the attendance rate", () => {
-    const card = body("AttendanceCard");
+    const card = body("AttendanceCard", reports);
     expect(card).toContain('"Zoom participants (speakers and hosts)"');
     const branch = card.slice(card.indexOf("{customStream ? ("), card.indexOf(") : (", card.indexOf("{customStream ? (")));
     expect(branch).not.toContain("Attendance rate");
-    expect(page).toContain('customStream={data?.webinar?.viewingMode === "hls"}');
+    expect(reports).toContain('customStream={data.webinar?.viewingMode === "hls"}');
   });
 
   it("the attendee page of a partner's webinar never says it opens in Zoom, even before the key exists", () => {

@@ -2,9 +2,8 @@
 
 import { useCan } from "@/hooks/use-can";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { DEFAULT_EVENT_TIMEZONE, formatDateTimeInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
-import type { LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { DEFAULT_EVENT_TIMEZONE, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -52,13 +51,13 @@ import {
   XCircle,
   Users,
   Download,
-  TrendingUp,
   UserPlus,
   Trash2,
   BarChart3,
   MessageSquare,
   Wrench,
   LineChart,
+  Film,
   Settings as SettingsIcon,
   CircleDot,
   CheckCircle,
@@ -78,7 +77,6 @@ import {
 import { StreamDelay } from "@/components/webinar/stream-delay";
 import { ChatModerationPanel } from "@/components/webinar/chat-moderation-panel";
 import { PartnerStreamCard, partnerSignalLabel } from "@/components/webinar/partner-stream-card";
-import { WatchAnalyticsCard } from "@/components/webinar/watch-analytics-card";
 import type { PlayerTimingSample } from "@/components/zoom/live-player";
 import { useServerClock } from "@/hooks/use-server-clock";
 import {
@@ -102,7 +100,6 @@ import {
   useWebinarLiveStream,
   useWebinarStreamPreview,
   useWebinarPartnerStream,
-  useWebinarPresenceSummary,
   useWebinarViewerQuestions,
   type WebinarViewerQuestionRow,
   useUpdateWebinarViewerQuestion,
@@ -122,9 +119,7 @@ import {
   useWebinarSequence,
   useReenqueueWebinarSequence,
   useFetchWebinarRecording,
-  useWebinarAttendance,
   useSyncWebinarAttendance,
-  useWebinarEngagement,
   useSyncWebinarEngagement,
   useWebinarPanelists,
   useAddWebinarPanelist,
@@ -134,9 +129,6 @@ import {
   OPTIMISTIC_PANELIST_PREFIX,
   type WebinarConsoleData,
   type WebinarSequenceRow,
-  type WebinarAttendeeRow,
-  type WebinarPollRow,
-  type WebinarQaRow,
   type WebinarPanelist,
 } from "@/hooks/use-api";
 import { toast } from "sonner";
@@ -147,27 +139,19 @@ import { parseReplayVideo, REPLAY_LINK_MESSAGE } from "@/lib/webinar/replay-vide
 import { ReplayPlayer } from "@/components/webinar/replay-player";
 import { isHttpsLink } from "@/lib/webinar-exit-link";
 import { webinarRoomEnded } from "@/lib/webinar-page-layout";
-import { consoleActiveTab, consoleOpeningTab, consoleTabs, roomReopens } from "@/lib/webinar/console-rules";
+import { consoleActiveTab, consoleOpeningTab, consoleTabs, roomReopens, webinarStatusFromTimes } from "@/lib/webinar/console-rules";
+import {
+  afterSessionTitle,
+  CardEmpty,
+  CardLoading,
+  ConsoleTitle,
+  EventTzContext,
+  fmtTz,
+  useEventTz,
+} from "@/components/webinar/console-ui";
 import { BrandingImageField } from "@/components/events/branding-image-field";
 
 type AutoRecording = "none" | "local" | "cloud";
-
-/**
- * Every time on the console is shown in the EVENT's timezone, never the
- * viewer's (owner rule, Oct 1, 2026). The page provides it once; any card
- * reads it with useEventTz().
- */
-const EventTzContext = createContext<string>(DEFAULT_EVENT_TIMEZONE);
-function useEventTz(): string {
-  return useContext(EventTzContext);
-}
-
-/** A timestamp in the event timezone, or "—". */
-function fmtTz(iso: string | null | undefined, tz: string, opts?: { short?: boolean }): string {
-  if (!iso) return "–";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : formatDateTimeInTz(d, tz, opts);
-}
 
 function formatDateTime(iso: string | undefined, tz: string): string {
   if (!iso) return "–";
@@ -176,29 +160,6 @@ function formatDateTime(iso: string | undefined, tz: string): string {
   } catch {
     return iso;
   }
-}
-
-/**
- * The console's status. The room decides first (Nov 5, 2026): an open room is
- * live however far past its scheduled end, so an overrun no longer flips the
- * console to "Ended" (and its header from Start as Host to Watch Replay) while
- * the webinar is on air; a room closed after the start has ended. Otherwise
- * the clock, as before.
- */
-function statusFromTimes(
-  startTime: string | undefined,
-  endTime: string | undefined,
-  anchorStatus?: string,
-): "scheduled" | "live" | "ended" {
-  if (!startTime || !endTime) return "scheduled";
-  const now = Date.now();
-  const start = new Date(startTime).getTime();
-  const end = new Date(endTime).getTime();
-  if (anchorStatus === "LIVE") return "live";
-  if (anchorStatus === "COMPLETED" && now >= start) return "ended";
-  if (now < start) return "scheduled";
-  if (now >= start && now <= end) return "live";
-  return "ended";
 }
 
 export default function WebinarConsolePage() {
@@ -213,7 +174,7 @@ export default function WebinarConsolePage() {
 
   const status = useMemo(
     () =>
-      statusFromTimes(
+      webinarStatusFromTimes(
         data?.anchorSession?.startTime,
         data?.anchorSession?.endTime,
         data?.anchorSession?.status,
@@ -222,6 +183,7 @@ export default function WebinarConsolePage() {
   );
 
   const hasZoom = Boolean(data?.zoomMeeting);
+  const canSeeAnalytics = useCan("analytics.read", eventId) === "allowed";
   const eventIsWebinar = data?.event?.eventType === "WEBINAR";
   // Streamed by a partner from their own platform (Nov 16, 2026): no Zoom webinar of ours, so the
   // Partner stream card takes the place of the Zoom controls.
@@ -358,6 +320,15 @@ export default function WebinarConsolePage() {
               hasZoom={hasZoom}
             />
           )}
+          {/* Attendance, how people watched, polls and Q&A: on the event's Analytics page (Nov 23, 2026). */}
+          {canSeeAnalytics && (
+            <Button variant="outline" asChild>
+              <Link href={`/events/${eventId}/analytics#webinar`}>
+                <LineChart className="h-4 w-4 mr-2" />
+                Analytics
+              </Link>
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={handleProvision}
@@ -405,9 +376,9 @@ export default function WebinarConsolePage() {
               Panelists
             </TabsTrigger>
           )}
-          <TabsTrigger value="analytics" className="flex items-center gap-2">
-            <LineChart className="h-4 w-4" />
-            Analytics
+          <TabsTrigger value="recording" className="flex items-center gap-2">
+            <Film className="h-4 w-4" />
+            Recording
           </TabsTrigger>
           {visibleTabs.includes("qa") && (
             <TabsTrigger value="qa" className="flex items-center gap-2">
@@ -532,7 +503,9 @@ export default function WebinarConsolePage() {
           </TabsContent>
         )}
 
-        <TabsContent value="analytics" className="space-y-6 mt-4">
+        {/* The reports that were this tab moved to the event's Analytics page (Nov 23, 2026); the
+            recording stays, because the replay link is a setting the producer makes after the event. */}
+        <TabsContent value="recording" className="space-y-6 mt-4">
           <RecordingCard
             // Remounts when the saved link changes, so the field shows what is stored.
             key={`recording:${data ? "loaded" : "loading"}:${data?.webinar?.replayUrl ?? ""}`}
@@ -542,32 +515,6 @@ export default function WebinarConsolePage() {
             shown={data?.webinar?.showRecording === true}
             replayUrl={data?.webinar?.replayUrl ?? ""}
           />
-          {/* Who watched on our page: the only attendance for a partner's webinar, and the audience of a
-              custom-stream one, where Zoom's report sees the speakers only (Nov 16, 2026). */}
-          {(partner || data?.webinar?.viewingMode === "hls") && (
-            <>
-              <PageAttendanceCard eventId={eventId} partner={partner} />
-              {/* Watching over time, devices and how the stream played (Nov 23, 2026). */}
-              <WatchAnalyticsCard eventId={eventId} timezone={data?.event?.timezone || DEFAULT_EVENT_TIMEZONE} />
-            </>
-          )}
-          {partner ? (
-            <PartnerAnalyticsNote />
-          ) : (
-            <>
-              <AttendanceCard
-                eventId={eventId}
-                sessionEnded={status === "ended"}
-                hasZoom={hasZoom}
-                customStream={data?.webinar?.viewingMode === "hls"}
-              />
-              {/* Polls + Q&A are peer reports — side by side on wide screens. */}
-              <div className="grid items-start gap-6 lg:grid-cols-2">
-                <PollsCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
-                <QaCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
-              </div>
-            </>
-          )}
         </TabsContent>
 
         <TabsContent value="branding" className="mt-4 max-w-3xl">
@@ -627,40 +574,6 @@ const LivePlayer = dynamic(
   () => import("@/components/zoom/live-player").then((m) => ({ default: m.LivePlayer })),
   { ssr: false },
 );
-
-// Static class strings per tone — Tailwind can't see dynamically-built names.
-const TITLE_TONES = {
-  sky: "bg-sky-100 text-sky-700",
-  violet: "bg-violet-100 text-violet-700",
-  emerald: "bg-emerald-100 text-emerald-700",
-  amber: "bg-amber-100 text-amber-700",
-  red: "bg-red-100 text-red-600",
-  slate: "bg-slate-100 text-slate-600",
-} as const;
-
-function ConsoleTitle({
-  icon: Icon,
-  tone,
-  pulse = false,
-  children,
-}: {
-  icon: LucideIcon;
-  tone: keyof typeof TITLE_TONES;
-  /** Pulses the chip icon — used by the Live-now card while the room is live. */
-  pulse?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <CardTitle className="flex items-center gap-2.5">
-      <span
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${TITLE_TONES[tone]}`}
-      >
-        <Icon className={pulse ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-      </span>
-      {children}
-    </CardTitle>
-  );
-}
 
 function formatSessionWindow(
   start: string | undefined,
@@ -1096,79 +1009,6 @@ function PartnerStatusBar({
   );
 }
 
-/** The Analytics tab on a partner's webinar: Zoom's reports have nothing to read. */
-function PartnerAnalyticsNote() {
-  return (
-    <Card>
-      <CardContent className="py-5 text-sm text-muted-foreground">
-        Zoom&apos;s attendance, poll and Q&amp;A reports do not apply here: this webinar is streamed by a partner, not
-        run on Zoom. Attendance is the page report above; the questions and polls attendees answered are on the Q&amp;A
-        and Polls tabs.
-      </CardContent>
-    </Card>
-  );
-}
-
-/**
- * Attendance from our own webinar page (Nov 16, 2026; presence-report.ts): who
- * opened it, who reached the live view, and the minutes they watched while the
- * room was open. The CSV carries names and emails, so its button needs the
- * attendance-export permission, like Zoom's report.
- */
-function PageAttendanceCard({ eventId, partner }: { eventId: string; partner: boolean }) {
-  const summary = useWebinarPresenceSummary(eventId);
-  const canExport = useCan("webinar.attendance.export", eventId) === "allowed";
-  const s = summary.data;
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <ConsoleTitle icon={Users} tone="emerald">
-              Attendance on our page
-            </ConsoleTitle>
-            <CardDescription>
-              {partner
-                ? "Who opened the webinar page and how long they watched while the room was open. For a partner's stream this is the attendance."
-                : "Who opened the webinar page and how long they watched the custom stream while the room was open. Zoom's report below sees only the speakers in this mode."}
-            </CardDescription>
-          </div>
-          {canExport && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open(`/api/events/${eventId}/webinar/presence?export=csv`, "_blank")}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export CSV
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {summary.isLoading ? <CardLoading /> : null}
-        {summary.isError ? (
-          <p className="text-sm text-red-600">
-            {summary.error instanceof Error ? summary.error.message : "Could not load the page attendance."}
-          </p>
-        ) : null}
-        {s ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <KpiTile label="Opened the page" value={String(s.opened)} />
-            <KpiTile label="Reached the live view" value={String(s.joined)} />
-            <KpiTile label="Average watched" value={formatDuration(s.avgWatchedSeconds)} />
-            <KpiTile label="Total watched" value={formatDuration(s.totalWatchedSeconds)} />
-          </div>
-        ) : null}
-        <p className="mt-3 text-xs text-muted-foreground">
-          Minutes are counted while the page is open and in view, so most time spent listening from a hidden tab
-          or a minimised window is not counted. The page record is kept for 90 days, then archived.
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ── Overview card — combines Anchor Session + Zoom Meeting details ──
 // Previously two separate cards; merged so the Setup tab isn't visually split.
 function OverviewCard({
@@ -1317,12 +1157,6 @@ function refreshAllTitle(hasZoom: boolean, sessionEnded: boolean): string {
   if (!hasZoom) return "Attach a Zoom webinar first";
   if (!sessionEnded) return "Session hasn't ended, so some sources will be pending";
   return "Refresh recording + attendance + polls/Q&A";
-}
-
-function afterSessionTitle(hasZoom: boolean, sessionEnded: boolean): string | undefined {
-  if (!hasZoom) return "Attach a Zoom webinar first";
-  if (!sessionEnded) return "Available after the session ends";
-  return undefined;
 }
 
 // ── Global refresh button — fires recording + attendance + engagement in parallel
@@ -1908,219 +1742,6 @@ function RecordingCard({
   );
 }
 
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const mins = Math.floor(seconds / 60);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
-}
-
-function AttendanceCard({
-  eventId,
-  sessionEnded,
-  hasZoom,
-  customStream = false,
-}: {
-  eventId: string;
-  sessionEnded: boolean;
-  hasZoom: boolean;
-  /**
-   * Custom stream mode: attendees watch on our page, so Zoom sees only the speakers and hosts. The
-   * card is then "Zoom participants", without the registered and attendance-rate figures, which read
-   * as a low turnout beside the page attendance card (UX review, Nov 16, 2026).
-   */
-  customStream?: boolean;
-}) {
-  const eventTz = useEventTz();
-  const { data, isLoading, isFetching } = useWebinarAttendance(eventId);
-  const sync = useSyncWebinarAttendance(eventId);
-
-  const handleSync = async () => {
-    try {
-      const result = await sync.mutateAsync();
-      if (result.status === "synced") {
-        toast.success(
-          `Synced: fetched ${result.fetched ?? 0} participants, matched ${result.matched ?? 0} to registrations`,
-        );
-      } else if (result.status === "pending") {
-        toast.warning(result.reason || "Attendance report not ready yet");
-      } else {
-        toast.error(result.reason || "Failed to sync attendance");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sync attendance");
-    }
-  };
-
-  const handleExportCsv = () => {
-    window.open(`/api/events/${eventId}/webinar/attendance?export=csv`, "_blank");
-  };
-
-  const kpis = data?.kpis;
-  const rows = data?.rows ?? [];
-  const canSync = sessionEnded && hasZoom;
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <ConsoleTitle icon={Users} tone="sky">
-              {customStream ? "Zoom participants (speakers and hosts)" : "Attendance"}
-              {isFetching && !isLoading && (
-                <ReloadingSpinner className="ml-1 inline-block" />
-              )}
-            </ConsoleTitle>
-            <CardDescription>
-              {customStream
-                ? "Attendees watched on our page, so Zoom's report lists only the people in Zoom: speakers and hosts. Audience attendance is in Attendance on our page. "
-                : null}
-              Pulled from Zoom&apos;s participant report. Polled automatically once the session has been over for 30 min.
-              {kpis?.lastSyncedAt ? (
-                <> Last synced {fmtTz(kpis.lastSyncedAt, eventTz)}.</>
-              ) : null}
-            </CardDescription>
-          </div>
-          <div className="flex gap-2">
-            {rows.length > 0 ? (
-              <Button variant="outline" size="sm" onClick={handleExportCsv}>
-                <Download className="h-4 w-4 mr-2" />
-                Export CSV
-              </Button>
-            ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSync}
-              disabled={sync.isPending || !canSync}
-              title={afterSessionTitle(hasZoom, sessionEnded)}
-            >
-              {sync.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RotateCw className="h-4 w-4 mr-2" />
-              )}
-              Sync now
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <CardLoading />
-        ) : null}
-        {!isLoading && !hasZoom ? (
-          <CardEmpty message="No Zoom webinar attached yet." />
-        ) : null}
-        {!isLoading && hasZoom && !sessionEnded && rows.length === 0 ? (
-          <CardEmpty message="Attendance will appear here after the session ends and Zoom finalizes the participant report (typically ~30 min)." />
-        ) : null}
-        {!isLoading && hasZoom && !(!sessionEnded && rows.length === 0) ? (
-          <div className="space-y-6">
-            {/* KPI grid */}
-            {customStream ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <KpiTile label="In Zoom" value={kpis?.attended ?? 0} />
-                <KpiTile label="Avg. time in Zoom" value={formatDuration(kpis?.avgWatchSeconds ?? 0)} icon={TrendingUp} />
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <KpiTile label="Registered" value={kpis?.registered ?? 0} />
-                <KpiTile label="Attended" value={kpis?.attended ?? 0} />
-                <KpiTile
-                  label="Attendance rate"
-                  value={`${kpis?.attendanceRate ?? 0}%`}
-                  accent={
-                    (kpis?.attendanceRate ?? 0) >= 50 ? "text-green-600" : "text-amber-600"
-                  }
-                />
-                <KpiTile
-                  label="Avg. watch time"
-                  value={formatDuration(kpis?.avgWatchSeconds ?? 0)}
-                  icon={TrendingUp}
-                />
-              </div>
-            )}
-
-            {/* Attendees table */}
-            {rows.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                No participants yet. Click Sync to fetch from Zoom.
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 text-xs uppercase tracking-wide">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-medium">Name</th>
-                      <th className="px-3 py-2 text-left font-medium">Email</th>
-                      <th className="px-3 py-2 text-left font-medium">Joined</th>
-                      <th className="px-3 py-2 text-left font-medium">Watched</th>
-                      <th className="px-3 py-2 text-left font-medium">Reg #</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {rows.map((row) => (
-                      <AttendeeRowView key={row.id} row={row} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function KpiTile({
-  label,
-  value,
-  accent,
-  icon: Icon,
-}: {
-  label: string;
-  value: number | string;
-  accent?: string;
-  icon?: typeof TrendingUp;
-}) {
-  return (
-    <div className="border rounded-lg p-3">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground uppercase tracking-wide">
-        {Icon ? <Icon className="h-3 w-3" /> : null}
-        {label}
-      </div>
-      <div className={`text-2xl font-semibold mt-1 ${accent ?? ""}`}>{value}</div>
-    </div>
-  );
-}
-
-function AttendeeRowView({ row }: { row: WebinarAttendeeRow }) {
-  const eventTz = useEventTz();
-  return (
-    <tr className="hover:bg-muted/30">
-      <td className="px-3 py-2 font-medium">{row.name}</td>
-      <td className="px-3 py-2 text-muted-foreground">{row.email ?? "–"}</td>
-      <td className="px-3 py-2 text-xs text-muted-foreground">
-        {fmtTz(row.joinTime, eventTz, { short: true })}
-      </td>
-      <td className="px-3 py-2">{formatDuration(row.durationSeconds)}</td>
-      <td className="px-3 py-2 text-xs">
-        {row.registrationSerialId ? (
-          <span className="font-mono">
-            {String(row.registrationSerialId).padStart(3, "0")}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">–</span>
-        )}
-      </td>
-    </tr>
-  );
-}
-
 // ── Panelists ──────────────────────────────────────────────────────
 
 function PanelistsCard({
@@ -2379,257 +2000,7 @@ function PanelistsCard({
 
 // ── Polls ──────────────────────────────────────────────────────────
 
-function PollsCard({
-  eventId,
-  sessionEnded,
-  hasZoom,
-}: {
-  eventId: string;
-  sessionEnded: boolean;
-  hasZoom: boolean;
-}) {
-  const eventTz = useEventTz();
-  const { data, isLoading } = useWebinarEngagement(eventId);
-  const sync = useSyncWebinarEngagement(eventId);
-
-  const handleSync = async () => {
-    try {
-      const result = await sync.mutateAsync();
-      if (result.status === "synced") {
-        const polls = result.pollsPersisted ?? 0;
-        const responses = result.pollResponsesPersisted ?? 0;
-        const qa = result.questionsPersisted ?? 0;
-        toast.success(
-          `Engagement synced: ${polls} poll(s), ${responses} response(s), ${qa} Q&A`,
-        );
-      } else if (result.status === "pending") {
-        toast.warning(result.reason || "Report not ready yet");
-      } else {
-        toast.error(result.reason || "Failed to sync engagement");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sync engagement");
-    }
-  };
-
-  const polls: WebinarPollRow[] = data?.polls ?? [];
-  const canSync = sessionEnded && hasZoom;
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <ConsoleTitle icon={BarChart3} tone="amber">
-              Polls
-            </ConsoleTitle>
-            <CardDescription>
-              Results from polls run during the webinar. Pulled from Zoom alongside
-              attendance (~30 min after session ends).
-              {data?.lastSyncedAt ? (
-                <> Last synced {fmtTz(data.lastSyncedAt, eventTz)}.</>
-              ) : null}
-            </CardDescription>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSync}
-            disabled={sync.isPending || !canSync}
-            title={afterSessionTitle(hasZoom, sessionEnded)}
-          >
-            {sync.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RotateCw className="h-4 w-4 mr-2" />
-            )}
-            Sync now
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {!hasZoom ? (
-          <CardEmpty message="No Zoom webinar attached yet." />
-        ) : null}
-        {hasZoom && isLoading ? (
-          <CardLoading />
-        ) : null}
-        {hasZoom && !isLoading && polls.length === 0 ? (
-          <CardEmpty
-            message={
-              sessionEnded
-                ? "No poll results yet. Click Sync to fetch from Zoom (or wait for the cron)."
-                : "Poll results will appear here after the session ends."
-            }
-          />
-        ) : null}
-        {hasZoom && !isLoading && polls.length > 0 ? (
-          <div className="space-y-6">
-            {polls.map((poll) => (
-              <PollView key={poll.id} poll={poll} />
-            ))}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function PollView({ poll }: { poll: WebinarPollRow }) {
-  // Build a distribution: question → { answer → count }
-  const distribution: Record<string, Record<string, number>> = {};
-  for (const q of poll.questions) {
-    distribution[q] = {};
-  }
-  for (const response of poll.responses) {
-    for (const [question, answer] of Object.entries(response.answers)) {
-      if (!distribution[question]) distribution[question] = {};
-      const key = String(answer);
-      distribution[question][key] = (distribution[question][key] ?? 0) + 1;
-    }
-  }
-
-  return (
-    <div className="border rounded-lg overflow-hidden">
-      <div className="bg-muted/40 px-4 py-2 flex items-center justify-between">
-        <h4 className="font-semibold text-sm">{poll.title}</h4>
-        <span className="text-xs text-muted-foreground">
-          {poll.responses.length} response{poll.responses.length === 1 ? "" : "s"}
-        </span>
-      </div>
-      <div className="p-4 space-y-4">
-        {poll.questions.map((q) => {
-          const answers = distribution[q] ?? {};
-          const entries = Object.entries(answers).sort((a, b) => b[1] - a[1]);
-          const maxCount = entries[0]?.[1] ?? 1;
-          return (
-            <div key={q}>
-              <p className="text-sm font-medium mb-2">{q}</p>
-              {entries.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No responses</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {entries.map(([answer, count]) => (
-                    <div key={answer} className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between text-xs mb-0.5">
-                          <span className="text-foreground">{answer}</span>
-                          <span className="text-muted-foreground">{count}</span>
-                        </div>
-                        <div className="w-full h-2 bg-muted rounded overflow-hidden">
-                          <div
-                            className="h-full bg-primary"
-                            style={{ width: `${(count / maxCount) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ── Q&A ────────────────────────────────────────────────────────────
-
-function QaCard({
-  eventId,
-  sessionEnded,
-  hasZoom,
-}: {
-  eventId: string;
-  sessionEnded: boolean;
-  hasZoom: boolean;
-}) {
-  const eventTz = useEventTz();
-  const { data, isLoading } = useWebinarEngagement(eventId);
-  const [search, setSearch] = useState("");
-
-  const questions: WebinarQaRow[] = data?.questions ?? [];
-  const filtered = search
-    ? questions.filter(
-        (q) =>
-          q.question.toLowerCase().includes(search.toLowerCase()) ||
-          q.askerName.toLowerCase().includes(search.toLowerCase()) ||
-          (q.answer?.toLowerCase().includes(search.toLowerCase()) ?? false),
-      )
-    : questions;
-
-  return (
-    <Card>
-      <CardHeader>
-        <ConsoleTitle icon={MessageSquare} tone="emerald">
-          Q&amp;A
-        </ConsoleTitle>
-        <CardDescription>
-          Questions asked during the webinar and their answers. Pulled from Zoom alongside polls.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {!hasZoom ? (
-          <CardEmpty message="No Zoom webinar attached yet." />
-        ) : null}
-        {hasZoom && isLoading ? (
-          <CardLoading />
-        ) : null}
-        {hasZoom && !isLoading && questions.length === 0 ? (
-          <CardEmpty
-            message={
-              sessionEnded
-                ? "No Q&A yet. Sync polls/Q&A from the Polls card to fetch the report."
-                : "Q&A will appear here after the session ends."
-            }
-          />
-        ) : null}
-        {hasZoom && !isLoading && questions.length > 0 ? (
-          <div className="space-y-3">
-            <Input
-              placeholder="Search questions…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            {filtered.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No questions match &quot;{search}&quot;
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {filtered.map((q) => (
-                  <div key={q.id} className="border rounded-lg p-3">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <div className="text-sm font-medium">{q.askerName}</div>
-                      <div className="text-xs text-muted-foreground shrink-0">
-                        {fmtTz(q.askedAt, eventTz, { short: true })}
-                      </div>
-                    </div>
-                    <p className="text-sm">{q.question}</p>
-                    {q.answer ? (
-                      <div className="mt-2 pt-2 border-t text-sm text-muted-foreground">
-                        <span className="text-xs font-medium uppercase tracking-wide text-green-700 mr-1">
-                          Answer:
-                        </span>
-                        {q.answer}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground mt-1 italic">
-                        Unanswered
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
 
 function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
   // Only poll + render while the room is live — presence is meaningless otherwise.
@@ -3370,7 +2741,6 @@ function LobbyCard({
     }
   };
 
-
   if (!anchor) {
     return (
       <Card>
@@ -3407,8 +2777,6 @@ function LobbyCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
-
-
 
         {/* A partner's webinar is always watched as the custom stream, and the partner starts it. */}
         {partner && (
@@ -3508,7 +2876,6 @@ function LobbyCard({
           </p>
         </div>
 
-
         {/* Waiting-room image, beside the holding video it stands in for */}
         <BrandingImageField
           eventId={eventId}
@@ -3530,7 +2897,6 @@ function LobbyCard({
             placeholder="We'll begin shortly. Thanks for joining early!"
           />
         </div>
-
 
         <div className="flex justify-end pt-2 border-t">
           <Button onClick={handleSave} disabled={updateSettings.isPending}>
@@ -4365,40 +3731,6 @@ function StatusBadge({ status }: { status: "scheduled" | "live" | "ended" }) {
     return <Badge variant="secondary">Ended</Badge>;
   }
   return <Badge variant="outline">Scheduled</Badge>;
-}
-
-// ── Consistent loading + empty state primitives ────────────────────
-// Every data-backed card uses one of these instead of ad-hoc markup so
-// scanning the page feels calm and predictable.
-function CardLoading() {
-  return (
-    <div className="flex items-center justify-center py-8">
-      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-    </div>
-  );
-}
-
-function CardEmpty({
-  message,
-  actionLabel,
-  onAction,
-  actionDisabled,
-}: {
-  message: string;
-  actionLabel?: string;
-  onAction?: () => void;
-  actionDisabled?: boolean;
-}) {
-  return (
-    <div className="rounded-lg border border-dashed p-6 text-center space-y-3">
-      <p className="text-sm text-muted-foreground">{message}</p>
-      {actionLabel && onAction ? (
-        <Button size="sm" onClick={onAction} disabled={actionDisabled}>
-          {actionLabel}
-        </Button>
-      ) : null}
-    </div>
-  );
 }
 
 function EmptyAnchorState({

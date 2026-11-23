@@ -9,17 +9,18 @@ import {
   consoleOpeningTab,
   consoleTabs,
   roomReopens,
+  webinarStatusFromTimes,
 } from "@/lib/webinar/console-rules";
 
 describe("consoleTabs", () => {
   it("a Zoom webinar in Zoom embed mode: no viewer tabs", () => {
-    expect(consoleTabs({ partner: false, viewerTabs: false })).toEqual(["setup", "panelists", "analytics", "branding", "settings"]);
+    expect(consoleTabs({ partner: false, viewerTabs: false })).toEqual(["setup", "panelists", "recording", "branding", "settings"]);
   });
 
   it("a partner's webinar has no Panelists (they are Zoom's) and has our player's tabs", () => {
     expect(consoleTabs({ partner: true, viewerTabs: true })).toEqual([
       "setup",
-      "analytics",
+      "recording",
       "qa",
       "polls",
       "chat",
@@ -30,8 +31,8 @@ describe("consoleTabs", () => {
 });
 
 describe("consoleOpeningTab", () => {
-  it("an ended webinar opens on Analytics, anything else on Setup", () => {
-    expect(consoleOpeningTab("ended")).toBe("analytics");
+  it("an ended webinar opens on Recording (its reports are on the event's Analytics page), anything else on Setup", () => {
+    expect(consoleOpeningTab("ended")).toBe("recording");
     expect(consoleOpeningTab("live")).toBe("setup");
     expect(consoleOpeningTab("scheduled")).toBe("setup");
   });
@@ -45,7 +46,9 @@ describe("consoleActiveTab", () => {
     // The page sets the pick once, from consoleOpeningTab, when the data arrives; a later "ended"
     // status changes nothing here.
     expect(consoleActiveTab("setup", customStream)).toBe("setup");
-    expect(consoleActiveTab("analytics", customStream)).toBe("analytics");
+    expect(consoleActiveTab("recording", customStream)).toBe("recording");
+    // A tab remembered from before the reports moved (Nov 23, 2026) is no longer there: Setup.
+    expect(consoleActiveTab("analytics", customStream)).toBe("setup");
   });
 
   it("a picked tab that disappeared (Q&A after a switch to Zoom embed) falls back to Setup", () => {
@@ -75,5 +78,15 @@ describe("roomReopens", () => {
   it("never while the room is open, and never before the end", () => {
     expect(roomReopens({ roomOpen: true, ended: false, anchorStatus: "LIVE", pastLateStart: true })).toBe(false);
     expect(roomReopens({ roomOpen: false, ended: false, anchorStatus: "COMPLETED", pastLateStart: false })).toBe(false);
+  });
+});
+
+describe("webinarStatusFromTimes", () => {
+  it("the room decides first, then the clock", () => {
+    const past = { start: "2026-01-01T10:00:00Z", end: "2026-01-01T11:00:00Z" };
+    expect(webinarStatusFromTimes(past.start, past.end, "LIVE")).toBe("live");
+    expect(webinarStatusFromTimes(past.start, past.end, "COMPLETED")).toBe("ended");
+    expect(webinarStatusFromTimes(past.start, past.end)).toBe("ended");
+    expect(webinarStatusFromTimes(undefined, undefined)).toBe("scheduled");
   });
 });
