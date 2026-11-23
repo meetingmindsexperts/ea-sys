@@ -113,7 +113,8 @@ export default function EventAnalyticsPage() {
       </div>
 
       {/* Headline KPIs */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* A webinar has one or two tiles (no check-in, no badges), so two columns instead of an empty strip. */}
+      <div className={`grid gap-4 md:grid-cols-2 ${isWebinar ? "" : "lg:grid-cols-4"}`}>
         <Kpi icon={<Users className="h-4 w-4" />} label="Registrations" value={a.registrations.total.toLocaleString()} sub={`${a.checkIn.eligible.toLocaleString()} active (not cancelled)`} />
         {!isWebinar && (
           <>

@@ -138,7 +138,7 @@
     </div>
     <div class="file-list">
       <h4>UI — admin dashboard</h4>
-      <code>src/app/(dashboard)/events/[eventId]/webinar/page.tsx — Webinar Console: sticky status bar + Setup/Analytics/Settings tabs; WebinarStatusBar, OverviewCard, GlobalRefreshButton, PanelistsCard (Import from Speakers + optimistic UI), CardLoading, CardEmpty</code>
+      <code>src/app/(dashboard)/events/[eventId]/webinar/page.tsx — Webinar Console: sticky status bar + Setup/Recording/Settings tabs (the reports moved to the event's Analytics page, Nov 23, 2026); WebinarStatusBar, OverviewCard, GlobalRefreshButton, PanelistsCard (Import from Speakers + optimistic UI), CardLoading, CardEmpty</code>
       <code>src/app/(dashboard)/events/[eventId]/sponsors/page.tsx — Sponsors admin editor with draft-based editing, add/edit dialog (logo upload via PhotoUpload), up/down reorder arrows, grouped-by-tier list</code>
     </div>
     <div class="file-list">
@@ -241,7 +241,7 @@ mark lastEngagementSyncAt</code></pre>
     <p><strong>Cron worker reuse</strong> — webinar emails piggyback on the existing <code>/api/cron/scheduled-emails</code> worker; no new cron needed. <code>executeBulkEmail()</code> detects <code>emailType.startsWith('webinar-')</code> and enriches <code>vars</code> with the anchor Zoom meeting's fields in <strong>one extra query per scheduled row</strong>, not per recipient.</p>
 
     <h2>Webinar Console (UI)</h2>
-    <p>The console at <code>/events/[eventId]/webinar</code> is organized top-down: <strong>header row</strong> → <strong>sticky status bar</strong> → <strong>Setup / Analytics / Settings tabs</strong>.</p>
+    <p>The console at <code>/events/[eventId]/webinar</code> is organized top-down: <strong>header row</strong> → <strong>sticky status bar</strong> → <strong>Setup / Recording / Settings tabs</strong> (the reports are on the event&rsquo;s Analytics page since Nov 23, 2026).</p>
 
     <h3>Header row</h3>
     <p>Page title + <code>GlobalRefreshButton</code> (parallel-fires recording + attendance + engagement syncs; disabled until session ends) + <code>Re-run provisioner</code>.</p>
@@ -266,7 +266,7 @@ mark lastEngagementSyncAt</code></pre>
     </ul>
 
     <h3>Tabs — status-driven default</h3>
-    <p><code>scheduled</code> / <code>live</code> → <strong>Setup</strong>; <code>ended</code> → <strong>Analytics</strong>. User can always switch. No URL pin (local state).</p>
+    <p><code>scheduled</code> / <code>live</code> → <strong>Setup</strong>; <code>ended</code> → <strong>Recording</strong>. User can always switch. No URL pin (local state).</p>
 
     <h4>Setup tab</h4>
     <ul>
@@ -275,9 +275,15 @@ mark lastEngagementSyncAt</code></pre>
       <li><strong>Email Sequence card</strong> — per-phase status icons + scheduled/sent timestamps + Re-enqueue button</li>
     </ul>
 
-    <h4>Analytics tab</h4>
+    <h4>Recording tab</h4>
     <ul>
       <li><strong>Recording card</strong> — 5 UI states (AVAILABLE / PENDING / FAILED / EXPIRED / NOT_REQUESTED), Refetch button gated on session-ended</li>
+    </ul>
+
+    <h4>The reports: the event&rsquo;s Analytics page, Webinar section (since Nov 23, 2026)</h4>
+    <p>The console&rsquo;s Analytics tab moved to <code>/events/[eventId]/analytics#webinar</code>; the console&rsquo;s header links to it. Someone with <code>webinar.analytics.read</code> but not <code>analytics.read</code> sees the same reports under the Recording tab.</p>
+    <ul>
+      <li><strong>Attendance on our page</strong> and <strong>How people watched</strong> (custom stream and partner webinars): page attendance, watching over time, device, browser, system, buffering</li>
       <li><strong>Attendance card</strong> — 4-tile KPI grid (registered / attended / rate / avg watch) + attendee table + CSV export + Sync now</li>
       <li><strong>Polls card</strong> — per-poll view with horizontal bar-chart distribution</li>
       <li><strong>Q&amp;A card</strong> — searchable list with answer blocks</li>

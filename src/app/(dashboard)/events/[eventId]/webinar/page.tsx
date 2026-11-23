@@ -140,6 +140,7 @@ import { ReplayPlayer } from "@/components/webinar/replay-player";
 import { isHttpsLink } from "@/lib/webinar-exit-link";
 import { webinarRoomEnded } from "@/lib/webinar-page-layout";
 import { consoleActiveTab, consoleOpeningTab, consoleTabs, roomReopens, webinarStatusFromTimes } from "@/lib/webinar/console-rules";
+import { WebinarAnalyticsSection } from "@/components/webinar/webinar-analytics";
 import {
   afterSessionTitle,
   CardEmpty,
@@ -515,6 +516,9 @@ export default function WebinarConsolePage() {
             shown={data?.webinar?.showRecording === true}
             replayUrl={data?.webinar?.replayUrl ?? ""}
           />
+          {/* Someone who may see the webinar's reports but not the event's Analytics page (a custom role
+              with Webinar attendance and not Event analytics) keeps them here (review of f0597c424). */}
+          {!canSeeAnalytics && <WebinarAnalyticsSection eventId={eventId} heading={false} />}
         </TabsContent>
 
         <TabsContent value="branding" className="mt-4 max-w-3xl">

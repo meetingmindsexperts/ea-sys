@@ -100,7 +100,7 @@ No `Webinar` parent table — `eventType` is the switch. This keeps webinars ins
 | [src/lib/zoom/recordings.ts](../src/lib/zoom/recordings.ts) | `getZoomRecordings()` + `pickBestRecordingFile()` |
 | [src/lib/zoom/reports.ts](../src/lib/zoom/reports.ts) | `getZoomParticipants()` paginated |
 | [src/lib/zoom/polls-qa.ts](../src/lib/zoom/polls-qa.ts) | `getWebinarPollReport()`, `getWebinarQaReport()` |
-| [src/app/(dashboard)/events/[eventId]/webinar/page.tsx](../src/app/(dashboard)/events/%5BeventId%5D/webinar/page.tsx) | **Webinar Console** — sticky status bar + Setup/Analytics/Settings tabs; components: `WebinarStatusBar`, `OverviewCard`, `GlobalRefreshButton`, `PanelistsCard` (with Import from Speakers + optimistic UI), `CardLoading`, `CardEmpty` |
+| [src/app/(dashboard)/events/[eventId]/webinar/page.tsx](../src/app/(dashboard)/events/%5BeventId%5D/webinar/page.tsx) | **Webinar Console** — sticky status bar + Setup/Recording/Settings tabs (the reports moved to the event's Analytics page, Nov 23, 2026); components: `WebinarStatusBar`, `OverviewCard`, `GlobalRefreshButton`, `PanelistsCard` (with Import from Speakers + optimistic UI), `CardLoading`, `CardEmpty` |
 | [src/app/(dashboard)/events/[eventId]/sponsors/page.tsx](../src/app/(dashboard)/events/%5BeventId%5D/sponsors/page.tsx) | Sponsors admin editor — draft-based editing with add/edit dialog (logo upload via `PhotoUpload`), up/down reorder arrows, grouped-by-tier list view |
 | [src/components/zoom/zoom-web-embed.tsx](../src/components/zoom/zoom-web-embed.tsx) | `ZoomWebEmbed` — dynamic-imported Zoom SDK v6 Component View wrapper. Handles lifecycle (createClient → init → join → leaveMeeting → destroyClient), StrictMode re-mount races via module-level `pendingDestroy` promise, and `connection-change` events for in-meeting Leave. Since Oct 1, 2026 also the bar with the Full screen button, the panel fit (speaker view, sized to the area) and the attendee limits (no drag/resize, meeting info = topic + host) |
 | [src/hooks/use-fullscreen.ts](../src/hooks/use-fullscreen.ts) + [src/lib/fullscreen.ts](../src/lib/fullscreen.ts) | Fullscreen shared by the Zoom embed and the HLS player: browser API with Esc tracked, in-page fallback for iPhone, exit on unmount; the pure helpers (`resolveFullscreenApi`, `fitZoomPanel`, `lockDocumentScroll`) are pinned by `__tests__/lib/fullscreen.test.ts` |
@@ -321,9 +321,9 @@ handler, before any `await`**, since a popup blocker kills a `window.open()`
 that happens after one. If opening the room then fails, the toast reads
 "Started, but opening the room failed" so it never implies the start failed.
 
-**3. Tabs — Setup / Analytics / Settings.** Default tab is status-driven:
+**3. Tabs — Setup / Recording / Settings.** Default tab is status-driven:
 - `scheduled` / `live` → **Setup**
-- `ended` → **Analytics**
+- `ended` → **Recording**
 
 User can always switch. No URL pin (local state).
 
@@ -332,8 +332,12 @@ User can always switch. No URL pin (local state).
 - **Panelists card** — inline add form (name + email) + **Import from Speakers** button that pulls all anchor-session speakers with emails in one call. Optimistic UI: new panelist row appears instantly (greyed out + spinner), then reconciles after Zoom returns. Dedup against existing panelists so re-import is safe.
 - **Email Sequence card** — per-phase status icons (pending / processing / sent / failed / cancelled) + scheduled/sent timestamps + Re-enqueue button.
 
-### Analytics tab
+### Recording tab
 - **Recording card** — 5 UI states (`AVAILABLE` / `PENDING` / `FAILED` / `EXPIRED` / `NOT_REQUESTED`). Refetch button gated on session-ended.
+
+### The reports: the event's Analytics page, Webinar section (since Nov 23, 2026)
+The console's Analytics tab moved to `/events/[eventId]/analytics#webinar` (owner: "move all analytics to one place"); the console's header has an Analytics button to it. Someone holding `webinar.analytics.read` but not `analytics.read` sees the same reports under the console's Recording tab. Code: `src/components/webinar/webinar-analytics.tsx`.
+- **Attendance on our page** and **How people watched** (custom stream and partner webinars): page attendance, watching over time, device, browser, system, buffering.
 - **Attendance card** — 4-tile KPI grid (registered / attended / rate / avg watch) + attendee table + CSV export + Sync now button.
 - **Polls card** — per-poll view with horizontal bar-chart distribution.
 - **Q&A card** — searchable Q&A list with answer blocks.

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinar analytics: who watched, on what, how it played, all on the Analytics page (November 23, 2026)
+
+Owner: "capture more analytics who attended the webinar and watched, including device, browser and whatever we can capture", then "move all analytics to one place".
+
+- **The webinar page now records, per attendee**: phone, tablet or computer, the browser and the system (parsed from the browser's own description; that text and the address are never kept), whether they watched our stream or the Zoom embed, how often our stream paused to load and for how long, how often the player reconnected, and the minutes they were watching. One additive migration (`20261123100000`); webinars before today read Unknown and 0
+- **A webinar's reports are on the event's Analytics page**, in a Webinar section: attendance on our page, **How people watched** (a chart of how many were watching each minute, the device, browser, system and viewing-mode breakdowns, buffering per system), Zoom's attendance, polls and Q&A. On a webinar the page no longer shows check-in and badge figures
+- **The Webinar Console's Analytics tab is gone**: the recording settings are its own **Recording** tab (where an ended webinar opens), and the console's header has an **Analytics** button to the new section. Someone whose role may see webinar attendance but not the event's Analytics page sees the reports under Recording instead
+- **The page attendance CSV** gains each person's watching time ranges in the event's timezone, how they watched, device, browser, system, buffering and reconnects
+- Buffering is measured by our stream player only (the Zoom embed reports none), and counts only a pause in a picture that then came back by itself: the end of a stream, a viewer's own pause and a reload are not counted. With two devices, the last one watched on is shown
+- Reviews: `183278032` (0 BLOCKER, 1 HIGH, 1 MED, 5 LOW): the migration's lock timeout, buffering that would have read near 100% (the end of every stream counted), and five smaller fixes, in `7552bed09`; `f0597c424` (0 BLOCKER, 0 HIGH, 2 MED, 4 LOW): the fallback for a role without the Analytics page, the link landing on the section, the KPI row, the manual's screenshots and the docs. Left: a rehearsal on a draft event within a day stretches the chart with quiet minutes; the Analytics page's CSV still carries check-in rows on a webinar
+
 ### CRM inbox: a sent email names the files it carried (November 23, 2026)
 
 Owner: "add the attachment name to the sent email in the conversation."

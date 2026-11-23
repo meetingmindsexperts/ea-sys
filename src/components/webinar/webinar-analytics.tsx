@@ -6,7 +6,7 @@
  * watched, Zoom's attendance, poll and Q&A reports. WebinarAnalyticsSection is what the Analytics page
  * renders for a webinar.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { BarChart3, Download, Loader2, MessageSquare, RotateCw, TrendingUp, Users, Video } from "lucide-react";
 import { toast } from "sonner";
@@ -47,8 +47,16 @@ import {
  * custom-stream or partner webinar (our page is the audience there); Zoom's attendance, polls and Q&A
  * for a webinar run on Zoom; a partner's webinar has no Zoom reports.
  */
-export function WebinarAnalyticsSection({ eventId }: { eventId: string }) {
+export function WebinarAnalyticsSection({ eventId, heading = true }: { eventId: string; heading?: boolean }) {
   const { data, isLoading, error } = useWebinar(eventId);
+  // The console's Analytics button links to #webinar, but the browser looks for the anchor before this
+  // section exists (it renders once the page's and this section's data arrive): scroll to it then
+  // (review of f0597c424).
+  const loaded = Boolean(data);
+  useEffect(() => {
+    if (!loaded || typeof window === "undefined" || window.location.hash !== "#webinar") return;
+    document.getElementById("webinar")?.scrollIntoView({ block: "start" });
+  }, [loaded]);
   const status = useMemo(
     () =>
       webinarStatusFromTimes(data?.anchorSession?.startTime, data?.anchorSession?.endTime, data?.anchorSession?.status),
@@ -69,20 +77,22 @@ export function WebinarAnalyticsSection({ eventId }: { eventId: string }) {
   return (
     <EventTzContext.Provider value={data.event?.timezone || DEFAULT_EVENT_TIMEZONE}>
       <section id="webinar" className="scroll-mt-24 space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight">Webinar</h2>
-            <p className="text-sm text-muted-foreground">
-              Who attended and how they watched, with the polls and questions.
-            </p>
+        {heading ? (
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Webinar</h2>
+              <p className="text-sm text-muted-foreground">
+                Who attended and how they watched, with the polls and questions.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/events/${eventId}/webinar`}>
+                <Video className="mr-2 h-4 w-4" />
+                Webinar Console
+              </Link>
+            </Button>
           </div>
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/events/${eventId}/webinar`}>
-              <Video className="mr-2 h-4 w-4" />
-              Webinar Console
-            </Link>
-          </Button>
-        </div>
+        ) : null}
         {ourPage ? (
           <>
             <PageAttendanceCard eventId={eventId} partner={partner} />
@@ -111,7 +121,7 @@ export function WebinarAnalyticsSection({ eventId }: { eventId: string }) {
   );
 }
 
-/** The Analytics tab on a partner's webinar: Zoom's reports have nothing to read. */
+/** The webinar reports of a partner's webinar: Zoom's reports have nothing to read. */
 function PartnerAnalyticsNote() {
   return (
     <Card>

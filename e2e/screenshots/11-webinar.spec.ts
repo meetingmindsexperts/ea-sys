@@ -29,12 +29,11 @@ test("webinar console — populated", async ({ page }) => {
 
 test("webinar attendance tab (IMG-023)", async ({ page }) => {
   await loginAs(page, "ADMIN");
-  await page.goto(`/events/${DOCS_WEBINAR_EVENT_ID}/webinar`);
+  // A webinar's attendance is on the event's Analytics page since Nov 23, 2026 (the console's
+  // Analytics tab moved there).
+  await page.goto(`/events/${DOCS_WEBINAR_EVENT_ID}/analytics#webinar`);
   await page.waitForLoadState("networkidle");
-  // Webinar Console uses Setup/Analytics/Settings tabs — Analytics has the
-  // attendance KPIs + table.
-  const analyticsTab = page.getByRole("tab", { name: /analytics/i }).first();
-  if (await analyticsTab.count()) await analyticsTab.click();
+  await page.getByRole("heading", { name: "Webinar" }).waitFor();
   await page.waitForTimeout(800);
   await snap(page, {
     chapter: CHAPTER,
@@ -45,13 +44,11 @@ test("webinar attendance tab (IMG-023)", async ({ page }) => {
 
 test("webinar engagement (polls + Q&A) (IMG-024)", async ({ page }) => {
   await loginAs(page, "ADMIN");
-  await page.goto(`/events/${DOCS_WEBINAR_EVENT_ID}/webinar`);
+  await page.goto(`/events/${DOCS_WEBINAR_EVENT_ID}/analytics#webinar`);
   await page.waitForLoadState("networkidle");
-  const analyticsTab = page.getByRole("tab", { name: /analytics/i }).first();
-  if (await analyticsTab.count()) await analyticsTab.click();
+  await page.getByRole("heading", { name: "Webinar" }).waitFor();
   await page.waitForTimeout(500);
-  // Scroll to the polls/Q&A cards — they're below the attendance KPIs in
-  // the Analytics tab.
+  // Scroll to the polls/Q&A cards: the last of the Webinar section's reports.
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(300);
   await snap(page, {
