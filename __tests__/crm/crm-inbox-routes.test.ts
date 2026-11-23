@@ -17,6 +17,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     crmEmailThread: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn(), updateMany: vi.fn() },
     crmEmailMessage: { findFirst: vi.fn() },
+    emailLog: { findMany: vi.fn() },
     user: { findUnique: vi.fn() },
   },
 }));
@@ -41,6 +42,7 @@ vi.mock("@/crm/lib/crm-route", async () => ({
 }));
 
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 import { GET as listThreads } from "@/app/api/crm/inbox/route";
 import { GET as getThread, PATCH as patchThread } from "@/app/api/crm/inbox/[threadId]/route";
 import { GET as getAttachment } from "@/app/api/crm/inbox/messages/[messageId]/attachments/[index]/route";
@@ -113,6 +115,66 @@ describe("thread detail", () => {
     vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({ ...threadDetail, hasUnread: false } as never);
     await getThread(new Request("http://test"), { params: threadParams });
     expect(db.crmEmailThread.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+// Owner, Nov 23, 2026: "add the attachment name to the sent email in the conversation."
+describe("thread detail: the files a sent email carried", () => {
+  const message = (over: Record<string, unknown>) => ({
+    id: "m-1", direction: "OUTBOUND", fromEmail: "partnerships@x.com", fromName: null, subject: "s", textBody: "t", htmlBody: "<p>h</p>",
+    attachments: null, unverifiedSender: false, sentBy: null, createdAt: new Date(), providerMessageId: "ses-1", ...over,
+  });
+  const open = async (messages: unknown[]) => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({ ...threadDetail, hasUnread: false, messages } as never);
+    const res = await getThread(new Request("http://test"), { params: threadParams });
+    return { res, body: (await res.json()) as { thread: { messages: Array<Record<string, unknown>> } } };
+  };
+
+  it("names them from the email log, by the email's own message id, inside the organisation", async () => {
+    vi.mocked(db.emailLog.findMany).mockResolvedValue([{ providerMessageId: "ses-1", attachmentNames: ["Sponsorship Prospectus.pdf", "Floor plan.pdf"] }] as never);
+    const { body } = await open([message({})]);
+    expect(body.thread.messages[0]!.sentAttachments).toEqual(["Sponsorship Prospectus.pdf", "Floor plan.pdf"]);
+    expect(db.emailLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { organizationId: "org-1", providerMessageId: { in: ["ses-1"] } } }),
+    );
+  });
+
+  it("gives each sent email its own, and none to one sent without a file", async () => {
+    vi.mocked(db.emailLog.findMany).mockResolvedValue([
+      { providerMessageId: "ses-2", attachmentNames: ["Invoice.pdf"] },
+      { providerMessageId: "ses-1", attachmentNames: [] },
+    ] as never);
+    const { body } = await open([message({}), message({ id: "m-2", providerMessageId: "ses-2" })]);
+    expect(body.thread.messages.map((m) => m.sentAttachments)).toEqual([[], ["Invoice.pdf"]]);
+  });
+
+  it("never names a file on a sponsor's message, even one sharing a message id", async () => {
+    vi.mocked(db.emailLog.findMany).mockResolvedValue([{ providerMessageId: "ses-1", attachmentNames: ["Ours.pdf"] }] as never);
+    const { body } = await open([message({ direction: "INBOUND" })]);
+    expect(body.thread.messages[0]!.sentAttachments).toEqual([]);
+    // Nothing sent in this conversation, so the log is not asked at all.
+    expect(db.emailLog.findMany).not.toHaveBeenCalled();
+  });
+
+  it("does not ask the log for a conversation with no sent email that has a message id", async () => {
+    const { body } = await open([message({ providerMessageId: null })]);
+    expect(db.emailLog.findMany).not.toHaveBeenCalled();
+    expect(body.thread.messages[0]!.sentAttachments).toEqual([]);
+  });
+
+  it("does not hand the provider's message id to the browser", async () => {
+    vi.mocked(db.emailLog.findMany).mockResolvedValue([] as never);
+    const { body } = await open([message({})]);
+    expect(body.thread.messages[0]).not.toHaveProperty("providerMessageId");
+    expect(body.thread.messages[0]).toMatchObject({ id: "m-1", htmlBody: "<p>h</p>" });
+  });
+
+  it("still opens the conversation when the log cannot be read, and logs why", async () => {
+    vi.mocked(db.emailLog.findMany).mockRejectedValue(new Error("log down"));
+    const { res, body } = await open([message({})]);
+    expect(res.status).toBe(200);
+    expect(body.thread.messages[0]!.sentAttachments).toEqual([]);
+    expect(apiLogger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "crm-email-thread:sent-attachments-failed", err: "log down" }));
   });
 });
 

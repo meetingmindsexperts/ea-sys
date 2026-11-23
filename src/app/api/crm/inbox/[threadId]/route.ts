@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, crmCan } from "@/crm/lib/crm-route";
+import { sentAttachmentNames } from "@/crm/services/crm-email-thread-service";
 
 /**
  * GET /api/crm/inbox/[threadId] — one thread with its messages (oldest first).
@@ -55,6 +56,8 @@ export async function GET(
             textBody: true,
             htmlBody: true,
             attachments: true,
+            // For the names of the files a SENT email carried (below); not returned.
+            providerMessageId: true,
             unverifiedSender: true,
             sentBy: { select: { firstName: true, lastName: true } },
             createdAt: true,
@@ -75,7 +78,15 @@ export async function GET(
       });
     }
 
-    return NextResponse.json({ thread });
+    // A sent email's files are named from the email log (the files themselves are not kept).
+    const sentIds = thread.messages.flatMap((m) => (m.direction === "OUTBOUND" && m.providerMessageId ? [m.providerMessageId] : []));
+    const sentNames = await sentAttachmentNames(ctx.organizationId, sentIds);
+    const messages = thread.messages.map(({ providerMessageId, ...message }) => ({
+      ...message,
+      sentAttachments: (message.direction === "OUTBOUND" && providerMessageId && sentNames.get(providerMessageId)) || [],
+    }));
+
+    return NextResponse.json({ thread: { ...thread, messages } });
   } catch (err) {
     apiLogger.error({
       msg: "crm/inbox:thread-failed",

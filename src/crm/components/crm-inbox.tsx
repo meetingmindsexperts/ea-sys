@@ -178,6 +178,18 @@ function MessageBubble({ message }: { message: CrmInboxMessageRow }) {
 
         <MessageBody message={message} />
 
+        {(message.sentAttachments?.length ?? 0) > 0 && (
+          <ul className="mt-2 space-y-1 border-t pt-2" aria-label="Sent with this email">
+            {message.sentAttachments!.map((name, i) => (
+              <li key={`${i}-${name}`} className="flex items-center gap-1.5 text-xs text-foreground/80">
+                <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="break-all">{name}</span>
+                <span className="text-muted-foreground">(sent with this email)</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
         {(message.attachments?.length ?? 0) > 0 && (
           <ul className="mt-2 space-y-1 border-t pt-2">
             {message.attachments!.map((a, i) => (

@@ -279,6 +279,8 @@ export interface CrmInboxMessageRow {
   textBody?: string | null;
   htmlBody?: string | null;
   attachments?: CrmEmailAttachmentMeta[] | null;
+  /** A SENT email's files, by name only: they went with the email and are not kept, so there is nothing to open. */
+  sentAttachments?: string[];
   /** Inbound only — sender could not be verified against the counterparty. */
   unverifiedSender?: boolean;
   sentBy?: { firstName: string; lastName: string } | null;

@@ -183,3 +183,37 @@ export async function recordOutboundEmail(input: RecordOutboundEmailInput): Prom
     });
   }
 }
+
+/**
+ * The files each sent email carried, by the email's provider message id
+ * (Nov 23, 2026; owner: "add the attachment name to the sent email in the
+ * conversation").
+ *
+ * Read from the email log, which already records every send's attachment
+ * names (`EmailLog.attachmentNames`, kept when the log's body is pruned), so
+ * the conversation needs no second copy and the emails sent before this day
+ * show theirs too. Names only: the files themselves are not kept on our side.
+ *
+ * Never throws: a failed lookup is logged and the conversation opens without
+ * the names.
+ */
+export async function sentAttachmentNames(organizationId: string, providerMessageIds: string[]): Promise<Map<string, string[]>> {
+  const names = new Map<string, string[]>();
+  if (providerMessageIds.length === 0) return names;
+  try {
+    const logs = await db.emailLog.findMany({
+      where: { organizationId, providerMessageId: { in: providerMessageIds } },
+      select: { providerMessageId: true, attachmentNames: true },
+    });
+    for (const log of logs) {
+      if (log.providerMessageId && log.attachmentNames.length > 0) names.set(log.providerMessageId, log.attachmentNames);
+    }
+  } catch (err) {
+    apiLogger.error({
+      msg: "crm-email-thread:sent-attachments-failed",
+      organizationId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return names;
+}
