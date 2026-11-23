@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { BarChart3, Download, Loader2, MessageSquare, RotateCw, TrendingUp, Users, Video } from "lucide-react";
+import { BarChart3, Download, FileText, Loader2, MessageSquare, RotateCw, TrendingUp, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -85,14 +85,33 @@ export function WebinarAnalyticsSection({ eventId, heading = true }: { eventId: 
                 Who attended and how they watched, with the polls and questions.
               </p>
             </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" asChild>
+                <Link href={`/events/${eventId}/analytics/report`}>
+                  <FileText className="mr-2 h-4 w-4" />
+                  Post-event report
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/events/${eventId}/webinar`}>
+                  <Video className="mr-2 h-4 w-4" />
+                  Webinar Console
+                </Link>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          // In the console's Recording tab, for someone who cannot open the Analytics page (and so not
+          // the report page under it): the PDF of the same report.
+          <div>
             <Button variant="outline" size="sm" asChild>
-              <Link href={`/events/${eventId}/webinar`}>
-                <Video className="mr-2 h-4 w-4" />
-                Webinar Console
-              </Link>
+              <a href={`/api/events/${eventId}/webinar/post-event-report?format=pdf`} download>
+                <FileText className="mr-2 h-4 w-4" />
+                Download post-event report (PDF)
+              </a>
             </Button>
           </div>
-        ) : null}
+        )}
         {ourPage ? (
           <>
             <PageAttendanceCard eventId={eventId} partner={partner} />

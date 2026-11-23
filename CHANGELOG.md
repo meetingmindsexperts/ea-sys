@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### A webinar's post-event report, on screen and as a PDF (November 23, 2026)
+
+Owner: "a consolidated post event report which includes attendee count, registrations, Q&A and survey results"; a page with a PDF download, for clients and sponsors, webinars only.
+
+- **Analytics, Webinar section, Post-event report** (`/events/[id]/analytics/report`): registrations (registered, confirmed, pending, cancelled, by registration type), attendance (attended and its share of the confirmed registrations, average and total watched, the most watching at once, the devices), the questions asked (most voted first, answered or not), and every answered survey (rating averages and spread, choice counts, comments). **Download PDF** gives the same report in the house PDF style
+- **Made to be forwarded**: no attendee's name or email, questions without who asked them, comments without who wrote them (a comment is the respondent's own words, and the page says to read them before sending). Faculty are not counted as delegates. A dismissed question is left out
+- Attendance comes from the webinar's own report: our page for a custom stream or a partner's webinar, Zoom's participant report otherwise. Zoom's figures are now one shared function (`src/lib/webinar/zoom-attendance-kpis.ts`), so the console's card and the report count alike
+- Who sees it: the webinar reports' key (`webinar.analytics.read`); survey results only with `surveys.read`. Someone who sees the reports under the console's Recording tab gets the PDF from there. The PDF is limited to 30 an hour per person
+
 ### Webinar analytics: who watched, on what, how it played, all on the Analytics page (November 23, 2026)
 
 Owner: "capture more analytics who attended the webinar and watched, including device, browser and whatever we can capture", then "move all analytics to one place".

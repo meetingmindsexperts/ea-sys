@@ -12,6 +12,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { syncWebinarAttendance } from "@/lib/webinar-attendance";
 import { escapeCsvCell } from "@/lib/csv-escape";
+import { zoomAttendanceFigures } from "@/lib/webinar/zoom-attendance-kpis";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -35,34 +36,6 @@ interface AttendanceKpis {
   totalWatchSeconds: number;
   peakConcurrent: number;
   lastSyncedAt: string | null;
-}
-
-/**
- * Compute peak concurrent attendees by walking a sorted list of join/leave
- * events. O(n log n) — fine for thousands of rows. Used for the KPI card.
- */
-function computePeakConcurrent(
-  rows: Array<{ joinTime: Date; leaveTime: Date | null }>,
-): number {
-  if (rows.length === 0) return 0;
-  type Edge = { time: number; delta: number };
-  const edges: Edge[] = [];
-  for (const r of rows) {
-    edges.push({ time: r.joinTime.getTime(), delta: 1 });
-    if (r.leaveTime) {
-      edges.push({ time: r.leaveTime.getTime(), delta: -1 });
-    }
-  }
-  // Sort by time, with -1 (leave) before +1 (join) at the same instant so
-  // back-to-back leave/rejoin doesn't double-count.
-  edges.sort((a, b) => a.time - b.time || a.delta - b.delta);
-  let current = 0;
-  let peak = 0;
-  for (const e of edges) {
-    current += e.delta;
-    if (current > peak) peak = current;
-  }
-  return peak;
 }
 
 /**
@@ -156,25 +129,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       }),
     ]);
 
-    const totalWatchSeconds = attendances.reduce(
-      (sum, a) => sum + a.durationSeconds,
-      0,
-    );
-    const uniqueAttendees = new Set<string>();
-    for (const a of attendances) {
-      uniqueAttendees.add(a.email?.toLowerCase() || `id:${a.id}`);
-    }
-    const attendedCount = uniqueAttendees.size;
-
     const kpis: AttendanceKpis = {
-      registered: registrationsCount,
-      attended: attendedCount,
-      attendanceRate:
-        registrationsCount > 0 ? Math.round((attendedCount / registrationsCount) * 100) : 0,
-      avgWatchSeconds:
-        attendances.length > 0 ? Math.round(totalWatchSeconds / attendances.length) : 0,
-      totalWatchSeconds,
-      peakConcurrent: computePeakConcurrent(attendances),
+      ...zoomAttendanceFigures(attendances, registrationsCount),
       lastSyncedAt: zoomMeeting?.lastAttendanceSyncAt?.toISOString() ?? null,
     };
 

@@ -19,6 +19,7 @@ import type { DtcmSectionMapping } from "@/lib/dtcm-eticket/sections";
 import type { CatalogueSettings } from "@/lib/catalogue";
 import type { RecommendedFormatValue } from "@/lib/recommended-formats";
 import type { BulkReviewerSkipRow } from "@/lib/abstract-bulk-reviewer-outcome";
+import type { PostEventReport } from "@/lib/webinar/post-event-report";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
@@ -4081,6 +4082,15 @@ export function useWebinarWatchAnalytics(eventId: string, enabled = true) {
     enabled: !!eventId && enabled,
     // Heavier than the summary (it reads every viewer's minutes), and a chart need not move every minute.
     refetchInterval: 120_000,
+  });
+}
+
+/** A webinar's post-event report (Nov 23, 2026; src/lib/webinar/post-event-report.ts): no names. */
+export function usePostEventReport(eventId: string) {
+  return useQuery({
+    queryKey: [...queryKeys.webinarPresence(eventId), "post-event-report"] as const,
+    queryFn: () => fetchApi<PostEventReport>(`/api/events/${eventId}/webinar/post-event-report`),
+    enabled: !!eventId,
   });
 }
 
