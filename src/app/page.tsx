@@ -4,7 +4,52 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { loadPublicBrandForHost } from "@/lib/public-brand-server";
 import { Button } from "@/components/ui/button";
-import { Calendar, Users, Mic, Building2, CheckCircle } from "lucide-react";
+import { Award, Calendar, CheckCircle, Mic, Users } from "lucide-react";
+
+/**
+ * The home page. Rewritten Nov 23, 2026 (owner: "we never edited the index
+ * page"; same layout, true words). Until then it was the starter template of
+ * January 2026: "Event Management Made Simple", "Start Free Trial", "Create
+ * Free Account", none of it true of a platform whose staff accounts are made
+ * by invitation and whose visitors are attendees.
+ *
+ * It says what an attendee can do here and offers the two doors that exist:
+ * the public catalogue and sign-in. No sign-up button: an attendee's account
+ * is made as they register for an event. The brand is the attendee-facing one
+ * (public-brand.ts), never a name written here. A signed-in person never sees
+ * this page: they go to their own home.
+ */
+const FEATURES = [
+  {
+    icon: Calendar,
+    title: "Find and register",
+    description: "Browse the upcoming conferences and webinars and register online in a few minutes.",
+  },
+  {
+    icon: Users,
+    title: "Your registrations",
+    description: "See every event you registered for, update your details and check your payment under My events.",
+  },
+  {
+    icon: Mic,
+    title: "Abstracts and speakers",
+    description: "Submit an abstract and follow its review. Invited speakers complete their details online.",
+  },
+  {
+    icon: Award,
+    title: "Certificates and replays",
+    description: "Download your certificates after the event, and watch a webinar again when a replay is offered.",
+  },
+];
+
+const WITH_AN_ACCOUNT = [
+  "Register for an event and get your confirmation by email",
+  "Pay online where a fee applies, and see your payment status",
+  "Join a webinar live from its own page",
+  "Submit abstracts and follow the decision on each one",
+  "Answer the event survey and download your certificate",
+  "Find every event you registered for under My events",
+];
 
 export default async function Home() {
   const session = await auth();
@@ -14,44 +59,30 @@ export default async function Home() {
   }
   const brand = await loadPublicBrandForHost((await headers()).get("host"));
 
-  const features = [
-    {
-      icon: Calendar,
-      title: "Event Management",
-      description: "Create and manage events with ease. Set dates, venues, and customize every detail.",
-    },
-    {
-      icon: Users,
-      title: "Registration & Ticketing",
-      description: "Handle registrations, sell tickets, and track attendees all in one place.",
-    },
-    {
-      icon: Mic,
-      title: "Speaker Management",
-      description: "Manage speakers, collect abstracts, and build your event program.",
-    },
-    {
-      icon: Building2,
-      title: "Accommodation",
-      description: "Coordinate hotel bookings and room allocations for your attendees.",
-    },
-  ];
-
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Calendar className="h-6 w-6 text-primary" />
-            <span className="text-xl font-bold">{brand.name}</span>
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            {brand.logo ? (
+              // Tall enough for a stacked logo (a mark above its wordmark) to be
+              // read, as on the catalogue; a wide one is held by the width.
+              // eslint-disable-next-line @next/next/no-img-element -- an uploaded logo of unknown size
+              <img src={brand.logo} alt={brand.name} className="h-12 w-auto max-w-[150px] object-contain object-left sm:h-14 sm:max-w-[220px]" />
+            ) : (
+              <>
+                <Calendar className="h-6 w-6 shrink-0 text-primary" />
+                <span className="truncate text-xl font-bold">{brand.name}</span>
+              </>
+            )}
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-4">
             <Button variant="ghost" asChild>
               <Link href="/login">Sign in</Link>
             </Button>
             <Button asChild>
-              <Link href="/register">Get Started</Link>
+              <Link href="/catalogue">Browse events</Link>
             </Button>
           </div>
         </div>
@@ -61,20 +92,20 @@ export default async function Home() {
       <section className="py-20 px-4">
         <div className="container mx-auto max-w-4xl text-center">
           <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
-            Event Management
+            Conferences and webinars
             <br />
-            <span className="text-primary">Made Simple</span>
+            <span className="text-primary">in one place</span>
           </h1>
           <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-            The complete platform for managing conferences, meetings, and events.
-            From registration to check-in, we&apos;ve got you covered.
+            Find an event, register online and follow everything from your own account:
+            your registration, your abstracts and your certificates.
           </p>
-          <div className="flex gap-4 justify-center">
+          <div className="flex flex-wrap gap-4 justify-center">
             <Button size="lg" asChild>
-              <Link href="/register">Start Free Trial</Link>
+              <Link href="/catalogue">Browse events</Link>
             </Button>
             <Button size="lg" variant="outline" asChild>
-              <Link href="/login">Sign In</Link>
+              <Link href="/login">Sign in</Link>
             </Button>
           </div>
         </div>
@@ -84,10 +115,10 @@ export default async function Home() {
       <section className="py-20 bg-muted/30">
         <div className="container mx-auto px-4">
           <h2 className="text-3xl font-bold text-center mb-12">
-            Everything you need to run successful events
+            What you can do here
           </h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {features.map((feature) => (
+            {FEATURES.map((feature) => (
               <div
                 key={feature.title}
                 className="bg-background rounded-lg p-6 border"
@@ -101,24 +132,20 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Benefits */}
+      {/* With an account */}
       <section className="py-20 px-4">
         <div className="container mx-auto max-w-4xl">
-          <h2 className="text-3xl font-bold text-center mb-12">
-            Why choose {brand.name}?
+          <h2 className="text-3xl font-bold text-center mb-4">
+            One account for all of it
           </h2>
+          <p className="text-center text-lg text-muted-foreground mb-12">
+            Your account is made as you register for your first event.
+          </p>
           <div className="space-y-6">
-            {[
-              "Easy-to-use interface for event organizers",
-              "Comprehensive registration and ticketing system",
-              "Speaker and abstract management",
-              "Accommodation booking integration",
-              "Real-time analytics and reporting",
-              "QR code check-in system",
-            ].map((benefit) => (
-              <div key={benefit} className="flex items-center gap-3">
+            {WITH_AN_ACCOUNT.map((line) => (
+              <div key={line} className="flex items-center gap-3">
                 <CheckCircle className="h-6 w-6 text-green-500 flex-shrink-0" />
-                <span className="text-lg">{benefit}</span>
+                <span className="text-lg">{line}</span>
               </div>
             ))}
           </div>
@@ -128,13 +155,19 @@ export default async function Home() {
       {/* CTA */}
       <section className="py-20 bg-primary text-primary-foreground">
         <div className="container mx-auto px-4 text-center">
-          <h2 className="text-3xl font-bold mb-4">Ready to get started?</h2>
+          <h2 className="text-3xl font-bold mb-4">Looking for an event?</h2>
           <p className="text-lg opacity-90 mb-8">
-            Create your account and start managing events today.
+            See what is coming up and register in a few minutes.
           </p>
           <Button size="lg" variant="secondary" asChild>
-            <Link href="/register">Create Free Account</Link>
+            <Link href="/catalogue">Browse events</Link>
           </Button>
+          <p className="mt-6 text-sm opacity-90">
+            Already registered?{" "}
+            <Link href="/login" className="font-medium underline underline-offset-4">
+              Sign in
+            </Link>
+          </p>
         </div>
       </section>
 

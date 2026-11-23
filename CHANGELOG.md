@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The home page says what the platform is (November 23, 2026)
+
+The page at the site's own address had never been edited: it was the starter template from January, offering "Event Management Made Simple", a free trial and a free account. Staff accounts are made by invitation and visitors are attendees, so none of it was true.
+
+- **Same layout, true words.** It now says what an attendee can do: find and register for conferences and webinars, follow their registrations, abstracts and certificates from one account, join a webinar from its page.
+- **Two doors, both real:** Browse events opens the public catalogue, and Sign in. The sign-up buttons are gone; an attendee's account is made as they register for an event.
+- **Your attendee-facing brand:** the header shows the logo from Settings where there is one, in place of a calendar icon.
+- A signed-in person still never sees this page: they go to their own home.
+
 ### A registration left out of its account now says how to get in (November 23, 2026)
 
 Someone who already has an account can register again without signing in. Unless the password they type is that account's, or the account has confirmed its address, the new registration is kept out of the account: the email on a form is only what was typed, so this is what stops an account made on someone else's address from collecting that person's registrations. The rule stays. What was missing was any way for the real person to finish the job. The form said the registration would show "after you confirm your email address" and no link was ever sent, and a webinar is watched from the account, so the webinar page told a registered person "Register to join", and registering again was refused as already registered. Five delegates of a webinar were a day away from that.
