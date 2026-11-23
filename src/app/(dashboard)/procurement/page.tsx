@@ -81,13 +81,12 @@ export default function ProcurementBudgetsPage() {
     if (creating) setForm(EMPTY_FORM);
   }
 
-  const typedEvents = events as { id: string; name: string; code: string | null; eventType: string; status: string }[];
-  const eventById = useMemo(() => new Map(typedEvents.map((e) => [e.id, e])), [typedEvents]);
+  const eventById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
   // Coded, running (published or live) and without a budget yet: the rule lives in budget-events.ts.
   const budgetedEventIds = useMemo(() => new Set(allBudgets.map((b) => b.eventId)), [allBudgets]);
-  const openEvents = useMemo(() => budgetableEvents(typedEvents, budgetedEventIds), [typedEvents, budgetedEventIds]);
+  const openEvents = useMemo(() => budgetableEvents(events, budgetedEventIds), [events, budgetedEventIds]);
   const eventOptions = useMemo(() => openEvents.map((e) => ({ value: e.id, label: budgetEventLabel(e) })), [openEvents]);
-  const uncodedCount = useMemo(() => uncodedRunningCount(typedEvents, budgetedEventIds), [typedEvents, budgetedEventIds]);
+  const uncodedCount = useMemo(() => uncodedRunningCount(events, budgetedEventIds), [events, budgetedEventIds]);
   const pickedEvent = form.eventId ? eventById.get(form.eventId) : undefined;
   const copySources = useMemo(() => [...allBudgets].sort((a, b) => a.eventCode.localeCompare(b.eventCode) || b.versionNo - a.versionNo), [allBudgets]);
   const source = form.startFrom === "copy" ? allBudgets.find((b) => b.id === form.fromBudgetId) : undefined;

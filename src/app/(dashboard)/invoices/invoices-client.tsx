@@ -20,13 +20,6 @@ import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/s
 /** Event statuses worth offering in the invoice event filter. */
 const BILLABLE_EVENT_STATUSES: readonly string[] = ["PUBLISHED", "LIVE", "COMPLETED"];
 
-interface EventOption {
-  id: string;
-  name: string;
-  status: string;
-  startDate?: string | null;
-}
-
 interface OrgInvoice {
   id: string;
   eventId: string;
@@ -94,7 +87,7 @@ export default function OrgInvoicesClient() {
    */
   const selectableEvents = useMemo(
     () =>
-      (events as EventOption[])
+      events
         .filter((e) => BILLABLE_EVENT_STATUSES.includes(e.status))
         .sort((a, b) => {
           const at = a.startDate ? new Date(a.startDate).getTime() : 0;

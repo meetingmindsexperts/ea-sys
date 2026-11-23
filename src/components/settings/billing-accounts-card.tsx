@@ -45,7 +45,6 @@ type Payer = {
   _count?: { registrations: number; events?: number };
 };
 
-type EventRow = { id: string; name: string; startDate: string };
 type PayerDetail = {
   id: string;
   attachedEvents?: { eventId: string; event: { id: string; name: string } }[];
@@ -472,10 +471,7 @@ function EventsAttachmentDialog({
     data: PayerDetail | undefined;
     isLoading: boolean;
   };
-  const { data: events = [], isLoading: loadingEvents } = useEvents() as {
-    data: EventRow[];
-    isLoading: boolean;
-  };
+  const { data: events = [], isLoading: loadingEvents } = useEvents();
   const [pendingEventId, setPendingEventId] = useState<string | null>(null);
 
   const attachedIds = new Set(

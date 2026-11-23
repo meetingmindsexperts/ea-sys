@@ -7,18 +7,14 @@
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AgentChat } from "@/components/agent/agent-chat";
-import { EventPicker, type PickerEvent } from "@/components/agent/event-picker";
+import { EventPicker } from "@/components/agent/event-picker";
 import { useEvents } from "@/hooks/use-api";
 
 function AgentPageInner() {
   const router = useRouter();
   const params = useSearchParams();
   const eventId = params.get("event") || null;
-  const { data } = useEvents();
-  const raw: unknown = data;
-  const events: PickerEvent[] = Array.isArray(raw)
-    ? (raw as PickerEvent[])
-    : (((raw as { events?: PickerEvent[] } | undefined)?.events ?? []) as PickerEvent[]);
+  const { data: events = [] } = useEvents();
 
   const setEvent = (id: string | null) => {
     router.replace(id ? `/agent?event=${encodeURIComponent(id)}` : "/agent");

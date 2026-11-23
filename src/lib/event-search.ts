@@ -21,6 +21,14 @@ export interface SearchableEvent {
   startDate?: string | Date | null;
 }
 
+/**
+ * The text columns a search reads. The events list must SEND each of them
+ * (STAFF_EVENT_LIST_SELECT in event-visibility.ts; a test holds the two
+ * together): a column searched here and not sent there matches nothing, and
+ * nothing on the screen says why.
+ */
+export const SEARCHED_EVENT_FIELDS = ["name", "code", "slug", "tag", "specialty", "city"] as const;
+
 function fold(value: string): string {
   return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
@@ -40,7 +48,7 @@ export function eventMatchesSearch(event: SearchableEvent, query: string): boole
   const words = fold(query).split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
   const haystack = fold(
-    [event.name, event.code, event.slug, event.tag, event.specialty, event.city, yearOf(event.startDate)].filter(Boolean).join(" "),
+    [...SEARCHED_EVENT_FIELDS.map((field) => event[field]), yearOf(event.startDate)].filter(Boolean).join(" "),
   );
   return words.every((word) => haystack.includes(word));
 }

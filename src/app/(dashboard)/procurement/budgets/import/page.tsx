@@ -139,7 +139,7 @@ function ImportBudgetSheet() {
   // Coded, running (published or live) and without a budget yet: the same rule as the New budget dialog.
   const withBudget = useMemo(() => new Set(budgets.map((b) => b.eventId)), [budgets]);
   const eventOptions = useMemo(
-    () => budgetableEvents(events as { id: string; name: string; code: string | null; status: string }[], withBudget),
+    () => budgetableEvents(events, withBudget),
     [events, withBudget],
   );
   // An event handed over in the URL counts only once it is in the list, so a stale or foreign id picks nothing.

@@ -6,7 +6,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { EVENT_LIST_SELECT } from "@/lib/event-visibility";
+import { EVENT_LIST_SELECT, STAFF_EVENT_LIST_SELECT } from "@/lib/event-visibility";
 import { isTeamRole } from "@/lib/auth-guards";
 import { principalFromApiKey, refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
 import { validateApiKey } from "@/lib/api-key";
@@ -80,14 +80,14 @@ export async function GET(req: Request) {
       if (!gate.ok) return gate.response;
       // Inside the organisation's own lane (Event RLS step 2): outside one,
       // a policy on Event would answer with an empty list.
+      // A `select`, never an `include`: every dashboard page loads this list
+      // for the header, and whole rows were about 1 MB of it. The columns and
+      // the reason for each are in STAFF_EVENT_LIST_SELECT.
       const events = await inOwnLane(gate, req, () =>
         db.event.findMany({
           where: { ...gate.eventWhere, ...(slug && { slug }) },
           orderBy,
-          include: {
-            _count: { select: { registrations: true, speakers: true } },
-            organization: { select: { name: true } },
-          },
+          select: STAFF_EVENT_LIST_SELECT,
         }),
       );
       return NextResponse.json(events);
@@ -113,6 +113,9 @@ export async function GET(req: Request) {
       onMissing: "hide",
     });
     if (!gate.ok) return gate.response;
+    // Whole rows, deliberately: this is the contract outside tools were built
+    // on (n8n, the website sync, the remote MCP client), and what they read is
+    // not visible from this repo. The trimmed list above is for our own screens.
     const events = await inOwnLane(gate, req, () =>
       db.event.findMany({
         where: { ...gate.eventWhere, ...(slug && { slug }) },

@@ -14,6 +14,7 @@
  * join either payload by accident.
  */
 
+import type { Prisma } from "@prisma/client";
 import { isTeamRole } from "@/lib/auth-guards";
 
 /**
@@ -61,6 +62,50 @@ export function eventListSelect(role: string | null | undefined) {
     ? { ...EVENT_LIST_SELECT, ...EVENT_LIST_COUNT_SELECT }
     : EVENT_LIST_SELECT;
 }
+
+/**
+ * What `GET /api/events` sends a signed-in member of staff: the list every
+ * dashboard page loads for the header's event switcher (Nov 23, 2026).
+ *
+ * It was a bare `include`, so each of the organisation's events arrived whole:
+ * the welcome, terms, guideline and agreement HTML, the settings JSON, the bank
+ * details. Measured on production's 55 events that was about 1 MB of JSON on
+ * every page for a list that shows a name and a date.
+ *
+ * The columns are what the list's readers use, and no more:
+ *  - the core facts and the headcounts (the same list the Events page renders)
+ *  - `code`: the Budgets pages offer only events that hold one
+ *  - `code`, `tag`, `specialty`, `city`: the header switcher's search
+ *    (event-search.ts), and the agent page's picker shows the city
+ *
+ * A reader that needs another column adds it HERE. `useEvents()` is typed from
+ * this select (`EventListRow`), so reading a column that is not sent is a type
+ * error, not an empty cell found in production. A call with an API key is a
+ * different contract (the website sync, n8n) and still receives whole rows.
+ */
+export const STAFF_EVENT_LIST_EXTRAS = {
+  code: true,
+  tag: true,
+  specialty: true,
+  city: true,
+} as const;
+
+export const STAFF_EVENT_LIST_SELECT = {
+  ...EVENT_LIST_SELECT,
+  ...EVENT_LIST_COUNT_SELECT,
+  ...STAFF_EVENT_LIST_EXTRAS,
+} as const;
+
+/** A value as it reads after JSON: a Date arrives as its ISO string. */
+type OverTheWire<T> = T extends Date ? string : T extends object ? { [K in keyof T]: OverTheWire<T[K]> } : T;
+
+/**
+ * One row of `GET /api/events` as the browser receives it. Everyone gets the
+ * core facts; the rest is sent to staff only, so it is optional here: the
+ * header runs for a reviewer, a submitter and a registrant too.
+ */
+export type EventListRow = OverTheWire<Prisma.EventGetPayload<{ select: typeof EVENT_LIST_SELECT }>> &
+  Partial<OverTheWire<Prisma.EventGetPayload<{ select: typeof EVENT_LIST_COUNT_SELECT & typeof STAFF_EVENT_LIST_EXTRAS }>>>;
 
 /**
  * The event DETAIL an org-null role receives: the core facts plus the banner

@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { abstractIntakeClosed } from "@/lib/abstract-intake";
+import { SEARCHED_EVENT_FIELDS } from "@/lib/event-search";
 import {
   EVENT_LIST_SELECT,
   EVENT_LIST_COUNT_SELECT,
+  STAFF_EVENT_LIST_SELECT,
   RESTRICTED_EVENT_DETAIL_SELECT,
   RESTRICTED_SETTINGS_KEYS,
   eventListSelect,
@@ -59,6 +61,47 @@ describe("event field visibility", () => {
       "status", "timezone", "venue",
     ]);
     expect(EVENT_LIST_SELECT).not.toHaveProperty("_count");
+  });
+
+  describe("the list a member of staff receives (GET /api/events, the header's switcher)", () => {
+    // Every dashboard page loads this list. It was whole Event rows, about
+    // 1 MB of JSON for 55 events (Nov 23, 2026). These pin what is sent, by
+    // reader: removing a column here breaks the screen named beside it.
+    it("sends the core facts, the headcounts, and the columns its readers name", () => {
+      expect(Object.keys(STAFF_EVENT_LIST_SELECT).sort()).toEqual([
+        "_count", // the same list the Events page renders
+        "city", // header switcher search; the agent page's picker shows it
+        "code", // Budgets: New budget and Import offer only events that hold a code
+        "description", "endDate", "eventType", "id", "name", "slug",
+        "specialty", // header switcher search
+        "startDate", "status",
+        "tag", // header switcher search
+        "timezone", "venue",
+      ]);
+    });
+
+    it("sends every column the header's event search reads", () => {
+      for (const field of SEARCHED_EVENT_FIELDS) {
+        expect(STAFF_EVENT_LIST_SELECT, `the switcher searches "${field}"`).toHaveProperty(field);
+      }
+      expect(STAFF_EVENT_LIST_SELECT).toHaveProperty("startDate"); // the year
+    });
+
+    it("is the attendee-side list plus staff columns, never a second hand-written list", () => {
+      for (const key of Object.keys(EVENT_LIST_SELECT)) {
+        expect(STAFF_EVENT_LIST_SELECT).toHaveProperty(key);
+      }
+    });
+
+    it("sends none of the long text, the settings or the money columns", () => {
+      for (const column of [
+        "registrationWelcomeHtml", "registrationTermsHtml", "abstractWelcomeHtml", "abstractGuidelinesHtml",
+        "speakerAgreementHtml", "sessionProposalWelcomeHtml", "emailFooterHtml", "settings", "bankDetails",
+        "taxRate", "surveyConfig", "speakerAgreementTemplate", "organization",
+      ]) {
+        expect(STAFF_EVENT_LIST_SELECT).not.toHaveProperty(column);
+      }
+    });
   });
 
   it("keeps the count select separate so it can be withheld", () => {

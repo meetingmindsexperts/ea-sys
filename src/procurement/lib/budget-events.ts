@@ -12,7 +12,8 @@ export const BUDGETABLE_EVENT_STATUSES: readonly string[] = ["PUBLISHED", "LIVE"
 export interface BudgetEventOption {
   id: string;
   name: string;
-  code: string | null;
+  /** Absent reads as "no code": the events list sends it to staff only. */
+  code?: string | null;
   status: string;
 }
 
@@ -25,6 +26,6 @@ export function uncodedRunningCount(events: readonly BudgetEventOption[], budget
   return events.filter((e) => !e.code && !budgetedEventIds.has(e.id) && BUDGETABLE_EVENT_STATUSES.includes(e.status)).length;
 }
 
-export function budgetEventLabel(e: { code: string | null; name: string }): string {
+export function budgetEventLabel(e: { code?: string | null; name: string }): string {
   return `${e.code} · ${e.name}`;
 }

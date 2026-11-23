@@ -3,6 +3,7 @@
 
 import type { MakePresentersOutcome } from "@/lib/make-presenters-outcome";
 import type { ReviewScoreScale } from "@/lib/abstract-score";
+import type { EventListRow } from "@/lib/event-visibility";
 import { useIsMutating, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
@@ -290,10 +291,15 @@ export function useSetCatalogueListing() {
 }
 
 // ============ EVENTS ============
+/**
+ * The events list (the header's switcher and every event picker). Typed from
+ * the route's own select, so a reader that names a column the list does not
+ * send fails the type check: add the column to STAFF_EVENT_LIST_SELECT.
+ */
 export function useEvents() {
   return useQuery({
     queryKey: queryKeys.events,
-    queryFn: () => fetchApi<any[]>("/api/events"),
+    queryFn: () => fetchApi<EventListRow[]>("/api/events"),
   });
 }
 
