@@ -286,7 +286,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       // existing (invited) speaker keeps their organizer-set status.
       status: "INVITED" as const,
     };
-    await tenantTransaction(async (tx) => {
+    // Answers the account this request made or upgraded (its password checked
+    // above): the registration made further down is stamped with it.
+    const accountUserId = await tenantTransaction(async (tx) => {
       let user: { id: string };
 
       const clientIpForTerms = getClientIp(req);
@@ -336,6 +338,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         accountConfirmed: !!existingUser?.emailConfirmedAt,
         profile: submittedProfile,
       });
+      return user.id;
     });
 
     if (!speakerId) {
@@ -398,6 +401,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     let feeExtras: Awaited<ReturnType<typeof ensureSubmitterRegistration>> = null;
     if (speakerRow) {
       feeExtras = await ensureSubmitterRegistration({
+        accountUserId,
         speaker: {
           id: speakerRow.id,
           eventId: event.id,

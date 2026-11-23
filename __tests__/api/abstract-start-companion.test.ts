@@ -12,14 +12,16 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy, txUserUpdate } = vi.hoisted(() => ({
+const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy, txUserUpdate, createAndLinkSpy } = vi.hoisted(() => ({
   txUserUpdate: vi.fn(),
+  // The registration the sign-up makes where a rate is on offer.
+  createAndLinkSpy: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
     user: { findUnique: vi.fn(), findFirst: vi.fn() },
     // Written by the shared public-credential guard (review M7).
     loginEvent: { create: vi.fn() },
-    registration: { findFirst: vi.fn(), findMany: vi.fn() },
+    registration: { findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
     // Read only by the lookup intent's prefill (Sep 29, 2026). What the person
     // gave ELSEWHERE comes through the shared rule (own-details-sources.ts):
     // the account's saved details, their latest speaker records and
@@ -73,6 +75,9 @@ vi.mock("@/lib/speaker-companion", () => ({
   ensureSpeakerCompanionRegistration: ensureCompanionSpy,
   upsertEventSpeaker: upsertSpy,
 }));
+vi.mock("@/lib/presenter-registration", () => ({
+  createAndLinkPayableRegistration: createAndLinkSpy,
+}));
 
 import { POST } from "@/app/api/public/events/[slug]/abstract-start/route";
 
@@ -103,6 +108,10 @@ beforeEach(() => {
     termsAcceptedAt: new Date("2026-01-01"),
   });
   mockDb.registration.findFirst.mockResolvedValue(null);
+  mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+  // Nothing on sale unless a case says so (clearAllMocks keeps implementations).
+  mockDb.ticketType.findMany.mockResolvedValue([]);
+  createAndLinkSpy.mockResolvedValue({ status: "rejected", code: "NOT_UNDER_TEST", message: "" });
   mockDb.speaker.findFirst.mockResolvedValue(null);
   mockDb.registration.findMany.mockResolvedValue([]);
   mockDb.speaker.findMany.mockResolvedValue([]);
@@ -351,6 +360,29 @@ describe("abstract-start — lookup, then confirmed details", () => {
     const res = await POST(makeReq(validBody), params);
     expect(res.status).toBe(200);
     expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
+  });
+
+  // Nov 23, 2026: the registration was left with no owner, so My events did
+  // not list an author's own registration (114 rows on production).
+  it("the registration this sign-in makes is stamped with the account whose password was checked", async () => {
+    mockDb.ticketType.findMany.mockResolvedValue([
+      {
+        id: "tt-phys", name: "Physician", isActive: true,
+        quantity: 999999, soldCount: 0,
+        pricingTiers: [{ id: "tier-p", name: "Presenter", price: 400, currency: "USD", sortOrder: 3,
+          quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null }],
+      },
+    ]);
+    createAndLinkSpy.mockResolvedValue({ status: "created", registrationId: "reg-new", registrationStatus: "CONFIRMED", paymentStatus: "UNASSIGNED" });
+
+    const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-phys" }), params);
+
+    expect(res.status).toBe(200);
+    expect(mockDb.registration.updateMany).toHaveBeenCalledTimes(1);
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg-new", userId: null },
+      data: { userId: "u1" },
+    });
   });
 
   it("lookup says what the person is registered as, from a registration proven to be theirs", async () => {

@@ -102,6 +102,13 @@ export interface PresenterSignupInput {
   callerSendsFeeEmail?: boolean;
   /** What the submitter gave for the chosen type's ID and document switches. */
   evidence?: PresenterEvidenceInput;
+  /**
+   * The account signing up. Both doors have proven it is the caller's before
+   * they get here: it was made in this request, or its password was just
+   * checked. A registration this sign-up CREATES is stamped with it
+   * (`attachToAccount` below). Required, so a new door cannot forget it.
+   */
+  accountUserId: string;
 }
 
 /**
@@ -434,6 +441,14 @@ export async function ensureSubmitterRegistration(
       return null;
     }
 
+    // The registration made just now belongs to the account that made it. A
+    // `linked-existing` row is NOT stamped: someone else may have made it, so
+    // it waits for the address to be confirmed (registrant-access.ts). A
+    // `race-lost` duplicate was cancelled.
+    if (outcome.status === "created") {
+      await attachToAccount(outcome.registrationId, input.accountUserId, speaker);
+    }
+
     // Only a freshly-created payable row produces a fee email. A
     // `linked-existing` row is one they already had (and were already told
     // about), and a `race-lost` duplicate was cancelled.
@@ -448,6 +463,51 @@ export async function ensureSubmitterRegistration(
     );
   }
   return null;
+}
+
+/**
+ * Stamp the registration this sign-up just made with the account that made it,
+ * so My events lists it and its fee can be paid from there.
+ *
+ * Until Nov 23, 2026 the row was left with no owner. The account's speaker
+ * record was linked and the registration was not, so an author who signed in
+ * did not see their own registration until they confirmed their address, and
+ * this door never sends that link. 114 such rows were on production that day.
+ *
+ * No mailbox proof is needed for THIS row: the person holding the account made
+ * it in the same request, so nobody else's details are in it. That is the only
+ * case this covers; a registration that already existed is a different person's
+ * until the address is confirmed.
+ *
+ * Never throws: an unstamped row is what every sign-up produced before, and it
+ * still attaches when the address is confirmed.
+ */
+async function attachToAccount(
+  registrationId: string,
+  accountUserId: string,
+  speaker: { id: string; eventId: string },
+): Promise<void> {
+  try {
+    const { count } = await db.registration.updateMany({
+      where: { id: registrationId, userId: null },
+      data: { userId: accountUserId },
+    });
+    if (count > 0) return;
+    apiLogger.warn({
+      msg: "presenter-signup:registration-not-attached",
+      eventId: speaker.eventId,
+      speakerId: speaker.id,
+      registrationId,
+    });
+  } catch (err) {
+    apiLogger.error({
+      err,
+      msg: "presenter-signup:attach-failed",
+      eventId: speaker.eventId,
+      speakerId: speaker.id,
+      registrationId,
+    });
+  }
 }
 
 /**

@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, ensureCompanionSpy } = vi.hoisted(() => {
+const { mockDb, ensureCompanionSpy, createAndLinkSpy } = vi.hoisted(() => {
   const tx = {
     user: { create: vi.fn().mockResolvedValue({ id: "u1" }), update: vi.fn().mockResolvedValue({ id: "u1" }) },
     speaker: {
@@ -28,11 +28,13 @@ const { mockDb, ensureCompanionSpy } = vi.hoisted(() => {
       // the account (Sep 21, 2026), so the mock has to answer.
       ticketType: { findMany: vi.fn().mockResolvedValue([]) },
       // An existing registration on the event means nothing is created, so no ID is asked for.
-      registration: { findFirst: vi.fn().mockResolvedValue(null) },
+      registration: { findFirst: vi.fn().mockResolvedValue(null), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),
       _tx: tx,
     },
     ensureCompanionSpy: vi.fn().mockResolvedValue({ status: "created", registrationId: "reg1" }),
+    // The registration the sign-up makes where a rate is on offer.
+    createAndLinkSpy: vi.fn(),
   };
 });
 
@@ -75,6 +77,10 @@ vi.mock("@/lib/speaker-companion", async (importActual) => ({
   ensureSpeakerCompanionRegistration: ensureCompanionSpy,
 }));
 
+vi.mock("@/lib/presenter-registration", () => ({
+  createAndLinkPayableRegistration: createAndLinkSpy,
+}));
+
 import { POST } from "@/app/api/public/events/[slug]/submitter/route";
 
 function makeReq(body: Record<string, unknown>) {
@@ -109,6 +115,10 @@ beforeEach(() => {
   // exactly what happened the first time these were added.
   mockDb.ticketType.findMany.mockResolvedValue([]);
   mockDb.registration.findFirst.mockResolvedValue(null);
+  mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+  mockDb._tx.user.create.mockResolvedValue({ id: "u1" });
+  mockDb._tx.user.update.mockResolvedValue({ id: "u1" });
+  createAndLinkSpy.mockResolvedValue({ status: "rejected", code: "NOT_UNDER_TEST", message: "" });
 });
 
 /**
@@ -169,6 +179,49 @@ describe("submitter route — presenter rate is required when the event charges"
     const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-phys" }), { params });
 
     expect(res.status).toBeLessThan(400);
+  });
+
+  // Nov 23, 2026: the registration was left with no owner, so My events did
+  // not list an author's own registration (114 rows on production).
+  describe("the registration it makes belongs to the account", () => {
+    const created = { status: "created", registrationId: "reg-new", registrationStatus: "CONFIRMED", paymentStatus: "UNASSIGNED" };
+
+    it("a NEW account: stamped with the account this request made", async () => {
+      withPresenterRate();
+      createAndLinkSpy.mockResolvedValue(created);
+      mockDb._tx.user.create.mockResolvedValue({ id: "u-new" });
+
+      const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-phys" }), { params });
+
+      expect(res.status).toBeLessThan(400);
+      expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+        where: { id: "reg-new", userId: null },
+        data: { userId: "u-new" },
+      });
+    });
+
+    it("an EXISTING account (password checked): stamped with that account, not a new one", async () => {
+      withPresenterRate();
+      createAndLinkSpy.mockResolvedValue(created);
+      mockDb.user.findFirst.mockResolvedValue({ id: "u-old", role: "REGISTRANT", termsAcceptedAt: new Date(), passwordHash: "x", emailConfirmedAt: null });
+      mockDb._tx.user.update.mockResolvedValue({ id: "u-old" });
+
+      const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-phys" }), { params });
+
+      expect(res.status).toBeLessThan(400);
+      expect(mockDb._tx.user.create).not.toHaveBeenCalled();
+      expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+        where: { id: "reg-new", userId: null },
+        data: { userId: "u-old" },
+      });
+    });
+
+    it("with nothing on sale no registration is made, so nothing is stamped", async () => {
+      const res = await POST(makeReq(validBody), { params });
+
+      expect(res.status).toBeLessThan(400);
+      expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    });
   });
 
   it("does NOT ask a proposal signup for a rate — proposals create nothing", async () => {

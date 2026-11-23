@@ -22,8 +22,10 @@ type PayableInput = {
   supportingDocument?: { url: string; filename: string | null } | null;
 };
 
-const { ensureCompanionSpy, createAndLinkSpy, findManySpy, findUniqueSpy, heldRegistrationSpy, quotePdfSpy } = vi.hoisted(() => ({
+const { ensureCompanionSpy, createAndLinkSpy, findManySpy, findUniqueSpy, heldRegistrationSpy, quotePdfSpy, attachSpy } = vi.hoisted(() => ({
   findUniqueSpy: vi.fn(),
+  // attachToAccount: the stamp on the registration this sign-up made.
+  attachSpy: vi.fn(),
   // holdsLiveRegistration: does this address already hold a registration on the event?
   heldRegistrationSpy: vi.fn(),
   quotePdfSpy: vi.fn(),
@@ -41,7 +43,7 @@ vi.mock("@/lib/quote-pdf", () => ({ buildQuotePDFFromRegistration: quotePdfSpy }
 vi.mock("@/lib/db", () => ({
   db: {
     ticketType: { findMany: findManySpy },
-    registration: { findUnique: findUniqueSpy, findFirst: heldRegistrationSpy },
+    registration: { findUnique: findUniqueSpy, findFirst: heldRegistrationSpy, updateMany: attachSpy },
   },
   dbOperator: {},
   tenantTransaction: vi.fn(),
@@ -117,12 +119,14 @@ const BASE = {
   eventSettings: {},
   source: "abstract",
   expectedLink: null,
+  accountUserId: "user1",
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   findManySpy.mockResolvedValue(typeWithPresenterRate());
   heldRegistrationSpy.mockResolvedValue(null);
+  attachSpy.mockResolvedValue({ count: 1 });
   ensureCompanionSpy.mockResolvedValue({ status: "created", registrationId: "r1" });
   createAndLinkSpy.mockResolvedValue({
     status: "created",
@@ -354,6 +358,84 @@ describe("with presenter rates configured", () => {
       ticketTypeId: "tt-phys",
     });
     expect(createAndLinkSpy.mock.calls[0][0].suppressPayNow).toBe(false);
+  });
+});
+
+/**
+ * Until Nov 23, 2026 the registration an author's sign-up made had no owner:
+ * the speaker record was linked to the account and the registration was not,
+ * so My events did not list it until the address was confirmed, and this door
+ * never sends that link (114 such rows on production that day).
+ */
+describe("the registration a sign-up makes belongs to the account that made it", () => {
+  it("is stamped with the account, and only while it has no owner", async () => {
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+
+    expect(attachSpy).toHaveBeenCalledTimes(1);
+    expect(attachSpy).toHaveBeenCalledWith({
+      where: { id: "r-paid", userId: null },
+      data: { userId: "user1" },
+    });
+  });
+
+  it("a registration the person ALREADY held is not stamped: it waits for the confirmed address", async () => {
+    createAndLinkSpy.mockResolvedValue({
+      status: "linked-existing",
+      registrationId: "r-someone-made-earlier",
+      registrationStatus: "CONFIRMED",
+      paymentStatus: "PAID",
+    });
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+
+    expect(attachSpy).not.toHaveBeenCalled();
+  });
+
+  it("someone already registered on the event (link only) is not stamped either", async () => {
+    heldRegistrationSpy.mockResolvedValue({ id: "r-held" });
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+
+    expect(createAndLinkSpy).not.toHaveBeenCalled();
+    expect(attachSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a cancelled duplicate from a lost race", { status: "race-lost", duplicateRegistrationId: "r-dup", compensated: true }],
+    ["a refusal", { status: "rejected", code: "SOLD_OUT", message: "Sold out" }],
+  ])("%s stamps nothing", async (_name, outcome) => {
+    createAndLinkSpy.mockResolvedValue(outcome);
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+
+    expect(attachSpy).not.toHaveBeenCalled();
+  });
+
+  it("a proposal makes no registration, so there is nothing to stamp", async () => {
+    await ensureSubmitterRegistration({ ...BASE, source: "proposal", ticketTypeId: "tt-phys" });
+
+    expect(attachSpy).not.toHaveBeenCalled();
+  });
+
+  it("a failed stamp never fails the sign-up, keeps the fee email, and is logged at error", async () => {
+    attachSpy.mockRejectedValue(new Error("db down"));
+    findUniqueSpy.mockResolvedValue(null);
+
+    await expect(
+      ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys", callerSendsFeeEmail: true }),
+    ).resolves.toBeNull();
+
+    expect(apiLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "presenter-signup:attach-failed", registrationId: "r-paid" }),
+    );
+    // The fee block is still attempted after a failed stamp.
+    expect(findUniqueSpy).toHaveBeenCalled();
+  });
+
+  it("a row that already has an owner is left alone, and that is said in the log", async () => {
+    attachSpy.mockResolvedValue({ count: 0 });
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "presenter-signup:registration-not-attached", registrationId: "r-paid" }),
+    );
   });
 });
 

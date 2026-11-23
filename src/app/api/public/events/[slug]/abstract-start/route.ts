@@ -417,6 +417,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     await ensureSubmitterRegistration({
+      // The account whose password was checked above.
+      accountUserId: user.id,
       speaker: {
         id: speakerId,
         eventId: event.id,

@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### An author's registration belongs to their account from the moment they sign up (November 23, 2026)
+
+Owner: "yes please fix the sign-up."
+
+- **The registration an abstract sign-up makes is now stamped with the account that made it**, on both doors (a new account, and signing in with an existing one). Until today the speaker record was linked to the account and the registration was not, so an author who signed in did not find their own registration on My events until they confirmed their email address, and this sign-up never sends that link
+- **Only the registration the sign-up itself creates.** One the person already held on the event is linked to their speaker record as before and still waits for the confirmed address: somebody else may have made it, and the account has not proven the mailbox (the Nov 5 rule, `registrant-access.ts`)
+- **Worth knowing:** a new author on a paid rate now sees "Complete your payment" with a Pay now button on My events straight after signing up. The sign-up email still says payment is not required to submit, and the Pay Now switch for that email is untouched; paying from the portal is what the author plan expects (A2: paid before the decision means refund, then Complimentary)
+- A failed stamp never fails the sign-up and is logged (`presenter-signup:attach-failed`); the registration then attaches when the address is confirmed, as before
+- **New sign-ups only.** Production had 114 such registrations that day, nearly all on MEHF2027; the owner chose not to attach them by script for now (ROADMAP, "Registrations left out of an account", item 11)
+
 ### A webinar's post-event report, on screen and as a PDF (November 23, 2026)
 
 Owner: "a consolidated post event report which includes attendee count, registrations, Q&A and survey results"; a page with a PDF download, for clients and sponsors, webinars only.
