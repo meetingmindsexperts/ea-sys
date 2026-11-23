@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { normalizeBodyImages, renderAndWrap, signatureHtmlForEmail } from "@/lib/email";
+import { normalizeBodyImages, renderAndWrap, renderMessageValue, renderTemplate, signatureHtmlForEmail, wrapWithBranding } from "@/lib/email";
 
 const SITE = "https://events.example.test";
 const LOGO = '<img src="/uploads/media/2026/10/9820a583.png">';
@@ -46,6 +46,19 @@ describe("a site-relative image address becomes the site's full address", () => 
     expect(normalizeBodyImages('<img src="cid:logo@x" />')).toBe('<img src="cid:logo@x" />');
   });
 
+  it("rewrites the address itself, never a data-src beside it", () => {
+    const out = normalizeBodyImages('<img data-src="/lazy.png" src="/uploads/a.png" />');
+    expect(out).toContain('data-src="/lazy.png"');
+    expect(out).toContain(`src="${SITE}/uploads/a.png"`);
+  });
+
+  it("gives the header and footer images the same base, with one slash", () => {
+    const html = wrapWithBranding("<p>x</p>", { emailHeaderImage: "/uploads/h.png", emailFooterImage: "/uploads/f.png" });
+    expect(html).toContain(`src="${SITE}/uploads/h.png"`);
+    expect(html).toContain(`src="${SITE}/uploads/f.png"`);
+    expect(html).not.toContain(`${SITE}//uploads`);
+  });
+
   it("is the same on a second pass", () => {
     const once = normalizeBodyImages(`${LOGO}${signatureHtmlForEmail(LOGO)}`);
     expect(normalizeBodyImages(once)).toBe(once);
@@ -67,6 +80,20 @@ describe("a signature's image keeps its own size", () => {
     expect(out).toContain('width="120"');
     expect(out).toContain('height="76"');
     expect(out).not.toContain("float");
+  });
+
+  it("keeps a size the author set in the image's style, and gives Outlook the width as an attribute", () => {
+    const out = normalizeBodyImages(signatureHtmlForEmail('<img src="/uploads/a.png" style="width: 135px; max-width: 900px; float: left">'));
+    expect(out).toContain('width="135"');
+    expect(out).toMatch(/style="width: 135px; max-width: 100%;/);
+    expect(out).not.toContain("900px");
+    expect(out).not.toContain("float");
+  });
+
+  it("only the mark itself counts: the words in an alt or a file name do not keep a banner from being fitted", () => {
+    for (const img of ['<img alt="data-keep-size" src="/b.png">', '<img src="/uploads/data-keep-size.png">']) {
+      expect(normalizeBodyImages(img), img).toContain('width="600"');
+    }
   });
 
   it("while a banner in the same body is still fitted to 600px", () => {
@@ -103,10 +130,37 @@ describe("every email that carries a signature", () => {
     expect(images[1]).not.toContain('width="600"');
   });
 
-  it("a CRM email: the service marks the sender's signature before it is placed", () => {
+  it("the token typed INSIDE the message (the compose box) is marked too", () => {
+    // renderMessageValue places the signature before renderAndWrap ever sees it.
+    const message = renderMessageValue("<p>Hello</p>{{organizerSignature}}", { organizerSignature: `<p>Sohail</p>${LOGO}` }, { isHtml: true });
+    const { htmlContent } = renderAndWrap(
+      { subject: "s", htmlContent: "{{message}}", textContent: "t" },
+      { message, organizerSignature: `<p>Sohail</p>${LOGO}` },
+      {},
+      new Set(["message"]),
+    );
+    const [logo] = htmlContent.match(/<img[^>]*>/g)!;
+    expect(logo).toContain(`src="${SITE}/uploads/media/2026/10/9820a583.png"`);
+    expect(logo).not.toContain('width="600"');
+  });
+
+  it("a preview or a test send, which render and wrap by hand, shows what the send shows", () => {
+    // email-preview and the template test send call these two directly.
+    const body = renderTemplate("<p>Body</p>{{organizerSignature}}", { organizerSignature: LOGO });
+    const [logo] = wrapWithBranding(body, {}).match(/<img[^>]*>/g)!;
+    expect(logo).toContain(`src="${SITE}/uploads/media/2026/10/9820a583.png"`);
+    expect(logo).not.toContain('width="600"');
+  });
+
+  it("the plain-text part is not given the mark", () => {
+    const { textContent } = renderAndWrap({ subject: "s", htmlContent: "x", textContent: "{{organizerSignature}}" }, { organizerSignature: LOGO }, {});
+    expect(textContent).not.toContain("data-keep-size");
+  });
+
+  it("a CRM email: the service marks the sender's signature as it loads it, for both of its slots", () => {
     const service = readFileSync(join(process.cwd(), "src/crm/services/sponsor-email-service.ts"), "utf8");
-    expect(service).toContain("signatureHtml: signatureHtmlForEmail(sender?.emailSignature)");
-    // The one place the CRM reads the stored signature.
-    expect(service.match(/emailSignature/g)?.length).toBe(2);
+    expect(service).toMatch(/signatureHtml: signatureHtmlForEmail\(sender\?\.emailSignature\)/);
+    // No second read of the stored signature that could skip the mark.
+    expect(service.match(/\.emailSignature\b/g)?.length).toBe(1);
   });
 });

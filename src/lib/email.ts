@@ -1143,10 +1143,17 @@ export function renderTemplate(
   return normalizeTemplateTokens(template).replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
     const value = variables[key];
     if (value === undefined) return `{{${key}}}`;
-    if (DEFAULT_RAW_HTML_KEYS.has(key) || rawHtmlKeys?.has(key)) return String(value);
-    return escapeHtml(String(value));
+    if (!DEFAULT_RAW_HTML_KEYS.has(key) && !rawHtmlKeys?.has(key)) return escapeHtml(String(value));
+    // The sender's signature: its images are marked to go out at their own
+    // size. Done HERE, where the token is replaced, so it holds wherever the
+    // token sits: in a template, typed inside the message (renderMessageValue),
+    // in a preview or a test send. Marking in one caller missed the rest.
+    return key === SIGNATURE_TOKEN_KEY ? signatureHtmlForEmail(String(value)) : String(value);
   });
 }
+
+/** The token a sender's signature is placed by. */
+const SIGNATURE_TOKEN_KEY = "organizerSignature";
 
 /**
  * Render a template for plain text (no HTML escaping).
@@ -1281,7 +1288,7 @@ function responsiveImageBlock(src: string, alt: string): string {
  */
 export function normalizeBodyImages(html: string): string {
   return html.replace(/<img\b([^>]*?)\/?>/gi, (match, attrs: string) => {
-    if (/\bsrc\s*=\s*["']cid:/i.test(attrs)) return match;
+    if (/(?:^|\s)src\s*=\s*["']cid:/i.test(attrs)) return match;
     const sourced = absoluteImageSrc(attrs);
     if (KEEP_SIZE_RE.test(sourced)) return keptSizeImage(sourced);
     const cleaned = sourced
@@ -1304,42 +1311,61 @@ export function normalizeBodyImages(html: string): string {
  * A full address, `data:` and `cid:` are left as they are.
  */
 function absoluteImageSrc(attrs: string): string {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com").replace(/\/+$/, "");
-  return attrs.replace(/(\bsrc\s*=\s*)(["'])\/(?!\/)/i, (_m, lead: string, quote: string) => `${lead}${quote}${appUrl}/`);
+  // The attribute itself, never `data-src`: a space (or the tag's start) comes before it.
+  return attrs.replace(/((?:^|\s)src\s*=\s*)(["'])\/(?!\/)/i, (_m, lead: string, quote: string) => `${lead}${quote}${emailAssetBase()}/`);
+}
+
+/** The site address an email's own images (and fonts) are fetched from, with no trailing slash. */
+export function emailAssetBase(): string {
+  return (process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com").replace(/\/+$/, "");
 }
 
 /** Marks an image that goes out at its own size (a signature's logo), not stretched to the body's 600px. */
 const KEEP_SIZE_ATTR = "data-keep-size";
-const KEEP_SIZE_RE = /\bdata-keep-size\b/i;
+// As an attribute of its own, not the words inside an `alt` or a file name.
+const KEEP_SIZE_RE = /(?:^|\s)data-keep-size(?:\s*=|\s|$)/i;
 // No `display: block`: the editor places images inline, and a logo beside a line of text must stay beside it.
 const KEPT_SIZE_IMG_STYLE = "max-width: 100%; height: auto; border: 0; outline: none; text-decoration: none;";
 
+/** A pixel size the author set in the image's own `style` (`width: 135px`), or null. Not `max-width`. */
+function styledPixels(attrs: string, property: "width" | "height"): string | null {
+  const style = /\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
+  const found = new RegExp(`(?:^|;|\\s)${property}\\s*:\\s*(\\d+(?:\\.\\d+)?)px`, "i").exec(style?.[1] ?? style?.[2] ?? "");
+  return found ? found[1]! : null;
+}
+
 /**
- * A marked image keeps its own size: any `width` / `height` the author gave
- * stays, nothing is stretched. Only `border` and `style` are reset. The mark is
- * left on, so running the normaliser twice gives the same result.
+ * A marked image keeps its own size: a `width` / `height` the author gave,
+ * as an attribute or in its `style`, stays, and nothing is stretched. The
+ * rest of `style` and `border` are reset. The mark is left on, so running the
+ * normaliser twice gives the same result.
  */
 function keptSizeImage(attrs: string): string {
+  const width = styledPixels(attrs, "width");
+  const height = styledPixels(attrs, "height");
   const cleaned = attrs
     .replace(/\sborder\s*=\s*"[^"]*"/gi, "")
     .replace(/\sborder\s*=\s*'[^']*'/gi, "")
     .replace(/\sstyle\s*=\s*"[^"]*"/gi, "")
     .replace(/\sstyle\s*=\s*'[^']*'/gi, "")
     .trim();
-  return `<img ${cleaned} border="0" style="${KEPT_SIZE_IMG_STYLE}" />`;
+  const sized = `${width ? `width: ${width}px; ` : ""}${height ? `height: ${height}px; ` : ""}`;
+  // Outlook on Windows reads the attribute, not the style.
+  const widthAttr = width && !/(?:^|\s)width\s*=/i.test(cleaned) ? ` width="${Math.round(Number(width))}"` : "";
+  return `<img ${cleaned}${widthAttr} border="0" style="${sized}${height ? KEPT_SIZE_IMG_STYLE.replace("height: auto; ", "") : KEPT_SIZE_IMG_STYLE}" />`;
 }
 
 /**
  * A sender's signature, ready to go into an email: its images are marked to go
  * out at their own size. Without the mark the body rule above stretches every
- * image to 600px, right for a banner and wrong for a 135px logo. Every path
- * that puts `User.emailSignature` into an email passes it through here:
- * `renderAndWrap` does it for `{{organizerSignature}}`, and the CRM for its own
+ * image to 600px, right for a banner and wrong for a 135px logo. Two callers:
+ * `renderTemplate`, wherever the `{{organizerSignature}}` token is replaced (a
+ * template, a typed message, a preview, a test send), and the CRM for its own
  * signature slot.
  */
 export function signatureHtmlForEmail(html: string | null | undefined): string {
   if (!html) return "";
-  return html.replace(/<img\b(?![^>]*\bdata-keep-size\b)/gi, `<img ${KEEP_SIZE_ATTR}="1"`);
+  return html.replace(/<img\b([^>]*)>/gi, (tag: string, attrs: string) => (KEEP_SIZE_RE.test(attrs) ? tag : `<img ${KEEP_SIZE_ATTR}="1"${attrs}>`));
 }
 
 /** " on <product>" after the organisation's name, unless they are the same words. */
@@ -1363,12 +1389,10 @@ function defaultFooterHtml(eventName: string | undefined): string {
  * and footer. Uses table-based layout for email client compatibility.
  */
 export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): string {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
-
   // Convert relative image URLs to absolute
   const resolveSrc = (raw: string | null | undefined): string | null => {
     if (!raw) return null;
-    return raw.startsWith("http") ? raw : `${appUrl}${raw}`;
+    return raw.startsWith("http") ? raw : `${emailAssetBase()}${raw}`;
   };
   const headerSrc = resolveSrc(branding.emailHeaderImage);
   const footerImageSrc = resolveSrc(branding.emailFooterImage);
@@ -2389,8 +2413,6 @@ export function renderAndWrap(
   // already builds its own eventDate keeps winning, so this changes nothing for
   // the paths that were already correct and only fills the holes.
   const vars = { organizerSignature: "", ...(branding.eventVars ?? {}), ...variables };
-  // The signature's images keep their own size (a logo is not a banner).
-  if (typeof vars.organizerSignature === "string") vars.organizerSignature = signatureHtmlForEmail(vars.organizerSignature);
   const subject = renderTemplatePlain(template.subject, plain?.subject ? { ...vars, ...plain.subject } : vars);
   const bodyHtml = renderTemplate(template.htmlContent, vars, rawHtmlKeys);
   const wrapped = wrapWithBranding(bodyHtml, branding);

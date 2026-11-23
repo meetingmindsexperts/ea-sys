@@ -1895,6 +1895,25 @@ paid row; no speaker record means left; the built-in type is refused). Recorded:
   callout on the Registration Types section) is stale since Add Registration, Faculty
   (Nov 10).
 
+## Email images and signatures: what the Nov 23 review left (recorded Nov 23, 2026): not started
+
+Review of `835bf0856` (a signature's logo reaches the mailbox): no BLOCKER, no HIGH, 2 MED and
+5 LOW fixed the same day.
+
+- **LOW, left.** A signature image wider than the email body (about 540px) and with no size set
+  overflows in Outlook on Windows, which ignores `max-width`. Before, it was fitted to 600px (and
+  a small logo was stretched). Reading the file's real width at save time would settle both.
+
+Older defects the review met:
+
+- **A short email whose signature logo falls in its first 400 characters loses the event banner**:
+  `bodyOpensWithImage` in `wrapWithBranding` takes the logo for a banner the author pasted.
+- **The plain-text part carries the signature's raw HTML**, tags and all (`renderTemplatePlain`).
+- **`User.emailSignature` is stored unsanitised** and placed raw (staff only).
+- **An `<img>` whose attribute value holds a `>`** (`alt="a > b"`) is cut short by the tag pattern.
+- **One base address serves every organisation's email images** (`NEXT_PUBLIC_APP_URL`, fixed at
+  build time): a second organisation on its own host would send links to the first one's host.
+
 ## CRM inbox, sent email in its conversation: what the Nov 23 review left (recorded Nov 23, 2026): not started
 
 Review of `11f39169e`: no BLOCKER, no HIGH, 1 MED (a wrong statement, corrected), 4 LOW.
