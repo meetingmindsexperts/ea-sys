@@ -100,6 +100,7 @@ import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-regi
 /** Prefix marking a dropdown value as a saved custom template (value = `template:<slug>`). */
 const SAVED_TEMPLATE_PREFIX = "template:";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import { ResetSurveyDialog } from "@/components/survey/reset-survey-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
@@ -561,6 +562,7 @@ export function RegistrationDetailSheet({
       ? selectedEmailType.slice(SAVED_TEMPLATE_PREFIX.length)
       : EMAIL_TYPE_TO_SLUG[selectedEmailType];
     if (!slug) return;
+    const previewWindow = openEmailPreviewWindow();
     try {
       const result = await previewMutation.mutateAsync({
         slug,
@@ -568,9 +570,13 @@ export function RegistrationDetailSheet({
         // matching the send — not the signed-in operator.
         registrationId: selectedRegistration?.id,
       });
-      setPreviewData(result);
-      setPreviewOpen(true);
+      if (previewWindow) previewWindow.show(result);
+      else {
+        setPreviewData(result);
+        setPreviewOpen(true);
+      }
     } catch {
+      previewWindow?.fail("Failed to generate the preview. Close this window and try again.");
       toast.error("Failed to generate preview");
     }
   };

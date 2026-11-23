@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The email preview opens in its own window (November 23, 2026)
+
+Pressing **Preview** in an email dialog opened a second box on top of the first. It now opens the email in a separate browser window, laid out like an email in an inbox: the subject, a note on whose copy it is (when the send goes to several people), and the email itself at desktop or phone width. The email dialog stays open behind it, and every preview opens in the same window, so changing the wording and pressing Preview again updates it.
+
+- **Everywhere there is a Preview button:** the Send Email dialog (Communications, Registrations, Speakers, Reviewers), a registration's and a speaker's own email, the email template editor, reimbursement, travel grant, RSVP invitations and the speaker form link.
+- **If the browser blocks pop-up windows,** the preview opens in the box over the page as before, so a preview is never lost.
+- **Not shown yet:** the sender. Some emails have their own sender, so the window shows what the preview already knows rather than a guess.
+
 ### Once abstract submissions close, an author can no longer submit from their own portal (November 20)
 
 Closing abstracts (the deadline passing, or "Allow abstract submissions" switched off) closed the public sign-up page only. An author who already had an account could still open their portal and submit: on MEHF2027, closed since November 8, three more abstracts arrived on November 20.

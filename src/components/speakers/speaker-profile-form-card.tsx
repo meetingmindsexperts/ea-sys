@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import { usePreviewEmailBySlug } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { useCan } from "@/hooks/use-can";
@@ -110,6 +111,7 @@ export function SpeakerProfileFormCard({ eventId, speakerId }: Props) {
   }, [base, sendSubject, sendMessage, load]);
 
   const handlePreview = useCallback(async () => {
+    const previewWindow = openEmailPreviewWindow();
     try {
       const result = await previewMutation.mutateAsync({
         slug: "speaker-profile-form-request",
@@ -118,10 +120,14 @@ export function SpeakerProfileFormCard({ eventId, speakerId }: Props) {
         customSubject: sendSubject.trim() || undefined,
         customMessage: sendMessage.trim() || undefined,
       });
-      setPreviewData(result);
-      setPreviewOpen(true);
+      if (previewWindow) previewWindow.show(result);
+      else {
+        setPreviewData(result);
+        setPreviewOpen(true);
+      }
     } catch (err) {
       console.error("speaker-profile-form-card:preview-error", err);
+      previewWindow?.fail(err instanceof Error ? err.message : "Failed to generate the preview.");
       toast.error(err instanceof Error ? err.message : "Failed to generate preview");
     }
   }, [previewMutation, sendSubject, sendMessage, speakerId]);

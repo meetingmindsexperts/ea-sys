@@ -53,6 +53,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
 import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { useEvent, usePreviewEmailBySlug } from "@/hooks/use-api";
@@ -317,6 +318,7 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
   // Renders the real per-event template + the typed overrides — identical to
   // the console's preview (shared /email-preview route, template auto-picked).
   const handlePreview = useCallback(async () => {
+    const previewWindow = openEmailPreviewWindow();
     try {
       const result = await previewMutation.mutateAsync({
         slug: "speaker-reimbursement-invitation",
@@ -325,10 +327,14 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
         customSubject: sendSubject.trim() || undefined,
         customMessage: sendMessage.trim() || undefined,
       });
-      setPreviewData(result);
-      setPreviewOpen(true);
+      if (previewWindow) previewWindow.show(result);
+      else {
+        setPreviewData(result);
+        setPreviewOpen(true);
+      }
     } catch (err) {
       console.error("speaker-reimbursement-card:preview-error", err);
+      previewWindow?.fail(err instanceof Error ? err.message : "Failed to generate the preview.");
       toast.error(err instanceof Error ? err.message : "Failed to generate preview");
     }
   }, [previewMutation, sendSubject, sendMessage, speakerId]);

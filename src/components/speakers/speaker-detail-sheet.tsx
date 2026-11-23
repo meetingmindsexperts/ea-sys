@@ -72,6 +72,7 @@ import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { singleSendSlugFor } from "@/lib/email-template-registry";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
 import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
@@ -254,6 +255,7 @@ export function SpeakerDetailSheet({
       toast.error("Pick an abstract first");
       return;
     }
+    const previewWindow = openEmailPreviewWindow();
     try {
       const result = await previewMutation.mutateAsync({
         slug: emailType === "template" ? selectedTemplateSlug : singleSendSlugFor("speaker", emailType) ?? "",
@@ -265,9 +267,13 @@ export function SpeakerDetailSheet({
         // number/title/theme (same var builder as the send).
         abstractId: emailType === "abstract-confirmation" ? selectedAbstractId : undefined,
       });
-      setPreviewData(result);
-      setPreviewOpen(true);
+      if (previewWindow) previewWindow.show(result);
+      else {
+        setPreviewData(result);
+        setPreviewOpen(true);
+      }
     } catch {
+      previewWindow?.fail("Failed to generate the preview. Close this window and try again.");
       toast.error("Failed to generate preview");
     }
   };

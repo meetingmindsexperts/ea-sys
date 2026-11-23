@@ -60,6 +60,7 @@ import {
   assignedCountOf,
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import { EmailTypePicker, type EmailTypePickerGroup } from "@/components/communications/email-type-picker";
 import { reportSendInvitations } from "@/components/reviewers/send-invitations-toast";
 import { formatPersonName } from "@/lib/utils";
@@ -679,6 +680,7 @@ export function BulkEmailDialog({
         toast.error("Select at least one certificate template to preview the email");
         return;
       }
+      const previewWindow = openEmailPreviewWindow();
       try {
         const result = await previewMutation.mutateAsync({
           slug: "certificate",
@@ -686,9 +688,13 @@ export function BulkEmailDialog({
           customSubject: customSubject.trim() || undefined,
           customMessage: customMessage.trim() || undefined,
         });
-        setPreviewData(result);
-        setPreviewOpen(true);
+if (previewWindow) previewWindow.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) });
+        else {
+          setPreviewData(result);
+          setPreviewOpen(true);
+        }
       } catch (err) {
+        previewWindow?.fail(err instanceof Error ? err.message : "Failed to generate the preview.");
         toast.error(err instanceof Error ? err.message : "Failed to generate preview");
       }
       return;
@@ -696,11 +702,16 @@ export function BulkEmailDialog({
     if (isReviewerInvitation) {
       // One chosen reviewer: their own copy (their name, and whether they are
       // sent the set-password link). Several: a new reviewer's copy.
+      const previewWindow = openEmailPreviewWindow();
       try {
         const result = await previewMutation.mutateAsync({ slug: REVIEWER_INVITATION_TYPE, reviewerId: onlyReviewerId });
-        setPreviewData(result);
-        setPreviewOpen(true);
+if (previewWindow) previewWindow.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) });
+        else {
+          setPreviewData(result);
+          setPreviewOpen(true);
+        }
       } catch (err) {
+        previewWindow?.fail(err instanceof Error ? err.message : "Failed to generate the preview.");
         toast.error(err instanceof Error ? err.message : "Failed to generate preview");
       }
       return;
@@ -712,6 +723,10 @@ export function BulkEmailDialog({
       toast.error("Preview isn't available for this email type.");
       return;
     }
+    // The preview opens in its own window, opened here before the request
+    // (a browser allows it only while answering the click); null when blocked,
+    // and the dialog shows instead (email-preview-window.ts).
+    const previewWindow = openEmailPreviewWindow();
     try {
       const result = await previewMutation.mutateAsync({
         slug,
@@ -727,9 +742,13 @@ export function BulkEmailDialog({
           },
         }),
       });
-      setPreviewData(result);
-      setPreviewOpen(true);
+if (previewWindow) previewWindow.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) });
+      else {
+        setPreviewData(result);
+        setPreviewOpen(true);
+      }
     } catch (err) {
+      previewWindow?.fail(err instanceof Error ? err.message : "Failed to generate the preview.");
       toast.error(err instanceof Error ? err.message : "Failed to generate preview");
     }
   };

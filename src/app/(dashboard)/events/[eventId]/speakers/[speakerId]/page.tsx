@@ -77,6 +77,7 @@ import { useSessionRoleDefs } from "@/hooks/use-session-roles";
 import { sessionRoleLabel } from "@/lib/session-roles";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
 import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
@@ -315,6 +316,7 @@ export default function SpeakerDetailPage() {
       toast.error("Pick an abstract first");
       return;
     }
+    const previewWindow = openEmailPreviewWindow();
     try {
       const result = await previewMutation.mutateAsync({
         slug: emailType === "template" ? selectedTemplateSlug : singleSendSlugFor("speaker", emailType) ?? "",
@@ -326,9 +328,13 @@ export default function SpeakerDetailPage() {
         // number/title/theme (same var builder as the send).
         abstractId: emailType === "abstract-confirmation" ? selectedAbstractId : undefined,
       });
-      setPreviewData(result);
-      setPreviewOpen(true);
+      if (previewWindow) previewWindow.show(result);
+      else {
+        setPreviewData(result);
+        setPreviewOpen(true);
+      }
     } catch {
+      previewWindow?.fail("Failed to generate the preview. Close this window and try again.");
       toast.error("Failed to generate preview");
     }
   };

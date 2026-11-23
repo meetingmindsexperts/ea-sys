@@ -41,6 +41,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import { usePreviewEmailBySlug } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ResidencyBadge, GrantStatusLabel } from "@/components/travel-grant/travel-grant-badges";
@@ -216,6 +217,7 @@ export default function TravelGrantsPage() {
   // representative, July 29, 2026).
   const handlePreview = useCallback(async () => {
     if (!sendTarget) return;
+    const previewWindow = openEmailPreviewWindow();
     try {
       const result = await previewMutation.mutateAsync({
         slug: "travel-grant-invitation",
@@ -223,10 +225,14 @@ export default function TravelGrantsPage() {
         customSubject: sendSubject.trim() || undefined,
         customMessage: sendMessage.trim() || undefined,
       });
-      setPreviewData(result);
-      setPreviewOpen(true);
+      if (previewWindow) previewWindow.show(result);
+      else {
+        setPreviewData(result);
+        setPreviewOpen(true);
+      }
     } catch (err) {
       console.error("travel-grants:preview-error", err);
+      previewWindow?.fail(err instanceof Error ? err.message : "Couldn't build the preview.");
       toast.error(err instanceof Error ? err.message : "Couldn't build the preview.");
     }
   }, [previewMutation, sendTarget, sendSubject, sendMessage]);

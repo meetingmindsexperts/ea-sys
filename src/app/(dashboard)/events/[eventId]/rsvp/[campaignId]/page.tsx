@@ -44,6 +44,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { ImportInviteesDialog } from "@/components/rsvp/import-invitees-dialog";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import {
   Select,
   SelectContent,
@@ -394,16 +395,21 @@ export default function RsvpCampaignConsole() {
     setSendDialog(true);
   };
   const openPreview = async () => {
+    const previewWindow = openEmailPreviewWindow();
     try {
       const result = await previewMutation.mutateAsync({
         slug: sendTemplateSlug,
         customSubject: sendSubject.trim() || undefined,
         customMessage: sendMessage.trim() || undefined,
       });
-      setPreviewData(result);
-      setPreviewOpen(true);
+      if (previewWindow) previewWindow.show(result);
+      else {
+        setPreviewData(result);
+        setPreviewOpen(true);
+      }
     } catch (err) {
       console.error("rsvp-console:preview-error", err);
+      previewWindow?.fail(err instanceof Error ? err.message : "Failed to generate the preview.");
       toast.error(err instanceof Error ? err.message : "Failed to generate preview");
     }
   };

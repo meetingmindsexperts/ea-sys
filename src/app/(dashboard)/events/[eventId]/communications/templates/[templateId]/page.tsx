@@ -44,6 +44,7 @@ import {
   useDeleteEmailTemplate,
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
 import { toast } from "sonner";
@@ -184,6 +185,9 @@ export default function EmailTemplateEditorPage() {
   }, [deleteMutation, templateId, router, eventId]);
 
   const handlePreview = useCallback(async () => {
+    // Opened before the save and the request: a browser allows a window only
+    // while answering the click (email-preview-window.ts).
+    const previewWindow = openEmailPreviewWindow();
     try {
       // Save first if dirty
       if (dirty) {
@@ -193,15 +197,23 @@ export default function EmailTemplateEditorPage() {
         templateId,
         action: "preview",
       });
-      if (result.htmlContent) {
+      if (!result.htmlContent) {
+        previewWindow?.fail("This template has no content to preview yet.");
+        return;
+      }
+      // The route's subject has its tokens filled as the send fills them; the
+      // editor's own text still reads {{eventName}}.
+      if (previewWindow) previewWindow.show({ subject: result.subject || subject, htmlContent: result.htmlContent });
+      else {
         setPreviewHtml(result.htmlContent);
         setPreviewOpen(true);
       }
     } catch (err) {
       console.error("[email-template] operation failed", err);
+      previewWindow?.fail("Failed to generate the preview. Close this window and try again.");
       toast.error("Failed to generate preview");
     }
-  }, [dirty, saveNow, previewMutation, templateId]);
+  }, [dirty, saveNow, previewMutation, templateId, subject]);
 
   const handleTestEmail = useCallback(async () => {
     try {

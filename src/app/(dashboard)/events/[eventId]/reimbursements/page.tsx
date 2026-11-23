@@ -46,6 +46,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
 import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { useEmailTemplates, useEvent, usePreviewEmailBySlug, useSpeakers } from "@/hooks/use-api";
@@ -431,6 +432,7 @@ export default function ReimbursementsPage() {
   // edited) template + the typed subject/message overrides, with real event
   // branding + sample per-recipient values.
   const handlePreview = useCallback(async () => {
+    const previewWindow = openEmailPreviewWindow();
     try {
       const result = await previewMutation.mutateAsync({
         slug: "speaker-reimbursement-invitation",
@@ -440,10 +442,14 @@ export default function ReimbursementsPage() {
         customSubject: sendSubject.trim() || undefined,
         customMessage: sendMessage.trim() || undefined,
       });
-      setPreviewData(result);
-      setPreviewOpen(true);
+      if (previewWindow) previewWindow.show(result);
+      else {
+        setPreviewData(result);
+        setPreviewOpen(true);
+      }
     } catch (err) {
       console.error("reimbursements:preview-error", err);
+      previewWindow?.fail(err instanceof Error ? err.message : "Failed to generate the preview.");
       toast.error(err instanceof Error ? err.message : "Failed to generate preview");
     }
   }, [previewMutation, sendRow, sendSubject, sendMessage]);
