@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM inbox: a sent email shows in its conversation (November 23, 2026)
+
+Reported by the owner with a screenshot: a conversation opened on one line, "Please find our message below / attached.", and the email Sohail had just sent was nowhere to be read.
+
+- **A composed CRM email now shows in its conversation as it was sent.** An email composed in the CRM (a deal email, a blast) is HTML, and its plain-text part is only that cover line. The conversation view shows a message's text first, so it showed the cover line. It has done so for every composed email since the inbox was built (16 on production). The recipient always received the full email; only our own view of it was empty
+- **The rule** (`sentHtmlToShow` in `src/crm/lib/inbox-message-text.ts`): an OUTBOUND message whose stored text is only the cover line shows its HTML, in the same locked-down frame the view already used (no scripts, no same-origin). A reply typed in the inbox and a sponsor's reply still show as text; a sponsor's HTML is never preferred, whatever its text says
+- **Nothing that is sent changes**, and no stored row is rewritten: the 16 old conversations read correctly as they are. The send and the view share one constant for the cover line, pinned by a test
+- **Not done**: a sent email's attachments are not listed in the conversation (they are sent; the conversation row has never recorded them)
+- Also learned while answering "why is it not in his Outlook": a CRM email leaves through Amazon SES, never through Outlook, so it is in nobody's Sent Items; the sender's copy is a BCC that arrives in their Inbox. And production has recorded no delivery or bounce report since November 18 (103 in all, the last that day, against 279 emails sent in the three days before this), so "was it delivered" cannot be answered from our side today; why the reports stopped is not yet known (see `docs/runbook-ses.md`)
+
 ### "Send to all 0" no longer sends, and a list that failed to load says so (November 23, 2026)
 
 The number in the Send Email dialog is counted in the browser, from the list the page has loaded. Who an "everyone matching" email goes to is worked out by the server. So when the dialog said **Send to all 0 registrations**, pressing Send still emailed everyone the filters matched. It needed a list that had failed to load and a click on a saved-template tile, so it was unlikely, but the screen said nobody and the send was real.

@@ -49,7 +49,7 @@ import {
   type CrmInboxFilters,
 } from "@/crm/hooks/use-crm-api";
 import type { CrmInboxMessageRow, CrmInboxThreadRow } from "@/crm/lib/crm-types";
-import { collapseLongText, linkifyEmailText, splitQuotedHistory, tidyEmailText } from "@/crm/lib/inbox-message-text";
+import { collapseLongText, linkifyEmailText, sentHtmlToShow, splitQuotedHistory, tidyEmailText } from "@/crm/lib/inbox-message-text";
 
 function threadTitle(t: CrmInboxThreadRow): string {
   if (t.crmContact) return `${t.crmContact.firstName} ${t.crmContact.lastName}`.trim();
@@ -126,19 +126,24 @@ function PlainTextBody({ text }: { text: string }) {
   );
 }
 
+/** An email's own HTML, sandboxed: no scripts, no same-origin access. */
+function HtmlBody({ html, tall = false }: { html: string; tall?: boolean }) {
+  return (
+    <iframe
+      sandbox=""
+      srcDoc={html}
+      title="Email content"
+      className={`w-full rounded bg-white ${tall ? "h-[28rem] resize-y border" : "h-64 border-0"}`}
+    />
+  );
+}
+
 function MessageBody({ message }: { message: CrmInboxMessageRow }) {
+  // A composed email's text part is only a cover line: show what was sent.
+  const sentHtml = sentHtmlToShow(message);
+  if (sentHtml) return <HtmlBody html={sentHtml} tall />;
   if (message.textBody) return <PlainTextBody text={message.textBody} />;
-  if (message.htmlBody) {
-    return (
-      // Sender-authored HTML — sandboxed: no scripts, no same-origin access.
-      <iframe
-        sandbox=""
-        srcDoc={message.htmlBody}
-        title="Email content"
-        className="h-64 w-full rounded border-0 bg-white"
-      />
-    );
-  }
+  if (message.htmlBody) return <HtmlBody html={message.htmlBody} />;
   return <p className="text-muted-foreground italic">(no content)</p>;
 }
 

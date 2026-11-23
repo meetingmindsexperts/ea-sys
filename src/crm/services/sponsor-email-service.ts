@@ -40,6 +40,7 @@ import { crmEmailIdentity, type CrmEmailIdentity } from "@/lib/crm-email-identit
 import { extensionMatches, fileExtension, signatureMatches, typeFromExtension } from "@/lib/file-signature";
 import { crmEvents, EVENT_EMAIL_FIELDS } from "@/crm/integrations/events";
 import { dealsOfEventWhere } from "@/crm/lib/deal-attribution";
+import { CRM_COVER_TEXT } from "@/crm/lib/inbox-message-text";
 import {
   CRM_EMAIL_TOKEN_RE,
   SIGNATURE_TOKEN_RE,
@@ -57,7 +58,8 @@ const BATCH_SIZE = 25;
  *  `message` (the sender's HTML) and `signature` are inserted raw. */
 const GREETING_HTML = `<p style="margin:0 0 8px">Dear {{firstName}},</p>\n`;
 const BODY_TEMPLATE = `{{message}}\n{{signature}}`;
-const TEXT_TEMPLATE = "Please find our message below / attached.\n";
+// The cover line the inbox recognises (inbox-message-text.ts): one constant, so the view cannot drift from the send.
+const TEXT_TEMPLATE = `${CRM_COVER_TEXT}\n`;
 const RAW_KEYS = new Set(["message", "signature"]);
 
 // Only the CRM tokens (crm-email-tokens.ts) are substituted inside the sender-
