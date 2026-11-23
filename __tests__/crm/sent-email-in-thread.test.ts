@@ -1,19 +1,20 @@
 /**
- * A composed CRM email shows in its conversation as what was SENT (Nov 23, 2026).
+ * An email the CRM sent shows in its conversation as what was SENT (Nov 23, 2026).
  *
- * The inbox shows a message's text first. A composed email's text part is only
- * a cover line ("Please find our message below / attached."), because the
- * message itself is HTML, so the conversation opened on that line and the
- * email was nowhere to be read: every composed email since the inbox was built
- * (16 on production the day it was reported). The view now shows the HTML for
- * exactly those, and the text for everything else.
+ * The inbox shows a message's text first. The text part of every email the CRM
+ * itself sends (composed, a blast, a reply typed in the inbox) is only a cover
+ * line ("Please find our message below / attached."), because the message is
+ * HTML, so the conversation showed that line and the email was nowhere to be
+ * read: every one since the inbox was built (16 on production the day it was
+ * reported). The view now shows the HTML for exactly those, and the text for
+ * everything else (a sponsor's mail, and our own mail captured from Outlook).
  *
  * The texts below are the ones production holds.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CRM_COVER_TEXT, isCoverTextOnly, sentHtmlToShow } from "@/crm/lib/inbox-message-text";
+import { CRM_COVER_GREETING, CRM_COVER_TEXT, isCoverTextOnly, sentHtmlToShow } from "@/crm/lib/inbox-message-text";
 
 const HTML = "<table><tr><td><p>Dear Sara,</p><p>The real message.</p></td></tr></table>";
 
@@ -22,6 +23,13 @@ describe("isCoverTextOnly", () => {
     expect(isCoverTextOnly("Please find our message below / attached.\n")).toBe(true);
     expect(isCoverTextOnly("Dear Jon,\n\nPlease find our message below / attached.\n")).toBe(true);
     expect(isCoverTextOnly("Dear Dr. María José O'Neil-Smith,\r\n\r\nPlease find our message below / attached.\r\n")).toBe(true);
+  });
+
+  it("knows whatever the service's own greeting and cover line produce, for any name", () => {
+    // Built from the constants the service sends with: change the greeting's words and this still holds.
+    for (const name of ["Sara", "", "Smith, John", "Dr. María José O'Neil-Smith", "x".repeat(150)]) {
+      expect(isCoverTextOnly(`${CRM_COVER_GREETING.replace("{{firstName}}", name)}\n\n${CRM_COVER_TEXT}\n`), name).toBe(true);
+    }
   });
 
   it("is false for a real message, even one that quotes the line or ends with it", () => {
@@ -46,7 +54,11 @@ describe("sentHtmlToShow", () => {
     expect(sentHtmlToShow({ direction: "OUTBOUND", textBody: cover, htmlBody: HTML })).toBe(HTML);
   });
 
-  it("keeps the text of a reply typed in the inbox", () => {
+  it("shows the HTML of a reply typed in the inbox too: it is sent the same way, with the same cover line", () => {
+    expect(sentHtmlToShow({ direction: "OUTBOUND", textBody: "Please find our message below / attached.\n", htmlBody: "<p>ok thanks</p>" })).toBe("<p>ok thanks</p>");
+  });
+
+  it("keeps the text of our own mail captured from the mailbox, whose text is the message", () => {
     expect(sentHtmlToShow({ direction: "OUTBOUND", textBody: "hi this is a test", htmlBody: "<p>hi this is a test</p>" })).toBeNull();
   });
 
@@ -65,17 +77,27 @@ describe("the send and the view share one cover line", () => {
   const service = readFileSync(join(process.cwd(), "src/crm/services/sponsor-email-service.ts"), "utf8");
   const inbox = readFileSync(join(process.cwd(), "src/crm/components/crm-inbox.tsx"), "utf8");
 
-  it("the service builds its text part from the constant, never from its own copy of the words", () => {
+  it("the service builds its text part from the constants, never from its own copy of the words", () => {
     expect(service).toContain("const TEXT_TEMPLATE = `${CRM_COVER_TEXT}\\n`;");
+    expect(service).toContain("`${CRM_COVER_GREETING}\\n\\n`");
     expect(service).not.toContain("Please find our message below");
+    expect(service).not.toMatch(/textGreeting = greeting \? "Dear/);
+  });
+
+  it("every email the service records is one it rendered: one writer of the conversation row", () => {
+    // If a second writer appears with a real text part, the rule above needs a look.
+    expect(service.match(/recordOutboundEmail\(/g)?.length).toBe(1);
+    expect(service).toContain("textBody: rendered.textContent ?? null");
   });
 
   it("the conversation view asks the rule before it shows the text", () => {
     const body = inbox.slice(inbox.indexOf("function MessageBody("), inbox.indexOf("function MessageBubble("));
-    expect(body.indexOf("sentHtmlToShow(message)")).toBeGreaterThan(-1);
+    // Asked, and its answer RETURNED, before the text is.
+    expect(body).toMatch(/const sentHtml = sentHtmlToShow\(message\);\s*if \(sentHtml\) return <HtmlBody html=\{sentHtml\}/);
     expect(body.indexOf("sentHtmlToShow(message)")).toBeLessThan(body.indexOf("PlainTextBody"));
-    // The frame stays locked down: no scripts, no access to the page around it.
-    expect(inbox).toContain('sandbox=""');
-    expect(inbox).not.toMatch(/sandbox="[^"]*allow/);
+    // Every frame in the file stays locked down: no scripts, no access to the page around it.
+    const frames = inbox.match(/<iframe\b/g)?.length ?? 0;
+    expect(frames).toBeGreaterThanOrEqual(1);
+    expect(inbox.match(/sandbox=""/g)?.length).toBe(frames);
   });
 });

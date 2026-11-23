@@ -207,28 +207,35 @@ export function linkifyEmailText(text: string): TextPart[] {
 // ── a composed CRM email's own text part ─────────────────────────────────────
 
 /**
- * The whole plain-text part of a CRM email composed in the app (a deal email, a
- * blast): a cover line, because the message itself is HTML. sponsor-email-service
- * sends it and stores it on the conversation, so the two cannot drift.
+ * The whole plain-text part of every email the CRM sends (a deal email, a
+ * blast, a reply typed in the inbox): a cover line, because the message itself
+ * is HTML. sponsor-email-service builds its text from these two constants and
+ * stores it on the conversation, so the view cannot drift from the send.
  */
 export const CRM_COVER_TEXT = "Please find our message below / attached.";
+/** The greeting line the text part opens with, unless the message opens with its own. */
+export const CRM_COVER_GREETING = "Dear {{firstName}},";
 
-/** True when a stored text is only that cover line, with or without its "Dear X," greeting. */
+const [GREETING_OPENS, GREETING_CLOSES] = CRM_COVER_GREETING.split("{{firstName}}") as [string, string];
+
+/** True when a stored text is only that cover line, with or without its greeting. */
 export function isCoverTextOnly(text: string | null | undefined): boolean {
   if (!text) return false;
   const flat = text.replace(/\s+/g, " ").trim();
   if (flat === CRM_COVER_TEXT) return true;
-  return flat.startsWith("Dear ") && flat.endsWith(`, ${CRM_COVER_TEXT}`) && flat.length <= CRM_COVER_TEXT.length + 220;
+  return flat.startsWith(GREETING_OPENS) && flat.endsWith(`${GREETING_CLOSES} ${CRM_COVER_TEXT}`) && flat.length <= CRM_COVER_TEXT.length + 220;
 }
 
 /**
  * The HTML to show for a message INSTEAD of its text, or null to show the text.
  *
- * The inbox shows text first, which is right for a sponsor's reply and for a
- * reply typed in the inbox. A composed email is the exception: its text part is
- * the cover line above, so the conversation opened on "Please find our message
- * below / attached." and never showed what was sent (every composed email since
- * the inbox was built; found Nov 23, 2026). For those, what was sent is the HTML.
+ * The inbox shows text first, which is right for a sponsor's reply and for our
+ * own mail captured from the mailbox (written in Outlook, so its text is real).
+ * An email the CRM itself sent is the exception, a reply typed in the inbox
+ * included: its text part is the cover line above, so the conversation showed
+ * "Please find our message below / attached." and never what was sent (every
+ * one since the inbox was built; found Nov 23, 2026). For those, what was sent
+ * is the HTML.
  */
 export function sentHtmlToShow(message: { direction: string; textBody?: string | null; htmlBody?: string | null }): string | null {
   if (message.direction !== "OUTBOUND" || !message.htmlBody) return null;

@@ -40,7 +40,7 @@ import { crmEmailIdentity, type CrmEmailIdentity } from "@/lib/crm-email-identit
 import { extensionMatches, fileExtension, signatureMatches, typeFromExtension } from "@/lib/file-signature";
 import { crmEvents, EVENT_EMAIL_FIELDS } from "@/crm/integrations/events";
 import { dealsOfEventWhere } from "@/crm/lib/deal-attribution";
-import { CRM_COVER_TEXT } from "@/crm/lib/inbox-message-text";
+import { CRM_COVER_GREETING, CRM_COVER_TEXT } from "@/crm/lib/inbox-message-text";
 import {
   CRM_EMAIL_TOKEN_RE,
   SIGNATURE_TOKEN_RE,
@@ -58,7 +58,7 @@ const BATCH_SIZE = 25;
  *  `message` (the sender's HTML) and `signature` are inserted raw. */
 const GREETING_HTML = `<p style="margin:0 0 8px">Dear {{firstName}},</p>\n`;
 const BODY_TEMPLATE = `{{message}}\n{{signature}}`;
-// The cover line the inbox recognises (inbox-message-text.ts): one constant, so the view cannot drift from the send.
+// The cover line and its greeting, as the inbox recognises them (inbox-message-text.ts): shared constants, so the view cannot drift from the send.
 const TEXT_TEMPLATE = `${CRM_COVER_TEXT}\n`;
 const RAW_KEYS = new Set(["message", "signature"]);
 
@@ -568,7 +568,7 @@ function renderForRecipient(
   const placesSignature = escaped.search(SIGNATURE_TOKEN_RE) >= 0;
   const personalizedMessage = escaped.replace(SIGNATURE_TOKEN_RE, () => ctx.signatureHtml);
   const greeting = startsWithGreeting(personalizedMessage) ? "" : GREETING_HTML;
-  const textGreeting = greeting ? "Dear {{firstName}},\n\n" : "";
+  const textGreeting = greeting ? `${CRM_COVER_GREETING}\n\n` : "";
   return renderAndWrap(
     { subject: ctx.subject, htmlContent: greeting + BODY_TEMPLATE, textContent: textGreeting + TEXT_TEMPLATE },
     { ...tokenVars, message: personalizedMessage, signature: placesSignature ? "" : ctx.signatureHtml },

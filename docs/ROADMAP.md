@@ -1895,6 +1895,27 @@ paid row; no speaker record means left; the built-in type is refused). Recorded:
   callout on the Registration Types section) is stale since Add Registration, Faculty
   (Nov 10).
 
+## CRM inbox, sent email in its conversation: what the Nov 23 review left (recorded Nov 23, 2026): not started
+
+Review of `11f39169e`: no BLOCKER, no HIGH, 1 MED (a wrong statement, corrected), 4 LOW.
+
+- **LOW, left.** A link clicked inside a sent email's frame opens inside the frame (the frame is
+  fully locked: no new tabs, no top navigation), with no way back but reopening the conversation.
+  Opening links in a new tab means loosening the frame's lock, a decision, not a tidy-up.
+- **LOW, left.** Each sent email is a fixed-height frame that scrolls on its own; a long
+  back-and-forth of inbox replies is a stack of them. Resizing by hand works in Chrome.
+
+Older defects the review met, not introduced by the commit:
+
+- **MED (privacy).** The contact export (`crm-privacy-service.ts`) writes only `textBody` for each
+  CRM email, so for every email WE sent the person it gives the cover line, not the message. A
+  subject-access export should carry what was sent (`htmlBody`, or its text).
+- **LOW.** Remote images load inside the frame. A sponsor's HTML-only message (the older fallback
+  path) can carry a tracking pixel that fires when staff open the conversation.
+- **Delivery reports stopped on November 18.** Production holds 103 delivery or bounce reports, the
+  last on Nov 18, and none for the 279 emails of Nov 20 to 23. Not yet investigated
+  (`docs/runbook-ses.md`, `SES_EVENTS_TOPIC_ARN`).
+
 ## CRM admin-only catalogue and Reports: what the Nov 12 review left (recorded Nov 12, 2026): not started
 
 Review of `3f2959f5` (the product catalogue and Reports are for admins): no BLOCKER, no HIGH,
