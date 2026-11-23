@@ -36,6 +36,7 @@ import { ReplayPlayer } from "@/components/webinar/replay-player";
 import { isWebinarOver, webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { PublicEventNotice } from "@/components/public/event-notice";
+import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
 import { cn, formatPersonName } from "@/lib/utils";
 import {
   DEFAULT_EVENT_TIMEZONE,
@@ -108,6 +109,11 @@ interface JoinInfo {
 }
 
 const NOT_ACTIVE_CODES = new Set(["PENDING_APPROVAL", "WAITLISTED", "PAYMENT_OUTSTANDING"]);
+
+/** The address was just confirmed, so the registration is in the account now: ask to join again. */
+function reloadPage(): void {
+  window.location.reload();
+}
 
 type JoinAuthState =
   | { kind: "ok" }
@@ -1487,31 +1493,41 @@ function StickyCta({
     );
   }
 
-  // Live or upcoming, viewer is signed in but not registered for this event.
+  // Live or upcoming, viewer is signed in but holds no registration for this
+  // event in the account. That is also what someone sees who DID register,
+  // with this address but signed out: the registration joins the account only
+  // once the address is confirmed (registrant-access.ts). So an unconfirmed
+  // account is offered the confirmation link first (it renders nothing for a
+  // confirmed one), and Register stays for whoever really has not registered:
+  // without it this card was a dead end, because registering again is refused
+  // as "already registered" (five delegates of one webinar, Nov 23, 2026).
   if (!joinInfo && authState.kind === "needs-registration" && !isPast) {
     return (
-      <Card className="border-amber-200 bg-amber-50/70 shadow-sm">
-        <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
-          <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-            <UserPlus className="h-6 w-6 text-amber-600" />
-          </div>
-          <div className="flex-1 text-center sm:text-left">
-            <p className="font-semibold">Register to join</p>
-            <p className="text-xs text-muted-foreground">
-              You must be registered for this event before joining the webinar.
-            </p>
-          </div>
-          <Link href={`/e/${slug}/register`}>
-            <Button
-              size="lg"
-              className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
-            >
-              <UserPlus className="h-4 w-4" />
-              Register
-            </Button>
-          </Link>
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        <ConfirmEmailNotice forWebinar onConfirmed={reloadPage} />
+        <Card className="border-amber-200 bg-amber-50/70 shadow-sm">
+          <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
+            <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+              <UserPlus className="h-6 w-6 text-amber-600" />
+            </div>
+            <div className="flex-1 text-center sm:text-left">
+              <p className="font-semibold">Register to join</p>
+              <p className="text-xs text-muted-foreground">
+                You must be registered for this event before joining the webinar.
+              </p>
+            </div>
+            <Link href={`/e/${slug}/register`}>
+              <Button
+                size="lg"
+                className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                <UserPlus className="h-4 w-4" />
+                Register
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 

@@ -29,6 +29,7 @@ const CONFIRMATION_TEMPLATE_SLUG: Record<EmailConfirmationPurpose, string> = {
   registrations: "email-confirmation",
   speaker: "email-confirmation",
   account: "account-confirmation",
+  attach: "email-confirmation",
 };
 const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 

@@ -221,6 +221,36 @@ describe("an existing account takes a new registration only with proof (re-revie
     expect(mockDb.registration.update).not.toHaveBeenCalled();
   });
 
+  // Nov 23, 2026: the form said the registration would show "after you confirm
+  // your email address" and nothing sent the link. On a webinar, watched from
+  // the account, five delegates were about to be told they were not registered.
+  it("sends that account's address the confirmation link, since the registration waits on it", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-x", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: null, passwordHash: "h" });
+    await ensureRegistrantAccount(base);
+    expect(sendVerifySpy).toHaveBeenCalledTimes(1);
+    expect(sendVerifySpy).toHaveBeenCalledWith({ email: "jane@example.com", name: "Jane Doe", purpose: "attach", organizationId: "org1" });
+    expect(warnSpy).toHaveBeenCalledWith(expect.objectContaining({ msg: "registrant-account:existing-account-not-proven" }));
+  });
+
+  it("sends it for a desk registration too (no password at all)", async () => {
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-x", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: null, passwordHash: "h" });
+    expect(await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true })).toBe("none");
+    expect(sendVerifySpy).toHaveBeenCalledWith(expect.objectContaining({ purpose: "attach" }));
+  });
+
+  it("never sends it to an account that took the registration, or for a guest", async () => {
+    // Confirmed: linked, nothing to confirm.
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-x", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: new Date(), passwordHash: "h" });
+    expect(await ensureRegistrantAccount(base)).toBe("linked");
+    // The right password: linked, and nothing else waits on the address.
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-x", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: null, passwordHash: "h" });
+    compareSpy.mockResolvedValue(true);
+    expect(await ensureRegistrantAccount(base)).toBe("linked");
+    // A guest: no account is looked up at all.
+    expect(await ensureRegistrantAccount({ ...base, password: undefined })).toBe("none");
+    expect(sendVerifySpy).not.toHaveBeenCalled();
+  });
+
   it("linkOnly (the caller verified the signed-in session) links an unconfirmed account", async () => {
     mockDb.user.findFirst.mockResolvedValue({ id: "u-x", role: "REGISTRANT", termsAcceptedAt: new Date(), emailConfirmedAt: null });
     expect(await ensureRegistrantAccount({ ...base, password: undefined, withoutPassword: true, linkOnly: true })).toBe("linked");

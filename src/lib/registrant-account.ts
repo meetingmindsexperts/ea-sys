@@ -15,6 +15,9 @@ import { hasUnclaimedRegistrations, linkConfirmedRegistrations } from "@/lib/reg
  * (User.emailConfirmedAt, src/lib/registrant-access.ts); until then it is sent
  * a confirmation link. Nov 5, 2026: before, they were swept in on the spot, so
  * registering with someone else's address showed their earlier registrations.
+ * An existing account that cannot be shown to be the same person (not signed
+ * in, another password, never confirmed) does not get THIS registration
+ * either, and is sent the same link (Nov 23, 2026).
  *
  * Shared by the public `register` route and the token-gated
  * `complete-registration` route — the two carried byte-identical ~60-line copies
@@ -97,6 +100,14 @@ export async function ensureRegistrantAccount(args: {
         (!!password && !!existingUser.passwordHash && (await bcrypt.compare(password, existingUser.passwordHash))));
     if (existingUser && !provenOwner) {
       apiLogger.warn({ msg: "registrant-account:existing-account-not-proven", registrationId, eventId });
+      // The registration stays out of the account until the address is
+      // confirmed, so send the link that confirms it. Until Nov 23, 2026
+      // nothing did: the form said "after you confirm your email address" and
+      // no email followed, and on a webinar (watched from the account) the
+      // person was told on the day that they were not registered. The link
+      // goes to the address itself and still asks for the account's password
+      // (verify-email), so it hands nothing to whoever typed the address.
+      void sendEmailVerification({ email, name: `${firstName} ${lastName}`, purpose: "attach", organizationId });
       return "none";
     }
 

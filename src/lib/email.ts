@@ -1641,6 +1641,9 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
      * earlier under it appear on My events (Nov 5, 2026).
      * "speaker": claiming a speaker profile the organisers made.
      * "account": an account made at /signup, which signs in only once confirmed.
+     * "attach": a registration made with an address that already has an
+     * account, without proof it is the same person (not signed in, another
+     * password), so it was left out of the account (Nov 23, 2026).
      */
     purpose?: EmailConfirmationPurpose;
     /** The attendee-facing brand for the footer; omitted, the staff default. */
@@ -1650,7 +1653,11 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
     // The link asks for the account's password (or a signed-in session), so
     // only the person who made the account can confirm it.
     const how = "Open the link and enter your password to confirm.";
+    // The password typed on the registration form was not the account's (or
+    // none was typed), so say which one the link asks for.
+    const howAttach = "Open the link and enter the password of the account you already had, not one typed on the registration form.";
     const why = {
+      attach: `A registration was just made with this email address, which already has an account, without signing in to it. Confirm the address and the registration joins that account: a webinar is watched from the account, and My events lists the registration there. ${howAttach}`,
       account: `Someone, hopefully you, created an account with this email address. Confirm it to finish and to sign in for the first time. ${how}`,
       registrations: `Please confirm your email address so we can show every registration made under it on My events. Your new registration works either way. ${how}`,
       speaker: `The organisers already have a speaker profile for this address. Confirm it is yours to take the profile over and submit. ${how}`,
@@ -1658,10 +1665,13 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
     }[purpose];
     const heading = purpose === "account" ? "Confirm your account" : "Verify your email";
     const button = purpose === "account" ? "Confirm my account" : "Verify my email";
-    const ignore =
-      purpose === "account"
-        ? "Didn't create an account? Ignore this email and nothing happens. An account that is never confirmed is removed after 30 days."
-        : "If you didn't create this account, you can safely ignore this email.";
+    const ignore = {
+      account: "Didn't create an account? Ignore this email and nothing happens. An account that is never confirmed is removed after 30 days.",
+      attach: "Forgotten that password? Reset it from the sign-in page first, then open this link again. If you did not register, you can ignore this email.",
+      registrations: "If you didn't create this account, you can safely ignore this email.",
+      speaker: "If you didn't create this account, you can safely ignore this email.",
+      team: "If you didn't create this account, you can safely ignore this email.",
+    }[purpose];
     const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">${heading}</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Confirm this address belongs to you</p>
@@ -1674,7 +1684,9 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
     ${params.expiresIn ? `<p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Note:</strong> This link will expire in ${escapeHtml(params.expiresIn)}.</p>` : ""}
     <p style="color: #6b7280; font-size: 14px;">${ignore}</p>
   </div>`;
-    const subject = purpose === "account" ? "Confirm your Meeting Minds account" : "Verify your email — Meeting Minds";
+    const usualSubject = purpose === "account" ? "Confirm your Meeting Minds account" : "Verify your email — Meeting Minds";
+    // Says what it is for: this one arrives beside a registration confirmation.
+    const subject = purpose === "attach" ? "Confirm your email to add your registration to your account" : usualSubject;
     return {
       subject,
       htmlContent: inlineCss(wrapWithBranding(bodyHtml, productFooter(params.productName))),
@@ -1726,7 +1738,7 @@ If it wasn't you, ignore this email. Nothing has changed on your account.`,
 };
 
 /** Why a confirmation link is being sent; words the email (systemTemplates.emailVerification). */
-export type EmailConfirmationPurpose = "team" | "registrations" | "speaker" | "account";
+export type EmailConfirmationPurpose = "team" | "registrations" | "speaker" | "account" | "attach";
 
 // ── Legacy compatibility: emailTemplates ───────────────────────────────────────
 // Keep the old API working during transition. All callers will be migrated to

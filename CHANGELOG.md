@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### A registration left out of its account now says how to get in (November 23, 2026)
+
+Someone who already has an account can register again without signing in. Unless the password they type is that account's, or the account has confirmed its address, the new registration is kept out of the account: the email on a form is only what was typed, so this is what stops an account made on someone else's address from collecting that person's registrations. The rule stays. What was missing was any way for the real person to finish the job. The form said the registration would show "after you confirm your email address" and no link was ever sent, and a webinar is watched from the account, so the webinar page told a registered person "Register to join", and registering again was refused as already registered. Five delegates of a webinar were a day away from that.
+
+- **The confirmation link is now sent by itself**, at the moment such a registration is made, on every kind of event. The email says which password the link asks for (the account's own, not one typed on the form) and what to do if it is forgotten.
+- **The webinar page offers the link where it used to be a dead end.** A signed-in person who is told they are not registered, and whose account has not confirmed its address, sees "Already registered for this webinar?" with a Send confirmation link button, above the Register button. Once they open the link, in another tab or on a phone, the page lets them in by itself.
+- **It says nothing about whether a registration exists.** Every unconfirmed account sees the same question, registered or not.
+- **What it does not do:** it sends nothing to people who registered this way before today. They see the confirm prompt on My events, on the event's My registration page and now on the webinar page. A password reset still does not confirm an address.
+
 ### The Communications page fills in card by card (November 23, 2026)
 
 The Communications page showed nothing until four lists had all arrived: registrations, speakers, abstracts and reviewers. The abstracts list is by far the largest, so it held back cards that had been ready for a while. Each card now appears when its own list arrives, with a grey placeholder until then, and so do the four numbers at the top.
