@@ -42,12 +42,13 @@ test("bulk email dialog forwards paymentStatus filter to /emails/bulk", async ({
 
   const main = page.getByRole("main");
 
-  // The Registrations audience card has a "Send Email" button — multiple
-  // exist on the page (one per audience). It's the first card on the
-  // page, so the first matching button is the registrations one.
+  // The Registrations audience card has a "Send Email" button, and so has
+  // every other audience's card. The cards fill in one at a time, each when
+  // its own list arrives (Nov 23, 2026), so "the first one on the page" is
+  // whichever list came first: name the card.
   await main
+    .locator('[data-audience="registrations"]')
     .getByRole("button", { name: /^send email$/i })
-    .first()
     .click();
 
   // Inside the dialog: the new payment-status Select renders for

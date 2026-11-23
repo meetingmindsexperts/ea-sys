@@ -321,16 +321,33 @@ const REGISTRATION_TILES: RegistrationTile[] = [
  * one (abstracts, the largest by far) held back the registrations and speakers
  * cards that had been ready for a while. Each card now waits for its own list
  * only. Everything a card can do, its saved-template tiles included, sits
- * inside this, so no send can be opened on a list that has not arrived: a
- * count of 0 on this page always means "none", never "not loaded yet".
+ * inside this, so no send can be opened on a list that has not arrived, and
+ * a card never shows a 0 for a list that is still on its way.
+ *
+ * `placeholder` is the height the card's body usually has once filled (a
+ * Tailwind height class). The cards fill in one at a time, and a card that
+ * grew by a few hundred pixels pushed the row under it down while someone was
+ * reaching for a button there. It is an estimate: what a card holds depends
+ * on the event and on what the person may do.
  */
-function WhenListArrives({ loading, what, children }: { loading: boolean; what: string; children: ReactNode }) {
+function WhenListArrives({
+  loading,
+  what,
+  placeholder,
+  children,
+}: {
+  loading: boolean;
+  what: string;
+  placeholder: string;
+  children: ReactNode;
+}) {
   if (!loading) return <>{children}</>;
   return (
-    <div role="status" aria-label={`Loading ${what}`} className="space-y-3">
-      <Skeleton className="h-16 w-full" />
-      <Skeleton className="h-9 w-full" />
-      <Skeleton className="h-14 w-full" />
+    <div role="status" className={`flex flex-col gap-3 ${placeholder}`}>
+      <span className="sr-only">Loading {what}</span>
+      <Skeleton className="h-16 w-full shrink-0" />
+      <Skeleton className="h-9 w-full shrink-0" />
+      <Skeleton className="min-h-0 w-full flex-1" />
     </div>
   );
 }
@@ -352,7 +369,8 @@ export default function CommunicationsPage() {
   // for the cap so the picker can find older numbers, and tell the dialog when
   // even that was not everything.
   const abstractsQuery = useAbstracts(eventId, { limit: String(ABSTRACT_PICKER_FETCH_LIMIT) });
-  const canSeeReviewers = useCan("reviewers.pool.manage", eventId) === "allowed";
+  const reviewersAnswer = useCan("reviewers.pool.manage", eventId);
+  const canSeeReviewers = reviewersAnswer === "allowed";
   const reviewersQuery = useReviewers(eventId, { enabled: canSeeReviewers });
   const templatesQuery = useEmailTemplates(eventId);
   // Every send on this page goes through the bulk email route.
@@ -399,12 +417,14 @@ export default function CommunicationsPage() {
     ),
   ).sort();
 
-  // Each card waits for its own list (WhenListArrives). A list this person may
-  // not read is not asked for (reviewers), so it is never "loading".
+  // Each card waits for its own list (WhenListArrives). The reviewers list is
+  // asked for only once it is known that this person may read it, so "still
+  // finding that out" is waiting too: on a fresh page load the question is
+  // open before the list is even requested, and the card would say 0.
   const registrationsLoading = registrationsQuery.isLoading;
   const speakersLoading = speakersQuery.isLoading;
   const abstractsLoading = abstractsQuery.isLoading;
-  const reviewersLoading = reviewersQuery.isLoading;
+  const reviewersLoading = reviewersQuery.isLoading || reviewersAnswer === "loading";
 
   // Registration audience filtering lives entirely in the send dialog
   // (BulkEmailDialog "Filter recipients") — no duplicated page-level controls.
@@ -785,7 +805,7 @@ export default function CommunicationsPage() {
       {/* Audience Cards */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Registrations Card */}
-        <Card>
+        <Card data-audience="registrations">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5 text-primary" />
@@ -796,7 +816,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <WhenListArrives loading={registrationsLoading} what="registrations">
+            <WhenListArrives loading={registrationsLoading} what="registrations" placeholder="h-[32rem]">
             {/* Workflow tiles — one-click presets for common sends */}
             {canSend && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -867,7 +887,7 @@ export default function CommunicationsPage() {
         </Card>
 
         {/* Speakers Card */}
-        <Card>
+        <Card data-audience="speakers">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Mic className="h-5 w-5 text-primary" />
@@ -878,7 +898,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <WhenListArrives loading={speakersLoading} what="speakers">
+            <WhenListArrives loading={speakersLoading} what="speakers" placeholder="h-96">
             {/* Workflow tiles — one-click presets for common sends */}
             {canSend && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1025,7 +1045,7 @@ export default function CommunicationsPage() {
         </Card>
 
         {/* Abstract Submitters Card */}
-        <Card>
+        <Card data-audience="abstracts">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-primary" />
@@ -1037,7 +1057,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <WhenListArrives loading={abstractsLoading} what="abstracts">
+            <WhenListArrives loading={abstractsLoading} what="abstracts" placeholder="h-48">
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-lg bg-muted/50 p-3">
                 <p className="text-2xl font-bold">{abstracts.length}</p>
@@ -1101,7 +1121,7 @@ export default function CommunicationsPage() {
         </Card>
 
         {/* Reviewers Card */}
-        <Card>
+        <Card data-audience="reviewers">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <UserCheck className="h-5 w-5 text-primary" />
@@ -1112,7 +1132,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <WhenListArrives loading={reviewersLoading} what="reviewers">
+            <WhenListArrives loading={reviewersLoading} what="reviewers" placeholder="h-36">
             <div className="rounded-lg bg-muted/50 p-3">
               <p className="text-2xl font-bold">{reviewers.length}</p>
               <p className="text-xs text-muted-foreground">Assigned Reviewers</p>

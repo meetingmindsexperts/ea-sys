@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The Communications page fills in card by card (November 23, 2026)
+
+The Communications page showed nothing until four lists had all arrived: registrations, speakers, abstracts and reviewers. The abstracts list is by far the largest, so it held back cards that had been ready for a while. Each card now appears when its own list arrives, with a grey placeholder until then, and so do the four numbers at the top.
+
+- **You can start on one audience while another is still loading.** With registrations and abstracts held back in a test, the Speakers card was fully usable and its Send Email opened with the right count.
+- **A 0 is never a list still on its way.** Everything a card can do sits behind that card's own list, and the Reviewers card also waits until it is known whether you may see reviewers.
+- **Scheduled Emails and Email Activity** under the cards no longer wait for the four lists either.
+- Nothing about what is sent, or to whom, has changed.
+
 ### No dialog can be pushed past its own edge by one long line (November 23, 2026)
 
 A long title, name or email address with no place to break used to widen a whole dialog: its heading, its fields and its Cancel and Save buttons ran off the right edge. Six dialogs were fixed one by one on November 20. The fix now lives in the two shared dialog components, so it holds for all of them (about 150 dialogs and 36 confirmation boxes): the long text is cut or overflows by itself, and everything else stays where it was.

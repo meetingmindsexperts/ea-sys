@@ -37,6 +37,18 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Communications page, card by card: what the Nov 23 review left (recorded Nov 23, 2026): not started
+
+Each card on the Communications page appears when its own list arrives (`8ca632a3`; CHANGELOG, Nov 23). Review of `8ca632a3`: 0 BLOCKER, 0 HIGH, 3 MED, 5 LOW. All three MEDs are fixed in the follow-up commit: the browser test names the Registrations card (it clicked "the first Send Email on the page", which is now whichever list arrives first); the Reviewers card waits while it is not yet known whether the person may see reviewers (on a fresh page load it said "0 recipients" first); each placeholder is about the height of its filled card, so the row beneath no longer jumps a few hundred pixels under the pointer. Also fixed: the placeholder is announced to a screen reader, and the test ties each wait to its own list. Left:
+
+- **MED, partly fixed: the placeholder heights are estimates** (measured on MEHF2027 at desktop width as an organiser). An event with many saved templates, or a person who may not send, gets a card of another height and a smaller jump remains. Exact would mean one skeleton per card shaped like its content.
+- **LOW: on a fresh page load the page can show its placeholders, then the event gate's spinner, then the placeholders again** (`EventAccessGate` swaps the page out while the event loads). The gate did this before too; the page behind it used to be empty, so it did not show. A fix belongs in the gate, for every event page.
+- **LOW: the "Paid" tile's note** ("212 complimentary") appears with the number, a moment after the label.
+- **LOW: Scheduled Emails and Email Activity now ask for their data at the same time as the four lists.** On HTTP/1.1 that is more requests than the browser's six at a time, so one list can queue behind them. HTTP/2 (below) removes the limit.
+- **LOW: the test reads the page's source.** It pins the four waits, the reviewers rule and the list of ways a send is opened; it does not render the page.
+
+**Older, for the owner to rule on (not caused by this change): a saved-template tile on a card whose list FAILED to load opens "Send to all 0 registrations" with Send enabled, and the send goes to everyone.** When a list fails (a 500, a role that may not read it, no connection), the card shows 0: its Send Email, tiles and Select by IDs are disabled at 0, but the "Your templates" tiles are not, the dialog's Send is not disabled at 0 for registrations, speakers or reviewers, and the server works the audience out from the filters. The same 0 also shows for "failed", "offline" and "not allowed" on every card. A fix is a "could not load" state per card and no Send at a count of 0.
+
 ## Events list trimmed: what the Nov 23 review left, and the rest of the page-speed work (recorded Nov 23, 2026): started
 
 The events list every dashboard page loads for the header sends 14 columns instead of whole rows (`4cbc7b99`; CHANGELOG, Nov 23). Review of `4cbc7b99`: 0 BLOCKER, 0 HIGH, 0 MED, 7 LOW. Fixed in the follow-up commit: the comments say what the type check does and does not catch, the headcounts no reader shows are no longer counted, the route test covers ONSITE and WEBINARS, the CHANGELOG entry. Left:
@@ -56,7 +68,7 @@ The events list every dashboard page loads for the header sends 14 columns inste
 
 - **The abstracts list** sends each abstract's full text and a whole copy of its author's speaker row: 853 kB, 229 kB compressed, the largest thing the Communications page loads.
 - **The speakers list** sends every bio and each speaker's agreement text (431 kB, 73 kB compressed). The website sync reads this list with an API key: trace every reader first (INC-007).
-- **The Communications page draws nothing until four full lists have arrived** (registrations, speakers, abstracts, reviewers).
+- ~~The Communications page draws nothing until four full lists have arrived.~~ Done Nov 23 (`8ca632a3`): each card appears when its own list does.
 - **Production serves HTTP/1.1,** six requests at a time. HTTP/2 is one line in nginx, and a change on the box, so the owner's.
 
 ## Abstract scoring scale and bulk status: what the Nov 19 review left (recorded Nov 19, 2026): not started
