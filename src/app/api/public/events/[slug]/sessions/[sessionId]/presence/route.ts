@@ -9,10 +9,24 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { beatCouldCount, presenceBeatEffect } from "@/lib/webinar/presence-watch";
+import { parseUserAgent } from "@/analytics/core/user-agent";
+import { boundedQuality, minutesToMark, VIEW_MODES } from "@/lib/webinar/watch-analytics";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
-const presenceSchema = z.object({ phase: z.enum(["lobby", "joined"]) });
+// view and quality since Nov 23, 2026 (watch-analytics.ts); optional, so a page loaded from the previous
+// image keeps beating. quality is what our stream player counted since the last beat that got through.
+const presenceSchema = z.object({
+  phase: z.enum(["lobby", "joined"]),
+  view: z.enum(VIEW_MODES).optional(),
+  quality: z
+    .object({
+      stalls: z.number().int().min(0).max(100_000),
+      stallMs: z.number().int().min(0).max(86_400_000),
+      reconnects: z.number().int().min(0).max(100_000),
+    })
+    .optional(),
+});
 
 /**
  * Webinar presence heartbeat. The lobby/live page POSTs this every 30-40s
@@ -24,7 +38,10 @@ const presenceSchema = z.object({ phase: z.enum(["lobby", "joined"]) });
  *
  * Since Nov 16, 2026 each beat also adds the time watched and counts a return
  * after an absence (presence-watch.ts): for a custom-stream webinar, and one a
- * partner streams in, this record is the attendance report.
+ * partner streams in, this record is the attendance report. Since Nov 23, 2026
+ * it also records the device, browser and system (parsed here; the user agent
+ * text is never stored), how the person watched, how the stream played for them,
+ * and the minutes they were watching (watch-analytics.ts).
  */
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -58,7 +75,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ errors: parsed.error.flatten() }, "presence:validation-failed");
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
-    const phase = parsed.data.phase;
+    const { phase, view, quality } = parsed.data;
 
     const event = await findPublicEvent(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }, {
       select: { id: true, organizationId: true, eventType: true, status: true, settings: true },
@@ -108,7 +125,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // connection — critical at 5k attendees on the shared connection pool.
     const existing = await db.webinarPresence.findUnique({
       where: { sessionId_registrationId: { sessionId, registrationId: registration.id } },
-      select: { phase: true, lastSeenAt: true },
+      select: { phase: true, lastSeenAt: true, watchedMinutes: true },
     });
     // Whether the room is open, by the rule the attendee page and the stream gate use (a DRAFT event's
     // room counts as open for testing: review of 0b3f34ad). Asked only when this beat could add time,
@@ -118,6 +135,20 @@ export async function POST(req: Request, { params }: RouteParams) {
       : false;
     const effect = presenceBeatEffect({ beatPhase: phase, previous: existing, roomOpen, now });
     const escalated = Boolean(existing) && phase === "joined" && existing?.phase !== "joined";
+    const agent = parseUserAgent(req.headers.get("user-agent"));
+    const played = boundedQuality(quality);
+    const newMinutes = minutesToMark({
+      counted: effect.watchedSeconds > 0,
+      previousSeenAt: existing?.lastSeenAt ?? null,
+      now,
+      known: existing?.watchedMinutes ?? [],
+    });
+    const seen = {
+      deviceType: agent.deviceType,
+      browser: agent.browser,
+      os: agent.os,
+      ...(view ? { viewMode: view } : {}),
+    };
 
     await db.webinarPresence.upsert({
       where: { sessionId_registrationId: { sessionId, registrationId: registration.id } },
@@ -134,6 +165,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         // return after an absence does (review of 0b3f34ad: the first beat is nearly always a lobby beat,
         // sent before the room check answers, and admission then made one viewing read as 2).
         joinCount: 1,
+        ...seen,
+        stallCount: played.stalls,
+        stallSeconds: played.stallSeconds,
+        reconnectCount: played.reconnects,
       },
       update: {
         lastSeenAt: now,
@@ -145,6 +180,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         // One more join only for a return after an absence.
         ...(effect.rejoined ? { joinCount: { increment: 1 } } : {}),
         ...(effect.watchedSeconds > 0 ? { watchedSeconds: { increment: effect.watchedSeconds } } : {}),
+        ...(newMinutes.length > 0 ? { watchedMinutes: { push: newMinutes } } : {}),
+        ...seen,
+        ...(played.stalls > 0 ? { stallCount: { increment: played.stalls } } : {}),
+        ...(played.stallSeconds > 0 ? { stallSeconds: { increment: played.stallSeconds } } : {}),
+        ...(played.reconnects > 0 ? { reconnectCount: { increment: played.reconnects } } : {}),
       },
     });
 

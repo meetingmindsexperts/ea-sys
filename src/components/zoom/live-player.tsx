@@ -101,7 +101,18 @@ interface LivePlayerProps {
   measurable?: boolean;
   /** The scheduled end has passed (an overrun): a stopped stream is then probably the finish. */
   pastScheduledEnd?: boolean;
+  /**
+   * Attendee page only (watch analytics, Nov 23, 2026): a stall (the picture waited for data after it
+   * had started playing, with how long it lasted) or a reconnect (a frozen picture made the player
+   * start over). The page adds them up and sends them with its presence heartbeat.
+   */
+  onPlaybackEvent?: (event: PlaybackEvent) => void;
 }
+
+export type PlaybackEvent = { kind: "stall"; ms: number } | { kind: "reconnect" };
+
+/** A stall longer than this is a dropped stream, not buffering: the reconnect counts it instead. */
+const STALL_REPORT_MAX_MS = 120_000;
 
 export interface PlayerTimingSample {
   /** Local time the sample was taken (ms, Date.now()). */
@@ -121,6 +132,7 @@ export function LivePlayer({
   onTimingSample,
   measurable = false,
   pastScheduledEnd = false,
+  onPlaybackEvent,
 }: LivePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<unknown>(null);
@@ -160,6 +172,19 @@ export function LivePlayer({
   // future-proofs it. Updating a ref during render is StrictMode-safe.
   const onStreamStatusChangeRef = useRef(onStreamStatusChange);
   onStreamStatusChangeRef.current = onStreamStatusChange;
+  // Same pattern for the watch analytics callback, and the stall it is timing: when the picture started
+  // waiting, or null. Armed by the first "playing" event, so the first load is never a stall.
+  const onPlaybackEventRef = useRef(onPlaybackEvent);
+  onPlaybackEventRef.current = onPlaybackEvent;
+  const stallStartedAtRef = useRef<number | null>(null);
+  const playbackArmedRef = useRef(false);
+  const endStall = useCallback(() => {
+    const startedAt = stallStartedAtRef.current;
+    if (startedAt === null) return;
+    stallStartedAtRef.current = null;
+    const ms = Date.now() - startedAt;
+    if (ms > 0) onPlaybackEventRef.current?.({ kind: "stall", ms: Math.min(ms, STALL_REPORT_MAX_MS) });
+  }, []);
 
   const pollStreamStatus = useCallback(async () => {
     try {
@@ -338,6 +363,37 @@ export function LivePlayer({
     };
   }, [hlsUrl, slug, sessionId, pollStreamStatus, retryNonce, measurable]);
 
+  // Stalls for the watch analytics: "waiting" after the picture has played once (not a seek, not a
+  // pause), ended by the next "playing". Listening costs nothing when no caller asks.
+  const wantsPlaybackEvents = Boolean(onPlaybackEvent);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!wantsPlaybackEvents || !video) return;
+    const onPlaying = () => {
+      playbackArmedRef.current = true;
+      endStall();
+    };
+    const onWaiting = () => {
+      if (!playbackArmedRef.current || video.seeking || video.paused || stallStartedAtRef.current !== null) return;
+      stallStartedAtRef.current = Date.now();
+    };
+    video.addEventListener("playing", onPlaying);
+    video.addEventListener("waiting", onWaiting);
+    return () => {
+      video.removeEventListener("playing", onPlaying);
+      video.removeEventListener("waiting", onWaiting);
+      endStall();
+    };
+  }, [wantsPlaybackEvents, endStall]);
+
+  // A picture that stops being "playing" (the stream dropped, a reconnect, Retry) ends any stall timed, and
+  // disarms: the reload's own wait for its first frame is part of that drop, not another stall.
+  useEffect(() => {
+    if (status === "playing") return;
+    endStall();
+    playbackArmedRef.current = false;
+  }, [status, endStall]);
+
   // Timing samples for the console preview (see onTimingSample). Only runs
   // when a caller asks, so attendees pay nothing.
   const onTimingSampleRef = useRef(onTimingSample);
@@ -501,6 +557,8 @@ export function LivePlayer({
           firstFrame: armedAt !== null,
           streak: stallStreakRef.current,
         });
+        endStall();
+        onPlaybackEventRef.current?.({ kind: "reconnect" });
         video.src = "";
         setStatus("loading");
         setRetryNonce((n) => n + 1);
@@ -511,7 +569,7 @@ export function LivePlayer({
       setIsBehind(behind > BEHIND_LIVE_THRESHOLD_S);
     }, 1000);
     return () => clearInterval(id);
-  }, [status]);
+  }, [status, endStall]);
 
   const handleRetry = () => {
     setStatus("loading");

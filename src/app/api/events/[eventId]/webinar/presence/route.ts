@@ -16,6 +16,7 @@ import {
   presenceReportSummary,
   presenceSummaryFromGroups,
   timesJoined,
+  watchAnalytics,
   type PresenceReportRow,
 } from "@/lib/webinar/presence-report";
 
@@ -36,6 +37,8 @@ const REPORT_MAX_ROWS = 20_000;
  *
  * Two more views of the same record (Nov 16, 2026; presence-report.ts):
  *   ?view=summary   everyone who ever opened the page: counts and minutes, no names
+ *   ?view=analytics devices, browsers, systems, how they watched, how the stream played
+ *                   and how many were watching each minute (Nov 23, 2026), no names
  *   ?export=csv     one line per registration with name, email and minutes watched;
  *                   it carries emails, so it asks `webinar.attendance.export`, the
  *                   key of the Zoom attendance CSV, with the same limit and audit
@@ -51,7 +54,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     if ("error" in orgGuard) return orgGuard.error;
     const url = new URL(req.url);
     const exportCsv = url.searchParams.get("export") === "csv";
-    const summaryOnly = url.searchParams.get("view") === "summary";
+    const view = url.searchParams.get("view");
+    const summaryOnly = view === "summary";
+    const analyticsOnly = view === "analytics";
     const gate = exportCsv
       ? requirePermission(session, "webinar.attendance.export", { route, eventId })
       : requirePermission(session, "webinar.analytics.read", { route, eventId, onMissing: "hide" });
@@ -90,12 +95,14 @@ export async function GET(req: Request, { params }: RouteParams) {
       // No webinar session yet — return an empty roster rather than an error so
       // the card renders a clean empty state.
       if (summaryOnly) return NextResponse.json(presenceReportSummary([]));
+      if (analyticsOnly) return NextResponse.json(watchAnalytics([]));
       return NextResponse.json({ lobby: 0, joined: 0, total: 0, rows: [] });
     }
 
-    if (exportCsv || summaryOnly) {
+    if (exportCsv || summaryOnly || analyticsOnly) {
       return await presenceReport(req, {
         exportCsv,
+        analyticsOnly,
         eventId,
         sessionId: anchorSessionId,
         timezone: resolveTimezone(event.timezone),
@@ -158,10 +165,30 @@ function warnIfCapped(eventId: string, count: number): void {
 /** The whole record of the webinar page, as a summary (no names) or the CSV. */
 async function presenceReport(
   req: Request,
-  at: { exportCsv: boolean; eventId: string; sessionId: string; timezone: string; organizationId: string; userId: string; role: string },
+  at: { exportCsv: boolean; analyticsOnly: boolean; eventId: string; sessionId: string; timezone: string; organizationId: string; userId: string; role: string },
 ): Promise<NextResponse> {
   // eventId binds the record to THIS org-verified event, as the live roster does.
   const where = { sessionId: at.sessionId, eventId: at.eventId };
+  if (at.analyticsOnly) {
+    // No names: only the columns the breakdowns and the chart count, for everyone who reached the live view.
+    const watched = await db.webinarPresence.findMany({
+      where: { ...where, phase: "joined" },
+      select: {
+        phase: true,
+        deviceType: true,
+        browser: true,
+        os: true,
+        viewMode: true,
+        stallCount: true,
+        stallSeconds: true,
+        reconnectCount: true,
+        watchedMinutes: true,
+      },
+      take: REPORT_MAX_ROWS,
+    });
+    warnIfCapped(at.eventId, watched.length);
+    return NextResponse.json(watchAnalytics(watched), { headers: NO_STORE });
+  }
   if (!at.exportCsv) {
     // Counted by the database: no names, no row cap, and cheap for a console polling every minute
     // (review of 0b3f34ad: it loaded every row to add them up).
@@ -182,6 +209,14 @@ async function presenceReport(
       lastSeenAt: true,
       joinCount: true,
       watchedSeconds: true,
+      deviceType: true,
+      browser: true,
+      os: true,
+      viewMode: true,
+      stallCount: true,
+      stallSeconds: true,
+      reconnectCount: true,
+      watchedMinutes: true,
       registration: {
         select: { serialId: true, attendee: { select: { firstName: true, lastName: true, email: true } } },
       },
@@ -199,6 +234,14 @@ async function presenceReport(
     timesJoined: timesJoined(r),
     watchedSeconds: r.watchedSeconds,
     phase: r.phase,
+    deviceType: r.deviceType,
+    browser: r.browser,
+    os: r.os,
+    viewMode: r.viewMode,
+    stallCount: r.stallCount,
+    stallSeconds: r.stallSeconds,
+    reconnectCount: r.reconnectCount,
+    watchedMinutes: r.watchedMinutes,
   }));
   recordExport(req, {
     entityType: "WebinarPresence",

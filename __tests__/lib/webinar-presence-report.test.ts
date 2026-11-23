@@ -61,6 +61,18 @@ describe("the report", () => {
     timesJoined: 2,
     watchedSeconds: 3_000,
     phase: "joined",
+    deviceType: "mobile",
+    browser: "Safari",
+    os: "iOS",
+    viewMode: "stream",
+    stallCount: 3,
+    stallSeconds: 14,
+    reconnectCount: 1,
+    // 13:55 to 14:05 Dubai, a gap, then 14:30 (minutes since 1970, UTC).
+    watchedMinutes: [
+      ...Array.from({ length: 10 }, (_, i) => Date.UTC(2026, 11, 20, 9, 55 + i) / 60_000),
+      Date.UTC(2026, 11, 20, 10, 30) / 60_000,
+    ],
     ...extra,
   });
 
@@ -93,8 +105,13 @@ describe("the report", () => {
 
   it("the CSV: times in the event's timezone (named in the header), minutes rounded, number padded", () => {
     const csv = presenceReportCsv([row()], "Asia/Dubai").split("\n");
-    expect(csv[0]).toBe("Name,Email,Registration #,First on the page (Asia/Dubai),Last on the page (Asia/Dubai),Times joined,Minutes watched");
-    expect(csv[1]).toBe("Aisha Khan,aisha@x.com,007,2026-12-20 13:55,2026-12-20 15:02,2,50");
+    expect(csv[0]).toBe(
+      "Name,Email,Registration #,First on the page (Asia/Dubai),Last on the page (Asia/Dubai),Times joined,Minutes watched," +
+        "Watching (Asia/Dubai),Watched via,Device,Browser,System,Times buffering,Seconds buffering,Reconnects",
+    );
+    expect(csv[1]).toBe(
+      'Aisha Khan,aisha@x.com,007,2026-12-20 13:55,2026-12-20 15:02,2,50,"13:55-14:05, 14:30-14:31",Our stream,Phone,Safari,iOS,3,14,1',
+    );
   });
 
   it("a name typed as a formula is neutralised", () => {

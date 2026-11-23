@@ -78,6 +78,7 @@ import {
 import { StreamDelay } from "@/components/webinar/stream-delay";
 import { ChatModerationPanel } from "@/components/webinar/chat-moderation-panel";
 import { PartnerStreamCard, partnerSignalLabel } from "@/components/webinar/partner-stream-card";
+import { WatchAnalyticsCard } from "@/components/webinar/watch-analytics-card";
 import type { PlayerTimingSample } from "@/components/zoom/live-player";
 import { useServerClock } from "@/hooks/use-server-clock";
 import {
@@ -544,7 +545,11 @@ export default function WebinarConsolePage() {
           {/* Who watched on our page: the only attendance for a partner's webinar, and the audience of a
               custom-stream one, where Zoom's report sees the speakers only (Nov 16, 2026). */}
           {(partner || data?.webinar?.viewingMode === "hls") && (
-            <PageAttendanceCard eventId={eventId} partner={partner} />
+            <>
+              <PageAttendanceCard eventId={eventId} partner={partner} />
+              {/* Watching over time, devices and how the stream played (Nov 23, 2026). */}
+              <WatchAnalyticsCard eventId={eventId} timezone={data?.event?.timezone || DEFAULT_EVENT_TIMEZONE} />
+            </>
           )}
           {partner ? (
             <PartnerAnalyticsNote />

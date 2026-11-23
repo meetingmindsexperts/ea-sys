@@ -12,6 +12,14 @@
  */
 import { toCsv } from "@/lib/csv-escape";
 import { localDateTimeInTz } from "@/lib/event-time";
+import {
+  breakdown,
+  deviceLabel,
+  viewModeLabel,
+  watchingTimeline,
+  type BreakdownEntry,
+  type TimelinePoint,
+} from "@/lib/webinar/watch-analytics";
 
 export interface PresenceReportRow {
   name: string;
@@ -24,6 +32,15 @@ export interface PresenceReportRow {
   watchedSeconds: number;
   /** "joined": reached the live view at least once; "lobby": never left the waiting room. */
   phase: string;
+  // Watch analytics (Nov 23, 2026; watch-analytics.ts). Null on rows from before that day.
+  deviceType: string | null;
+  browser: string | null;
+  os: string | null;
+  viewMode: string | null;
+  stallCount: number;
+  stallSeconds: number;
+  reconnectCount: number;
+  watchedMinutes: readonly number[];
 }
 
 export interface PresenceReportSummary {
@@ -71,6 +88,23 @@ function inZone(date: Date, timezone: string): string {
   return localDateTimeInTz(date, timezone).replace("T", " ");
 }
 
+/**
+ * The minutes a person was watching, as time ranges in the event's timezone ("10:02-10:15, 10:20-10:45").
+ * A range ends at the end of its last minute.
+ */
+export function watchingRanges(minutes: readonly number[], timezone: string): string {
+  const sorted = [...new Set(minutes)].sort((a, b) => a - b);
+  if (sorted.length === 0) return "";
+  const ranges: [number, number][] = [];
+  for (const m of sorted) {
+    const last = ranges[ranges.length - 1];
+    if (last && m === last[1] + 1) last[1] = m;
+    else ranges.push([m, m]);
+  }
+  const clock = (m: number) => localDateTimeInTz(new Date(m * 60_000), timezone).slice(11, 16);
+  return ranges.map(([from, to]) => `${clock(from)}-${clock(to + 1)}`).join(", ");
+}
+
 /** The CSV, escaped against formula injection (attendee names are typed by the public). */
 export function presenceReportCsv(rows: readonly PresenceReportRow[], timezone: string): string {
   const header = [
@@ -81,6 +115,14 @@ export function presenceReportCsv(rows: readonly PresenceReportRow[], timezone: 
     `Last on the page (${timezone})`,
     "Times joined",
     "Minutes watched",
+    `Watching (${timezone})`,
+    "Watched via",
+    "Device",
+    "Browser",
+    "System",
+    "Times buffering",
+    "Seconds buffering",
+    "Reconnects",
   ];
   const lines = rows.map((r) => [
     r.name,
@@ -90,6 +132,78 @@ export function presenceReportCsv(rows: readonly PresenceReportRow[], timezone: 
     inZone(r.lastSeenAt, timezone),
     r.timesJoined,
     Math.round(r.watchedSeconds / 60),
+    watchingRanges(r.watchedMinutes, timezone),
+    viewModeLabel(r.viewMode),
+    deviceLabel(r.deviceType),
+    r.browser,
+    r.os,
+    r.stallCount,
+    r.stallSeconds,
+    r.reconnectCount,
   ]);
   return toCsv([header, ...lines]);
+}
+
+/** How our stream played on one system, for the people who watched it there. */
+export interface PlaybackBySystem {
+  system: string;
+  viewers: number;
+  /** Viewers who buffered at least once. */
+  buffered: number;
+  stallSeconds: number;
+  reconnects: number;
+}
+
+/** The console's watch analytics (?view=analytics): no names, everyone who reached the live view. */
+export interface WatchAnalytics {
+  /** People who reached the live view: everything below counts them. */
+  watched: number;
+  devices: BreakdownEntry[];
+  browsers: BreakdownEntry[];
+  systems: BreakdownEntry[];
+  viewModes: BreakdownEntry[];
+  playback: {
+    /** People who watched on our stream player (the only one that reports buffering). */
+    streamViewers: number;
+    buffered: number;
+    stallSeconds: number;
+    reconnects: number;
+    bySystem: PlaybackBySystem[];
+  };
+  timeline: TimelinePoint[];
+}
+
+export type WatchAnalyticsRow = Pick<
+  PresenceReportRow,
+  "phase" | "deviceType" | "browser" | "os" | "viewMode" | "stallCount" | "stallSeconds" | "reconnectCount" | "watchedMinutes"
+>;
+
+export function watchAnalytics(rows: readonly WatchAnalyticsRow[]): WatchAnalytics {
+  const watchedRows = rows.filter((r) => r.phase === "joined");
+  const streamRows = watchedRows.filter((r) => r.viewMode === "stream");
+  const bySystem = new Map<string, PlaybackBySystem>();
+  for (const r of streamRows) {
+    const system = r.os ?? "Unknown";
+    const entry = bySystem.get(system) ?? { system, viewers: 0, buffered: 0, stallSeconds: 0, reconnects: 0 };
+    entry.viewers += 1;
+    if (r.stallCount > 0) entry.buffered += 1;
+    entry.stallSeconds += r.stallSeconds;
+    entry.reconnects += r.reconnectCount;
+    bySystem.set(system, entry);
+  }
+  return {
+    watched: watchedRows.length,
+    devices: breakdown(watchedRows.map((r) => deviceLabel(r.deviceType))),
+    browsers: breakdown(watchedRows.map((r) => r.browser)),
+    systems: breakdown(watchedRows.map((r) => r.os)),
+    viewModes: breakdown(watchedRows.map((r) => viewModeLabel(r.viewMode))),
+    playback: {
+      streamViewers: streamRows.length,
+      buffered: streamRows.filter((r) => r.stallCount > 0).length,
+      stallSeconds: streamRows.reduce((n, r) => n + r.stallSeconds, 0),
+      reconnects: streamRows.reduce((n, r) => n + r.reconnectCount, 0),
+      bySystem: [...bySystem.values()].sort((a, b) => b.viewers - a.viewers || a.system.localeCompare(b.system)),
+    },
+    timeline: watchingTimeline(watchedRows),
+  };
 }

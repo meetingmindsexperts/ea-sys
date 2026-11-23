@@ -814,6 +814,19 @@ model WebinarPresence {
   // Seconds in the live view while the room was open, added up from the heartbeat (Nov 16, 2026;
   // src/lib/webinar/presence-watch.ts). The attendance report's "minutes watched".
   watchedSeconds Int      @default(0)
+  // Watch analytics (Nov 23, 2026; src/lib/webinar/watch-analytics.ts). Device, browser and system are
+  // parsed from the latest beat's user agent (the text itself is never stored); with two devices the
+  // last one wins. viewMode is "stream" or "zoom". The stall and reconnect counts come from our stream
+  // player only (the Zoom embed reports none). watchedMinutes holds the minutes (whole minutes since
+  // 1970, UTC) in which the person was counted as watching, for the watching-over-time chart.
+  deviceType     String?
+  browser        String?
+  os             String?
+  viewMode       String?
+  stallCount     Int      @default(0)
+  stallSeconds   Int      @default(0)
+  reconnectCount Int      @default(0)
+  watchedMinutes Int[]    @default([])
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

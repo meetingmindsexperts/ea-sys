@@ -4052,6 +4052,38 @@ export function useWebinarPresenceSummary(eventId: string, enabled = true) {
   });
 }
 
+/** Watch analytics from our own webinar page (Nov 23, 2026; presence-report.ts watchAnalytics): no names. */
+export interface WebinarWatchBreakdown {
+  label: string;
+  count: number;
+}
+
+export interface WebinarWatchAnalytics {
+  watched: number;
+  devices: WebinarWatchBreakdown[];
+  browsers: WebinarWatchBreakdown[];
+  systems: WebinarWatchBreakdown[];
+  viewModes: WebinarWatchBreakdown[];
+  playback: {
+    streamViewers: number;
+    buffered: number;
+    stallSeconds: number;
+    reconnects: number;
+    bySystem: { system: string; viewers: number; buffered: number; stallSeconds: number; reconnects: number }[];
+  };
+  timeline: { at: string; watching: number }[];
+}
+
+export function useWebinarWatchAnalytics(eventId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...queryKeys.webinarPresence(eventId), "analytics"] as const,
+    queryFn: () => fetchApi<WebinarWatchAnalytics>(`/api/events/${eventId}/webinar/presence?view=analytics`),
+    enabled: !!eventId && enabled,
+    // Heavier than the summary (it reads every viewer's minutes), and a chart need not move every minute.
+    refetchInterval: 120_000,
+  });
+}
+
 export interface WebinarStreamTimelineEntry {
   id: string;
   kind:

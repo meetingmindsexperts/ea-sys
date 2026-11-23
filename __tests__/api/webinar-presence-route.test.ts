@@ -195,4 +195,86 @@ describe("presence heartbeat", () => {
       expect(mockDb.webinarPresence.upsert.mock.calls[0][0].update.joinCount).toBeUndefined();
     });
   });
+
+  describe("watch analytics (Nov 23, 2026)", () => {
+    const IPHONE =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1";
+    function callAs(body: unknown, userAgent: string) {
+      const req = { json: async () => body, headers: new Headers({ "user-agent": userAgent }) } as unknown as Request;
+      return POST(req, { params: Promise.resolve({ slug: "evt", sessionId: "sess1" }) });
+    }
+
+    beforeEach(() => {
+      mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
+      mockDb.event.findFirst.mockResolvedValue({
+        id: "ev1",
+        organizationId: "org1",
+        eventType: "WEBINAR",
+        status: "PUBLISHED",
+        settings: { webinar: { sessionId: "sess1" } },
+      });
+      mockDb.eventSession.findFirst.mockResolvedValue({ id: "sess1", status: "LIVE" });
+    });
+
+    it("records the device, browser and system from the user agent, never the text itself", async () => {
+      await callAs({ phase: "lobby" }, IPHONE);
+      const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+      expect(arg.create).toMatchObject({ deviceType: "mobile", browser: "Safari", os: "iOS" });
+      expect(JSON.stringify(arg)).not.toContain("Mozilla");
+    });
+
+    it("a live-view beat carries how the person watches and what the player counted", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000), watchedMinutes: [] });
+      await callAs({ phase: "joined", view: "stream", quality: { stalls: 2, stallMs: 4_400, reconnects: 1 } }, IPHONE);
+      const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+      expect(arg.update.viewMode).toBe("stream");
+      expect(arg.update.stallCount).toEqual({ increment: 2 });
+      expect(arg.update.stallSeconds).toEqual({ increment: 4 });
+      expect(arg.update.reconnectCount).toEqual({ increment: 1 });
+    });
+
+    it("a beat with no view leaves the stored one alone, and nothing counted writes no increment", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000), watchedMinutes: [] });
+      await callAs({ phase: "lobby" }, IPHONE);
+      const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+      expect(arg.update).not.toHaveProperty("viewMode");
+      expect(arg.update).not.toHaveProperty("stallCount");
+      expect(arg.update).not.toHaveProperty("reconnectCount");
+    });
+
+    it("one beat cannot write a day of buffering", async () => {
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(Date.now() - 30_000), watchedMinutes: [] });
+      await callAs({ phase: "joined", quality: { stalls: 9_999, stallMs: 86_000_000, reconnects: 9_999 } }, IPHONE);
+      const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+      expect(arg.update.stallCount).toEqual({ increment: 50 });
+      expect(arg.update.stallSeconds).toEqual({ increment: 600 });
+      expect(arg.update.reconnectCount).toEqual({ increment: 20 });
+    });
+
+    it("a counted beat marks its minutes once; a beat that counts nothing marks none", async () => {
+      const now = Date.now();
+      const thisMinute = Math.floor(now / 60_000);
+      mockDb.webinarPresence.findUnique.mockResolvedValue({
+        phase: "joined",
+        lastSeenAt: new Date(now - 30_000),
+        watchedMinutes: [Math.floor((now - 30_000) / 60_000)],
+      });
+      await callAs({ phase: "joined", view: "stream" }, IPHONE);
+      const pushed = mockDb.webinarPresence.upsert.mock.calls[0][0].update.watchedMinutes;
+      if (Math.floor((now - 30_000) / 60_000) === thisMinute) expect(pushed).toBeUndefined();
+      else expect(pushed).toEqual({ push: [thisMinute] });
+
+      mockDb.webinarPresence.upsert.mockClear();
+      resetRoomOpenCache();
+      mockDb.eventSession.findFirst.mockResolvedValue({ id: "sess1", status: "COMPLETED" });
+      mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined", lastSeenAt: new Date(now - 30_000), watchedMinutes: [] });
+      await callAs({ phase: "joined", view: "stream" }, IPHONE);
+      expect(mockDb.webinarPresence.upsert.mock.calls[0][0].update.watchedMinutes).toBeUndefined();
+    });
+
+    it("an unknown view is refused as invalid input", async () => {
+      const res = await callAs({ phase: "joined", view: "vlc" }, IPHONE);
+      expect(res.status).toBe(400);
+    });
+  });
 });

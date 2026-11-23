@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -54,6 +54,8 @@ import {
   TBA_LABEL,
 } from "@/lib/session-enums";
 import { presenterLabelText } from "@/lib/session-topic-presets";
+import type { PlaybackEvent } from "@/components/zoom/live-player";
+import { emptyTally, subtractTally, tallyIsEmpty, type PlaybackTally, type ViewMode } from "@/lib/webinar/watch-analytics";
 
 /**
  * "9:00 AM GST on Jun 15" — join-availability timestamps must render in the
@@ -76,6 +78,12 @@ function formatJoinOpens(instant: Date, timezone: string) {
 // is ALSO dynamically imported to keep the ~3 MB SDK bundle out of this
 // page's initial JS payload — users who never open a webinar never
 // download it.
+/** How a joined attendee is watching, for the watch analytics: our stream player, the Zoom embed, or neither yet. */
+function watchingVia(playsStream: boolean, inZoom: boolean): ViewMode | null {
+  if (playsStream) return "stream";
+  return inZoom ? "zoom" : null;
+}
+
 const LivePlayer = dynamic(
   () => import("@/components/zoom/live-player").then((m) => ({ default: m.LivePlayer })),
   { ssr: false },
@@ -496,19 +504,38 @@ export default function PublicSessionPage() {
   // (set below, once playsStream is known). Stream viewers used to count as
   // "lobby" unless they clicked the Zoom Join button (bug, Oct 7, 2026).
   const isJoiningRef = useRef(isJoining);
+  // Watch analytics (Nov 23, 2026; watch-analytics.ts): how the person is watching, sent with each
+  // live-view beat, and what the stream player counted since the last beat that got through.
+  const viewModeRef = useRef<ViewMode | null>(null);
+  const playbackTallyRef = useRef<PlaybackTally>(emptyTally());
+  const onPlaybackEvent = useCallback((e: PlaybackEvent) => {
+    const t = playbackTallyRef.current;
+    playbackTallyRef.current =
+      e.kind === "stall"
+        ? { ...t, stalls: t.stalls + 1, stallMs: t.stallMs + e.ms }
+        : { ...t, reconnects: t.reconnects + 1 };
+  }, []);
   useEffect(() => {
     if (!isWebinarEvent || authState.kind !== "ok") return;
     async function beat() {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      const joined = isJoiningRef.current;
+      const sent = { ...playbackTallyRef.current };
       try {
-        await fetch(
+        const res = await fetch(
           `/api/public/events/${slug}/sessions/${sessionId}/presence`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ phase: isJoiningRef.current ? "joined" : "lobby" }),
+            body: JSON.stringify({
+              phase: joined ? "joined" : "lobby",
+              ...(joined && viewModeRef.current ? { view: viewModeRef.current } : {}),
+              ...(tallyIsEmpty(sent) ? {} : { quality: sent }),
+            }),
           },
         );
+        // Only what got through leaves the tally; a failed beat's counts go with the next one.
+        if (res.ok) playbackTallyRef.current = subtractTally(playbackTallyRef.current, sent);
       } catch {
         // tolerate transient failures — next beat retries
       }
@@ -553,6 +580,7 @@ export default function PublicSessionPage() {
   const playsStream =
     Boolean(joinInfo?.liveStreamEnabled) && (!isWebinarEvent || lobby?.viewingMode === "hls");
   isJoiningRef.current = isJoining || (playsStream && roomOpen && liveWindowActive);
+  viewModeRef.current = watchingVia(playsStream, isJoining);
   // The Q&A panel belongs to custom-stream viewing: a registered viewer (or
   // org staff testing). Zoom embed keeps Zoom's Q&A. Only on a webinar in
   // Custom stream mode: the one place the producers' console lists questions
@@ -1016,6 +1044,7 @@ export default function PublicSessionPage() {
                 sessionId={sessionId}
                 sessionName={session?.name || joinInfo.sessionName}
                 pastScheduledEnd={endMs > 0 && now > endMs}
+                onPlaybackEvent={onPlaybackEvent}
               />
             )}
 
