@@ -20,7 +20,8 @@ The number in the Send Email dialog is counted in the browser, from the list the
 The page at the site's own address had never been edited: it was the starter template from January, offering "Event Management Made Simple", a free trial and a free account. Staff accounts are made by invitation and visitors are attendees, so none of it was true.
 
 - **Same layout, true words.** It now says what an attendee can do: find and register for conferences and webinars, follow their registrations, abstracts and certificates from one account, join a webinar from its page.
-- **Two doors, both real:** Browse events opens the public catalogue, and Sign in. The sign-up buttons are gone; an attendee's account is made as they register for an event.
+- **Two buttons:** Browse events opens the public catalogue, and Sign in. The sign-up buttons are gone from this page: an attendee's account is made as they register for an event, and creating one by hand is still offered on the sign-in page.
+- **It leads to the catalogue, so it shows what the catalogue shows:** only events switched on for it under Settings, Registration.
 - **Your attendee-facing brand:** the header shows the logo from Settings where there is one, in place of a calendar icon.
 - A signed-in person still never sees this page: they go to their own home.
 

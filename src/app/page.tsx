@@ -13,9 +13,11 @@ import { Award, Calendar, CheckCircle, Mic, Users } from "lucide-react";
  * Free Account", none of it true of a platform whose staff accounts are made
  * by invitation and whose visitors are attendees.
  *
- * It says what an attendee can do here and offers the two doors that exist:
- * the public catalogue and sign-in. No sign-up button: an attendee's account
- * is made as they register for an event. The brand is the attendee-facing one
+ * It says what an attendee can do here and offers the two doors the owner
+ * asked for: the public catalogue and sign-in. No sign-up button here: most
+ * accounts are made as a person registers for an event, and /signup stays
+ * reachable from the sign-in page and the catalogue (the old buttons led
+ * there through /register). The brand is the attendee-facing one
  * (public-brand.ts), never a name written here. A signed-in person never sees
  * this page: they go to their own home.
  */
@@ -28,7 +30,7 @@ const FEATURES = [
   {
     icon: Users,
     title: "Your registrations",
-    description: "See every event you registered for, update your details and check your payment under My events.",
+    description: "See every event you registered for, update your details and check your payment from My events.",
   },
   {
     icon: Mic,
@@ -67,9 +69,10 @@ export default async function Home() {
           <div className="flex min-w-0 items-center gap-2">
             {brand.logo ? (
               // Tall enough for a stacked logo (a mark above its wordmark) to be
-              // read, as on the catalogue; a wide one is held by the width.
+              // read, as on the catalogue; a wide one is held by the width and
+              // gives way to the two buttons on a narrow phone (it may shrink).
               // eslint-disable-next-line @next/next/no-img-element -- an uploaded logo of unknown size
-              <img src={brand.logo} alt={brand.name} className="h-12 w-auto max-w-[150px] object-contain object-left sm:h-14 sm:max-w-[220px]" />
+              <img src={brand.logo} alt={brand.name} className="h-12 w-auto min-w-0 max-w-[150px] shrink object-contain object-left sm:h-14 sm:max-w-[220px]" />
             ) : (
               <>
                 <Calendar className="h-6 w-6 shrink-0 text-primary" />
@@ -139,7 +142,7 @@ export default async function Home() {
             One account for all of it
           </h2>
           <p className="text-center text-lg text-muted-foreground mb-12">
-            Your account is made as you register for your first event.
+            Your account is made as you register for an event. You can also create one from the sign-in page.
           </p>
           <div className="space-y-6">
             {WITH_AN_ACCOUNT.map((line) => (
