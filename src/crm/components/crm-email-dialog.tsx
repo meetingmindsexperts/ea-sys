@@ -513,6 +513,7 @@ export function CrmEmailDialog({
             </Label>
             <TiptapEditor
               cleanPastedStyles
+              fontControls
               key={editorNonce}
               content={message}
               onChange={setMessage}

@@ -120,6 +120,7 @@ export function CrmEmailTemplateDialog({
             </Label>
             <TiptapEditor
               cleanPastedStyles
+              fontControls
               key={template?.id ?? "new"}
               content={body}
               onChange={setBody}

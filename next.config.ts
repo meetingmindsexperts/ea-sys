@@ -61,6 +61,17 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // The fonts an email may use (src/lib/email-fonts.ts). A mail app, and
+        // our own sandboxed preview frames, fetch them from ANOTHER origin, and
+        // a browser refuses a cross-origin font without this header. The files
+        // are public and never change under a name, so they cache for a year.
+        source: "/email-fonts/:file*",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
         // Shared doc links (/admin/docs/<path>): the no-script policy the
         // route sets. The global rule above would otherwise REPLACE it (the
         // last matching rule wins per key), which it silently did until Sep 25,

@@ -491,3 +491,35 @@
 @media (prefers-reduced-motion: reduce) {
   .catalogue-fan-card { transition: none; }
 }
+
+/* An email editor's text, in what the email goes out in by default
+   (EMAIL_DEFAULT_FONT and EMAIL_DEFAULT_FONT_SIZE in src/lib/email-fonts.ts). */
+.email-editor-text {
+  font-family: "Open Sans", Verdana, Geneva, sans-serif;
+  font-size: 14px;
+}
+
+/* The fonts an email's author may choose (src/lib/email-fonts.ts), so the
+   editor shows them as the recipient's Apple Mail will. A browser fetches a
+   file only when text on the page is set in that font. */
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/email-fonts/montserrat-latin-wght-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/email-fonts/inter-latin-wght-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Open Sans";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/email-fonts/open-sans-latin-wght-normal.woff2") format("woff2");
+}

@@ -2790,6 +2790,7 @@ export default function EventSettingsPage() {
               <Label>Email Footer</Label>
               <TiptapEditor
                 cleanPastedStyles
+                fontControls
                 content={brandingSettings.emailFooterHtml}
                 onChange={(html) =>
                   setBrandingSettings({

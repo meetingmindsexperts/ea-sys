@@ -19,6 +19,7 @@ import TableHeader from "@tiptap/extension-table-header";
 import { toast } from "sonner";
 import { MediaPickerDialog } from "@/components/media/media-picker-dialog";
 import { cleanPastedHtml } from "@/lib/clean-pasted-html";
+import { FontControls, FontDefaultsNote, FontStyle } from "@/components/ui/tiptap-font-controls";
 import { closeHistory } from "@tiptap/pm/history";
 import type { EditorView } from "@tiptap/pm/view";
 
@@ -178,6 +179,13 @@ interface TiptapEditorProps {
    * (owner, Oct 28, 2026), with a one-click "Keep original formatting". Read once at editor init.
    */
   cleanPastedStyles?: boolean;
+  /**
+   * Offer a font and a text size in the toolbar, and keep both when the content is loaded
+   * (Nov 23, 2026; src/lib/email-fonts.ts). On in every EMAIL editor, the ones that also clean
+   * pasted styles (a test keeps the two together); off for page content, which is not an email
+   * and has no font files declared for it. Read once at editor init.
+   */
+  fontControls?: boolean;
 }
 
 /**
@@ -235,7 +243,7 @@ function ToolbarButton({
   );
 }
 
-function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+function EditorToolbar({ editor, fontControls }: { editor: ReturnType<typeof useEditor>; fontControls: boolean }) {
   // Media-library picker state for the "Insert Image" button. Replaces the
   // legacy `window.prompt()` URL paste — organizers now upload via the
   // dialog (or pick from previously-uploaded files), which routes through
@@ -411,6 +419,8 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
         </Button>
       </div>
 
+      {fontControls && <FontControls editor={editor} />}
+
       <div className="mx-1 h-6 w-px bg-border" />
 
       {/* Layout blocks */}
@@ -549,7 +559,14 @@ function formatHtml(html: string): string {
   return formatted.trim();
 }
 
-export function TiptapEditor({ content, onChange, placeholder, minHeightClass = "min-h-[300px]", cleanPastedStyles = false }: TiptapEditorProps) {
+export function TiptapEditor({
+  content,
+  onChange,
+  placeholder,
+  minHeightClass = "min-h-[300px]",
+  cleanPastedStyles = false,
+  fontControls = false,
+}: TiptapEditorProps) {
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceHtml, setSourceHtml] = useState("");
   // The editor, for the paste hook below, which is fixed at init and runs before the paste is inserted.
@@ -585,6 +602,9 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
         },
       }),
       Color,
+      // Font and size are kept only where the toolbar offers them: an editor
+      // without the controls drops both on load, as every editor did before.
+      ...(fontControls ? [FontStyle] : []),
       // A link keeps its own `style` (Nov 18, 2026): every link used to be
       // given the cerulean style, so a pasted red link turned blue on reload
       // and was saved blue by the next visual edit. The cerulean colour and
@@ -623,7 +643,8 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
     },
     editorProps: {
       attributes: {
-        class: `prose prose-sm max-w-none focus:outline-none ${minHeightClass} px-4 py-3 [&>*]:mb-2 [&>*:last-child]:mb-0`,
+        // An email editor shows its text in the font and size the email goes out in (globals.css).
+        class: `prose prose-sm max-w-none focus:outline-none ${minHeightClass} px-4 py-3 [&>*]:mb-2 [&>*:last-child]:mb-0${fontControls ? " email-editor-text" : ""}`,
       },
       ...(cleanPastedStyles && {
         transformPastedHTML: (html: string, view: EditorView) => {
@@ -668,7 +689,7 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
   return (
     <div className="rounded-md border">
       <div className="flex items-center justify-between border-b px-2 py-1">
-        {!sourceMode && <EditorToolbar editor={editor} />}
+        {!sourceMode && <EditorToolbar editor={editor} fontControls={fontControls} />}
         {sourceMode && <span className="text-xs font-medium text-muted-foreground px-2">HTML Source</span>}
         <Button
           type="button"
@@ -682,6 +703,7 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
           {sourceMode ? "Visual" : "Source"}
         </Button>
       </div>
+      {fontControls && <FontDefaultsNote />}
 
       {sourceMode ? (
         <Textarea

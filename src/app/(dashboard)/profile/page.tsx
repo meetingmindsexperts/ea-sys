@@ -190,6 +190,7 @@ export default function ProfilePage() {
         <CardContent className="space-y-4">
           <TiptapEditor
             cleanPastedStyles
+            fontControls
             content={signature}
             onChange={setSignature}
             placeholder="e.g. Best regards, Dr. Jane Smith — Conference Chair"

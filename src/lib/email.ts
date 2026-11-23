@@ -28,6 +28,7 @@ import { getTitleLabel } from "./utils";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
 import { formatEventDateRange, resolveTimezone } from "./event-time";
 import { getBreaker } from "./circuit-breaker";
+import { EMAIL_DEFAULT_FONT, EMAIL_DEFAULT_TEXT_STYLE, emailFontFaceBlock } from "./email-fonts";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
 
@@ -1422,6 +1423,10 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
     ? normalizeBodyImages(branding.emailFooterHtml)
     : defaultFooterHtml(branding.eventName);
 
+  // The email's fonts, declared for the mail apps that load them
+  // (email-fonts.ts): the default always, plus any the author chose.
+  const fontFaces = emailFontFaceBlock(`${normalizedBody}${footerContent}`, emailAssetBase());
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -1436,21 +1441,22 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
        explicit inline margins already present in template markup win. */
     p { margin: 0 0 8px 0; }
   </style>
+  ${fontFaces}
 </head>
-<body style="margin: 0; padding: 0; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333;">
+<body style="margin: 0; padding: 0; background-color: #ffffff; ${EMAIL_DEFAULT_TEXT_STYLE} line-height: 1.6; color: #333;">
   <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; background-color: #ffffff;">
     <tr>
       <td style="padding: 20px 0;" align="center">
         <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; max-width: 600px;">
           ${headerBlock}
           <tr>
-            <td style="padding: 24px 30px;">
+            <td style="padding: 24px 30px; ${EMAIL_DEFAULT_TEXT_STYLE}">
               ${normalizedBody}
             </td>
           </tr>
           ${footerImageBlock}
           <tr>
-            <td style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+            <td style="text-align: center; padding: 20px; color: #6b7280; font-family: ${EMAIL_DEFAULT_FONT.stack}; font-size: 12px;">
               ${footerContent}
             </td>
           </tr>

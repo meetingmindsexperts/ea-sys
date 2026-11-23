@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Emails: Open Sans at size 14 is the default, and every email editor offers a font and a size (November 23, 2026)
+
+Owner: "add options for font family and font size for emails", then "font family Mont and Verdana and Inter and Open Sans", "download and serve them from our system", "add this to all emails", and "make Open Sans the default for all emails and then 14px body with user customizing font size, inform Open Sans as default and 14px font size default in note to people using the system."
+
+- **Every email the system sends now goes out in Open Sans at size 14.** Until now an email named no font beyond the reader's own system font (San Francisco on a Mac, Segoe UI on Windows, Roboto on Android) and no size, so the same email looked different on every device. The default is written on the email's body and on its own content cell (`wrapWithBranding`), never onto the author's text: a font or size set in a template, by hand or by the new menus, keeps winning. 123 of the 1,823 saved templates on production set a font somewhere and keep it
+- **Every email editor has a Font and a Text size menu**: event email templates, the Email Footer, the Travel Grant message, certificate emails, CRM emails and templates, and the signature on Profile. Fonts: Montserrat, Verdana, Inter, Open Sans. Sizes: 12 to 28. A choice applies to the selected text or to what is typed next; "Default" takes it off. With nothing chosen the menus read "Open Sans" and "14", and a line under the toolbar says so. Editors of page content (registration texts, terms) are not emails and stay as they were; a test keeps the two apart
+- **What a recipient sees, and the note says it too**: Apple Mail and iPhone Mail load the fonts. **Outlook and Gmail do not load web fonts and show Verdana in their place**, at the chosen size. Every font is written as a list ending in Verdana for that reason. So most corporate recipients read these emails in Verdana 14: consistent, and not Open Sans
+- **Montserrat stands in for Mont.** Mont is a paid typeface with no licensed web files in this project; Montserrat is free and of a similar shape (owner's choice)
+- **The fonts are served from our own system** (`public/email-fonts/`, three files of about 45 KB each, with their SIL Open Font licences; from the fontsource packages, version 5.3.0), with the header a font fetched from another origin needs (`next.config.ts`) and a year's caching
+- **Outlook on Windows never sees the font declaration** (`<!--[if !mso]><!-->`): shown a web font it cannot load, it sets the whole email in Times New Roman. Without the declaration it reads the list and lands on Verdana. This is the standard guard and it is pinned by a test, but **it has not been looked at in a real Outlook**: send one test email to an Outlook mailbox and one to Gmail after this is deployed
+- The lists and rules are in `src/lib/email-fonts.ts`; the menus in `src/components/ui/tiptap-font-controls.tsx`
+
 ### Emails: a signature's logo reaches the mailbox, at its own size (November 23, 2026)
 
 Owner: "in organizer signature, logo is not visible."

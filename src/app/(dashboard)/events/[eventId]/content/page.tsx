@@ -351,6 +351,7 @@ export default function ContentPage() {
               <CardContent>
                 <TiptapEditor
                   cleanPastedStyles
+                  fontControls
                   content={content.travelGrantMessageHtml}
                   onChange={(html) => setContent({ ...content, travelGrantMessageHtml: html })}
                   placeholder="e.g. We offer a limited number of travel grants to authors travelling from outside the UAE..."

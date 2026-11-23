@@ -160,6 +160,7 @@ export function CertEmailEditorDialog({
             <TiptapEditor
               key={editorKey}
               cleanPastedStyles
+              fontControls
               content={body}
               onChange={setBody}
               placeholder="Write the cover message..."
