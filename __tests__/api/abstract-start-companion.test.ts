@@ -363,7 +363,7 @@ describe("abstract-start — lookup, then confirmed details", () => {
   });
 
   // Nov 23, 2026: the registration was left with no owner, so My events did
-  // not list an author's own registration (114 rows on production).
+  // not list an author's own registration (106 rows on production).
   it("the registration this sign-in makes is stamped with the account whose password was checked", async () => {
     mockDb.ticketType.findMany.mockResolvedValue([
       {

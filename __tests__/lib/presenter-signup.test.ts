@@ -365,7 +365,7 @@ describe("with presenter rates configured", () => {
  * Until Nov 23, 2026 the registration an author's sign-up made had no owner:
  * the speaker record was linked to the account and the registration was not,
  * so My events did not list it until the address was confirmed, and this door
- * never sends that link (114 such rows on production that day).
+ * never sends that link (106 such rows on production that day).
  */
 describe("the registration a sign-up makes belongs to the account that made it", () => {
   it("is stamped with the account, and only while it has no owner", async () => {

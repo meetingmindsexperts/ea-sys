@@ -182,7 +182,7 @@ describe("submitter route — presenter rate is required when the event charges"
   });
 
   // Nov 23, 2026: the registration was left with no owner, so My events did
-  // not list an author's own registration (114 rows on production).
+  // not list an author's own registration (106 rows on production).
   describe("the registration it makes belongs to the account", () => {
     const created = { status: "created", registrationId: "reg-new", registrationStatus: "CONFIRMED", paymentStatus: "UNASSIGNED" };
 

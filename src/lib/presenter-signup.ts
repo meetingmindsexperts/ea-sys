@@ -472,7 +472,7 @@ export async function ensureSubmitterRegistration(
  * Until Nov 23, 2026 the row was left with no owner. The account's speaker
  * record was linked and the registration was not, so an author who signed in
  * did not see their own registration until they confirmed their address, and
- * this door never sends that link. 114 such rows were on production that day.
+ * this door never sends that link. 106 such rows were on production that day.
  *
  * No mailbox proof is needed for THIS row: the person holding the account made
  * it in the same request, so nobody else's details are in it. That is the only
