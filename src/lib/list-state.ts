@@ -28,7 +28,11 @@ export interface ListQuery {
  *
  *  - data in hand: ready, even if a later refresh failed (what was loaded is
  *    still true enough to show, and the page refreshes it again on focus)
- *  - refused with a 403, or `access` is "denied": denied
+ *  - refused with a 403 or a 404, or `access` is "denied": denied. A 404 is
+ *    what these lists answer to someone without their read key (the route
+ *    guard hides what a person may not see, `onMissing: "hide"`); read as a
+ *    failure it offered Try again for good. The event itself being gone is
+ *    not a case a card meets: the page would not be open.
  *  - any other error: failed
  *  - otherwise: loading. That covers fetching, waiting for a connection, and
  *    waiting to be asked for. None of them is a 0.
@@ -37,5 +41,6 @@ export function listStateOf(query: ListQuery, access?: "loading" | "allowed" | "
   if (access === "denied") return "denied";
   if (query.data !== undefined) return "ready";
   if (!query.isError) return "loading";
-  return httpStatusOf(query.error) === 403 ? "denied" : "failed";
+  const status = httpStatusOf(query.error);
+  return status === 403 || status === 404 ? "denied" : "failed";
 }

@@ -23,11 +23,17 @@ describe("listStateOf", () => {
   it("a list that failed to load is failed, never an empty list", () => {
     expect(listStateOf(q({ isError: true, error: httpError(500) }))).toBe("failed");
     expect(listStateOf(q({ isError: true, error: new Error("network") }))).toBe("failed");
-    expect(listStateOf(q({ isError: true, error: httpError(404) }))).toBe("failed");
+    expect(listStateOf(q({ isError: true, error: httpError(502) }))).toBe("failed");
   });
 
   it("a 403 is 'not allowed', which is not a failure to retry", () => {
     expect(listStateOf(q({ isError: true, error: httpError(403) }))).toBe("denied");
+  });
+
+  it("so is a 404: the lists hide themselves from someone without their read key", () => {
+    // registrations, speakers and abstracts answer 404, not 403, to a role
+    // that may not read them. As "failed" the card offered Try again for good.
+    expect(listStateOf(q({ isError: true, error: httpError(404) }))).toBe("denied");
   });
 
   it("a list the page never asks for, because the person may not read it, is denied", () => {

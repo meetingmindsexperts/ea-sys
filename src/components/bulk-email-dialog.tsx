@@ -1682,8 +1682,7 @@ export function BulkEmailDialog({
             </p>
             {nobodyToSendNow && !isAbstracts && (
               <p className="text-muted-foreground">
-                Nobody matches, so there is nothing to send.
-                {!isReviewerInvitation && " Change the filters, or schedule it for later to reach whoever matches then."}
+                This would go to nobody, so there is nothing to send.
               </p>
             )}
             {isAbstracts && serverCountQuery.isError && (

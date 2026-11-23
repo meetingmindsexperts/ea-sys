@@ -7,9 +7,14 @@ import { EVENT_ID } from "./fixtures/seed-constants";
  *
  * Verifies the end-to-end UI flow: organizer opens the bulk email
  * dialog from the Communications page, sets the in-dialog Payment
- * status to UNPAID, fills required fields, and sends. We intercept
- * the POST to `/emails/bulk` (so no email actually goes out) and
- * assert the request body carries `filters.paymentStatus = "UNPAID"`.
+ * status, and sends. We intercept the POST to `/emails/bulk` (so no
+ * email actually goes out) and assert the request body carries the
+ * chosen `filters.paymentStatus`.
+ *
+ * The status picked is COMPLIMENTARY because that is what the seed's one
+ * registration is. Since Nov 23, 2026 the dialog will not send to nobody
+ * (`showsNobodyToSendNow`): picking a status no seeded row has leaves Send
+ * off, which is the rule working and not this contract failing.
  *
  * Without this fix the canonical "email all unpaid" workflow had to
  * over-send to all CONFIRMED registrations or fall back to external
@@ -53,13 +58,13 @@ test("bulk email dialog forwards paymentStatus filter to /emails/bulk", async ({
 
   // Inside the dialog: the new payment-status Select renders for
   // recipientType=registrations. Default is "All payment statuses";
-  // pick UNPAID to exercise the W2-F4 contract.
+  // pick one to exercise the W2-F4 contract (see the header for which).
   const dialog = page.getByRole("dialog");
   // The filters sit in a collapsed "Filter recipients" section.
   await dialog.getByRole("button", { name: /filter recipients/i }).click();
   const paymentSelect = dialog.getByRole("combobox", { name: /payment status/i });
   await expect(paymentSelect).toBeVisible();
-  await pickSelect(dialog, /payment status/i, "Unpaid");
+  await pickSelect(dialog, /payment status/i, "Complimentary");
 
   // emailType defaults to "confirmation" for registrations — that's
   // a template-driven send, no subject/message inputs to fill. We
@@ -78,5 +83,5 @@ test("bulk email dialog forwards paymentStatus filter to /emails/bulk", async ({
   // The contract under test — paymentStatus filter must be in the
   // payload. statusFilter and ticketTypeId are unrelated to W2-F4 and
   // intentionally NOT asserted here.
-  expect(body.filters?.paymentStatus).toBe("UNPAID");
+  expect(body.filters?.paymentStatus).toBe("COMPLIMENTARY");
 });

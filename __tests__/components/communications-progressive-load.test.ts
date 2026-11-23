@@ -37,7 +37,6 @@ describe("Communications page: each card waits for its own list", () => {
   ])("the %s card shows its body only for %s", (what, flag) => {
     expect(SOURCE).toContain(`<WhenListArrives state={${flag}} what="${what}" placeholder="`);
     // Try again asks for THAT list.
-    expect(SOURCE).toContain(`what="${what}" placeholder=`);
     expect(SOURCE).toMatch(new RegExp(`what="${what}" placeholder="[^"]+" onRetry=\\{\\(\\) => void ${what}Query\\.refetch\\(\\)\\}>`));
   });
 

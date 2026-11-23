@@ -37,6 +37,9 @@ describe("the send dialog asks it", () => {
   });
 
   it("and says why, so a greyed Send is not a puzzle", () => {
-    expect(DIALOG).toContain("Nobody matches, so there is nothing to send.");
+    expect(DIALOG).toContain("This would go to nobody, so there is nothing to send.");
+    // It must not point at scheduling: a scheduled send is exempt from the
+    // rule, so that is the one path a wrong 0 can still take.
+    expect(DIALOG).not.toMatch(/nothing to send[^<]*schedule/i);
   });
 });

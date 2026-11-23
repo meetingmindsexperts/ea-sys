@@ -376,7 +376,7 @@ function WhenListArrives({
 function StatNumber({ state, value }: { state: ListState; value: number }) {
   if (state === "loading") return <Skeleton className="my-1 h-6 w-10" aria-hidden="true" />;
   // Not loaded is not 0.
-  if (state !== "ready") return <p className="text-2xl font-bold text-muted-foreground" title="Could not be loaded">–</p>;
+  if (state !== "ready") return <p className="text-2xl font-bold text-muted-foreground" aria-label="Not available">–</p>;
   return <p className="text-2xl font-bold">{value}</p>;
 }
 

@@ -37,6 +37,24 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## The send dialog's count is not always who the email goes to: what the Nov 23 review left (recorded Nov 23, 2026): not started
+
+"Send to all 0" no longer sends, and a Communications card whose list failed says so (`a6f25c7f`; CHANGELOG, Nov 23). Review of `a6f25c7f`: 0 BLOCKER, 1 HIGH, 2 MED, 6 LOW. The HIGH is fixed in the follow-up commit (the browser test `bulk-email-payment-filter` picked "Unpaid", which no seeded registration is, so the new rule left Send off and the gate would have gone red; it picks the status the seed holds). Also fixed: the dialog's line no longer points at scheduling and reads true for every audience; a list hidden from a role answers 404 and now reads "no access", not "could not load"; the CHANGELOG no longer overclaims for abstracts.
+
+**Older, and the important part, for the owner to rule on. The commit said "all four screens pass a real count, so what is shown is what is sent". On the Registrations page that is not true, and was not before:**
+
+1. **HIGH (since Sep 2, 2026): the Sponsor filter narrows the count but not the send.** The page fetches its list already narrowed to the sponsor, the dialog counts over that list, and the send carries no sponsor filter at all. With Sponsor = X and Status = Confirmed, "Email filtered" opens "Send to all 20 registrations" and the server emails every confirmed registration on the event. For someone who may send but cannot open Communications, the Sponsor filter alone does it ("Email All" shows the sponsor's count). The fix is the one the form and document filters already have: with a Sponsor filter on, the send is a fixed list of exactly the listed rows (`completionNarrowed`).
+2. **HIGH or MED (since Jun 29, 2026): removing a tag inside the dialog widens the send but not the count.** The page's tag filter narrows the fetched list too. Open the dialog from a list filtered to "vip" (12 rows), remove the tag in the dialog: the count stays 12 and the send goes to the whole event. The reverse is the new MED below.
+3. **MED, new with `a6f25c7f`, same root: on a tag-filtered list, changing the tag inside the dialog can read 0 and block a send the server would make.** Before, it sent with a wrong 0 on screen; now it is blocked with "this would go to nobody". Clearing the page's tag filter first is the way round. Fixing 2 fixes this.
+4. **MED: a send scheduled for later is exempt from the rule by design,** so both cases above still go through as "Schedule Email".
+
+Left, LOW:
+
+- **A failed card flips to its placeholder and back on every window focus and on Try again** (a query with no data starts again from "pending"), and the keyboard focus on Try again is lost. Holding "failed" across a retry needs the card to remember it.
+- **Offline when the page opens, the Reviewers card says "no access"** while the other three show a placeholder: `useCan` answers "denied" for an event request that is paused. In `use-can.ts`, for every page.
+- **The dialog test reads the source;** nothing renders the dialog at 0. The browser check on Nov 23 did.
+- **An event whose abstracts are all drafts cannot be sent the draft reminder from Communications** (older): the list never returns drafts to staff, so the card reads 0 and its Send Email is off.
+
 ## Communications page, card by card: what the Nov 23 review left (recorded Nov 23, 2026): not started
 
 Each card on the Communications page appears when its own list arrives (`8ca632a3`; CHANGELOG, Nov 23). Review of `8ca632a3`: 0 BLOCKER, 0 HIGH, 3 MED, 5 LOW. All three MEDs are fixed in the follow-up commit: the browser test names the Registrations card (it clicked "the first Send Email on the page", which is now whichever list arrives first); the Reviewers card waits while it is not yet known whether the person may see reviewers (on a fresh page load it said "0 recipients" first); each placeholder is about the height of its filled card, so the row beneath no longer jumps a few hundred pixels under the pointer. Also fixed: the placeholder is announced to a screen reader, and the test ties each wait to its own list. Left:
