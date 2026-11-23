@@ -72,25 +72,26 @@ const px = (size: string) => size.replace(/px$/, "");
 /**
  * The line every email editor shows under its toolbar (owner, Nov 23, 2026:
  * "inform Open Sans as default and 14px font size default in note to people
- * using the system").
+ * using the system"). `defaultSize` is what THIS text goes out at when the
+ * author sets none: 14 for an email's body, 12 for its footer.
  */
-export function FontDefaultsNote() {
+export function FontDefaultsNote({ defaultSize = EMAIL_DEFAULT_FONT_SIZE }: { defaultSize?: string }) {
   return (
     <p className="border-b bg-muted/30 px-3 py-1.5 text-[11px] leading-snug text-muted-foreground">
-      Emails go out in <span className="font-medium text-foreground/80">{EMAIL_DEFAULT_FONT.label}</span>, size{" "}
-      <span className="font-medium text-foreground/80">{px(EMAIL_DEFAULT_FONT_SIZE)}</span>, unless you choose another font or size for the
-      selected text. Outlook and Gmail show Verdana in place of Montserrat, Inter and Open Sans.
+      This text goes out in <span className="font-medium text-foreground/80">{EMAIL_DEFAULT_FONT.label}</span>, size{" "}
+      <span className="font-medium text-foreground/80">{px(defaultSize)}</span>, unless you choose another font or size for the selected
+      text. Outlook and Gmail do not load Montserrat, Inter or Open Sans: they show Verdana in their place (Roboto on Android).
     </p>
   );
 }
 
-export function FontControls({ editor }: { editor: Editor }) {
+export function FontControls({ editor, defaultSize = EMAIL_DEFAULT_FONT_SIZE }: { editor: Editor; defaultSize?: string }) {
   const current = editor.getAttributes("textStyle") as { fontFamily?: string | null; fontSize?: string | null };
   // With nothing chosen the menus show what the email goes out in: the default.
   const chosenFont = emailFontFor(current.fontFamily);
   const font = chosenFont ?? (current.fontFamily ? null : EMAIL_DEFAULT_FONT);
   const fontLabel = font?.label ?? "Other";
-  const sizeLabel = px(current.fontSize ?? EMAIL_DEFAULT_FONT_SIZE);
+  const sizeLabel = px(current.fontSize ?? defaultSize);
 
   return (
     <>
@@ -128,7 +129,7 @@ export function FontControls({ editor }: { editor: Editor }) {
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setTextStyle(editor, { fontSize: null })}>Default ({px(EMAIL_DEFAULT_FONT_SIZE)})</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setTextStyle(editor, { fontSize: null })}>Default ({px(defaultSize)})</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </>

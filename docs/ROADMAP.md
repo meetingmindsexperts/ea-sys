@@ -1895,6 +1895,33 @@ paid row; no speaker record means left; the built-in type is refused). Recorded:
   callout on the Registration Types section) is stale since Add Registration, Faculty
   (Nov 10).
 
+## Email fonts: what the Nov 23 review left (recorded Nov 23, 2026): not started
+
+Review of `9a0199bf7` (Open Sans at 14 as the default; font and size menus): no BLOCKER, no HIGH,
+2 MED and 3 LOW fixed the same day.
+
+- **Emails sent without the standard layout name no font at all**, so they read in the mail app's
+  own default (often Times New Roman) beside Open Sans event mail: CRM reminders
+  (`src/crm/reminders-worker.ts`), approval notices (`approval-notifications-worker.ts`), purchase
+  orders (`commitment-service.ts`), venue and blueprint notices, the CRM's forward of a sponsor's
+  reply, and the operator's alerts and daily digest. Bringing them onto `wrapWithBranding` is the
+  fix; it changes their look, so it is a decision.
+- **LOW, left.** Choosing a font or size with nothing selected ("choose, then type") holds only
+  until the cursor is moved; and "Default" with nothing selected can leave an empty `<span>`.
+- **LOW, left.** A template whose own `<style>` block styles `td` no longer reaches the content
+  cell, which now carries the default inline. No production template is known to do this.
+- **LOW, left.** Italic text in the three web fonts is slanted by the mail app, not a true italic
+  (no italic files are served).
+- **LOW, left.** Opening and saving a template rewrites a span set in one of the four fonts to
+  that font's own fallback list (ending in Verdana).
+- **Not yet seen in a real Outlook or Gmail mailbox.** The Outlook guard is the standard one and
+  is tested through the CSS inliner only.
+
+Older, met by the review: the bulk email dialog's message and the scheduled-email edit box are
+plain text boxes with no editor, so they have no font menus; the menus read only a span's font,
+so text whose paragraph or cell carries its own font still shows "Open Sans / 14"; and applying a
+font across part of a `{{token}}` splits it, as colour already could.
+
 ## Email images and signatures: what the Nov 23 review left (recorded Nov 23, 2026): not started
 
 Review of `835bf0856` (a signature's logo reaches the mailbox): no BLOCKER, no HIGH, 2 MED and

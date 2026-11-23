@@ -186,6 +186,11 @@ interface TiptapEditorProps {
    * and has no font files declared for it. Read once at editor init.
    */
   fontControls?: boolean;
+  /**
+   * What this text goes out at when the author sets no size, where it is not the email body's 14px:
+   * the Email Footer goes out at 12px (email.ts). Shown in the note, the Size menu and the text itself.
+   */
+  defaultFontSize?: string;
 }
 
 /**
@@ -243,7 +248,15 @@ function ToolbarButton({
   );
 }
 
-function EditorToolbar({ editor, fontControls }: { editor: ReturnType<typeof useEditor>; fontControls: boolean }) {
+function EditorToolbar({
+  editor,
+  fontControls,
+  defaultFontSize,
+}: {
+  editor: ReturnType<typeof useEditor>;
+  fontControls: boolean;
+  defaultFontSize?: string;
+}) {
   // Media-library picker state for the "Insert Image" button. Replaces the
   // legacy `window.prompt()` URL paste — organizers now upload via the
   // dialog (or pick from previously-uploaded files), which routes through
@@ -419,7 +432,7 @@ function EditorToolbar({ editor, fontControls }: { editor: ReturnType<typeof use
         </Button>
       </div>
 
-      {fontControls && <FontControls editor={editor} />}
+      {fontControls && <FontControls editor={editor} defaultSize={defaultFontSize} />}
 
       <div className="mx-1 h-6 w-px bg-border" />
 
@@ -566,6 +579,7 @@ export function TiptapEditor({
   minHeightClass = "min-h-[300px]",
   cleanPastedStyles = false,
   fontControls = false,
+  defaultFontSize,
 }: TiptapEditorProps) {
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceHtml, setSourceHtml] = useState("");
@@ -645,6 +659,7 @@ export function TiptapEditor({
       attributes: {
         // An email editor shows its text in the font and size the email goes out in (globals.css).
         class: `prose prose-sm max-w-none focus:outline-none ${minHeightClass} px-4 py-3 [&>*]:mb-2 [&>*:last-child]:mb-0${fontControls ? " email-editor-text" : ""}`,
+        ...(fontControls && defaultFontSize ? { style: `font-size: ${defaultFontSize}` } : {}),
       },
       ...(cleanPastedStyles && {
         transformPastedHTML: (html: string, view: EditorView) => {
@@ -689,7 +704,7 @@ export function TiptapEditor({
   return (
     <div className="rounded-md border">
       <div className="flex items-center justify-between border-b px-2 py-1">
-        {!sourceMode && <EditorToolbar editor={editor} fontControls={fontControls} />}
+        {!sourceMode && <EditorToolbar editor={editor} fontControls={fontControls} defaultFontSize={defaultFontSize} />}
         {sourceMode && <span className="text-xs font-medium text-muted-foreground px-2">HTML Source</span>}
         <Button
           type="button"
@@ -703,7 +718,7 @@ export function TiptapEditor({
           {sourceMode ? "Visual" : "Source"}
         </Button>
       </div>
-      {fontControls && <FontDefaultsNote />}
+      {fontControls && <FontDefaultsNote defaultSize={defaultFontSize} />}
 
       {sourceMode ? (
         <Textarea

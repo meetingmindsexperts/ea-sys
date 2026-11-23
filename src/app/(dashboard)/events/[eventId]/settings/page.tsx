@@ -2791,6 +2791,7 @@ export default function EventSettingsPage() {
               <TiptapEditor
                 cleanPastedStyles
                 fontControls
+                defaultFontSize="12px"
                 content={brandingSettings.emailFooterHtml}
                 onChange={(html) =>
                   setBrandingSettings({

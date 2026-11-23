@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM inbox: a sent email names the files it carried (November 23, 2026)
+
+Owner: "add the attachment name to the sent email in the conversation."
+
+- **A sent email in a CRM conversation now lists its attachments by name**, under the message, marked "sent with this email". Read from the email log, which has recorded every send's attachment names all along, so the emails sent before today show theirs too and nothing is stored twice
+- **Names only, with nothing to open**: the files went out with the email and are not kept on our side. A sponsor's attachments, which are kept, still open as before
+- If the log cannot be read the conversation opens without the names, and the failure is logged (`crm-email-thread:sent-attachments-failed`)
+
 ### Emails: Open Sans at size 14 is the default, and every email editor offers a font and a size (November 23, 2026)
 
 Owner: "add options for font family and font size for emails", then "font family Mont and Verdana and Inter and Open Sans", "download and serve them from our system", "add this to all emails", and "make Open Sans the default for all emails and then 14px body with user customizing font size, inform Open Sans as default and 14px font size default in note to people using the system."
@@ -17,6 +25,7 @@ Owner: "add options for font family and font size for emails", then "font family
 - **The fonts are served from our own system** (`public/email-fonts/`, three files of about 45 KB each, with their SIL Open Font licences; from the fontsource packages, version 5.3.0), with the header a font fetched from another origin needs (`next.config.ts`) and a year's caching
 - **Outlook on Windows never sees the font declaration** (`<!--[if !mso]><!-->`): shown a web font it cannot load, it sets the whole email in Times New Roman. Without the declaration it reads the list and lands on Verdana. This is the standard guard and it is pinned by a test, but **it has not been looked at in a real Outlook**: send one test email to an Outlook mailbox and one to Gmail after this is deployed
 - The lists and rules are in `src/lib/email-fonts.ts`; the menus in `src/components/ui/tiptap-font-controls.tsx`
+- Review of `9a0199bf7` (0 BLOCKER, 0 HIGH, 2 MED, 8 LOW), fixed in the next commit: (1) the font files held basic Latin only, so the ğ of "Doğan" or the Ł of "Łukasz" showed in the fallback font in the middle of a name, on exactly the mail apps that load the font; each font now has a second, extended-Latin file, declared with the characters it holds so a mail app fetches it only when needed (Vietnamese, Greek and Cyrillic remain in the fallback); (2) the Email Footer editor said "size 14" while a footer goes out at 12: it now states and shows 12; a font named in double quotes or as `&quot;` in hand-written HTML is recognised; the note says Android shows Roboto, not Verdana. **Corrected here: "every email" above means every email built on the standard layout.** Approval and purchase-order emails, CRM reminders, venue and blueprint notices and the operator's alerts are sent without that layout and name no font; they are listed in the roadmap
 
 ### Emails: a signature's logo reaches the mailbox, at its own size (November 23, 2026)
 

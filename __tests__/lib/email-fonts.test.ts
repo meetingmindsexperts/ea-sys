@@ -21,6 +21,7 @@ import {
   EMAIL_FONTS,
   EMAIL_FONT_SIZES,
   emailFontFaceBlock,
+  emailFontFiles,
   emailFontFor,
   storedFontFamily,
   storedFontSize,
@@ -90,6 +91,14 @@ describe("which web fonts an email uses", () => {
     expect(webFontsUsedIn(html).map((f) => f.family)).toEqual(["Montserrat", "Inter"]);
   });
 
+  it("reads the first family however it is quoted: hand-written and pasted HTML, not only the editor's", () => {
+    const families = (style: string) => webFontsUsedIn(`<p ${style}>x</p>`).map((f) => f.family);
+    expect(families(`style='font-family: "Inter", Arial'`)).toEqual(["Inter"]);
+    expect(families('style="font-family: &quot;Open Sans&quot;, Arial"')).toEqual(["Open Sans"]);
+    expect(families(`style="font-family:'Montserrat',sans-serif"`)).toEqual(["Montserrat"]);
+    expect(families('style="FONT-FAMILY: INTER"')).toEqual(["Inter"]);
+  });
+
   it("is not fooled by the name in the text, or as a fallback further down a stack", () => {
     expect(webFontsUsedIn("<p>We set this in Inter and Montserrat.</p>")).toEqual([]);
     expect(webFontsUsedIn(span("Georgia, Inter, serif"))).toEqual([]);
@@ -134,14 +143,16 @@ describe("the default every email goes out in (owner, Nov 23, 2026)", () => {
 describe("the declaration a sent email carries", () => {
   it("always declares the default font, and only it for an email that chooses none", () => {
     const html = wrapWithBranding(`<p>plain</p>${span("Verdana, Geneva, sans-serif")}`, {});
-    expect(html.match(/@font-face/g)?.length).toBe(1);
+    // Two rules a font: its Latin file and its extended-Latin file.
+    expect(html.match(/@font-face/g)?.length).toBe(2);
+    expect(html.match(/font-family: 'Open Sans'; font-style/g)?.length).toBe(2);
     expect(html).toContain(`url('${SITE}/email-fonts/open-sans-latin-wght-normal.woff2') format('woff2')`);
     expect(emailFontFaceBlock("<p>plain</p>", SITE)).toContain("font-family: 'Open Sans'");
   });
 
   it("adds a chosen font beside it, from our own address, and no other", () => {
     const html = wrapWithBranding(span("Inter, Verdana, Geneva, sans-serif"), {});
-    expect(html.match(/@font-face/g)?.length).toBe(2);
+    expect(html.match(/@font-face/g)?.length).toBe(4);
     expect(html).toContain(`url('${SITE}/email-fonts/inter-latin-wght-normal.woff2') format('woff2')`);
     expect(html).not.toContain("montserrat-latin");
   });
@@ -165,7 +176,7 @@ describe("the declaration a sent email carries", () => {
       {},
       new Set(["message"]),
     );
-    expect(htmlContent.match(/@font-face/g)?.length).toBe(2);
+    expect(htmlContent.match(/@font-face/g)?.length).toBe(4);
     expect(htmlContent).toContain(`${SITE}/email-fonts/montserrat-latin-wght-normal.woff2`);
     expect(htmlContent.indexOf("<!--[if !mso]><!-->")).toBeLessThan(htmlContent.indexOf("@font-face"));
     expect(htmlContent.lastIndexOf("@font-face")).toBeLessThan(htmlContent.indexOf("<!--<![endif]-->"));
@@ -177,21 +188,23 @@ describe("the declaration a sent email carries", () => {
   });
 });
 
+/** Every .tsx file under src, with its text. */
+function tsxSources(dir = join(process.cwd(), "src")): { file: string; source: string }[] {
+  const out: { file: string; source: string }[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...tsxSources(full));
+    else if (entry.endsWith(".tsx")) out.push({ file: full.slice(process.cwd().length + 1), source: readFileSync(full, "utf8") });
+  }
+  return out;
+}
+
 describe("every email editor offers the fonts, and nothing else does", () => {
   // An email editor is one that cleans pasted styles (`cleanPastedStyles`). The fonts are declared
   // for EMAILS (the sender adds them; a public page does not), so page-content editors stay without.
-  function tsxFiles(dir: string): string[] {
-    const out: string[] = [];
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry);
-      if (statSync(full).isDirectory()) out.push(...tsxFiles(full));
-      else if (entry.endsWith(".tsx")) out.push(full);
-    }
-    return out;
-  }
-  const editors = tsxFiles(join(process.cwd(), "src")).flatMap((file) => {
-    const source = readFileSync(file, "utf8");
-    return [...source.matchAll(/<TiptapEditor\b[^>]*?\/?>/g)].map((m) => ({ file: file.slice(process.cwd().length + 1), tag: m[0] }));
+  const editors = tsxSources().flatMap(({ file, source }) => {
+    // To the tag's own "/>", not the first ">": a prop such as onChange={(v) => ...} holds one.
+    return [...source.matchAll(/<TiptapEditor\b[\s\S]*?\/>/g)].map((m) => ({ file, tag: m[0] }));
   });
 
   it("finds the editors (not testing nothing)", () => {
@@ -204,16 +217,92 @@ describe("every email editor offers the fonts, and nothing else does", () => {
   });
 });
 
+describe("the editor keeps and states what it offers", () => {
+  const editor = readFileSync(join(process.cwd(), "src/components/ui/tiptap-editor.tsx"), "utf8");
+
+  it("registers the font and size attributes exactly when the menus are on", () => {
+    // Without the extension the editor drops both on load: the menus would set what a reload loses.
+    expect(editor).toContain("...(fontControls ? [FontStyle] : [])");
+    expect(editor).toContain("{fontControls && <FontControls editor={editor} defaultSize={defaultFontSize} />}");
+    expect(editor).toContain("{fontControls && <FontDefaultsNote defaultSize={defaultFontSize} />}");
+  });
+
+  it("the Email Footer editor states the footer's own size, the one the sender writes", () => {
+    const settings = readFileSync(join(process.cwd(), "src/app/(dashboard)/events/[eventId]/settings/page.tsx"), "utf8");
+    const footerEditor = settings.slice(settings.indexOf("<Label>Email Footer</Label>"));
+    expect(footerEditor.slice(0, footerEditor.indexOf("/>"))).toContain('defaultFontSize="12px"');
+    // The footer cell of every email: the same 12px.
+    expect(wrapWithBranding("<p>x</p>", {})).toMatch(/<td style="text-align: center;[^"]*font-size: 12px;">/);
+  });
+
+  it("no other editor claims a size of its own: they all go out at the body's 14px", () => {
+    const withOwnSize = tsxSources().filter((f) => f.source.includes("defaultFontSize=") && !f.file.endsWith("tiptap-editor.tsx"));
+    expect(withOwnSize.map((f) => f.file)).toEqual(["src/app/(dashboard)/events/[eventId]/settings/page.tsx"]);
+  });
+});
+
+describe("letters beyond basic Latin (review of 9a0199bf7)", () => {
+  // The first files held Latin only: the ğ of "Doğan" and the Ł of "Łukasz" showed in the
+  // fallback font in the middle of a name, on exactly the mail apps that load the font.
+  const inRange = (range: string, char: string) => {
+    const code = char.codePointAt(0)!;
+    return range.split(",").some((part) => {
+      const [from, to] = part.replace("U+", "").split("-");
+      return code >= parseInt(from!, 16) && code <= parseInt(to ?? from!, 16);
+    });
+  };
+
+  it("each web font has a Latin file and an extended-Latin file, and Verdana has none", () => {
+    for (const f of EMAIL_FONTS.filter((x) => x.file)) {
+      expect(emailFontFiles(f).map((x) => x.file), f.label).toEqual([f.file, f.file!.replace("-latin-", "-latin-ext-")]);
+    }
+    expect(emailFontFiles(EMAIL_FONTS.find((f) => f.family === "Verdana")!)).toEqual([]);
+  });
+
+  it("between them the two files hold the letters of Turkish, Polish, Czech and Hungarian names", () => {
+    const [latin, ext] = emailFontFiles(EMAIL_DEFAULT_FONT);
+    for (const char of "AzéüñçÖ€") expect(inRange(latin!.unicodeRange, char), char).toBe(true);
+    for (const char of "ğşİıŁłčřőűżđ") expect(inRange(latin!.unicodeRange, char) || inRange(ext!.unicodeRange, char), char).toBe(true);
+    // And the second file is what brings them: without it most are not covered.
+    expect([..."ğşŁłčřőű"].every((char) => !inRange(latin!.unicodeRange, char))).toBe(true);
+  });
+
+  it("Vietnamese, Greek and Cyrillic are in neither file: those letters show in the fallback font (stated, not hidden)", () => {
+    const [latin, ext] = emailFontFiles(EMAIL_DEFAULT_FONT);
+    for (const char of "ắβж") expect(inRange(latin!.unicodeRange, char) || inRange(ext!.unicodeRange, char), char).toBe(false);
+  });
+
+  it("each declared rule says which characters its file holds, so a mail app fetches only what an email uses", () => {
+    const block = emailFontFaceBlock("<p>Doğan</p>", SITE);
+    const rules = block.match(/@font-face \{[^}]*\}/g)!;
+    expect(rules).toHaveLength(2);
+    expect(rules[0]).toContain("open-sans-latin-wght-normal.woff2");
+    expect(rules[1]).toContain("open-sans-latin-ext-wght-normal.woff2");
+    for (const rule of rules) expect(rule).toMatch(/unicode-range: U\+[0-9A-F]/);
+  });
+
+  it("the editor's own stylesheet declares the same files with the same ranges", () => {
+    const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+    for (const f of EMAIL_FONTS.filter((x) => x.file)) {
+      for (const file of emailFontFiles(f)) {
+        const at = css.indexOf(`/email-fonts/${file.file}`);
+        expect(at, file.file).toBeGreaterThan(-1);
+        expect(css.slice(at, css.indexOf("}", at)), file.file).toContain(`unicode-range: ${file.unicodeRange};`);
+      }
+    }
+  });
+});
+
 describe("the font files", () => {
   const dir = join(process.cwd(), "public/email-fonts");
 
-  it("every web font's file is in the project, and is a WOFF2 font", () => {
-    const web = EMAIL_FONTS.filter((f) => f.file);
-    expect(web).toHaveLength(3);
-    for (const f of web) {
-      const file = join(dir, f.file!);
-      expect(existsSync(file), f.file!).toBe(true);
-      expect(readFileSync(file).subarray(0, 4).toString("latin1"), f.file!).toBe("wOF2");
+  it("every file of every web font is in the project, and is a WOFF2 font", () => {
+    const files = EMAIL_FONTS.flatMap((f) => emailFontFiles(f));
+    expect(files).toHaveLength(6);
+    for (const f of files) {
+      const file = join(dir, f.file);
+      expect(existsSync(file), f.file).toBe(true);
+      expect(readFileSync(file).subarray(0, 4).toString("latin1"), f.file).toBe("wOF2");
     }
   });
 
