@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### No dialog can be pushed past its own edge by one long line (November 23, 2026)
+
+A long title, name or email address with no place to break used to widen a whole dialog: its heading, its fields and its Cancel and Save buttons ran off the right edge. Six dialogs were fixed one by one on November 20. The fix now lives in the two shared dialog components, so it holds for all of them (about 150 dialogs and 36 confirmation boxes): the long text is cut or overflows by itself, and everything else stays where it was.
+
+- **Nothing changes size.** A dialog is as wide and as tall as before; only content that used to push it out is affected.
+- Checked on fifteen dialogs across Abstracts, Communications, Speakers, Registration types, Agenda, Accommodation, Promo codes, Reimbursements and a confirmation box, at desktop, tablet and phone widths.
+
 ### Speakers page: no "Invited speakers" tab when everyone is invited (November 23, 2026)
 
 On an event where every speaker is one you invited, the Speakers page showed two tabs with the same people and the same count ("All speakers 52", "Invited speakers 52"). The Invited speakers tab now appears only when someone on the list is not invited (an abstract author or a session proposer who signed up). With nothing to tell apart there is no tab row at all.

@@ -139,13 +139,11 @@ export function AbstractPickerDialog({
       {/* Capped at the viewport and scrollable: with a status filter, a paste
           box and the list, the content is taller than a laptop screen, and a
           footer below the fold cannot be clicked (found in the local render check).
-          The single column is minmax(0, 1fr), never the default auto: a grid
-          column grows to its widest unbreakable content, and one long abstract
-          title (they are shown on one line, cut with an ellipsis) widened the
-          column past the dialog, so the heading, the fields and the footer's
-          buttons were all cut off at the right edge (organiser's screenshot,
-          MEHF2027, Nov 20, 2026). */}
-      <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-[min(48rem,calc(100%-2rem))]">
+          One long abstract title (shown on one line, cut with an ellipsis) once
+          widened the whole dialog past its edge (organiser's screenshot, MEHF2027,
+          Nov 20, 2026); the shared DialogContent now caps its column for every
+          dialog (ui/dialog.tsx). */}
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[min(48rem,calc(100%-2rem))]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ListChecks className="h-5 w-5" />

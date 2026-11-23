@@ -312,7 +312,7 @@ export function BulkReviewersDialog({
       {/* minmax(0, 1fr): one long reviewer name or address must be cut in its
           row, never widen the column and push Cancel and Assign out of view
           (the Select abstracts fault; review of daf0f89c). */}
-      <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-[520px]">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icon className="h-5 w-5" />

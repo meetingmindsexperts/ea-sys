@@ -1224,7 +1224,7 @@ export default function AbstractsPage() {
             a long name or address is cut in its row, never widens the dialog
             past its edge. The width keeps a gutter on a tablet (the bare
             max-w-3xl was edge to edge between 640 and 800px). */}
-        <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-[min(48rem,calc(100%-2rem))]" aria-describedby={undefined}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[min(48rem,calc(100%-2rem))]" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle className="text-base">
               Assign reviewers
