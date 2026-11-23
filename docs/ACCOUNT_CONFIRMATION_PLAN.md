@@ -70,9 +70,10 @@ for an account needs email confirmation; registering for an event does not**;
   unlinked and reaches the address's proven owner through the access rule.
   Since Nov 23, 2026 that refusal sends the address the confirmation link
   (purpose "attach"); before, nothing did, and a webinar, which is watched
-  from the account, told the person to register again. The webinar page
-  offers the same link where it says the person is not registered
-  (`ConfirmEmailNotice forWebinar`), to every unconfirmed account alike.
+  from the account, told the person to register again. A session's page
+  offers a link too where it says the person is not registered
+  (`ConfirmEmailNotice forJoining`, purpose "join"), to every unconfirmed
+  account alike, and lets the person in once the address is confirmed.
 - **A password reset no longer confirms the address.** Sessions from before
   the reset live up to five more minutes and could belong to whoever made the
   account; the new owner confirms from their own fresh session. Accepting an

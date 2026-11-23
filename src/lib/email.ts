@@ -1644,6 +1644,8 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
      * "attach": a registration made with an address that already has an
      * account, without proof it is the same person (not signed in, another
      * password), so it was left out of the account (Nov 23, 2026).
+     * "join": asked for from a session's page by a signed-in person told they
+     * are not registered; says nothing about whether a registration exists.
      */
     purpose?: EmailConfirmationPurpose;
     /** The attendee-facing brand for the footer; omitted, the staff default. */
@@ -1657,7 +1659,8 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
     // none was typed), so say which one the link asks for.
     const howAttach = "Open the link and enter the password of the account you already had, not one typed on the registration form.";
     const why = {
-      attach: `A registration was just made with this email address, which already has an account, without signing in to it. Confirm the address and the registration joins that account: a webinar is watched from the account, and My events lists the registration there. ${howAttach}`,
+      attach: `A registration under this email address was just submitted without signing in to the account the address already has. Your registration stands either way. To have it in that account, which is where a webinar is watched and where My events lists it, confirm the address. ${howAttach}`,
+      join: `Confirm your email address to join from your account. A registration made with this address without signing in joins the account once the address is confirmed, and a webinar is watched from the account. ${how}`,
       account: `Someone, hopefully you, created an account with this email address. Confirm it to finish and to sign in for the first time. ${how}`,
       registrations: `Please confirm your email address so we can show every registration made under it on My events. Your new registration works either way. ${how}`,
       speaker: `The organisers already have a speaker profile for this address. Confirm it is yours to take the profile over and submit. ${how}`,
@@ -1668,6 +1671,7 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
     const ignore = {
       account: "Didn't create an account? Ignore this email and nothing happens. An account that is never confirmed is removed after 30 days.",
       attach: "Forgotten that password? Reset it from the sign-in page first, then open this link again. If you did not register, you can ignore this email.",
+      join: "Forgotten your password? Reset it from the sign-in page first, then open this link again. If you did not ask for this, you can ignore this email.",
       registrations: "If you didn't create this account, you can safely ignore this email.",
       speaker: "If you didn't create this account, you can safely ignore this email.",
       team: "If you didn't create this account, you can safely ignore this email.",
@@ -1685,8 +1689,13 @@ ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
     <p style="color: #6b7280; font-size: 14px;">${ignore}</p>
   </div>`;
     const usualSubject = purpose === "account" ? "Confirm your Meeting Minds account" : "Verify your email — Meeting Minds";
-    // Says what it is for: this one arrives beside a registration confirmation.
-    const subject = purpose === "attach" ? "Confirm your email to add your registration to your account" : usualSubject;
+    // These two say what they are for: one arrives beside a registration
+    // confirmation, the other is asked for from a webinar's page.
+    const ownSubject: Partial<Record<EmailConfirmationPurpose, string>> = {
+      attach: "Confirm your email to add your registration to your account",
+      join: "Confirm your email to join from your account",
+    };
+    const subject = ownSubject[purpose] ?? usualSubject;
     return {
       subject,
       htmlContent: inlineCss(wrapWithBranding(bodyHtml, productFooter(params.productName))),
@@ -1738,7 +1747,7 @@ If it wasn't you, ignore this email. Nothing has changed on your account.`,
 };
 
 /** Why a confirmation link is being sent; words the email (systemTemplates.emailVerification). */
-export type EmailConfirmationPurpose = "team" | "registrations" | "speaker" | "account" | "attach";
+export type EmailConfirmationPurpose = "team" | "registrations" | "speaker" | "account" | "attach" | "join";
 
 // ── Legacy compatibility: emailTemplates ───────────────────────────────────────
 // Keep the old API working during transition. All callers will be migrated to

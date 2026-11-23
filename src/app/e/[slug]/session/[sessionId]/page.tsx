@@ -110,9 +110,15 @@ interface JoinInfo {
 
 const NOT_ACTIVE_CODES = new Set(["PENDING_APPROVAL", "WAITLISTED", "PAYMENT_OUTSTANDING"]);
 
-/** The address was just confirmed, so the registration is in the account now: ask to join again. */
+/**
+ * The address was just confirmed: ask to join again. A moment later, not at
+ * once: confirming records the address first and puts the registrations in
+ * the account straight after, and a reload inside that gap would be told
+ * "not registered" again with the confirm notice gone.
+ */
+const RELOAD_AFTER_CONFIRMING_MS = 1500;
 function reloadPage(): void {
-  window.location.reload();
+  window.setTimeout(() => window.location.reload(), RELOAD_AFTER_CONFIRMING_MS);
 }
 
 type JoinAuthState =
@@ -1504,7 +1510,7 @@ function StickyCta({
   if (!joinInfo && authState.kind === "needs-registration" && !isPast) {
     return (
       <div className="space-y-3">
-        <ConfirmEmailNotice forWebinar onConfirmed={reloadPage} />
+        <ConfirmEmailNotice forJoining onConfirmed={reloadPage} />
         <Card className="border-amber-200 bg-amber-50/70 shadow-sm">
           <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
             <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center shrink-0">

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -20,6 +21,14 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
  * Confirming lets registrations made earlier under that address appear on
  * My events (src/lib/registrant-access.ts).
  */
+
+/**
+ * Where the link was asked from. "join": a session's page, by someone told
+ * they are not registered, so the email speaks of joining and does not say
+ * "your new registration works either way" (it does not, there). It words the
+ * email only: the address still comes from the database.
+ */
+const sendSchema = z.object({ for: z.literal("join").optional() });
 
 const SEND_LIMIT = 3;
 const SEND_WINDOW_MS = 60 * 60 * 1000;
@@ -54,6 +63,14 @@ export async function POST(req: Request) {
     if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = session.user.id;
 
+    // No body at all is the usual case (My events and the registration page send none).
+    const parsed = sendSchema.safeParse(await req.json().catch(() => ({})));
+    if (!parsed.success) {
+      apiLogger.warn({ msg: "registrant/confirm-email:validation-failed", userId, errors: parsed.error.flatten() });
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    }
+    const ordinaryPurpose = parsed.data.for === "join" ? "join" : "registrations";
+
     const rl = checkRateLimit({ key: `registrant-confirm-email:${userId}`, limit: SEND_LIMIT, windowMs: SEND_WINDOW_MS });
     if (!rl.allowed) {
       apiLogger.warn({ msg: "registrant/confirm-email:rate-limited", userId, retryAfterSeconds: rl.retryAfterSeconds });
@@ -77,7 +94,7 @@ export async function POST(req: Request) {
         name: `${user.firstName} ${user.lastName}`.trim() || user.email,
         // A Meeting Minds address keeps the team wording; confirming it also
         // attaches the organisation, as it always has.
-        purpose: needsEmailVerification(user.email) ? "team" : "registrations",
+        purpose: needsEmailVerification(user.email) ? "team" : ordinaryPurpose,
         organizationId: orgId,
       });
       if (outcome === "rate-limited") {

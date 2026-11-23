@@ -10,18 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Someone who already has an account can register again without signing in. Unless the password they type is that account's, or the account has confirmed its address, the new registration is kept out of the account: the email on a form is only what was typed, so this is what stops an account made on someone else's address from collecting that person's registrations. The rule stays. What was missing was any way for the real person to finish the job. The form said the registration would show "after you confirm your email address" and no link was ever sent, and a webinar is watched from the account, so the webinar page told a registered person "Register to join", and registering again was refused as already registered. Five delegates of a webinar were a day away from that.
 
-- **The confirmation link is now sent by itself**, at the moment such a registration is made, on every kind of event. The email says which password the link asks for (the account's own, not one typed on the form) and what to do if it is forgotten.
-- **The webinar page offers the link where it used to be a dead end.** A signed-in person who is told they are not registered, and whose account has not confirmed its address, sees "Already registered for this webinar?" with a Send confirmation link button, above the Register button. Once they open the link, in another tab or on a phone, the page lets them in by itself.
+- **The confirmation link is now sent by itself**, at the moment such a registration is made with a password or through the desk QR, on every kind of event. The email says the registration stands either way, which password the link asks for (the account's own, not one typed on the form) and what to do if it is forgotten.
+- **The webinar page offers the link where it used to be a dead end.** A signed-in person who is told they are not registered, and whose account has not confirmed its address, sees "Already registered?" with a Send confirmation link button, above the Register button. Once they open a link, in another tab or on a phone, the page lets them in by itself within a few seconds, whether it was the link from this button or the one emailed when they registered.
 - **It says nothing about whether a registration exists.** Every unconfirmed account sees the same question, registered or not.
-- **What it does not do:** it sends nothing to people who registered this way before today. They see the confirm prompt on My events, on the event's My registration page and now on the webinar page. A password reset still does not confirm an address.
-
-### Pages load their files in parallel (November 23, 2026)
-
-The site now speaks HTTP/2. Before, a browser could fetch six things at a time from us, and a dashboard page needs about forty (its scripts and its data), so the rest waited in a queue. Now they are all requested at once over one connection. It helps most on a first visit and from a slow or distant connection.
-
-- **Nothing to do, and nothing looks different.** Older tools that only speak HTTP/1.1 keep working as before.
-- **Webinar video is unchanged:** attendees receive it from the content network, not from this server. The session page itself opens a little faster.
-- The limit on simultaneous requests from one address went from 100 to 300, because an office or a venue's Wi-Fi shares one address and each browser now sends more at once.
+- **What it does not do:** it sends nothing to people who registered this way before today, or to someone who completes a registration with no password. They see the confirm prompt on My events, on the event's My registration page and now on the webinar page. A password reset still does not confirm an address.
 
 ### The Communications page fills in card by card (November 23, 2026)
 

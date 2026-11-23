@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { MailCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ApiError } from "@/lib/api-fetch";
 import { NEW_CONFIRMATION_WATCH, watchConfirmation } from "@/lib/confirm-email-watch";
 
 /**
@@ -18,56 +19,60 @@ import { NEW_CONFIRMATION_WATCH, watchConfirmation } from "@/lib/confirm-email-w
  * events, a server page). Without it, it asks the API and renders nothing for
  * a confirmed account (the event's own registration page).
  *
- * `forWebinar` (Nov 23, 2026) is the webinar page's copy, shown where a
+ * `forJoining` (Nov 23, 2026) is the session page's copy, shown where a
  * signed-in person is told they are not registered: a registration made with
  * their address while signed out is not in the account until the address is
  * confirmed, and a webinar is watched from the account. It is shown to every
- * unconfirmed account there, registered or not, for the reason above. Once the
- * link is sent it keeps asking whether the address is confirmed and calls
- * `onConfirmed` when it is (the link is usually opened in another tab, or on
- * a phone), so the page can let the person in without a reload by hand.
+ * unconfirmed account there, registered or not, for the reason above. With
+ * `onConfirmed`, it keeps asking whether the address is confirmed for as long
+ * as it shows, and calls it when it is: the link is usually opened in another
+ * tab or on a phone, and it may be the one emailed at registration, not one
+ * asked for here. It stops asking on an error (a session that ended would
+ * otherwise be asked every few seconds for ever).
  */
-type NoticeKind = "registrations" | "reviews" | "webinar";
+type NoticeKind = "registrations" | "reviews" | "joining";
 
 const NOTICE_TITLE: Record<NoticeKind, string> = {
   registrations: "Registered before with this email?",
   reviews: "Confirm your email to start reviewing",
-  webinar: "Already registered for this webinar?",
+  joining: "Already registered?",
 };
 
-function noticeText(address: string | undefined, sent: boolean, kind: NoticeKind): string {
+/** `watching`: the page is asking whether the address is confirmed and will let the person in by itself. */
+function noticeText(address: string | undefined, sent: boolean, kind: NoticeKind, watching: boolean): string {
   if (kind === "reviews") {
     return sent
       ? `Check ${address} and click the link. The abstracts you were asked to review will then show here.`
       : `You were asked to review abstracts. Confirm ${address} to open them.`;
   }
-  if (kind === "webinar") {
-    return sent
+  if (kind === "joining") {
+    if (!sent) return `If you registered with ${address} without signing in, confirm the address to join from this account.`;
+    return watching
       ? `Check ${address} and click the link. This page lets you in as soon as the address is confirmed.`
-      : `If you registered with ${address} without signing in, confirm the address to join from this account.`;
+      : `Check ${address} and click the link, then reload this page.`;
   }
   return sent
     ? `Check ${address} and click the link. Registrations made earlier under it will then show here.`
     : `Confirm ${address} to see registrations made earlier under it, including any certificates.`;
 }
 
-function noticeKind(forReviews: boolean, forWebinar: boolean): NoticeKind {
+function noticeKind(forReviews: boolean, forJoining: boolean): NoticeKind {
   if (forReviews) return "reviews";
-  return forWebinar ? "webinar" : "registrations";
+  return forJoining ? "joining" : "registrations";
 }
 
-/** How often the webinar page asks whether the address is confirmed, once the link is sent. */
+/** How often a page waiting to let someone in asks whether the address is confirmed. */
 const CONFIRMED_POLL_MS = 8000;
 
 export function ConfirmEmailNotice({
   email,
   forReviews = false,
-  forWebinar = false,
+  forJoining = false,
   onConfirmed,
 }: {
   email?: string;
   forReviews?: boolean;
-  forWebinar?: boolean;
+  forJoining?: boolean;
   /** The address became confirmed while this notice was showing (only without `email`). */
   onConfirmed?: () => void;
 }) {
@@ -77,12 +82,15 @@ export function ConfirmEmailNotice({
     queryKey: ["registrant", "confirm-email"],
     queryFn: async () => {
       const res = await fetch("/api/registrant/confirm-email");
-      if (!res.ok) throw new Error(`Failed to check the email (${res.status})`);
+      // With its status, so a session that ended is sent to sign in (providers.tsx).
+      if (!res.ok) throw new ApiError(`Failed to check the email (${res.status})`, res.status);
       return (await res.json()) as { confirmed: boolean; email: string };
     },
     enabled: !email,
-    // Only while someone waits on the link, and only in a tab that is open.
-    refetchInterval: sent && onConfirmed ? CONFIRMED_POLL_MS : false,
+    // Only for a page waiting to let the person in, only while the address is
+    // unconfirmed, never after an error, and only in a tab that is open.
+    refetchInterval: (query) =>
+      onConfirmed && query.state.status !== "error" && query.state.data?.confirmed === false ? CONFIRMED_POLL_MS : false,
   });
   const router = useRouter();
 
@@ -97,12 +105,17 @@ export function ConfirmEmailNotice({
 
   const address = email ?? status.data?.email;
   if (!email && (!status.data || status.data.confirmed)) return null;
-  const kind = noticeKind(forReviews, forWebinar);
+  const kind = noticeKind(forReviews, forJoining);
 
   const send = async () => {
     setSending(true);
     try {
-      const res = await fetch("/api/registrant/confirm-email", { method: "POST" });
+      const res = await fetch("/api/registrant/confirm-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Words the email: from a session's page it speaks of joining.
+        body: JSON.stringify(forJoining ? { for: "join" } : {}),
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.error("registrant:confirm-email-send-failed", res.status, body);
@@ -133,7 +146,7 @@ export function ConfirmEmailNotice({
       <div className="flex-1 text-sm text-sky-950">
         <p className="font-medium">{NOTICE_TITLE[kind]}</p>
         <p className="text-sky-900/80">
-          {noticeText(address, sent, kind)}
+          {noticeText(address, sent, kind, !!onConfirmed && !status.isError)}
         </p>
       </div>
       {!sent && (

@@ -40,6 +40,21 @@ describe("POST /api/registrant/confirm-email", () => {
     expect(mockSend).toHaveBeenCalledWith({ email: "anna@example.com", name: "Anna K", purpose: "registrations", organizationId: null });
   });
 
+  // Nov 23, 2026: asked from a session's page, where "your new registration
+  // works either way" is not true. It words the email and nothing else.
+  it("asked from a session's page, it sends the joining wording, still to the database's address", async () => {
+    const req = new Request("http://x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ for: "join", email: "someone@else.com" }) });
+    expect((await POST(req)).status).toBe(200);
+    expect(mockSend).toHaveBeenCalledWith({ email: "anna@example.com", name: "Anna K", purpose: "join", organizationId: null });
+  });
+
+  it("refuses, and logs, a body it does not know", async () => {
+    const req = new Request("http://x", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ for: "anything" }) });
+    expect((await POST(req)).status).toBe(400);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockWarn).toHaveBeenCalledWith(expect.objectContaining({ msg: "registrant/confirm-email:validation-failed" }));
+  });
+
   it("sends nothing to an account already confirmed", async () => {
     mockDb.user.findUnique.mockResolvedValue({ email: "anna@example.com", firstName: "Anna", lastName: "K", emailConfirmedAt: new Date() });
     expect(await (await POST(new Request("http://x", { method: "POST" }))).json()).toEqual({ confirmed: true, sent: false });
