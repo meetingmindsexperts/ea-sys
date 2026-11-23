@@ -71,16 +71,18 @@ export async function GET(
       return NextResponse.json({ error: "Thread not found" }, { status: 404 });
     }
 
-    if (thread.hasUnread) {
-      await db.crmEmailThread.updateMany({
-        where: { id: thread.id, organizationId: ctx.organizationId, hasUnread: true },
-        data: { hasUnread: false },
-      });
-    }
-
     // A sent email's files are named from the email log (the files themselves are not kept).
+    // Read beside the unread write: neither waits on the other.
     const sentIds = thread.messages.flatMap((m) => (m.direction === "OUTBOUND" && m.providerMessageId ? [m.providerMessageId] : []));
-    const sentNames = await sentAttachmentNames(ctx.organizationId, sentIds);
+    const [sentNames] = await Promise.all([
+      sentAttachmentNames(ctx.organizationId, sentIds),
+      thread.hasUnread
+        ? db.crmEmailThread.updateMany({
+            where: { id: thread.id, organizationId: ctx.organizationId, hasUnread: true },
+            data: { hasUnread: false },
+          })
+        : null,
+    ]);
     const messages = thread.messages.map(({ providerMessageId, ...message }) => ({
       ...message,
       sentAttachments: (message.direction === "OUTBOUND" && providerMessageId && sentNames.get(providerMessageId)) || [],

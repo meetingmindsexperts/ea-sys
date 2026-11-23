@@ -169,6 +169,18 @@ describe("thread detail: the files a sent email carried", () => {
     expect(body.thread.messages[0]).toMatchObject({ id: "m-1", htmlBody: "<p>h</p>" });
   });
 
+  it("the conversation row and the email log are written with the SAME id, or the names would vanish quietly", async () => {
+    // The lookup joins on it. Read from source: the two writes are in different files.
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const crmSend = readFileSync(join(process.cwd(), "src/crm/services/sponsor-email-service.ts"), "utf8");
+    const sender = readFileSync(join(process.cwd(), "src/lib/email.ts"), "utf8");
+    // The CRM stores what sendEmail returned as the provider's id, untouched (the RFC form goes in `messageId`).
+    expect(crmSend).toMatch(/providerMessageId: res\.messageId \?\? null,/);
+    // And sendEmail logs that same id on the email log row.
+    expect(sender).toMatch(/providerMessageId: result\.messageId/);
+  });
+
   it("still opens the conversation when the log cannot be read, and logs why", async () => {
     vi.mocked(db.emailLog.findMany).mockRejectedValue(new Error("log down"));
     const { res, body } = await open([message({})]);

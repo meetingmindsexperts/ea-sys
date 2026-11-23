@@ -1895,6 +1895,18 @@ paid row; no speaker record means left; the built-in type is refused). Recorded:
   callout on the Registration Types section) is stale since Add Registration, Faculty
   (Nov 10).
 
+## CRM inbox, a sent email's file names: what the Nov 23 review left (recorded Nov 23, 2026): not started
+
+Review of `2094ab6bf`: no BLOCKER, HIGH or MED; 4 LOW, three fixed.
+
+- **LOW, left.** Straight after a reply is sent from the inbox, its file names can be missing until
+  the conversation is next fetched: `sendEmail` writes the email log row in the background
+  (`void logEmail`), and the conversation is refetched as soon as the reply is recorded. Rare (the
+  log write starts first), and gone on the next open.
+- Older, met by the review: three stale comments in the Prisma models (`crm.prisma` on what an
+  inbound row's `providerMessageId` holds and on `attachments` being inbound only;
+  `communications.prisma` on `htmlBody` being opt-in).
+
 ## Email fonts: what the Nov 23 review left (recorded Nov 23, 2026): not started
 
 Review of `9a0199bf7` (Open Sans at 14 as the default; font and size menus): no BLOCKER, no HIGH,

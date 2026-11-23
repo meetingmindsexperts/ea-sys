@@ -13,6 +13,7 @@ Owner: "add the attachment name to the sent email in the conversation."
 - **A sent email in a CRM conversation now lists its attachments by name**, under the message, marked "sent with this email". Read from the email log, which has recorded every send's attachment names all along, so the emails sent before today show theirs too and nothing is stored twice
 - **Names only, with nothing to open**: the files went out with the email and are not kept on our side. A sponsor's attachments, which are kept, still open as before
 - If the log cannot be read the conversation opens without the names, and the failure is logged (`crm-email-thread:sent-attachments-failed`)
+- Review of `2094ab6bf` (0 BLOCKER, 0 HIGH, 0 MED, 4 LOW), three fixed: "Sent with this email" is said once above the names, not after each one (a long file name squeezed it, and a screen reader heard it twice); the lookup runs beside the unread write; a test ties the id the conversation stores to the id the email log stores, since the names are found by it. Left: straight after a reply is sent, its file names can be missing until the conversation is next refreshed (the log row is written in the background)
 
 ### Emails: Open Sans at size 14 is the default, and every email editor offers a font and a size (November 23, 2026)
 
