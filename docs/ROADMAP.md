@@ -44,7 +44,7 @@ Each card on the Communications page appears when its own list arrives (`8ca632a
 - **MED, partly fixed: the placeholder heights are estimates** (measured on MEHF2027 at desktop width as an organiser). An event with many saved templates, or a person who may not send, gets a card of another height and a smaller jump remains. Exact would mean one skeleton per card shaped like its content.
 - **LOW: on a fresh page load the page can show its placeholders, then the event gate's spinner, then the placeholders again** (`EventAccessGate` swaps the page out while the event loads). The gate did this before too; the page behind it used to be empty, so it did not show. A fix belongs in the gate, for every event page.
 - **LOW: the "Paid" tile's note** ("212 complimentary") appears with the number, a moment after the label.
-- **LOW: Scheduled Emails and Email Activity now ask for their data at the same time as the four lists.** On HTTP/1.1 that is more requests than the browser's six at a time, so one list can queue behind them. HTTP/2 (below) removes the limit.
+- ~~LOW: Scheduled Emails and Email Activity now ask for their data at the same time as the four lists, more than HTTP/1.1's six at a time.~~ Gone Nov 23: the site speaks HTTP/2, which has no such limit.
 - **LOW: the test reads the page's source.** It pins the four waits, the reviewers rule and the list of ways a send is opened; it does not render the page.
 
 **Older, for the owner to rule on (not caused by this change): a saved-template tile on a card whose list FAILED to load opens "Send to all 0 registrations" with Send enabled, and the send goes to everyone.** When a list fails (a 500, a role that may not read it, no connection), the card shows 0: its Send Email, tiles and Select by IDs are disabled at 0, but the "Your templates" tiles are not, the dialog's Send is not disabled at 0 for registrations, speakers or reviewers, and the server works the audience out from the filters. The same 0 also shows for "failed", "offline" and "not allowed" on every card. A fix is a "could not load" state per card and no Send at a count of 0.
@@ -69,7 +69,7 @@ The events list every dashboard page loads for the header sends 14 columns inste
 - **The abstracts list** sends each abstract's full text and a whole copy of its author's speaker row: 853 kB, 229 kB compressed, the largest thing the Communications page loads.
 - **The speakers list** sends every bio and each speaker's agreement text (431 kB, 73 kB compressed). The website sync reads this list with an API key: trace every reader first (INC-007).
 - ~~The Communications page draws nothing until four full lists have arrived.~~ Done Nov 23 (`8ca632a3`): each card appears when its own list does.
-- **Production serves HTTP/1.1,** six requests at a time. HTTP/2 is one line in nginx, and a change on the box, so the owner's.
+- ~~Production serves HTTP/1.1, six requests at a time.~~ Done Nov 23: HTTP/2 is on, with the per-address limit raised to 300 (`deploy/NGINX.md`, History). Watch `limiting connections` in nginx's error log for a week.
 
 ## Abstract scoring scale and bulk status: what the Nov 19 review left (recorded Nov 19, 2026): not started
 

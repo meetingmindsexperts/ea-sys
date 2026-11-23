@@ -2,7 +2,7 @@
 
 The production site config is **`deploy/nginx.conf`**. It is a byte-for-byte copy
 of the live file on the box, `/etc/nginx/sites-available/ea-sys`, plus a header.
-There is no other nginx file in this repo. Last verified identical: 30 Sep 2026.
+There is no other nginx file in this repo. Last verified identical: 23 Nov 2026.
 
 ## Who reads it
 
@@ -33,6 +33,23 @@ Run the drift check after any Certbot run too. Exit codes: 0 identical, 1 drift,
 
 ## History
 
+- **23 Nov 2026: HTTP/2 on, and the per-address limit raised from 100 to 300.**
+  The site served HTTP/1.1, where a browser makes six requests at a time; a
+  dashboard page needs about 30 script files and 8 to 10 API calls, and from a
+  connection with a long round trip that queueing was most of the wait.
+  `listen 443 ssl http2;` on the site block (the catch-all block is unchanged).
+  The two changes go together: under HTTP/2 nginx counts **every request in
+  flight** towards `limit_conn`, not every connection, and one browser can have
+  30 or more in flight where HTTP/1.1 allowed six. An office or a venue's Wi-Fi
+  is one address, so 100 would have started answering 429 to real people. To
+  see whether anyone hits it: `sudo grep -c "limiting connections" /var/log/nginx/error.log`.
+  Clients that only speak HTTP/1.1 (webhooks, older tools) are unaffected: the
+  protocol is agreed per connection. The app behind nginx is still spoken to
+  over HTTP/1.1. Webinar video is not affected either way: viewers get it from
+  CloudFront. **On a rebuild with nginx 1.25.1 or newer** the spelling is a
+  separate `http2 on;` line in the server block; the `listen ... http2` form
+  still works there and logs a deprecation warning. To undo: remove the word
+  `http2`, `nginx -t`, reload.
 - **30 Sep 2026: response header buffers raised to 16k.** The session cookie
   carries a user's procurement permissions, and with a role of 12 permissions the
   `Set-Cookie` on `/api/auth/session` outgrew nginx's default 4k

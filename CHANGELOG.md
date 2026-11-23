@@ -15,6 +15,14 @@ Someone who already has an account can register again without signing in. Unless
 - **It says nothing about whether a registration exists.** Every unconfirmed account sees the same question, registered or not.
 - **What it does not do:** it sends nothing to people who registered this way before today. They see the confirm prompt on My events, on the event's My registration page and now on the webinar page. A password reset still does not confirm an address.
 
+### Pages load their files in parallel (November 23, 2026)
+
+The site now speaks HTTP/2. Before, a browser could fetch six things at a time from us, and a dashboard page needs about forty (its scripts and its data), so the rest waited in a queue. Now they are all requested at once over one connection. It helps most on a first visit and from a slow or distant connection.
+
+- **Nothing to do, and nothing looks different.** Older tools that only speak HTTP/1.1 keep working as before.
+- **Webinar video is unchanged:** attendees receive it from the content network, not from this server. The session page itself opens a little faster.
+- The limit on simultaneous requests from one address went from 100 to 300, because an office or a venue's Wi-Fi shares one address and each browser now sends more at once.
+
 ### The Communications page fills in card by card (November 23, 2026)
 
 The Communications page showed nothing until four lists had all arrived: registrations, speakers, abstracts and reviewers. The abstracts list is by far the largest, so it held back cards that had been ready for a while. Each card now appears when its own list arrives, with a grey placeholder until then, and so do the four numbers at the top.
