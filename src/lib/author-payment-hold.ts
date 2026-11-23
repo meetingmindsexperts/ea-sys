@@ -25,8 +25,9 @@
  * Every door that offers or takes an online payment asks this: the checkout
  * (which refuses), the pay page, My events, the event's registration page,
  * both confirmation resends, and the payment reminder, single and bulk. A test
- * lists the doors (`author-payment-hold-doors.test.ts`): **never offer Pay Now
- * or take a payment on a registration without asking it**.
+ * lists the files that name a pay-door call (`author-payment-hold.test.ts`):
+ * **never offer Pay Now or take a payment on a registration without asking
+ * it**. The sign-up's own emails ask it too (presenter-signup.ts).
  *
  * NOT held: someone who registered as a delegate and then submitted (their
  * registration is an ordinary one), and a registration the organisers granted
@@ -51,12 +52,23 @@ export const AUTHOR_PAYMENT_HOLD_NOTE =
   "Online payment is not open yet. The organizing team will confirm your registration fee once your submission has been reviewed.";
 
 /**
+ * What a payment reminder says instead of Pay Now (review of cb9ed4749): the
+ * reminder's own words ask for payment, so the line gives the way that is
+ * open, the bank transfer on the quote every sign-up email attaches.
+ */
+export const AUTHOR_PAYMENT_HOLD_REMINDER_NOTE =
+  "Online payment is not open for this registration. Please pay by bank transfer using the quote sent with your registration email, or contact the organizing team.";
+
+/**
  * Is online payment held for this registration? `eventSettings` is the
  * registration's own event's settings JSON; anything unreadable there reads as
  * "switch off", so a damaged blob holds payment and never opens it.
+ *
+ * `createdSource` is required, not optional: a caller that forgets to select
+ * the column must not compile into "never held".
  */
 export function authorPaymentOnHold(
-  registration: { createdSource?: string | null },
+  registration: { createdSource: string | null },
   eventSettings: unknown,
 ): boolean {
   if (registration.createdSource !== AUTHOR_SIGNUP_SOURCE) return false;

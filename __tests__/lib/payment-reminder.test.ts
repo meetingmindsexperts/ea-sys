@@ -92,7 +92,11 @@ describe("buildPaymentReminderVars: an abstract author on hold", () => {
     expect(held.paymentBlock).not.toContain("/confirmation");
   });
 
-  it("says why, in the words the pages use", () => {
-    expect(held.paymentBlock).toContain("Online payment is not open yet");
+  // Review of cb9ed4749: the reminder's own words ask for payment, so the line
+  // must give the way that is open, not say the fee is still to be confirmed.
+  it("points at the bank transfer on the quote, and does not say the fee is unconfirmed", () => {
+    expect(held.paymentBlock).toContain("Online payment is not open for this registration");
+    expect(held.paymentBlock).toContain("bank transfer using the quote");
+    expect(held.paymentBlock).not.toContain("will confirm your registration fee");
   });
 });

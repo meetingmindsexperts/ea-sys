@@ -39,7 +39,10 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
   "codeRequiredTiers",
   "maxAttendees",
   "groupRegistration",
-  "presenterRegistration",
+  // NOT `presenterRegistration` (review of cb9ed4749): since Nov 23, 2026 its
+  // Pay Now switch is a STATE the organisers turn on when decisions are
+  // announced (author-payment-hold.ts). A clone of an announced event would
+  // start with every new author invited to pay; it starts off instead.
   // What speakers' form links ask for (speaker-profile/constants.ts): plain
   // config with nothing event-specific in it (review of b334d096).
   "speakerProfile",

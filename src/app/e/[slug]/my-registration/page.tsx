@@ -577,11 +577,12 @@ export default function EventMyRegistrationPage() {
                       {/* `event` is null when the public API refused the slug (the event
                           is over or not published): its checkout refuses too, and Pay
                           Now ended in "Registration not found". */}
-                      {reg.paymentOnHold && (
-                        <p className="text-sm text-amber-900 sm:max-w-xs">{AUTHOR_PAYMENT_HOLD_NOTE}</p>
-                      )}
-                      {!reg.paymentOnHold && !eventLoading && !event && (
+                      {/* A closed event says closed, held or not: nothing is being reviewed any more. */}
+                      {!eventLoading && !event && (
                         <p className="text-sm text-amber-900">Online payment for this event is closed. Please contact the organiser.</p>
+                      )}
+                      {reg.paymentOnHold && (eventLoading || event) && (
+                        <p className="text-sm text-amber-900 sm:max-w-xs">{AUTHOR_PAYMENT_HOLD_NOTE}</p>
                       )}
                       <Button className={cn("btn-gradient h-11 w-full sm:h-9 sm:w-auto", (reg.paymentOnHold || (!eventLoading && !event)) && "hidden")} disabled={checkoutLoading === reg.id} onClick={async () => {
                         setCheckoutLoading(reg.id);

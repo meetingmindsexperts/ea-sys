@@ -7,6 +7,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import { runWithTenant } from "@/lib/tenant-context";
 import { authorPaymentOnHold } from "@/lib/author-payment-hold";
+import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 
 interface RouteParams {
@@ -104,8 +105,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       discountAmount: discount > 0 ? discount : null,
       promoCode: registration.promoCode?.code || null,
       // An abstract author's fee waits for the organisers (author-payment-hold.ts):
-      // the page shows the amount and no Pay Now.
-      paymentOnHold: authorPaymentOnHold(registration, registration.event.settings),
+      // the page shows the amount and no Pay Now. Only while a fee is owed: a
+      // settled or free registration is not waiting for anything.
+      paymentOnHold:
+        basePrice - discount > 0 &&
+        !NO_PAYMENT_DUE_STATUSES.includes(registration.paymentStatus) &&
+        authorPaymentOnHold(registration, registration.event.settings),
     });
 
     // Short cache to allow polling but reduce DB load

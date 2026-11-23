@@ -136,6 +136,18 @@ describe("GET public payment-status: the author hold", () => {
     expect((await answer()).paymentOnHold).toBe(false);
   });
 
+  // Review of cb9ed4749: the note is about a fee that is owed.
+  it.each([
+    ["refunded", { paymentStatus: "REFUNDED" }],
+    ["made Complimentary", { paymentStatus: "COMPLIMENTARY" }],
+    ["paid", { paymentStatus: "PAID" }],
+    ["on a free rate", { originalPrice: 0, pricingTier: { price: 0, currency: "USD" } }],
+    ["covered in full by a promo code", { discountAmount: 400 }],
+  ])("an author's registration that is %s is not waiting for anything", async (_name, over) => {
+    mockDb.registration.findFirst.mockResolvedValue({ ...row("PUBLIC_SUBMITTER", null), ...over });
+    expect((await answer()).paymentOnHold).toBe(false);
+  });
+
   it("sends neither the event's settings nor the entry path: this route needs no sign-in", async () => {
     mockDb.registration.findFirst.mockResolvedValue(row("PUBLIC_SUBMITTER", { presenterRegistration: { payNowEnabled: false }, reviewerUserIds: ["u9"] }));
     const body = await answer();

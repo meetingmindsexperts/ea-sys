@@ -53,7 +53,6 @@ describe("authorPaymentOnHold", () => {
 
   it("never holds a row with no entry path recorded (older rows)", () => {
     expect(authorPaymentOnHold({ createdSource: null }, OFF)).toBe(false);
-    expect(authorPaymentOnHold({}, OFF)).toBe(false);
   });
 
   it("the source it goes by is the one the abstract sign-up stamps", () => {
@@ -70,16 +69,20 @@ describe("authorPaymentOnHold", () => {
 
 // ── The doors ─────────────────────────────────────────────────────────
 //
-// Every file that offers Pay Now, builds a pay link, sends the registration
-// confirmation or opens a checkout is listed here with how it obeys the hold.
-// A NEW file that does any of those fails this test until it is added: that is
-// the point. Hiding a button in one place while another door still takes the
-// money is what this rule replaced.
+// Every file that names one of the pay-door calls below (a pay link, the
+// registration confirmation, a reminder, a checkout) is listed here with how
+// it obeys the hold. A NEW file that names one fails this test until it is
+// added: that is the point. Hiding a button in one place while another door
+// still takes the money is what this rule replaced.
+//
+// It goes by names, so it is a net and not a proof (review of cb9ed4749): a
+// door written without any of these calls is not caught. The checkout's own
+// refusal, tested in public-checkout-route.test.ts, is what stops the money.
 
 const SRC = join(process.cwd(), "src");
 
 /** A file that names any of these is a pay door. */
-const PAY_DOOR_MARKS = /buildPaymentReminderVars\(|registrationPaymentLink\(|sendRegistrationConfirmation\(|buildRegistrationPaymentBlock\(|\/checkout[`"]|checkout\.sessions\.create/;
+const PAY_DOOR_MARKS = /buildPaymentReminderVars\(|registrationPaymentLink\(|sendRegistrationConfirmation(?:Email)?\(|buildRegistrationPaymentBlock\(|\/confirmation\?id=|\/checkout[`"']|checkout\.sessions\.create/;
 
 type Door =
   /** Asks `authorPaymentOnHold` itself. */
@@ -95,6 +98,8 @@ const DOORS: Record<string, Door> = {
   "app/api/registrant/registrations/[registrationId]/resend-confirmation/route.ts": { how: "asks" },
   "app/api/events/[eventId]/registrations/[registrationId]/email/route.ts": { how: "asks" },
   "lib/bulk-email.ts": { how: "asks" },
+  // The abstract sign-up's own emails (the fee block builds a pay link by hand).
+  "lib/presenter-signup.ts": { how: "asks" },
   "app/e/[slug]/confirmation/page.tsx": { how: "told", by: "paymentOnHold" },
   "app/e/[slug]/my-registration/page.tsx": { how: "told", by: "paymentOnHold" },
   "lib/payment-reminder.ts": { how: "told", by: "onHold" },
@@ -107,6 +112,18 @@ const DOORS: Record<string, Door> = {
   "app/api/public/events/[slug]/group-checkout/route.ts": {
     how: "exempt",
     why: "pays a company's group invoice; an author's registration is never in a group",
+  },
+  "services/group-registration-service.ts": {
+    how: "exempt",
+    why: "confirms the GROUP_REGISTER rows it has just made, never the abstract sign-up's",
+  },
+  "lib/agent/tools/registrations.ts": {
+    how: "exempt",
+    why: "confirms the MCP_AGENT rows its bulk create has just made, never the abstract sign-up's",
+  },
+  "app/api/public/events/[slug]/registrations/[registrationId]/promo/route.ts": {
+    how: "exempt",
+    why: "applies or removes a promo code and takes no payment; it names the pay page in a comment only",
   },
 };
 
@@ -151,6 +168,13 @@ describe("every pay door obeys the author hold", () => {
 
   it.each(DECIDERS)("%s decides it on the server", (file) => {
     expect(read(file)).toContain("authorPaymentOnHold(");
+  });
+
+  it("the abstract sign-up asks the rule and never reads the switch itself", () => {
+    const signup = read("lib/presenter-signup.ts");
+    expect(signup).not.toContain("isPresenterPayNowEnabled");
+    expect(signup).toMatch(/suppressPayNow: payOnHold/);
+    expect(signup).toMatch(/payNowEnabled: !payOnHold/);
   });
 
   it("the two callers that build a reminder both pass the hold", () => {

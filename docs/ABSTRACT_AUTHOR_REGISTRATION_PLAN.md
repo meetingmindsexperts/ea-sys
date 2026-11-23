@@ -50,7 +50,9 @@ table does not answer.
 **Presenter registration is always pay later (owner, Nov 20, 2026).** "We
 don't offer Pay Now, we always suggest to pay later." The abstract sign-up
 never shows or emails a Pay Now link; the fee is quoted and paid later, from
-the person's own portal or offline, once the organisers have decided. The
+the person's own portal or offline, once the organisers have decided (since
+Nov 23, 2026 the portal offers it only after the organisers turn the switch
+on: step 7 below). The
 August plan made this a per-event switch (Settings, Presenter registration,
 Show Pay Now), off by default; it is off on all 30 production events that
 carry the setting (read Nov 20, 2026). The switch itself is kept for other

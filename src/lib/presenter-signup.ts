@@ -35,7 +35,7 @@ import {
   type CompanionSpeakerInput,
 } from "@/lib/speaker-companion";
 import { createAndLinkPayableRegistration } from "@/lib/presenter-registration";
-import { isPresenterPayNowEnabled } from "@/lib/presenter-registration-settings";
+import { authorPaymentOnHold, AUTHOR_SIGNUP_SOURCE } from "@/lib/author-payment-hold";
 import { authorRateOptions } from "@/lib/author-rates";
 import { equalsIgnoringCase } from "@/lib/like-escape";
 import { readCodeRequiredTiers } from "@/lib/code-required-tiers";
@@ -384,6 +384,9 @@ export async function ensureSubmitterRegistration(
     const rate = selection;
     const evidence = acceptedEvidence(rate.policy, speaker.eventId, input.evidence, speaker.id);
 
+    // The registration made below is the abstract sign-up's own.
+    const payOnHold = authorPaymentOnHold({ createdSource: AUTHOR_SIGNUP_SOURCE }, input.eventSettings);
+
     const outcome = await createAndLinkPayableRegistration({
       eventId: speaker.eventId,
       organizationId: input.organizationId,
@@ -420,8 +423,9 @@ export async function ensureSubmitterRegistration(
       // ticket TYPE's seat instead of the presenter TIER's — so a presenter
       // tier's seat limit would never fill. Found by running the flow.
       createdSource: "PUBLIC_SUBMITTER",
-      // D3: quote yes, Pay Now only if the organizer turned it on.
-      suppressPayNow: !isPresenterPayNowEnabled(input.eventSettings),
+      // D3: quote yes, Pay Now only if the organizer turned it on. Asked of
+      // the one rule every pay door asks (author-payment-hold.ts).
+      suppressPayNow: payOnHold,
       // One email, not two: the caller folds the fee into its welcome.
       suppressConfirmationEmail: input.callerSendsFeeEmail === true,
       logPrefix: "presenter-signup",
@@ -454,7 +458,7 @@ export async function ensureSubmitterRegistration(
     // about), and a `race-lost` duplicate was cancelled.
     if (outcome.status !== "created" || !input.callerSendsFeeEmail) return null;
     return buildPresenterFeeEmailExtras(outcome.registrationId, {
-      payNowEnabled: isPresenterPayNowEnabled(input.eventSettings),
+      payNowEnabled: !payOnHold,
     });
   } catch (err) {
     apiLogger.error(

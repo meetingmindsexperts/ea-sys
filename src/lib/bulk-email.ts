@@ -2344,7 +2344,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         ticketType: recipient.ticketTypePricing ?? null,
         taxRate: event.taxRate ? Number(event.taxRate) : null,
         taxLabel: event.taxLabel,
-        onHold: authorPaymentOnHold(recipient, event.settings),
+        onHold: authorPaymentOnHold({ createdSource: recipient.createdSource ?? null }, event.settings),
       });
       vars.amount = amount;
       vars.paymentBlock = paymentBlock;
@@ -2373,7 +2373,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         taxRate: event.taxRate ? Number(event.taxRate) : null,
         taxLabel: event.taxLabel,
         // An abstract author's fee waits for the organisers: the amount, no Pay Now.
-        suppressPayNow: authorPaymentOnHold(recipient, event.settings),
+        suppressPayNow: authorPaymentOnHold({ createdSource: recipient.createdSource ?? null }, event.settings),
         paymentLink: registrationPaymentLink({
           eventSlug: event.slug || event.id,
           registrationId: recipient.id,

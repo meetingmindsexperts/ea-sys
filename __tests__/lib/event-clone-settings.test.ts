@@ -126,3 +126,20 @@ describe("cloneEventSettings", () => {
     expect(out).not.toHaveProperty("webinar");
   });
 });
+
+// Review of cb9ed4749 (author-payment-hold.ts): since Nov 23, 2026 the Pay Now
+// switch is a state the organisers turn ON when decisions are announced. A
+// clone of an announced event must not start with every new author invited to
+// pay online.
+describe("cloneEventSettings: the abstract Pay Now switch", () => {
+  it("does not copy it: a clone starts with online payment for authors off", () => {
+    const out = cloneEventSettings({
+      presenterRegistration: { payNowEnabled: true },
+      groupRegistration: { enabled: true, minMembers: 2, maxMembers: 10 },
+    });
+    expect(out).not.toHaveProperty("presenterRegistration");
+    // Its neighbour on the list still copies.
+    expect(out.groupRegistration).toEqual({ enabled: true, minMembers: 2, maxMembers: 10 });
+  });
+});
+
