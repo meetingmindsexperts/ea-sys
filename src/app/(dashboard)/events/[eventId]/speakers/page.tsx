@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { StatTile, StatsRow } from "@/components/ui/typography";
-import { acceptedWithoutRegistration, canEmailListed, emailRecipientIds, matchesKind, openingKind, visibleSpeakerKinds, type SpeakerKind } from "@/lib/speaker-kinds";
+import { acceptedWithoutRegistration, canEmailListed, matchesKind, openingKind, shownKind, speakerEmailAudience, visibleSpeakerKinds, type SpeakerEmailAudience, type SpeakerKind } from "@/lib/speaker-kinds";
 import { abstractStatusColor, abstractStatusLabel } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -135,6 +135,7 @@ export default function SpeakersPage() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [emailAudience, setEmailAudience] = useState<SpeakerEmailAudience | null>(null);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [assignCertificateOpen, setAssignCertificateOpen] = useState(false);
 
@@ -170,9 +171,12 @@ export default function SpeakersPage() {
   const kindCount = (k: SpeakerKind) => speakers.filter((s) => matchesKind(s, k)).length;
   const tabKinds = visibleSpeakerKinds(canReadAbstracts, canReadProposals, kindCount);
   if (opening === null && !loading && speakers.length > 0) setOpening(openingKind(tabKinds, kindCount("invited")));
-  // A tab that is no longer shown (its last author was removed) is not left open out of sight.
+  // A tab that is no longer shown (its last author was removed) is not left open out of sight. Written down
+  // once it happens on a loaded list, so the tab does not spring back under a ticked selection when an author
+  // next appears (the reason `opening` is decided once).
   const wantedKind = chosenKind ?? opening ?? "all";
-  const kind = tabKinds.includes(wantedKind) ? wantedKind : "all";
+  const kind = shownKind(tabKinds, wantedKind);
+  if (kind !== wantedKind && !loading && speakers.length > 0) setKind("all");
   const unregistered = speakers.filter(acceptedWithoutRegistration);
   // Off by itself once nobody is left to list: the notice (and its way back) is gone by then.
   const unregisteredOnly = unregisteredAsked && unregistered.length > 0;
@@ -208,7 +212,12 @@ export default function SpeakersPage() {
   // (The abstract filter lives on the submitters tab, so any tab but "all" is a narrowing.) A search narrows too:
   // "Email" then sends to exactly who is listed on every tab, not only on some (review LOW, Oct 27).
   const narrowed = kind !== "all" || searchQuery.trim() !== "" || unregisteredOnly;
-  const emailIds = emailRecipientIds(selectedIds, narrowed, filteredSpeakers);
+  // Fixed when Email is pressed and kept while the dialog is open (speakerEmailAudience): the list goes on
+  // refetching behind the dialog, and the send must go to who was listed when it was opened.
+  const openBulkEmail = () => {
+    setEmailAudience(speakerEmailAudience(selectedIds, narrowed, filteredSpeakers));
+    setBulkEmailOpen(true);
+  };
 
   // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
   // SEND semantics and excludes the search box (not sent to the backend). This
@@ -309,7 +318,7 @@ export default function SpeakersPage() {
               {canSendEmail && canEmailListed(selectedIds.size, narrowed, filteredSpeakers.length, speakers.length) && (
                 <Button
                   variant="outline"
-                  onClick={() => setBulkEmailOpen(true)}
+                  onClick={openBulkEmail}
                 >
                   <Send className="mr-2 h-4 w-4" />
                   {bulkEmailLabel(selectedIds.size, statusFilter, narrowed ? filteredSpeakers.length : null)}
@@ -367,7 +376,7 @@ export default function SpeakersPage() {
             {canSendEmail && (
               <Button
                 size="sm"
-                onClick={() => setBulkEmailOpen(true)}
+                onClick={openBulkEmail}
               >
                 <Send className="mr-2 h-4 w-4" />
                 Send Email
@@ -730,12 +739,12 @@ export default function SpeakersPage() {
         onOpenChange={setBulkEmailOpen}
         eventId={eventId}
         recipientType="speakers"
-        recipientIds={emailIds}
-        recipientCount={selectedIds.size > 0 ? selectedIds.size : filteredSpeakers.length}
-        selectionMode={selectedIds.size > 0 || narrowed ? "selected" : "all"}
+        recipientIds={emailAudience?.recipientIds ?? []}
+        recipientCount={emailAudience?.recipientCount ?? 0}
+        selectionMode={emailAudience?.selectionMode ?? "all"}
         statusFilter={statusFilter}
         recipientCountFor={countSpeakersForEmail}
-        fixedListOnly={narrowed && selectedIds.size === 0}
+        fixedListOnly={emailAudience?.fixedListOnly ?? false}
       />
     </div>
   );

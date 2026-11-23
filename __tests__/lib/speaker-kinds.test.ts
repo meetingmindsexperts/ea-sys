@@ -2,7 +2,7 @@
  * The Speakers page tabs (owner, Oct 27) and who "Email" reaches from them (review HIGHs, Oct 27).
  */
 import { describe, it, expect } from "vitest";
-import { acceptedWithoutRegistration, canEmailListed, emailRecipientIds, isProposer, isSubmitter, matchesKind, openingKind, registrationFacultyByHand, registrationOnFacultyType, speakerKindOf, visibleSpeakerKinds } from "@/lib/speaker-kinds";
+import { acceptedWithoutRegistration, canEmailListed, emailRecipientIds, isProposer, isSubmitter, matchesKind, openingKind, registrationFacultyByHand, registrationOnFacultyType, shownKind, speakerEmailAudience, speakerKindOf, visibleSpeakerKinds } from "@/lib/speaker-kinds";
 
 const invited = { id: "a", abstracts: [] as { status: string }[] };
 const submitter = { id: "b", abstracts: [{ status: "SUBMITTED" }, { status: "DRAFT" }] };
@@ -112,6 +112,8 @@ describe("the Speakers page: opening tab and the accepted authors with no regist
   it("opens on the invited speakers when the event also has authors or proposers, else on everyone", () => {
     expect(openingKind(["all", "invited", "submitters"], 4)).toBe("invited");
     expect(openingKind(["all", "invited", "proposers"], 1)).toBe("invited");
+    // A set the tab rule no longer produces (Invited is only shown beside authors or proposers); the opening
+    // rule still answers it on its own.
     expect(openingKind(["all", "invited"], 4)).toBe("all");
     expect(openingKind(["all"], 0)).toBe("all");
     // Without the Invited tab (the caller cannot see what tells the groups apart) there is nothing to open on.
@@ -144,6 +146,53 @@ describe("the Speakers page: opening tab and the accepted authors with no regist
     it("a caller who cannot read what tells the groups apart is never shown the Invited tab", () => {
       expect(visibleSpeakerKinds(true, false, counts({ invited: 40, submitters: 12 }))).toEqual(["all", "submitters"]);
       expect(visibleSpeakerKinds(false, false, counts({ invited: 40, submitters: 12 }))).toEqual(["all"]);
+    });
+  });
+
+  it("a tab that is no longer shown gives way to everyone", () => {
+    expect(shownKind(["all", "invited", "submitters"], "submitters")).toBe("submitters");
+    expect(shownKind(["all"], "submitters")).toBe("all");
+    expect(shownKind(["all"], "invited")).toBe("all");
+    expect(shownKind(["all", "submitters"], "all")).toBe("all");
+  });
+
+  /**
+   * Review of d39b73da: the email dialog read the live list. On the Session proposers tab with one person,
+   * "exactly the 1 listed" became every speaker of the status when that tab emptied behind the open dialog.
+   */
+  describe("the email audience is fixed when Email is pressed", () => {
+    const listed = [{ id: "a" }, { id: "b" }];
+
+    it("ticked speakers: exactly those", () => {
+      expect(speakerEmailAudience(new Set(["b"]), true, listed)).toEqual({ recipientIds: ["b"], recipientCount: 1, selectionMode: "selected", fixedListOnly: false });
+    });
+
+    it("a narrowed list with nobody ticked: exactly who is listed, as a fixed list", () => {
+      expect(speakerEmailAudience(new Set(), true, listed)).toEqual({ recipientIds: ["a", "b"], recipientCount: 2, selectionMode: "selected", fixedListOnly: true });
+      // An empty narrowed list stays a fixed list of nobody, which the dialog refuses to send.
+      expect(speakerEmailAudience(new Set(), true, [])).toMatchObject({ recipientIds: [], selectionMode: "selected", fixedListOnly: true });
+    });
+
+    it("the whole list: no ids, everyone of the status", () => {
+      expect(speakerEmailAudience(new Set(), false, listed)).toEqual({ recipientIds: [], recipientCount: 2, selectionMode: "all", fixedListOnly: false });
+    });
+
+    // MUTATION: hand the dialog `speakerEmailAudience(selectedIds, narrowed, filteredSpeakers)` worked out on
+    // each render (the live list) and this fails.
+    it("the Speakers page hands the dialog the audience it kept, never the live list", async () => {
+      const { readFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const src = readFileSync(join(__dirname, "..", "..", "src/app/(dashboard)/events/[eventId]/speakers/page.tsx"), "utf8");
+      const dialog = src.slice(src.indexOf("<BulkEmailDialog"));
+      const props = dialog.slice(0, dialog.indexOf("/>"));
+      expect(props).toContain("recipientIds={emailAudience?.recipientIds ?? []}");
+      expect(props).toContain('selectionMode={emailAudience?.selectionMode ?? "all"}');
+      expect(props).toContain("fixedListOnly={emailAudience?.fixedListOnly ?? false}");
+      expect(props).not.toMatch(/selectedIds|filteredSpeakers|narrowed/);
+      // Worked out in one place, when Email is pressed.
+      expect(src.match(/speakerEmailAudience\(/g)).toHaveLength(1);
+      expect(src.match(/setBulkEmailOpen\(true\)/g)).toHaveLength(1);
+      expect(src.match(/onClick=\{openBulkEmail\}/g)).toHaveLength(2);
     });
   });
 

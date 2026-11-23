@@ -130,11 +130,22 @@ export function visibleSpeakerKinds(readAbstracts: boolean, readProposals: boole
  * The tab the Speakers page opens on. Authors are kept apart from the faculty (owner, Nov 20, 2026), so an event
  * that has both opens on the invited speakers; an event with nothing to tell apart, or with no invited speaker
  * to show, opens on everyone. `tabs` is what the caller can be shown: without the Invited tab (the abstracts or
- * proposals are hidden from them) it opens on everyone.
+ * proposals are hidden from them, or everyone listed is invited) it opens on everyone. Since Nov 23, 2026 the
+ * Invited tab is only ever shown beside an authors or proposers tab, so the two conditions below say one thing;
+ * both are kept so this rule stands whatever the tab rule becomes.
  */
 export function openingKind(tabs: readonly SpeakerKind[], invitedCount: number): SpeakerKind {
   const split = tabs.includes("submitters") || tabs.includes("proposers");
   return split && tabs.includes("invited") && invitedCount > 0 ? "invited" : "all";
+}
+
+/**
+ * The tab the list shows: the one wanted (picked, else the opening one) while it is still a tab, otherwise
+ * everyone. A tab disappears when its last person leaves it (the only author is removed or made Faculty);
+ * left open, it would be an empty list with no tab row to leave it by.
+ */
+export function shownKind(tabs: readonly SpeakerKind[], wanted: SpeakerKind): SpeakerKind {
+  return tabs.includes(wanted) ? wanted : "all";
 }
 
 /**
@@ -154,6 +165,30 @@ export const matchesKind = (s: WithSubmissions, kind: SpeakerKind) => kind === "
 export function emailRecipientIds(selected: Set<string>, narrowed: boolean, listed: { id: string }[]): string[] {
   if (selected.size > 0) return Array.from(selected);
   return narrowed ? listed.map((s) => s.id) : [];
+}
+
+/** Who an email opened from the Speakers page goes to, as the email dialog takes it. */
+export interface SpeakerEmailAudience {
+  recipientIds: string[];
+  recipientCount: number;
+  selectionMode: "selected" | "all";
+  /** A narrowed list with nobody ticked: "exactly the N listed", and an empty list is refused. */
+  fixedListOnly: boolean;
+}
+
+/**
+ * The audience at the moment Email is pressed. The page keeps THIS while the dialog is open, never the live
+ * list: the list refetches behind an open dialog (a colleague's change, coming back to the tab), and a tab or
+ * a notice that emptied meanwhile used to turn "exactly the 1 listed" into every speaker of the status
+ * (review of d39b73da; the same held for the "accepted authors with no registration" list since Nov 20, 2026).
+ */
+export function speakerEmailAudience(selected: Set<string>, narrowed: boolean, listed: { id: string }[]): SpeakerEmailAudience {
+  return {
+    recipientIds: emailRecipientIds(selected, narrowed, listed),
+    recipientCount: selected.size > 0 ? selected.size : listed.length,
+    selectionMode: selected.size > 0 || narrowed ? "selected" : "all",
+    fixedListOnly: narrowed && selected.size === 0,
+  };
 }
 
 /**

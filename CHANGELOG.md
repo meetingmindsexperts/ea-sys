@@ -8,7 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Speakers page: no "Invited speakers" tab when everyone is invited (November 23, 2026)
 
-On an event with no abstracts and no session proposals, the Speakers page showed two tabs with the same people and the same count ("All speakers 52", "Invited speakers 52"). The Invited speakers tab now appears only when someone on the list is not invited, that is, once the event has abstract authors or session proposers. With nothing to tell apart there is no tab row at all.
+On an event where every speaker is one you invited, the Speakers page showed two tabs with the same people and the same count ("All speakers 52", "Invited speakers 52"). The Invited speakers tab now appears only when someone on the list is not invited (an abstract author or a session proposer who signed up). With nothing to tell apart there is no tab row at all.
+
+- **An email opened from the Speakers page goes to who was listed when you pressed Email.** The list refreshes behind an open email dialog. If the tab you were on emptied meanwhile (its only author was removed or made Faculty), or the "accepted authors with no registration" list did, the dialog used to turn "exactly the 1 listed" into every speaker. It now keeps the people it was opened for.
 
 ### The email preview opens in its own window (November 23, 2026)
 
