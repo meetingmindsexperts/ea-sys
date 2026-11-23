@@ -1939,9 +1939,10 @@ font across part of a `{{token}}` splits it, as colour already could.
 Review of `835bf0856` (a signature's logo reaches the mailbox): no BLOCKER, no HIGH, 2 MED and
 5 LOW fixed the same day.
 
-- **LOW, left.** A signature image wider than the email body (about 540px) and with no size set
-  overflows in Outlook on Windows, which ignores `max-width`. Before, it was fitted to 600px (and
-  a small logo was stretched). Reading the file's real width at save time would settle both.
+- **LOW, left.** A signature image wider than its 150px cap and with no size set shows at its own
+  width in Outlook on Windows, which ignores `max-width` (and overflows the email past about
+  540px). Reading the file's real width when the signature is saved, and writing
+  `width="min(real, 150)"` on the image, would settle it; `MediaFile` stores no dimensions today.
 
 Older defects the review met:
 

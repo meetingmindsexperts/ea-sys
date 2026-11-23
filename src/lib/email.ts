@@ -1321,12 +1321,18 @@ export function emailAssetBase(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com").replace(/\/+$/, "");
 }
 
-/** Marks an image that goes out at its own size (a signature's logo), not stretched to the body's 600px. */
+/** Marks an image that goes out at its own size up to a cap (a signature's logo), not stretched to the body's 600px. */
 const KEEP_SIZE_ATTR = "data-keep-size";
 // As an attribute of its own, not the words inside an `alt` or a file name.
 const KEEP_SIZE_RE = /(?:^|\s)data-keep-size(?:\s*=|\s|$)/i;
+/**
+ * A signature's image is never wider than this (owner, Nov 23, 2026: "reduce
+ * the org signature logo max width to 150px", and "only org signature": a
+ * banner or any other image in an email is not capped by it).
+ */
+export const SIGNATURE_IMAGE_MAX_WIDTH = 150;
 // No `display: block`: the editor places images inline, and a logo beside a line of text must stay beside it.
-const KEPT_SIZE_IMG_STYLE = "max-width: 100%; height: auto; border: 0; outline: none; text-decoration: none;";
+const KEPT_SIZE_IMG_STYLE = `max-width: ${SIGNATURE_IMAGE_MAX_WIDTH}px; height: auto; border: 0; outline: none; text-decoration: none;`;
 
 /** A pixel size the author set in the image's own `style` (`width: 135px`), or null. Not `max-width`. */
 function styledPixels(attrs: string, property: "width" | "height"): string | null {
@@ -1335,25 +1341,36 @@ function styledPixels(attrs: string, property: "width" | "height"): string | nul
   return found ? found[1]! : null;
 }
 
+/** The width the author gave the image, in its `style` or as an attribute, in pixels; null when they gave none. */
+function authorWidth(attrs: string): number | null {
+  const given = styledPixels(attrs, "width") ?? /(?:^|\s)width\s*=\s*["']?(\d+(?:\.\d+)?)/i.exec(attrs)?.[1] ?? null;
+  return given === null ? null : Number(given);
+}
+
 /**
- * A marked image keeps its own size: a `width` / `height` the author gave,
- * as an attribute or in its `style`, stays, and nothing is stretched. The
- * rest of `style` and `border` are reset. The mark is left on, so running the
- * normaliser twice gives the same result.
+ * A marked image (a signature's) keeps its own size up to the cap: nothing is
+ * stretched, and nothing is wider than SIGNATURE_IMAGE_MAX_WIDTH. A width the
+ * author gave is kept when it is under the cap and brought down to it when it
+ * is over; the height then follows the width, so the picture keeps its shape.
+ * The rest of `style` and `border` are reset. The mark is left on, so running
+ * the normaliser twice gives the same result.
+ *
+ * Outlook on Windows reads the `width` attribute and ignores `max-width`, so
+ * the cap reaches it only for an image whose width is known (the author's).
+ * An unsized image wider than the cap shows at its own width there.
  */
 function keptSizeImage(attrs: string): string {
-  const width = styledPixels(attrs, "width");
-  const height = styledPixels(attrs, "height");
+  const given = authorWidth(attrs);
+  const width = given === null ? null : Math.round(Math.min(given, SIGNATURE_IMAGE_MAX_WIDTH));
   const cleaned = attrs
-    .replace(/\sborder\s*=\s*"[^"]*"/gi, "")
-    .replace(/\sborder\s*=\s*'[^']*'/gi, "")
+    .replace(/\s(?:width|height|border)\s*=\s*"[^"]*"/gi, "")
+    .replace(/\s(?:width|height|border)\s*=\s*'[^']*'/gi, "")
     .replace(/\sstyle\s*=\s*"[^"]*"/gi, "")
     .replace(/\sstyle\s*=\s*'[^']*'/gi, "")
     .trim();
-  const sized = `${width ? `width: ${width}px; ` : ""}${height ? `height: ${height}px; ` : ""}`;
-  // Outlook on Windows reads the attribute, not the style.
-  const widthAttr = width && !/(?:^|\s)width\s*=/i.test(cleaned) ? ` width="${Math.round(Number(width))}"` : "";
-  return `<img ${cleaned}${widthAttr} border="0" style="${sized}${height ? KEPT_SIZE_IMG_STYLE.replace("height: auto; ", "") : KEPT_SIZE_IMG_STYLE}" />`;
+  const sized = width === null ? "" : `width: ${width}px; `;
+  const widthAttr = width === null ? "" : ` width="${width}"`;
+  return `<img ${cleaned}${widthAttr} border="0" style="${sized}${KEPT_SIZE_IMG_STYLE}" />`;
 }
 
 /**

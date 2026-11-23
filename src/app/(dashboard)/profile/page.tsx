@@ -188,13 +188,16 @@ export default function ProfilePage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <TiptapEditor
-            cleanPastedStyles
-            fontControls
-            content={signature}
-            onChange={setSignature}
-            placeholder="e.g. Best regards, Dr. Jane Smith — Conference Chair"
-          />
+          {/* A signature's image goes out no wider than 150px (SIGNATURE_IMAGE_MAX_WIDTH in email.ts): shown that way here. */}
+          <div className="[&_.ProseMirror_img]:max-w-[150px]">
+            <TiptapEditor
+              cleanPastedStyles
+              fontControls
+              content={signature}
+              onChange={setSignature}
+              placeholder="e.g. Best regards, Dr. Jane Smith — Conference Chair"
+            />
+          </div>
           <div className="flex justify-end">
             <Button onClick={handleSaveSignature} disabled={savingSignature}>
               {savingSignature ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

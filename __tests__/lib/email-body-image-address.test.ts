@@ -15,7 +15,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { normalizeBodyImages, renderAndWrap, renderMessageValue, renderTemplate, signatureHtmlForEmail, wrapWithBranding } from "@/lib/email";
+import {
+  SIGNATURE_IMAGE_MAX_WIDTH,
+  normalizeBodyImages,
+  renderAndWrap,
+  renderMessageValue,
+  renderTemplate,
+  signatureHtmlForEmail,
+  wrapWithBranding,
+} from "@/lib/email";
 
 const SITE = "https://events.example.test";
 const LOGO = '<img src="/uploads/media/2026/10/9820a583.png">';
@@ -71,23 +79,48 @@ describe("a signature's image keeps its own size", () => {
     expect(out).toContain(`src="${SITE}/uploads/media/2026/10/9820a583.png"`);
     expect(out).not.toMatch(/width="600"/);
     expect(out).not.toMatch(/[^-]width: 100%/);
-    expect(out).toContain("max-width: 100%");
     expect(out).toContain('border="0"');
   });
 
-  it("keeps a width the author gave it", () => {
+  // Owner, Nov 23, 2026: "reduce the org signature logo max width to 150px", "only org signature".
+  it("is never wider than 150px: an unsized image is capped by its style and keeps its own width below that", () => {
+    expect(SIGNATURE_IMAGE_MAX_WIDTH).toBe(150);
+    const out = normalizeBodyImages(signatureHtmlForEmail(LOGO));
+    expect(out).toContain("max-width: 150px; height: auto;");
+    // No width is invented for it: a 135px logo must not be drawn at 150.
+    expect(out).not.toMatch(/\swidth="/);
+  });
+
+  it("keeps a width the author gave it when it is under the cap, as an attribute Outlook reads too", () => {
     const out = normalizeBodyImages(signatureHtmlForEmail('<img src="/uploads/a.png" width="120" height="76" style="float:left">'));
     expect(out).toContain('width="120"');
-    expect(out).toContain('height="76"');
+    expect(out).toMatch(/style="width: 120px; max-width: 150px; height: auto;/);
+    // The height follows the width, so the picture keeps its shape.
+    expect(out).not.toContain("height=");
     expect(out).not.toContain("float");
   });
 
-  it("keeps a size the author set in the image's style, and gives Outlook the width as an attribute", () => {
+  it("brings a wider one down to the cap, whether the author sized it by attribute or in its style", () => {
+    for (const img of ['<img src="/uploads/a.png" width="600" height="380">', '<img src="/uploads/a.png" style="width: 420px; height: 300px; max-width: 900px">']) {
+      const out = normalizeBodyImages(signatureHtmlForEmail(img));
+      expect(out, img).toContain('width="150"');
+      expect(out, img).toMatch(/style="width: 150px; max-width: 150px; height: auto;/);
+      expect(out, img).not.toMatch(/600|420|900|300px|380/);
+    }
+  });
+
+  it("keeps a size the author set in the image's style", () => {
     const out = normalizeBodyImages(signatureHtmlForEmail('<img src="/uploads/a.png" style="width: 135px; max-width: 900px; float: left">'));
     expect(out).toContain('width="135"');
-    expect(out).toMatch(/style="width: 135px; max-width: 100%;/);
+    expect(out).toMatch(/style="width: 135px; max-width: 150px;/);
     expect(out).not.toContain("900px");
     expect(out).not.toContain("float");
+  });
+
+  it("the cap is the signature's alone: a banner in the body is still fitted to 600px, not to 150", () => {
+    const out = normalizeBodyImages('<img src="/uploads/banner.png">');
+    expect(out).toContain('width="600"');
+    expect(out).not.toContain("150px");
   });
 
   it("only the mark itself counts: the words in an alt or a file name do not keep a banner from being fitted", () => {
