@@ -103,14 +103,17 @@ const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const PHONE = /\+?\d[\d\s().-]{5,}\d/g;
 
 /**
- * Typed text as the report shows it: email addresses and phone-like numbers removed, cut to
- * TEXT_MAX_CHARS. A licence or registration number typed into a comment is caught as a long number
+ * Typed text as the report shows it: email addresses and phone-like numbers removed, whitespace
+ * folded to single spaces, cut to TEXT_MAX_CHARS. A licence or registration number typed into a comment is caught as a long number
  * too; a short figure ("2 doses", "in 2026") is left alone.
  */
 export function reportText(text: string): string {
   const cleaned = text
     .replace(EMAIL, "[email removed]")
     .replace(PHONE, (m) => (m.replace(/\D/g, "").length >= 7 ? "[number removed]" : m))
+    // Line breaks and runs of spaces become one space, as the page shows them: a question typed with
+    // ten blank lines ran down the PDF page as stray letters.
+    .replace(/\s+/g, " ")
     .trim();
   return cleaned.length > TEXT_MAX_CHARS ? `${cleaned.slice(0, TEXT_MAX_CHARS - 1)}…` : cleaned;
 }

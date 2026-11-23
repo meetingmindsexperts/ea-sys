@@ -228,6 +228,8 @@ describe("review of cdec0c859", () => {
     expect(reportText("Mail me at dr.ali@clinic.ae or +971 50 123 4567")).toBe("Mail me at [email removed] or [number removed]");
     expect(reportText("Licence 12345678, 2 doses in 2026")).toBe("Licence [number removed], 2 doses in 2026");
     expect(reportText("x".repeat(TEXT_MAX_CHARS + 50))).toHaveLength(TEXT_MAX_CHARS);
+    // A question typed with blank lines printed one letter per line down the PDF page.
+    expect(reportText("hi\n\n\n\ns\n\nw\ns")).toBe("hi s w s");
   });
 });
 
