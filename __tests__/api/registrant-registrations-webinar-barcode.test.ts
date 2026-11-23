@@ -94,3 +94,38 @@ describe("GET /api/registrant/registrations", () => {
     expect(body.every((r) => !("createdSource" in r))).toBe(true);
   });
 });
+
+// Owner, Nov 23, 2026 (author-payment-hold.ts): the event's registration page
+// shows an abstract author the fee and no Pay Now until the organisers open it.
+describe("GET /api/registrant/registrations: the author hold", () => {
+  const list = async () => (await (await GET(new Request("http://x"))).json()) as Record<string, unknown>[];
+  const HELD = { presenterRegistration: { payNowEnabled: false }, reviewerUserIds: ["u9"] };
+
+  it("marks the abstract sign-up's registration on hold, and nobody else's", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      { id: "author", createdSource: "PUBLIC_SUBMITTER", qrCode: null, event: { eventType: "CONFERENCE", settings: HELD } },
+      { id: "delegate", createdSource: "PUBLIC_REGISTER", qrCode: null, event: { eventType: "CONFERENCE", settings: HELD } },
+      { id: "open", createdSource: "PUBLIC_SUBMITTER", qrCode: null, event: { eventType: "CONFERENCE", settings: { presenterRegistration: { payNowEnabled: true } } } },
+    ]);
+    const body = await list();
+
+    expect(body.find((r) => r.id === "author")?.paymentOnHold).toBe(true);
+    expect(body.find((r) => r.id === "delegate")?.paymentOnHold).toBe(false);
+    expect(body.find((r) => r.id === "open")?.paymentOnHold).toBe(false);
+  });
+
+  it("reads the event's settings and never sends them, nor the entry path", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      { id: "author", createdSource: "PUBLIC_SUBMITTER", qrCode: "Q", event: { id: "ev1", name: "Ev", eventType: "CONFERENCE", settings: HELD } },
+    ]);
+    const body = await list();
+
+    expect(mockDb.registration.findMany.mock.calls[0][0].select.event.select.settings).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("reviewerUserIds");
+    expect(body[0].event).toEqual({ id: "ev1", name: "Ev", eventType: "CONFERENCE" });
+    expect(body[0]).not.toHaveProperty("createdSource");
+    // The rest of the row is untouched.
+    expect(body[0].qrCode).toBe("Q");
+  });
+});
+

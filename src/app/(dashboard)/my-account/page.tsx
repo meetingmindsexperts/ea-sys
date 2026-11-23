@@ -20,6 +20,7 @@ import { cmeTotals, findReleasedCertificates, type PortalCertificate } from "@/l
 import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { loadRegistrantPortal } from "@/lib/registrant-portal";
 import { loadReplayFacts } from "@/lib/registrant-replays";
+import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import {
   buildJourney,
   JOURNEY_REGISTRATION_FIELDS,
@@ -73,17 +74,25 @@ const EVENT_FIELDS = {
 } as const;
 
 async function loadEvents(scope: RegistrantScope) {
-  const [registrations, certificates, user] = await Promise.all([
+  const [rows, certificates, user] = await Promise.all([
     db.registration.findMany({
       // Linked registrations, plus those carrying the address once the
       // account has proven it owns it (registrant-access.ts).
       where: { status: { not: "CANCELLED" }, ...ownRegistrationWhere(scope) },
-      select: { ...JOURNEY_REGISTRATION_FIELDS, event: { select: EVENT_FIELDS } },
+      // `settings` is read here for the author hold and goes no further.
+      select: { ...JOURNEY_REGISTRATION_FIELDS, event: { select: { ...EVENT_FIELDS, settings: true } } },
       orderBy: { createdAt: "desc" },
     }),
     findReleasedCertificates(scope),
     db.user.findUnique({ where: { id: scope.userId }, select: { firstName: true } }),
   ]);
+  // An abstract author's fee waits for the organisers (author-payment-hold.ts).
+  // Decided here, so the event's settings never travel with the card.
+  const registrations = rows.map(({ event: { settings, ...event }, ...r }) => ({
+    ...r,
+    event,
+    paymentOnHold: authorPaymentOnHold(r, settings),
+  }));
   const now = new Date();
   const [facts, replays] = await Promise.all([
     loadSurveyFacts(
@@ -150,7 +159,7 @@ function buildCards(data: Loaded, now: Date): EventCardData[] {
       return {
         id: r.id,
         ticketName: r.ticketType?.name ?? null,
-        steps: buildJourney({ registration: r, event: r.event, surveys: lines, certificateCount: certs.length, replay: replays.has(r.id), now }),
+        steps: buildJourney({ registration: r, event: r.event, surveys: lines, certificateCount: certs.length, replay: replays.has(r.id), paymentOnHold: r.paymentOnHold, now }),
         surveys: lines,
         replay: replays.has(r.id),
       };

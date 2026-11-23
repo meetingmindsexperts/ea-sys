@@ -26,6 +26,7 @@ import {
 } from "@/lib/calendar-links";
 import { formatDateRange } from "@/lib/utils";
 import { toast } from "sonner";
+import { AUTHOR_PAYMENT_HOLD_NOTE } from "@/lib/author-payment-hold";
 
 interface EventBranding {
   bannerImage: string | null;
@@ -56,6 +57,8 @@ interface PaymentInfo {
   originalPrice?: number | null;
   discountAmount?: number | null;
   promoCode?: string | null;
+  /** An abstract author's fee, held until the organisers open paying (author-payment-hold.ts). */
+  paymentOnHold?: boolean;
 }
 
 function registrationSerial(serialIdParam: string | null, serialId: number | null | undefined): string | null {
@@ -340,6 +343,21 @@ function ConfirmationContent() {
               </p>
             </div>
           </div>
+        </div>
+      );
+    }
+    if (paymentInfo?.paymentOnHold) {
+      return (
+        /* An abstract author's fee: the amount, and no Pay Now until the organisers open it */
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <CreditCard className="h-4 w-4 text-slate-500" />
+            <span className="text-sm font-medium text-slate-700">Registration fee</span>
+            <span className="ml-auto text-sm font-semibold text-slate-900">
+              {ticketCurrency} {(hasTax ? totalDue : ticketPrice).toFixed(2)}
+            </span>
+          </div>
+          <p className="text-xs text-slate-600">{AUTHOR_PAYMENT_HOLD_NOTE}</p>
         </div>
       );
     }

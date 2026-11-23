@@ -402,10 +402,11 @@ export default function EventSettingsPage() {
    * unparseable value falls back to the default rather than storing garbage.
    */
   /**
-   * D3: abstract submitters are not invited to pay at submission by default,
-   * because roughly 29 in 30 get comped after acceptance. This turns Pay Now
-   * back on for events that do want payment up front. Enabling it is behind a
-   * confirmation, since the consequence lands on every future submitter.
+   * D3: abstract submitters are not asked to pay online by default, because
+   * roughly 29 in 30 get comped after acceptance. Off, their registration
+   * carries no Pay Now anywhere (author-payment-hold.ts); on, it does, at
+   * submission and afterwards. Enabling it is behind a confirmation, since the
+   * consequence lands on every submitter who still owes a fee.
    */
   const [presenterPayNow, setPresenterPayNow] = useState(false);
   const [confirmPayNowOpen, setConfirmPayNowOpen] = useState(false);
@@ -2374,12 +2375,14 @@ export default function EventSettingsPage() {
                     </div>
                     <div className="flex items-center justify-between rounded-lg border p-4">
                       <div className="space-y-0.5 pr-6">
-                        <Label>Ask submitters to pay at submission</Label>
+                        <Label>Let abstract submitters pay online</Label>
                         <p className="text-sm text-muted-foreground">
-                          Off by default. Submitters still receive their quote either way, so
-                          they know the amount; this only decides whether the confirmation
-                          invites them to pay straight away. They can always pay later from
-                          their registration portal.
+                          Off by default. While it is off, a submitter sees their fee and
+                          gets their quote, but no Pay Now: not in emails, not in their
+                          portal, and the checkout refuses. Turn it on when you want them to
+                          pay, for example once decisions are announced. It applies to
+                          everyone who registered through the abstract sign-up on this
+                          event.
                         </p>
                       </div>
                       <Switch
@@ -2397,12 +2400,14 @@ export default function EventSettingsPage() {
                     <AlertDialog open={confirmPayNowOpen} onOpenChange={setConfirmPayNowOpen}>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Ask every submitter to pay at submission?</AlertDialogTitle>
+                          <AlertDialogTitle>Let every abstract submitter pay online?</AlertDialogTitle>
                           <AlertDialogDescription asChild>
                             <div className="space-y-3 text-sm">
                               <p>
-                                Every future abstract submitter will get a Pay Now link with
-                                their confirmation, before you have reviewed their abstract.
+                                Every submitter on this event who still owes a fee will see
+                                Pay Now in their portal straight away, and new submitters
+                                will get a Pay Now link with their confirmation, before you
+                                have reviewed their abstract.
                               </p>
                               <p>
                                 Most conferences comp or discount the majority of presenters
@@ -2410,9 +2415,9 @@ export default function EventSettingsPage() {
                                 comped has to be refunded, which needs a credit note.
                               </p>
                               <p>
-                                Leaving this off does not stop anyone paying. They still get
-                                the quote, and they can pay whenever they like from their
-                                registration portal.
+                                While this is off nobody is asked to pay online. Submitters
+                                still get the quote, and you can record a bank transfer or
+                                make a registration Complimentary at any time.
                               </p>
                             </div>
                           </AlertDialogDescription>

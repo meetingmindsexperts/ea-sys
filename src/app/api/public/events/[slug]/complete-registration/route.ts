@@ -15,6 +15,7 @@ import { personFieldRefusal } from "@/lib/person-field-rules";
 import { syncToContact } from "@/lib/contact-sync";
 import { changedContactFields, contactSyncFromAttendee } from "@/lib/contact-sync-payload";
 import { sendRegistrationConfirmation } from "@/lib/email";
+import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
@@ -1260,6 +1261,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         // A virtual attendee's email carries no barcode and gets the virtual
         // note (review of 35eb4e35, L3: the code is real now, not always "").
         attendanceMode: registration.attendanceMode,
+        // An abstract author's fee waits for the organisers (author-payment-hold.ts).
+        suppressPayNow: authorPaymentOnHold(registration, registration.event.settings),
         eventSlug: registration.event.slug,
         ticketPrice: finalPrice,
         ticketCurrency: finalCurrency,

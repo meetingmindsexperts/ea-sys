@@ -6,6 +6,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { publicEventWhere } from "@/lib/public-event";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import { runWithTenant } from "@/lib/tenant-context";
+import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 
 interface RouteParams {
@@ -53,11 +54,14 @@ export async function GET(req: Request, { params }: RouteParams) {
         paymentStatus: true,
         discountAmount: true,
         originalPrice: true,
+        // Read for `paymentOnHold` only; neither is sent.
+        createdSource: true,
         event: {
           select: {
             organizationId: true,
             taxRate: true,
             taxLabel: true,
+            settings: true,
           },
         },
         ticketType: {
@@ -99,6 +103,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       originalPrice: registration.originalPrice ? Number(registration.originalPrice) : null,
       discountAmount: discount > 0 ? discount : null,
       promoCode: registration.promoCode?.code || null,
+      // An abstract author's fee waits for the organisers (author-payment-hold.ts):
+      // the page shows the amount and no Pay Now.
+      paymentOnHold: authorPaymentOnHold(registration, registration.event.settings),
     });
 
     // Short cache to allow polling but reduce DB load

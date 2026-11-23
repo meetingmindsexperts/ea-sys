@@ -25,6 +25,7 @@ import {
   repointOrgContactEmail,
 } from "@/lib/email-change";
 import { buildPaymentReminderVars } from "@/lib/payment-reminder";
+import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import { excludedAsNoBalance, NO_BALANCE_PAYMENT_STATUSES } from "@/lib/bulk-email-audience";
 import { computeRegistrationRowMoney } from "@/lib/registration-export";
 import { executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
@@ -360,6 +361,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         promoCode: registration.promoCode?.code ?? null,
         taxRate: event.taxRate ? Number(event.taxRate) : null,
         taxLabel: event.taxLabel,
+        // An abstract author's fee waits for the organisers: the amount, no Pay Now.
+        suppressPayNow: authorPaymentOnHold(registration, event.settings),
         bankDetails: event.bankDetails,
         supportEmail: event.supportEmail,
         organizationName: org?.name,
@@ -486,6 +489,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketType: registration.ticketType,
         taxRate: event.taxRate ? Number(event.taxRate) : null,
         taxLabel: event.taxLabel,
+        onHold: authorPaymentOnHold(registration, event.settings),
       });
       vars.amount = amount;
       vars.paymentBlock = paymentBlock;

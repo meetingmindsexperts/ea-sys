@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Abstract submitters are not asked to pay online until you open it (November 23, 2026)
+
+Owner: "lets talk about pay now for abstract submitters, how can we suppress it", then option A: the event's switch decides, for everyone on the event.
+
+- **One switch now governs every place an abstract submitter could pay online.** Settings, Abstracts, **"Let abstract submitters pay online"** (it read "Ask submitters to pay at submission"), per event, off by default and off on every production event. Until today it governed only the sign-up's own emails, while the portal, the event's registration page, Resend confirmation, the payment reminder and the checkout offered Pay Now regardless
+- **While it is off**, the registration the abstract sign-up made shows its fee and no Pay Now: My events says "Fee to be confirmed" and lists no payment to complete; the event's registration page and the pay page show the amount with "Online payment is not open yet. The organizing team will confirm your registration fee once your submission has been reviewed."; the confirmation, whoever resends it, carries "Registration Fee" with no button; a payment reminder still goes (a bank transfer can be chased) with the amount and that line instead of the button; and **the checkout refuses** (`AUTHOR_PAYMENT_ON_HOLD`), so a saved link or a hand-made request takes no money
+- **Turn it on** when you want them to pay, for example once decisions are announced: every submitter on the event who still owes a fee sees Pay Now straight away. It is event-wide on purpose: opening it per person as each abstract is decided would tell an author the result before the announcement
+- **Not held:** someone who registered as a delegate and then submitted (an ordinary registration), and a registration the organisers granted by hand. Staff are unaffected: recording a payment, Complimentary and refunds work as before
+- The rule is one function, `authorPaymentOnHold` in `src/lib/author-payment-hold.ts`, and a test lists every file that offers Pay Now, builds a pay link, sends the confirmation or opens a checkout: a new one fails until it is classed
+
 ### An author's registration belongs to their account from the moment they sign up (November 23, 2026)
 
 Owner: "yes please fix the sign-up."

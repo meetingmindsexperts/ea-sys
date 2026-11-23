@@ -54,7 +54,7 @@ describe("buildJourney", () => {
   const upcoming = { endDate: new Date("2027-01-17T18:00:00Z"), eventType: "CONFERENCE", status: "PUBLISHED" };
 
   it("an upcoming conference: registered, paid, check in at the event, nothing about certificates", () => {
-    expect(labels(buildJourney({ registration: reg({ paymentStatus: "PAID" }), event: upcoming, surveys: [], certificateCount: 0, now: NOW }))).toEqual([
+    expect(labels(buildJourney({ registration: reg({ paymentStatus: "PAID" }), event: upcoming, surveys: [], certificateCount: 0, paymentOnHold: false, now: NOW }))).toEqual([
       "Registered:done",
       "Paid:done",
       "Check in at the event:waiting",
@@ -67,6 +67,7 @@ describe("buildJourney", () => {
       event: past,
       surveys: [{ id: "s1", name: "Post-event survey", answered: false, daily: false, open: true, certificate: true }],
       certificateCount: 2,
+      paymentOnHold: false,
       now: NOW,
     });
     expect(labels(steps)).toEqual(["Registered:done", "Free:done", "Checked in:done", "Survey to answer:action", "2 certificates ready:done"]);
@@ -74,7 +75,7 @@ describe("buildJourney", () => {
 
   it("an unpaid fee is a to-do exactly while the checkout would take it: by the event's status, never its dates", () => {
     const owing = reg({ ticketType: { name: "Physician", price: 250 } });
-    const journey = (event: typeof past) => labels(buildJourney({ registration: owing, event, surveys: [], certificateCount: 0, now: NOW }));
+    const journey = (event: typeof past) => labels(buildJourney({ registration: owing, event, surveys: [], certificateCount: 0, paymentOnHold: false, now: NOW }));
     expect(journey(upcoming)).toContain("Payment due:action");
     // Ended, but still published (nothing completes an event by itself): the checkout still works.
     expect(journey({ ...past, status: "PUBLISHED" })).toContain("Payment due:action");
@@ -88,25 +89,25 @@ describe("buildJourney", () => {
   });
 
   it("a settled or free registration reads the same after the event", () => {
-    const journey = (over: Record<string, unknown>) => labels(buildJourney({ registration: reg(over), event: past, surveys: [], certificateCount: 0, now: NOW }));
+    const journey = (over: Record<string, unknown>) => labels(buildJourney({ registration: reg(over), event: past, surveys: [], certificateCount: 0, paymentOnHold: false, now: NOW }));
     expect(journey({ paymentStatus: "PAID", ticketType: { name: "Physician", price: 250 } })).toContain("Paid:done");
     expect(journey({})).toContain("Free:done");
   });
 
   it("never says Not checked in beside a certificate: the desk does not scan everyone", () => {
-    const journey = (certificateCount: number) => labels(buildJourney({ registration: reg({ paymentStatus: "PAID" }), event: past, surveys: [], certificateCount, now: NOW }));
+    const journey = (certificateCount: number) => labels(buildJourney({ registration: reg({ paymentStatus: "PAID" }), event: past, surveys: [], certificateCount, paymentOnHold: false, now: NOW }));
     expect(journey(0)).toContain("Not checked in:missed");
     expect(journey(1)).toEqual(["Registered:done", "Paid:done", "Certificate ready:done"]);
   });
 
   it("no check-in step on a webinar or for an online attendee", () => {
-    const keys = (event: typeof past, over = {}) => buildJourney({ registration: reg(over), event, surveys: [], certificateCount: 0, now: NOW }).map((s) => s.key);
+    const keys = (event: typeof past, over = {}) => buildJourney({ registration: reg(over), event, surveys: [], certificateCount: 0, paymentOnHold: false, now: NOW }).map((s) => s.key);
     expect(keys({ ...past, eventType: "WEBINAR" })).not.toContain("checkin");
     expect(keys(past, { attendanceMode: "VIRTUAL" })).not.toContain("checkin");
   });
 
   it("a pending or waitlisted registration is not asked to check in or promised a certificate", () => {
-    expect(labels(buildJourney({ registration: reg({ status: "PENDING" }), event: past, surveys: [], certificateCount: 0, now: NOW }))).toEqual([
+    expect(labels(buildJourney({ registration: reg({ status: "PENDING" }), event: past, surveys: [], certificateCount: 0, paymentOnHold: false, now: NOW }))).toEqual([
       "Awaiting approval:waiting",
       "Free:done",
     ]);
@@ -121,7 +122,7 @@ describe("buildJourney", () => {
         { id: "b", name: "B", answered: false, daily: false, open: true, certificate: false },
       ],
       certificateCount: 0,
-      now: NOW,
+      paymentOnHold: false, now: NOW,
     });
     expect(steps.find((s) => s.key === "survey")).toEqual({ key: "survey", label: "1 of 2 surveys answered", state: "action" });
   });
@@ -198,3 +199,29 @@ describe("surveyLinesFor", () => {
     expect(lines({ registration: { id: "r1", status: "WAITLISTED", surveyCompletedAt: null } })).toEqual([]);
   });
 });
+
+// Owner, Nov 23, 2026 (author-payment-hold.ts): an abstract author's fee waits
+// for the organisers, so it is not a to-do on My events.
+describe("an abstract author's fee on hold", () => {
+  const upcoming = { endDate: new Date("2027-01-17T18:00:00Z"), eventType: "CONFERENCE", status: "PUBLISHED" };
+  const owing = reg({ ticketType: { name: "Resident", price: 150 } });
+  const journey = (paymentOnHold: boolean, over: Record<string, unknown> = {}) =>
+    labels(buildJourney({ registration: reg({ ticketType: { name: "Resident", price: 150 }, ...over }), event: upcoming, surveys: [], certificateCount: 0, paymentOnHold, now: NOW }));
+
+  it("reads 'Fee to be confirmed' and waits, where it would have asked for payment", () => {
+    expect(paymentStep(owing).state).toBe("action");
+    expect(journey(false)).toContain("Payment due:action");
+    expect(journey(true)).toContain("Fee to be confirmed:waiting");
+    expect(journey(true).some((l) => l.endsWith(":action"))).toBe(false);
+  });
+
+  it.each([
+    ["paid", { paymentStatus: "PAID" }, "Paid:done"],
+    ["made Complimentary by the organisers", { paymentStatus: "COMPLIMENTARY" }, "Complimentary:done"],
+    ["on a free rate", { ticketType: { name: "Student", price: 0 } }, "Free:done"],
+  ])("changes nothing for a registration that is %s", (_name, over, expected) => {
+    expect(journey(true, over)).toContain(expected);
+    expect(journey(true, over).join()).not.toContain("Fee to be confirmed");
+  });
+});
+

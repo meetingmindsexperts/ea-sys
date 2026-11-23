@@ -46,6 +46,8 @@ export const JOURNEY_REGISTRATION_FIELDS = {
   status: true,
   paymentStatus: true,
   groupId: true,
+  // The author hold (author-payment-hold.ts): the abstract sign-up's rows.
+  createdSource: true,
   attendanceMode: true,
   originalPrice: true,
   discountAmount: true,
@@ -113,6 +115,16 @@ function surveyStep(lines: readonly SurveyLine[]): JourneyStep {
   return { key: "survey", label: `${answered} of ${lines.length} surveys answered`, state: "action" };
 }
 
+/**
+ * An abstract author's unpaid fee is not a to-do while the organisers hold
+ * online payment (author-payment-hold.ts): "Complete your payment" would lead
+ * to a page with no Pay Now.
+ */
+function heldPaymentStep(payment: JourneyStep, onHold: boolean): JourneyStep {
+  if (!onHold || payment.state !== "action") return payment;
+  return { key: "payment", label: "Fee to be confirmed", state: "waiting" };
+}
+
 export function buildJourney(input: {
   registration: JourneyRegistration;
   event: { endDate: Date; eventType: string | null; status: string };
@@ -120,11 +132,18 @@ export function buildJourney(input: {
   certificateCount: number;
   /** This registration may watch the webinar's replay now (registrant-replays.ts). */
   replay?: boolean;
+  /**
+   * `authorPaymentOnHold` for this registration and its event's settings.
+   * Required, so no caller builds a journey that offers a payment the
+   * checkout would refuse.
+   */
+  paymentOnHold: boolean;
   now: Date;
 }): JourneyStep[] {
   const { registration: reg, event, surveys, certificateCount, now } = input;
   const over = now.getTime() > event.endDate.getTime();
-  const steps: JourneyStep[] = [registeredStep(reg.status), closedPaymentStep(paymentStep(reg), event.status, over)];
+  const payment = heldPaymentStep(closedPaymentStep(paymentStep(reg), event.status, over), input.paymentOnHold);
+  const steps: JourneyStep[] = [registeredStep(reg.status), payment];
   // A webinar and an online attendee never pass the desk.
   const atVenue = event.eventType !== "WEBINAR" && reg.attendanceMode !== "VIRTUAL";
   if (atVenue && ATTENDING.has(reg.status)) {

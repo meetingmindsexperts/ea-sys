@@ -2,7 +2,8 @@
  * Presenter Pay Now toggle (Aug 11, 2026). Plan decision D3.
  *
  * The polarity is the whole point. Abstract submitters get a quote either way;
- * this decides only whether they are INVITED to pay at submission. On the
+ * this decides whether they may pay online at all (since Nov 23, 2026 every
+ * pay door asks it: author-payment-hold.ts). On the
  * organizer's own figure roughly 29 in 30 are comped after acceptance, so the
  * expensive mistake is asking everyone for money, and a malformed settings
  * blob must never land there.

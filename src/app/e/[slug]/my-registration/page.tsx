@@ -39,6 +39,7 @@ import {
   LayoutList,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AUTHOR_PAYMENT_HOLD_NOTE } from "@/lib/author-payment-hold";
 import { ConfirmEmailNotice } from "@/components/registrant/confirm-email-notice";
 import { cn, formatCurrency, formatPersonName } from "@/lib/utils";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
@@ -70,6 +71,8 @@ interface Registration {
   qrCode: string | null;
   /** A speaker's Faculty registration: the name follows the speaker record, so it is not edited here. */
   nameLocked?: boolean;
+  /** An abstract author's fee, held until the organisers open paying (author-payment-hold.ts): the amount, no Pay Now. */
+  paymentOnHold?: boolean;
   /** Group-registration membership: the company payer covers the fee. */
   groupId?: string | null;
   group?: { billingAccount: { name: string } } | null;
@@ -556,7 +559,7 @@ export default function EventMyRegistrationPage() {
                       <div className="flex items-start gap-3">
                         <CreditCard className="mt-0.5 h-6 w-6 text-amber-600 shrink-0" />
                         <div>
-                          <p className="font-semibold text-amber-800">Payment Required</p>
+                          <p className="font-semibold text-amber-800">{reg.paymentOnHold ? "Registration fee" : "Payment Required"}</p>
                           <div className="text-sm text-amber-700 space-y-0.5">
                             <p>Subtotal: {formatCurrency(price, currency)}</p>
                             {regDiscount > 0 && (
@@ -567,17 +570,20 @@ export default function EventMyRegistrationPage() {
                             {regHasTax && (
                               <p>{regTaxLabel} ({regTaxRate}%): {formatCurrency(regTaxAmount, currency)}</p>
                             )}
-                            <p className="font-semibold">Total Due: {formatCurrency(regTotal, currency)}</p>
+                            <p className="font-semibold">{reg.paymentOnHold ? "Total" : "Total Due"}: {formatCurrency(regTotal, currency)}</p>
                           </div>
                         </div>
                       </div>
                       {/* `event` is null when the public API refused the slug (the event
                           is over or not published): its checkout refuses too, and Pay
                           Now ended in "Registration not found". */}
-                      {!eventLoading && !event && (
+                      {reg.paymentOnHold && (
+                        <p className="text-sm text-amber-900 sm:max-w-xs">{AUTHOR_PAYMENT_HOLD_NOTE}</p>
+                      )}
+                      {!reg.paymentOnHold && !eventLoading && !event && (
                         <p className="text-sm text-amber-900">Online payment for this event is closed. Please contact the organiser.</p>
                       )}
-                      <Button className={cn("btn-gradient h-11 w-full sm:h-9 sm:w-auto", !eventLoading && !event && "hidden")} disabled={checkoutLoading === reg.id} onClick={async () => {
+                      <Button className={cn("btn-gradient h-11 w-full sm:h-9 sm:w-auto", (reg.paymentOnHold || (!eventLoading && !event)) && "hidden")} disabled={checkoutLoading === reg.id} onClick={async () => {
                         setCheckoutLoading(reg.id);
                         try {
                           const res = await fetch(`/api/public/events/${reg.event.slug}/checkout`, {

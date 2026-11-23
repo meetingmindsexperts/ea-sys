@@ -287,7 +287,7 @@ describe("buildJourney: the replay step", () => {
   } as unknown as Parameters<typeof buildJourney>[0]["registration"];
   const event = { endDate: ENDED, eventType: "WEBINAR", status: "COMPLETED" };
   const labels = (replay?: boolean) =>
-    buildJourney({ registration, event, surveys: [], certificateCount: 1, replay, now: NOW }).map((s) => `${s.key}:${s.label}:${s.state}`);
+    buildJourney({ registration, event, surveys: [], certificateCount: 1, replay, paymentOnHold: false, now: NOW }).map((s) => `${s.key}:${s.label}:${s.state}`);
 
   it("sits after payment and before the certificate, as a word and a state", () => {
     expect(labels(true)).toEqual([

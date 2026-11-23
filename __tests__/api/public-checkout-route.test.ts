@@ -131,3 +131,68 @@ describe("POST checkout — conditional PENDING claim (H3)", () => {
     );
   });
 });
+
+// Owner, Nov 23, 2026 (author-payment-hold.ts): an abstract author's fee is
+// confirmed after review. The pages hide Pay Now; this is the door itself.
+describe("POST checkout: an abstract author's registration on hold", () => {
+  const author = (settings: unknown, createdSource = "PUBLIC_SUBMITTER") => {
+    const registration = makeRegistration("UNASSIGNED");
+    return { ...registration, createdSource, event: { ...registration.event, settings } };
+  };
+
+  it("refuses with the hold's code while the event's switch is off, and never reaches Stripe", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(author({ presenterRegistration: { payNowEnabled: false } }));
+    const res = await POST(makeRequest(), params);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("AUTHOR_PAYMENT_ON_HOLD");
+    expect(body.error).toContain("Online payment is not open yet");
+    expect(mockSessionsCreate).not.toHaveBeenCalled();
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "Checkout attempted for an author's registration on hold", registrationId: "reg-1" }),
+    );
+  });
+
+  it("refuses when the event has no setting saved at all: off is the default", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(author(null));
+    const res = await POST(makeRequest(), params);
+
+    expect(res.status).toBe(400);
+    expect(mockSessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it("takes the payment once the organisers turn the switch on", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(author({ presenterRegistration: { payNowEnabled: true } }));
+    const res = await POST(makeRequest(), params);
+
+    expect(res.status).toBe(200);
+    expect(mockSessionsCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("never holds an ordinary delegate's registration, switch off or not", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(author({ presenterRegistration: { payNowEnabled: false } }, "PUBLIC_REGISTER"));
+    const res = await POST(makeRequest(), params);
+
+    expect(res.status).toBe(200);
+    expect(mockSessionsCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("a settled author's registration still gets the settled answer, not the hold", async () => {
+    const registration = makeRegistration("COMPLIMENTARY");
+    mockDb.registration.findFirst.mockResolvedValue({ ...registration, createdSource: "PUBLIC_SUBMITTER", event: { ...registration.event, settings: null } });
+    const res = await POST(makeRequest(), params);
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBeUndefined();
+  });
+
+  it("reads the event's settings for it", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(author(null));
+    await POST(makeRequest(), params);
+
+    expect(mockDb.registration.findFirst.mock.calls[0][0].include.event.select.settings).toBe(true);
+  });
+});
+

@@ -106,3 +106,44 @@ describe("GET public payment-status", () => {
     expect(mockWarn).toHaveBeenCalledWith(expect.objectContaining({ slug: "BHS2026", registrationId: "reg-1" }));
   });
 });
+
+// Owner, Nov 23, 2026 (author-payment-hold.ts): the pay page shows an abstract
+// author the fee and no Pay Now until the organisers open paying.
+describe("GET public payment-status: the author hold", () => {
+  const row = (createdSource: string | null, settings: unknown) => ({
+    status: "CONFIRMED",
+    serialId: 7,
+    paymentStatus: "UNASSIGNED",
+    discountAmount: null,
+    originalPrice: 400,
+    createdSource,
+    event: { organizationId: "org-1", taxRate: null, taxLabel: null, settings },
+    ticketType: { name: "Resident", price: 0, currency: "USD" },
+    pricingTier: { price: 400, currency: "USD" },
+    promoCode: null,
+  });
+  const answer = async () => (await (await GET(req(), params)).json()) as Record<string, unknown>;
+
+  it("says an author's registration is on hold while the switch is off", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(row("PUBLIC_SUBMITTER", { presenterRegistration: { payNowEnabled: false } }));
+    expect((await answer()).paymentOnHold).toBe(true);
+  });
+
+  it("says it is open once the switch is on, and for anyone who is not an author", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(row("PUBLIC_SUBMITTER", { presenterRegistration: { payNowEnabled: true } }));
+    expect((await answer()).paymentOnHold).toBe(false);
+    mockDb.registration.findFirst.mockResolvedValue(row("PUBLIC_REGISTER", null));
+    expect((await answer()).paymentOnHold).toBe(false);
+  });
+
+  it("sends neither the event's settings nor the entry path: this route needs no sign-in", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(row("PUBLIC_SUBMITTER", { presenterRegistration: { payNowEnabled: false }, reviewerUserIds: ["u9"] }));
+    const body = await answer();
+
+    expect(JSON.stringify(body)).not.toContain("reviewerUserIds");
+    expect(body).not.toHaveProperty("settings");
+    expect(body).not.toHaveProperty("createdSource");
+    expect(body).not.toHaveProperty("event");
+  });
+});
+

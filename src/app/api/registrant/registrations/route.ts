@@ -11,6 +11,7 @@ import { apiLogger } from "@/lib/logger";
 import { linkConfirmedRegistrations, loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { titleEnum, roleAnswer } from "@/lib/schemas";
 import { writeOwnAttendee } from "@/lib/registrant-details";
+import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import { checkRateLimit } from "@/lib/security";
 
 /**
@@ -31,7 +32,8 @@ const OWN_REGISTRATION_SELECT = {
   qrCode: true,
   groupId: true,
   createdAt: true,
-  // Read for `nameLocked` only; the column itself is not sent (see the GET).
+  // Read for `nameLocked` and `paymentOnHold` only; the column itself is not
+  // sent (see the GET).
   createdSource: true,
   originalPrice: true,
   discountAmount: true,
@@ -49,6 +51,8 @@ const OWN_REGISTRATION_SELECT = {
       taxRate: true,
       taxLabel: true,
       eventType: true,
+      // Read for `paymentOnHold` only (the Pay Now switch); never sent.
+      settings: true,
     },
   },
   attendee: {
@@ -126,11 +130,16 @@ export async function GET(req: Request) {
     // A webinar has no entry barcode (owner, Oct 6, 2026): the portal shows one
     // only when qrCode is present, so it is left out for webinars here.
     return NextResponse.json(
-      registrations.map(({ createdSource, ...r }) => ({
+      registrations.map(({ createdSource, event: { settings, ...event }, ...r }) => ({
         ...r,
-        qrCode: eventUsesEntryBarcode(r.event.eventType) ? r.qrCode : null,
+        // Without its settings: they hold the organisers' configuration.
+        event,
+        qrCode: eventUsesEntryBarcode(event.eventType) ? r.qrCode : null,
         // A speaker's Faculty registration: its name follows the speaker record.
         nameLocked: createdSource === "SPEAKER_COMPANION",
+        // An abstract author's fee waits for the organisers: the page shows
+        // the amount and no Pay Now (author-payment-hold.ts).
+        paymentOnHold: authorPaymentOnHold({ createdSource }, settings),
       })),
     );
     });

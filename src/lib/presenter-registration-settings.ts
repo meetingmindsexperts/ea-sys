@@ -13,10 +13,14 @@
  * partially-written settings blob must resolve to "do not ask for money",
  * never to "ask everyone". Same fail-safe direction as `showRemainingTickets`.
  *
- * What it controls is only whether the submitter is INVITED to pay at
- * submission (the Pay Now call to action on their confirmation). It never
- * changes what they owe, and the registrant portal keeps its own Pay Now
- * either way, because that is how paying later actually happens.
+ * What it controls, since Nov 23, 2026 (owner): whether an abstract submitter
+ * may pay ONLINE at all. Off, the registration their sign-up made carries no
+ * Pay Now anywhere (emails, portal, the pay page) and the checkout refuses;
+ * the organisers turn it on when they want payment, typically once decisions
+ * are announced. `authorPaymentOnHold` in author-payment-hold.ts is the rule
+ * every pay door asks. Until that day it governed the sign-up's own emails
+ * only and the portal kept its Pay Now either way. It never changes what
+ * anyone owes.
  *
  * KEPT ON PURPOSE (owner, Nov 20, 2026). The switch was removed for a day,
  * because MM Group's house rule is that presenter registration is always pay
@@ -28,7 +32,7 @@
  */
 
 export interface PresenterRegistrationSettings {
-  /** Show Pay Now on the abstract-submitter confirmation. Default false. */
+  /** Abstract submitters may pay online (author-payment-hold.ts). Default false. */
   payNowEnabled: boolean;
 }
 

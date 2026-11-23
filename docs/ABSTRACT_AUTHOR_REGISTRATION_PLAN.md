@@ -288,11 +288,23 @@ and barcode carry over.
 
 **Step 7. Remove the presenter Pay Now switch.** NOT DONE: REVERSED by the
 owner on Nov 20, 2026 ("keep the Pay Now option, some tenants may need it").
-It was built and taken out again before it was pushed. The switch stays as it
-was: Settings, Abstracts, "Ask submitters to pay at submission", per event,
-off by default, behind a confirmation. For MM Group's own events the house
-rule above stands and it is left off (no production event has it on). Paying
-later from the person's portal is untouched either way.
+It was built and taken out again before it was pushed. The switch stays:
+Settings, Abstracts, per event, off by default, behind a confirmation. For MM
+Group's own events the house rule above stands and it is left off (no
+production event has it on).
+
+**What the switch governs widened on Nov 23, 2026 (owner, option A).** It was
+"Ask submitters to pay at submission" and decided only whether the sign-up's
+emails carried Pay Now; the portal kept its own Pay Now either way. It is now
+"Let abstract submitters pay online" and every pay door asks it
+(`authorPaymentOnHold` in `src/lib/author-payment-hold.ts`): off, the
+registration the abstract sign-up made shows its fee and no Pay Now anywhere,
+and the checkout refuses; on, it can be paid from the sign-up onwards. So
+"paying later from the person's portal" now means: after the organisers turn
+the switch on, typically when decisions are announced. Event-wide, never per
+person: opening it as each abstract is decided would tell an author the result
+before the announcement. A2's "paid from their portal before the decision" can
+no longer happen while the switch is off.
 
 **Step 8, decided Nov 20, 2026 (owner: "MEHF, let's make it manual"): no
 backfill tool is built.** The organisers move the authors themselves. On

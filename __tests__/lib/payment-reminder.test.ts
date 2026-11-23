@@ -14,6 +14,7 @@ const base = {
   taxRate: null as number | null,
   taxLabel: null as string | null,
   discountAmount: null as unknown,
+  onHold: false,
 };
 
 describe("buildPaymentReminderVars", () => {
@@ -67,5 +68,31 @@ describe("buildPaymentReminderVars", () => {
     });
     expect(r.amount).toBe("EUR 150.00");
     expect(r.paymentBlock).toContain("currency=EUR");
+  });
+});
+
+// Owner, Nov 23, 2026 (author-payment-hold.ts): an abstract author's fee is not
+// paid online until the organisers open it, and the checkout refuses the link.
+describe("buildPaymentReminderVars: an abstract author on hold", () => {
+  const held = buildPaymentReminderVars({
+    ...base,
+    onHold: true,
+    originalPrice: 400,
+    pricingTier: { price: 400, currency: "USD" },
+    ticketType: { price: 0, currency: "USD" },
+  });
+
+  it("still says the amount", () => {
+    expect(held.amount).toBe("USD 400.00");
+  });
+
+  it("carries no Pay Now and no link to the pay page", () => {
+    expect(held.paymentBlock).not.toContain("Pay Now");
+    expect(held.paymentBlock).not.toContain("<a ");
+    expect(held.paymentBlock).not.toContain("/confirmation");
+  });
+
+  it("says why, in the words the pages use", () => {
+    expect(held.paymentBlock).toContain("Online payment is not open yet");
   });
 });

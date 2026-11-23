@@ -1,4 +1,5 @@
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
+import { AUTHOR_PAYMENT_HOLD_NOTE } from "@/lib/author-payment-hold";
 
 /**
  * Shared builder for the payment-reminder email's `{{amount}}` + `{{paymentBlock}}`
@@ -25,6 +26,14 @@ export interface PaymentReminderInput {
   taxLabel: string | null;
   /** Defaults to NEXT_PUBLIC_APP_URL. */
   appUrl?: string;
+  /**
+   * `authorPaymentOnHold` for this registration (author-payment-hold.ts): an
+   * abstract author whose fee the organisers have not opened for online
+   * payment. The reminder then carries the amount and a line saying so, with
+   * no Pay Now: the checkout would refuse the link. Required, so neither
+   * sender can leave it out.
+   */
+  onHold: boolean;
 }
 
 export function buildPaymentReminderVars(input: PaymentReminderInput): { amount: string; paymentBlock: string } {
@@ -47,6 +56,13 @@ export function buildPaymentReminderVars(input: PaymentReminderInput): { amount:
   const paymentLink =
     `${appUrl}/e/${input.eventSlug}/confirmation` +
     `?id=${input.registrationId}&name=${encodeURIComponent(input.firstName)}&price=${amountDue}&currency=${currency}`;
+
+  if (input.onHold) {
+    return {
+      amount: `${currency} ${amountDue.toFixed(2)}`,
+      paymentBlock: `<p style="margin: 20px 0; font-size: 14px; color: #78350f;">${AUTHOR_PAYMENT_HOLD_NOTE}</p>`,
+    };
+  }
 
   return {
     amount: `${currency} ${amountDue.toFixed(2)}`,

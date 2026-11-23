@@ -8,6 +8,7 @@ import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { getStripe, isZeroDecimalCurrency, StripeCredentialsMissingError } from "@/lib/stripe";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import { authorPaymentOnHold, AUTHOR_PAYMENT_HOLD_CODE, AUTHOR_PAYMENT_HOLD_NOTE } from "@/lib/author-payment-hold";
 import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 
 // Statuses where no money is due from the attendee (PAID / COMPLIMENTARY /
@@ -81,7 +82,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketType: { select: { id: true, name: true, price: true, currency: true } },
         pricingTier: { select: { id: true, price: true, currency: true } },
         attendee: { select: { firstName: true, lastName: true, email: true } },
-        event: { select: { id: true, name: true, slug: true, organizationId: true, taxRate: true, taxLabel: true } },
+        // `settings`: the Pay Now switch the author hold reads (author-payment-hold.ts).
+        event: { select: { id: true, name: true, slug: true, organizationId: true, taxRate: true, taxLabel: true, settings: true } },
         promoCode: { select: { code: true } },
       },
     });
@@ -137,6 +139,15 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         { status: 400 },
       );
+    }
+
+    // An abstract author's fee is confirmed after review (owner, Nov 23,
+    // 2026): no payment is taken on the registration their sign-up made while
+    // the event's switch is off. The pages hide Pay Now by the same rule; this
+    // is the door itself, for a saved link or a hand-made request.
+    if (authorPaymentOnHold(registration, registration.event.settings)) {
+      apiLogger.warn({ msg: "Checkout attempted for an author's registration on hold", registrationId, eventId: registration.event.id });
+      return NextResponse.json({ error: AUTHOR_PAYMENT_HOLD_NOTE, code: AUTHOR_PAYMENT_HOLD_CODE }, { status: 400 });
     }
 
     // Calculate tax from event settings

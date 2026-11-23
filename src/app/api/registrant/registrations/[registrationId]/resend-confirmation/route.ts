@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { loadRegistrantScope, ownRegistrationWhere } from "@/lib/registrant-access";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { sendRegistrationConfirmation } from "@/lib/email";
+import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 
 /**
@@ -87,6 +88,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             taxLabel: true,
             bankDetails: true,
             supportEmail: true,
+            // The Pay Now switch the author hold reads (author-payment-hold.ts).
+            settings: true,
             organization: {
               select: {
                 name: true,
@@ -136,6 +139,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       ticketCurrency: finalCurrency,
       discountAmount: registration.discountAmount ? Number(registration.discountAmount) : 0,
       promoCode: registration.promoCode?.code ?? null,
+      // An abstract author's fee waits for the organisers: the amount, no Pay
+      // Now. Until Nov 23, 2026 this resend ignored the event's switch.
+      suppressPayNow: authorPaymentOnHold(registration, registration.event.settings),
       billingFirstName: registration.billingFirstName,
       billingLastName: registration.billingLastName,
       billingEmail: registration.billingEmail,

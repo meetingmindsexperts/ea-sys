@@ -76,6 +76,7 @@ import { UNRESOLVED_TOKENS_CODE } from "@/lib/template-tokens";
 import { DEFAULT_LINK_EXPIRY_DAYS, linkExpiryDaysSchema } from "@/lib/link-expiry";
 import { COMPLIMENTARY_RATE, type RegistrationFormRate } from "@/lib/registration-form-link";
 import { registerTierSlug } from "@/lib/main-register-tiers";
+import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import {
   mintRegistrationFormLink,
   prepareRegistrationForms,
@@ -1034,6 +1035,8 @@ interface ResolvedRecipient {
    */
   paymentStatus?: string | null;
   groupPayerName?: string | null;
+  /** Registrations recipients only: the entry path, for the author hold (author-payment-hold.ts). */
+  createdSource?: string | null;
   /**
    * Speakers recipients only — drives the {{agreementBlock}} token (signed
    * speakers get an "already accepted" note instead of a Review & Agree CTA).
@@ -1744,6 +1747,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         attendee: { select: { email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
         // The confirmation's payment block: owed or not, and covered by whom.
         paymentStatus: true,
+        // The author hold: no Pay Now for the abstract sign-up's rows while
+        // the event's switch is off.
+        createdSource: true,
         group: { select: { billingAccount: { select: { name: true } } } },
         // The balance, for the reminder's owes-nothing rule below.
         status: true,
@@ -1786,6 +1792,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       ticketTypePricing: r.ticketType ? { price: r.ticketType.price, currency: r.ticketType.currency } : null,
       paymentStatus: r.paymentStatus,
       groupPayerName: r.group?.billingAccount?.name ?? null,
+      createdSource: r.createdSource,
     }));
   }
 
@@ -2337,6 +2344,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         ticketType: recipient.ticketTypePricing ?? null,
         taxRate: event.taxRate ? Number(event.taxRate) : null,
         taxLabel: event.taxLabel,
+        onHold: authorPaymentOnHold(recipient, event.settings),
       });
       vars.amount = amount;
       vars.paymentBlock = paymentBlock;
@@ -2364,6 +2372,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         discountAmount: recipient.discountAmount == null ? null : Number(recipient.discountAmount),
         taxRate: event.taxRate ? Number(event.taxRate) : null,
         taxLabel: event.taxLabel,
+        // An abstract author's fee waits for the organisers: the amount, no Pay Now.
+        suppressPayNow: authorPaymentOnHold(recipient, event.settings),
         paymentLink: registrationPaymentLink({
           eventSlug: event.slug || event.id,
           registrationId: recipient.id,
