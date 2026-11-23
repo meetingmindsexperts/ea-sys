@@ -3,7 +3,7 @@
 import { matchesSurveyResponded } from "@/lib/survey/responded-filter";
 import { useCan } from "@/hooks/use-can";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -76,8 +76,7 @@ import { OWES_MONEY_FILTER, excludedAsNoBalance, excludesCancelledByDefault, exc
 import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { EmailActivityCard } from "@/components/communications/email-activity-card";
-import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
-import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type RecipientType = "speakers" | "registrations" | "reviewers" | "abstracts";
 
@@ -314,6 +313,34 @@ const REGISTRATION_TILES: RegistrationTile[] = [
   },
 ];
 
+/**
+ * A card's body once the list it works from has arrived, and a placeholder
+ * until then (Nov 23, 2026).
+ *
+ * The page used to draw nothing until all four lists were in, so the slowest
+ * one (abstracts, the largest by far) held back the registrations and speakers
+ * cards that had been ready for a while. Each card now waits for its own list
+ * only. Everything a card can do, its saved-template tiles included, sits
+ * inside this, so no send can be opened on a list that has not arrived: a
+ * count of 0 on this page always means "none", never "not loaded yet".
+ */
+function WhenListArrives({ loading, what, children }: { loading: boolean; what: string; children: ReactNode }) {
+  if (!loading) return <>{children}</>;
+  return (
+    <div role="status" aria-label={`Loading ${what}`} className="space-y-3">
+      <Skeleton className="h-16 w-full" />
+      <Skeleton className="h-9 w-full" />
+      <Skeleton className="h-14 w-full" />
+    </div>
+  );
+}
+
+/** A headline number, or a placeholder while its list is on the way. */
+function StatNumber({ loading, value }: { loading: boolean; value: number }) {
+  if (loading) return <Skeleton className="my-1 h-6 w-10" aria-hidden="true" />;
+  return <p className="text-2xl font-bold">{value}</p>;
+}
+
 export default function CommunicationsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
@@ -372,12 +399,12 @@ export default function CommunicationsPage() {
     ),
   ).sort();
 
-  const isLoading =
-    registrationsQuery.isLoading ||
-    speakersQuery.isLoading ||
-    abstractsQuery.isLoading ||
-    reviewersQuery.isLoading;
-  const showDelayedLoader = useDelayedLoading(isLoading, 1000);
+  // Each card waits for its own list (WhenListArrives). A list this person may
+  // not read is not asked for (reviewers), so it is never "loading".
+  const registrationsLoading = registrationsQuery.isLoading;
+  const speakersLoading = speakersQuery.isLoading;
+  const abstractsLoading = abstractsQuery.isLoading;
+  const reviewersLoading = reviewersQuery.isLoading;
 
   // Registration audience filtering lives entirely in the send dialog
   // (BulkEmailDialog "Filter recipients") — no duplicated page-level controls.
@@ -678,14 +705,6 @@ export default function CommunicationsPage() {
     );
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        {showDelayedLoader ? <ReloadingSpinner /> : null}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -716,7 +735,7 @@ export default function CommunicationsPage() {
                 <Users className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{registrations.length}</p>
+                <StatNumber loading={registrationsLoading} value={registrations.length} />
                 <p className="text-xs text-muted-foreground">Registrations</p>
               </div>
             </div>
@@ -729,7 +748,7 @@ export default function CommunicationsPage() {
                 <CreditCard className="h-5 w-5 text-green-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{paymentSummary.paid}</p>
+                <StatNumber loading={registrationsLoading} value={paymentSummary.paid} />
                 <p className="text-xs text-muted-foreground">{paidNote ? `Paid · ${paidNote}` : "Paid"}</p>
               </div>
             </div>
@@ -742,7 +761,7 @@ export default function CommunicationsPage() {
                 <AlertCircle className="h-5 w-5 text-amber-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{unpaidRegistrations.length}</p>
+                <StatNumber loading={registrationsLoading} value={unpaidRegistrations.length} />
                 <p className="text-xs text-muted-foreground">Unpaid</p>
               </div>
             </div>
@@ -755,7 +774,7 @@ export default function CommunicationsPage() {
                 <Mic className="h-5 w-5 text-purple-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{speakers.length}</p>
+                <StatNumber loading={speakersLoading} value={speakers.length} />
                 <p className="text-xs text-muted-foreground">Speakers</p>
               </div>
             </div>
@@ -777,6 +796,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <WhenListArrives loading={registrationsLoading} what="registrations">
             {/* Workflow tiles — one-click presets for common sends */}
             {canSend && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -842,6 +862,7 @@ export default function CommunicationsPage() {
             </div>
 
             {renderSavedTemplates("registrations")}
+            </WhenListArrives>
           </CardContent>
         </Card>
 
@@ -857,6 +878,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <WhenListArrives loading={speakersLoading} what="speakers">
             {/* Workflow tiles — one-click presets for common sends */}
             {canSend && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -998,6 +1020,7 @@ export default function CommunicationsPage() {
             </details>
 
             {renderSavedTemplates("speakers")}
+            </WhenListArrives>
           </CardContent>
         </Card>
 
@@ -1014,6 +1037,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <WhenListArrives loading={abstractsLoading} what="abstracts">
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-lg bg-muted/50 p-3">
                 <p className="text-2xl font-bold">{abstracts.length}</p>
@@ -1072,6 +1096,7 @@ export default function CommunicationsPage() {
               </Button>
               )}
             </div>
+            </WhenListArrives>
           </CardContent>
         </Card>
 
@@ -1087,6 +1112,7 @@ export default function CommunicationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <WhenListArrives loading={reviewersLoading} what="reviewers">
             <div className="rounded-lg bg-muted/50 p-3">
               <p className="text-2xl font-bold">{reviewers.length}</p>
               <p className="text-xs text-muted-foreground">Assigned Reviewers</p>
@@ -1106,6 +1132,7 @@ export default function CommunicationsPage() {
               </Button>
               )}
             </div>
+            </WhenListArrives>
           </CardContent>
         </Card>
       </div>
