@@ -39,6 +39,7 @@ Owner: "in organizer signature, logo is not visible."
 - Nothing stored changes: a saved signature is read as it is
 - **A signature's image is never wider than 150px** (owner, later the same day: "reduce the org signature logo max width to 150px", "only org signature"). It keeps its own width below that, a width the author gave is brought down to 150 when it is more, and the height follows so the picture keeps its shape. The Profile editor shows it the same way. Banners and other images in an email are untouched. Outlook on Windows ignores the limit for an image with no width set: a larger logo shows there at its own width (the roadmap has the fix: read the file's real width when the signature is saved)
 - A conversation in the CRM still shows an email sent BEFORE this day as it was built then, logo stretched; it is the stored copy of that email, and its recipient saw a broken picture, not a large one
+- Review of `0a105c8f1` (the 150px limit: 0 BLOCKER, 0 HIGH, 0 MED, 8 LOW), fixed in the next commit, all three in forms only hand-written HTML has: a percentage width (`width="50%"`) is no longer read as pixels; an unquoted `width=600` is brought down too, leaving one width attribute and not two; an image sized by height alone keeps its height. The guide now says to upload a logo at about 150 pixels wide (its earlier "up to 300" would have arrived at 300 in Outlook on Windows). Every image in a signature is held to 150, not only the logo
 
 ### CRM inbox: a sent email shows in its conversation (November 23, 2026)
 

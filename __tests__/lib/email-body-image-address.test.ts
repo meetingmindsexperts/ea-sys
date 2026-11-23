@@ -117,6 +117,41 @@ describe("a signature's image keeps its own size", () => {
     expect(out).not.toContain("float");
   });
 
+  // Review of 0a105c8f1: the forms only hand-written HTML has.
+  it("does not read a percentage as pixels: the image counts as unsized", () => {
+    const out = normalizeBodyImages(signatureHtmlForEmail('<img src="/uploads/a.png" width="50%">'));
+    expect(out).not.toMatch(/\swidth=/);
+    expect(out).toContain('style="max-width: 150px; height: auto;');
+  });
+
+  it("clamps an unquoted width too, leaving one width attribute and not two", () => {
+    const out = normalizeBodyImages(signatureHtmlForEmail("<img src='/uploads/a.png' width=600 height=380>"));
+    expect(out.match(/\swidth=/g)).toHaveLength(1);
+    expect(out).toContain('width="150"');
+    expect(out).not.toMatch(/600|380/);
+  });
+
+  it("keeps the height of an image the author sized by height alone", () => {
+    const out = normalizeBodyImages(signatureHtmlForEmail('<img src="/uploads/a.png" style="height: 80px">'));
+    expect(out).toContain('height="80"');
+    expect(out).toMatch(/style="height: 80px; max-width: 150px; border: 0;/);
+    expect(out).not.toMatch(/\swidth=/);
+  });
+
+  it("gives the same result on a second pass, sized or not", () => {
+    for (const img of [LOGO, '<img src="/uploads/a.png" width="600">', '<img src="/uploads/a.png" width="120">', '<img src="/uploads/a.png" style="height: 80px">']) {
+      const once = normalizeBodyImages(signatureHtmlForEmail(img));
+      expect(normalizeBodyImages(once), img).toBe(once);
+    }
+  });
+
+  it("an email's signature goes out capped end to end: the typed token and the template token alike", () => {
+    const signature = `<p>Sohail</p>${LOGO}`;
+    const { htmlContent } = renderAndWrap({ subject: "s", htmlContent: "<p>Body</p>{{organizerSignature}}", textContent: "t" }, { organizerSignature: signature }, {});
+    const [logo] = htmlContent.match(/<img[^>]*>/g)!;
+    expect(logo).toContain("max-width: 150px");
+  });
+
   it("the cap is the signature's alone: a banner in the body is still fitted to 600px, not to 150", () => {
     const out = normalizeBodyImages('<img src="/uploads/banner.png">');
     expect(out).toContain('width="600"');

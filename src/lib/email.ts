@@ -1341,10 +1341,20 @@ function styledPixels(attrs: string, property: "width" | "height"): string | nul
   return found ? found[1]! : null;
 }
 
-/** The width the author gave the image, in its `style` or as an attribute, in pixels; null when they gave none. */
-function authorWidth(attrs: string): number | null {
-  const given = styledPixels(attrs, "width") ?? /(?:^|\s)width\s*=\s*["']?(\d+(?:\.\d+)?)/i.exec(attrs)?.[1] ?? null;
+/**
+ * A pixel size the author gave the image, in its `style` or as an attribute;
+ * null when they gave none. A percentage (`width="50%"`) is not a pixel size
+ * and counts as none.
+ */
+function authorPixels(attrs: string, property: "width" | "height"): number | null {
+  const attribute = new RegExp(`(?:^|\\s)${property}\\s*=\\s*["']?(\\d+(?:\\.\\d+)?)(?:px)?(?=["'\\s]|$)`, "i").exec(attrs)?.[1];
+  const given = styledPixels(attrs, property) ?? attribute ?? null;
   return given === null ? null : Number(given);
+}
+
+/** `width`, `height` and `border` attributes removed, however they are quoted (or not quoted at all). */
+function withoutSizeAttributes(attrs: string): string {
+  return attrs.replace(/\s(?:width|height|border)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)/gi, "");
 }
 
 /**
@@ -1352,25 +1362,31 @@ function authorWidth(attrs: string): number | null {
  * stretched, and nothing is wider than SIGNATURE_IMAGE_MAX_WIDTH. A width the
  * author gave is kept when it is under the cap and brought down to it when it
  * is over; the height then follows the width, so the picture keeps its shape.
- * The rest of `style` and `border` are reset. The mark is left on, so running
- * the normaliser twice gives the same result.
+ * An image the author sized by HEIGHT alone keeps that height (the cap still
+ * holds in every mail app that honours `max-width`). The rest of `style` and
+ * `border` are reset. The mark is left on, so running the normaliser twice
+ * gives the same result.
  *
  * Outlook on Windows reads the `width` attribute and ignores `max-width`, so
  * the cap reaches it only for an image whose width is known (the author's).
  * An unsized image wider than the cap shows at its own width there.
  */
 function keptSizeImage(attrs: string): string {
-  const given = authorWidth(attrs);
-  const width = given === null ? null : Math.round(Math.min(given, SIGNATURE_IMAGE_MAX_WIDTH));
-  const cleaned = attrs
-    .replace(/\s(?:width|height|border)\s*=\s*"[^"]*"/gi, "")
-    .replace(/\s(?:width|height|border)\s*=\s*'[^']*'/gi, "")
+  const givenWidth = authorPixels(attrs, "width");
+  const givenHeight = authorPixels(attrs, "height");
+  const cleaned = withoutSizeAttributes(attrs)
     .replace(/\sstyle\s*=\s*"[^"]*"/gi, "")
     .replace(/\sstyle\s*=\s*'[^']*'/gi, "")
     .trim();
-  const sized = width === null ? "" : `width: ${width}px; `;
-  const widthAttr = width === null ? "" : ` width="${width}"`;
-  return `<img ${cleaned}${widthAttr} border="0" style="${sized}${KEPT_SIZE_IMG_STYLE}" />`;
+  if (givenWidth !== null) {
+    const width = Math.round(Math.min(givenWidth, SIGNATURE_IMAGE_MAX_WIDTH));
+    return `<img ${cleaned} width="${width}" border="0" style="width: ${width}px; ${KEPT_SIZE_IMG_STYLE}" />`;
+  }
+  if (givenHeight !== null) {
+    const height = Math.round(givenHeight);
+    return `<img ${cleaned} height="${height}" border="0" style="height: ${height}px; ${KEPT_SIZE_IMG_STYLE.replace("height: auto; ", "")}" />`;
+  }
+  return `<img ${cleaned} border="0" style="${KEPT_SIZE_IMG_STYLE}" />`;
 }
 
 /**
