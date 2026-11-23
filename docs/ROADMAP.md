@@ -37,6 +37,28 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Events list trimmed: what the Nov 23 review left, and the rest of the page-speed work (recorded Nov 23, 2026): started
+
+The events list every dashboard page loads for the header sends 14 columns instead of whole rows (`4cbc7b99`; CHANGELOG, Nov 23). Review of `4cbc7b99`: 0 BLOCKER, 0 HIGH, 0 MED, 7 LOW. Fixed in the follow-up commit: the comments say what the type check does and does not catch, the headcounts no reader shows are no longer counted, the route test covers ONSITE and WEBINARS, the CHANGELOG entry. Left:
+
+- **LOW: a request carrying both a staff sign-in and an API key gets the trimmed list.** The sign-in is read first. Only someone trying a key from a signed-in browser meets it. Leave unless a real caller turns up.
+- **LOW: the staff-only columns (`code`, `tag`, `specialty`, `city`) are optional in `EventListRow`,** because the header also runs for reviewers, submitters and registrants, who are not sent them. So the compiler does not notice one being removed from the select; the column list in `event-visibility.test.ts` does. Stricter would mean two hooks (staff, everyone). Not worth it for four columns.
+- **LOW: two event lists for staff in `event-visibility.ts`** (the Events page's, with headcounts; the API's, with the search columns). They differ on purpose. Merge only if a third appears.
+
+**Older, found on the way, for the owner to rule on (none caused by this change):**
+
+1. **A call with an API key still receives whole Event rows** (the settings JSON, bank details, tax, the internal CC list) for any key holding `events.read`, while the API reference documents about 18 fields. Trimming it needs the list of fields n8n and the website sync read, which is not in this repo.
+2. **The API reference offers `sort=registrations` and `sort=speakers`** (`openapi-spec.ts`); the route takes `startDate`, `createdAt` and `name`, and anything else silently sorts newest first.
+3. **The two 401 answers of `GET /api/events` log nothing,** and its key check passes no route or address, so a refused key is not traceable to this route (house rule 10).
+4. **Console notices on the screens opened for this change:** form fields without a label on Invoices, Activity, the agent page and New budget; the billing account's events dialog has no description.
+
+**The rest of the speed work, measured Nov 20 on MEHF2027 (not started):**
+
+- **The abstracts list** sends each abstract's full text and a whole copy of its author's speaker row: 853 kB, 229 kB compressed, the largest thing the Communications page loads.
+- **The speakers list** sends every bio and each speaker's agreement text (431 kB, 73 kB compressed). The website sync reads this list with an API key: trace every reader first (INC-007).
+- **The Communications page draws nothing until four full lists have arrived** (registrations, speakers, abstracts, reviewers).
+- **Production serves HTTP/1.1,** six requests at a time. HTTP/2 is one line in nginx, and a change on the box, so the owner's.
+
 ## Abstract scoring scale and bulk status: what the Nov 19 review left (recorded Nov 19, 2026): not started
 
 The organiser chooses what a criterion is scored out of (5, 10 or 100), and sets a status or a type on many abstracts at once (`9fd484fd`; CHANGELOG, Nov 19). Review of `9fd484fd`: 0 BLOCKER, 2 HIGH, 5 MED, 10 LOW. Both HIGHs are fixed in the follow-up commit (a review now names the scale its scores are on and is refused on another; the decision email reports whether it really went), with three MEDs (one abstract failing no longer loses the tally, the scale is returned beside raw criterion scores, the event's counts are refreshed once per request). Left:

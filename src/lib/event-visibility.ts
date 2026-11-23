@@ -72,16 +72,24 @@ export function eventListSelect(role: string | null | undefined) {
  * details. Measured on production's 55 events that was about 1 MB of JSON on
  * every page for a list that shows a name and a date.
  *
- * The columns are what the list's readers use, and no more:
- *  - the core facts and the headcounts (the same list the Events page renders)
+ * What is sent:
+ *  - the core facts, the base every event payload derives from (this list's
+ *    readers use the id, name, slug, status, dates and type)
  *  - `code`: the Budgets pages offer only events that hold one
  *  - `code`, `tag`, `specialty`, `city`: the header switcher's search
  *    (event-search.ts), and the agent page's picker shows the city
+ * No headcounts: none of the list's readers shows them (the Events page reads
+ * its own, on the server), and they were two counts per event on every page.
  *
- * A reader that needs another column adds it HERE. `useEvents()` is typed from
- * this select (`EventListRow`), so reading a column that is not sent is a type
- * error, not an empty cell found in production. A call with an API key is a
- * different contract (the website sync, n8n) and still receives whole rows.
+ * A reader that needs another column adds it HERE and to the test's list
+ * (event-visibility.test.ts), which names each column's reader. `useEvents()`
+ * is typed from this select (`EventListRow`), which catches a column that is
+ * not in it at all. It does NOT catch one of the staff columns going missing:
+ * they are optional in the type, and the readers' own types take them as
+ * optional too, so that is the test's job.
+ *
+ * A call with an API key is a different contract (the website sync, n8n) and
+ * still receives whole rows.
  */
 export const STAFF_EVENT_LIST_EXTRAS = {
   code: true,
@@ -92,11 +100,14 @@ export const STAFF_EVENT_LIST_EXTRAS = {
 
 export const STAFF_EVENT_LIST_SELECT = {
   ...EVENT_LIST_SELECT,
-  ...EVENT_LIST_COUNT_SELECT,
   ...STAFF_EVENT_LIST_EXTRAS,
 } as const;
 
-/** A value as it reads after JSON: a Date arrives as its ISO string. */
+/**
+ * A value as it reads after JSON: a Date arrives as its ISO string. That is
+ * the only conversion made, which is all today's columns need. A Decimal
+ * column also arrives as a string and would need its own line here.
+ */
 type OverTheWire<T> = T extends Date ? string : T extends object ? { [K in keyof T]: OverTheWire<T[K]> } : T;
 
 /**
@@ -105,7 +116,7 @@ type OverTheWire<T> = T extends Date ? string : T extends object ? { [K in keyof
  * header runs for a reviewer, a submitter and a registrant too.
  */
 export type EventListRow = OverTheWire<Prisma.EventGetPayload<{ select: typeof EVENT_LIST_SELECT }>> &
-  Partial<OverTheWire<Prisma.EventGetPayload<{ select: typeof EVENT_LIST_COUNT_SELECT & typeof STAFF_EVENT_LIST_EXTRAS }>>>;
+  Partial<OverTheWire<Prisma.EventGetPayload<{ select: typeof STAFF_EVENT_LIST_EXTRAS }>>>;
 
 /**
  * The event DETAIL an org-null role receives: the core facts plus the banner

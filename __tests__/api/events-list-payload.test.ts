@@ -50,7 +50,9 @@ beforeEach(() => {
 });
 
 describe("GET /api/events: what each caller is sent", () => {
-  it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"])("a signed-in %s gets the trimmed list, never whole rows", async (role) => {
+  // ONSITE is the one that matters most: temporary desk staff, who used to
+  // receive the settings and bank details of each event they are assigned to.
+  it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS"])("a signed-in %s gets the trimmed list, never whole rows", async (role) => {
     mockAuth.mockResolvedValue({ user: { id: "u1", role, organizationId: "org1" } });
     expect((await get()).status).toBe(200);
     expect(mockFindMany).toHaveBeenCalledTimes(1);

@@ -67,9 +67,8 @@ describe("event field visibility", () => {
     // Every dashboard page loads this list. It was whole Event rows, about
     // 1 MB of JSON for 55 events (Nov 23, 2026). These pin what is sent, by
     // reader: removing a column here breaks the screen named beside it.
-    it("sends the core facts, the headcounts, and the columns its readers name", () => {
+    it("sends the core facts and the columns its readers name", () => {
       expect(Object.keys(STAFF_EVENT_LIST_SELECT).sort()).toEqual([
-        "_count", // the same list the Events page renders
         "city", // header switcher search; the agent page's picker shows it
         "code", // Budgets: New budget and Import offer only events that hold a code
         "description", "endDate", "eventType", "id", "name", "slug",
@@ -87,10 +86,14 @@ describe("event field visibility", () => {
       expect(STAFF_EVENT_LIST_SELECT).toHaveProperty("startDate"); // the year
     });
 
-    it("is the attendee-side list plus staff columns, never a second hand-written list", () => {
+    it("carries every column of the attendee-side list", () => {
       for (const key of Object.keys(EVENT_LIST_SELECT)) {
         expect(STAFF_EVENT_LIST_SELECT).toHaveProperty(key);
       }
+    });
+
+    it("sends no headcounts: none of its readers shows them, and they were two counts per event on every page", () => {
+      expect(STAFF_EVENT_LIST_SELECT).not.toHaveProperty("_count");
     });
 
     it("sends none of the long text, the settings or the money columns", () => {

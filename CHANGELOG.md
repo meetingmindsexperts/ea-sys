@@ -15,6 +15,15 @@ Pressing **Preview** in an email dialog opened a second box on top of the first.
 - **The template editor's preview shows the subject as it will be sent,** with the event's name filled in.
 - **Not shown yet:** the sender. Some emails have their own sender, so the window shows what the preview already knows rather than a guess.
 
+### Dashboard pages load a much smaller list of events (November 23)
+
+Every dashboard page loads the list of the organisation's events, for the event switcher in the header. That list carried each event in full (welcome texts, terms, guidelines, settings), about 1 MB for production's 55 events. It now carries the 14 facts the screens use: on a copy of production it went from 851 kB to 18 kB.
+
+- **Nothing looks different.** The header's event switcher and its search, the event filters on Invoices and Activity, the agent page's event picker, New budget and Import sheet under Budgets, and a billing account's events all show what they showed.
+- **Desk staff no longer receive event settings with it.** The list a temporary desk account's browser loaded used to include the settings and bank details of each event it is assigned to; it no longer does.
+- **Not changed:** a call made with an API key (n8n, the website sync) receives what it always did.
+- This is the first step of the speed work on the Speakers and Communications pages. The abstracts and speakers lists are next (ROADMAP).
+
 ### Once abstract submissions close, an author can no longer submit from their own portal (November 20)
 
 Closing abstracts (the deadline passing, or "Allow abstract submissions" switched off) closed the public sign-up page only. An author who already had an account could still open their portal and submit: on MEHF2027, closed since November 8, three more abstracts arrived on November 20.

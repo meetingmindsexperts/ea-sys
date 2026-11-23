@@ -293,8 +293,9 @@ export function useSetCatalogueListing() {
 // ============ EVENTS ============
 /**
  * The events list (the header's switcher and every event picker). Typed from
- * the route's own select, so a reader that names a column the list does not
- * send fails the type check: add the column to STAFF_EVENT_LIST_SELECT.
+ * the route's own select: a reader that needs a column the list does not send
+ * adds it to STAFF_EVENT_LIST_SELECT (event-visibility.ts says what the type
+ * check catches and what its test has to).
  */
 export function useEvents() {
   return useQuery({
