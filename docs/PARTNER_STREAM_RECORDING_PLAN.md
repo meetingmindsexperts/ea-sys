@@ -1,8 +1,7 @@
 # Recording a partner's stream
 
 Status: IN BUILD (Nov 24, 2026). Step 1 of 8 is built and dark (`STREAM_RECORDING_ENABLED` unset);
-step 0, the proof on a throwaway stream server, is prepared and waits on one Docker command from
-the owner (section 7). Owner: "plan it please, partner side for now, we will use S3 for storage and
+step 0, the proof on a throwaway stream server, is done (2.1). Owner: "plan it please, partner side for now, we will use S3 for storage and
 not disk", the recording is for both attendees to watch and an archive file for us and the client,
 then "ok fine, proceed" on the proposals of section 6.
 
@@ -39,7 +38,7 @@ Read in the stream server's own source code, MediaMTX v1.17.1, the version produ
 | Can the server write straight to S3? | No. It writes to a local folder only. | Read in the config and README |
 | Can the server run a command when a piece is finished? | It has the hook, but the production image has no shell, so the hook cannot run anything. | Read in the Dockerfile |
 | Formats | Fragmented MP4 or MPEG-TS. | Read in the config |
-| Do settings sent through the control API survive a restart of the server? | Not found. Planned as if they do not. | Unknown |
+| Do settings sent through the control API survive a restart of the server? | No: they are forgotten. The minute sweep puts them back. | Run in step 0 |
 | How long is a piece really, with a sender's 2 second keyframes? | 6 to 8 seconds: the cut is at the first keyframe after the minimum. | Run in step 0 |
 
 ### 2.1 Step 0: run on a real server (Nov 24, 2026)
@@ -70,16 +69,18 @@ What it changed in the plan:
   piece's own length (`ffprobe`, so `ffmpeg` joins the worker image at step 2, not step 4).
 - **A break is where a piece does not follow on**: the next piece starts more than a second
   after this one ends, by the clock in their names.
-- **File names carry the stream server's own clock zone** (UTC in the container). The setting
-  will use the Unix time form (`%s-%f`), so no zone is ever assumed. To be checked on the
-  throwaway server before step 2.
+- **File names carry the stream server's own clock zone** (UTC in the container), so the setting
+  uses the Unix time form, `%s-%f` (`1795512296-718063.ts`): no zone is ever assumed. Run on the
+  throwaway server: the names fell inside the sender's own start and end times.
 
 Small things seen, none blocking: the MP4's first frame is held for 2 seconds (the recording
 starts between keyframes); `ffmpeg` reports three out-of-order timestamps at the joins, which
 players pass over; QuickTime and Vimeo's upload are not yet tried on the MP4.
 
-Still open: whether settings made through the control API survive a restart of the stream
-server (needs the owner's `docker restart`; the code already assumes they do not).
+**A restart of the stream server forgets every setting made through the control API** (run: the
+setting answered 404 after `docker restart`), as the code already assumes; the pieces already on
+disk are kept. So a stream server restart during a webinar stops recording until the minute
+sweep puts the setting back, a gap of up to a minute on top of the stream's own drop.
 
 ## 3. Why the disk is still touched, and how little
 
@@ -105,7 +106,7 @@ would leave a hole in the recording that nothing can fill.
 ### 4.1 Recording
 
 - `mediamtx.yml` gains the recording defaults with recording off: format MPEG-TS, pieces of
-  6 seconds, the folder `/recordings/%path/%Y-%m-%d_%H-%M-%S-%f`, delete after 2 hours. The
+  6 seconds, the folder `/recordings/%path/%s-%f` (Unix time, 2.1), delete after 2 hours. The
   general `all` path inherits them, which is what keeps a per-stream setting "equal apart from
   recording" (section 2, row 2).
 - Start: our server calls the control API we already run (`src/lib/webinar/mediamtx-control.ts`),
@@ -278,7 +279,7 @@ built first and attendees watch through Vimeo until phase 2; D2 follows the rese
 
 | | Step | Days |
 |---|---|---|
-| 0 | **DONE Nov 24, 2026, but for the restart check (2.1).** Prove it on a throwaway stream server with a test stream: switch recording on and off mid-stream and watch that the sender stays connected; the real length of pieces; what a restart does to API settings; a drop and reconnect; pieces joined to an MP4 through `ffmpeg` with no file on disk; the MP4 opened in Chrome, Safari, VLC, QuickTime and uploaded to Vimeo; the pieces played as an HLS replay on an iPhone. | 0.5 |
+| 0 | **DONE Nov 24, 2026** (2.1). Prove it on a throwaway stream server with a test stream: switch recording on and off mid-stream and watch that the sender stays connected; the real length of pieces; what a restart does to API settings; a drop and reconnect; pieces joined to an MP4 through `ffmpeg` with no file on disk; the MP4 opened in Chrome, Safari, VLC, QuickTime and uploaded to Vimeo; the pieces played as an HLS replay on an iPhone. | 0.5 |
 | 1 | **BUILT Nov 24, 2026.** The two tables (additive migration `20261124100000`, row policies), the rules (`src/lib/webinar/stream-recording.ts`), `stream-recording-service.ts` (start, stop, finish), the control API calls (`setPathRecording`, `clearPathRecording`, the body pinned to `record` alone), and the sweep that puts settings back and closes a recording nobody finished, run from the stream watchdog job. Nothing calls start yet. | 1 |
 | 2 | The shipping job, the disk guard, the waiting-pieces alert. | 1 |
 | 3 | The console: agreement tick, Start, Stop, Finish, the REC mark, the Recording tab. | 1 |

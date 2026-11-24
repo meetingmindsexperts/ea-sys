@@ -20,7 +20,25 @@ event team and giving the email, which is great, but better we add phone number 
   number or hours an event does not list.
 - One rule, `src/lib/support-contact.ts`. A phone is digits with the usual separators and an optional +;
   anything else is refused on both saves (400), since the assistant repeats it to the public.
-- Nothing is set yet: until someone fills in Settings, the assistant answers as before.
+- Nothing is set yet: until someone fills in Settings, the assistant gives the email alone, as before (its
+  instruction now also covers sending someone to the event team, not only being asked who to contact).
+
+Review of d3e669030 (0 BLOCKER, 0 HIGH, 1 MED, 7 LOW), fixed in its own commit:
+
+- **MED**: the event Settings page sent the contact on every save, so an event with an empty field looked
+  changed every time: a custom role with `events.update` but not `events.settings` was refused on every
+  save, and a tab opened earlier put an old phone back. It now sends the contact only when it was changed
+  on the page.
+- LOW, fixed: a clone now keeps the event's own phone and hours; a phone needs at least six digits ("(" was
+  accepted); control characters are removed from both lines; the event page's fields are disabled without
+  `events.settings`; the organisation page says why a save was refused; `null` clears the contact; the
+  instruction no longer ties the hours to the phone; the user guide says where both are set.
+- LOW, left: the help chat reads each organisation's whole settings to find two short lines (nothing else
+  leaves the server); the hours are staff-written text in the assistant's instructions, one line of 200
+  characters inside the block marked as data, at the same trust as the event's name.
+- Older, not fixed: `PUT /api/organization` answers with the whole organisation row, encrypted credentials
+  included, to the admins who may save it; both PUTs write settings before the columns, so a failed second
+  write leaves half a save.
 
 Checked locally in a visible browser: both screens save and reload the values, a phone like "call us" is
 refused, and the details the assistant is given for a real attendee on Big Sky 2027 read "Event team phone:
@@ -122,7 +140,8 @@ Step 0, the proof on a real MediaMTX 1.17.1 (the owner ran the container): 15 of
 removing the setting mid-stream all kept the sender's connection; recording carried on by itself after a drop;
 pieces are 6 to 8 seconds; they join into one MP4 through a pipe (15 MB in 47 ms) and play as an HLS replay,
 both in a browser. One finding changed the plan: a piece's length has to be measured, never taken from the
-gap to the next piece, which counts a pause as video. Still open: what a restart of the stream server forgets.
+gap to the next piece, which counts a pause as video. After a restart the stream server had forgotten the recording setting (the minute sweep puts it back), and
+pieces named in Unix time (`%s-%f`) take no clock zone on trust.
 
 ### A push no longer needs a gate record (November 24, 2026)
 
