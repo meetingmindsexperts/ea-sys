@@ -147,7 +147,7 @@ describe("withWebinarSource: the copy's video source (Nov 24, 2026)", () => {
   it("the same source changes nothing", () => {
     const settings = { webinar: { source: "external", viewingMode: "hls" } };
     expect(withWebinarSource(settings, "external")).toBe(settings);
-    expect(withWebinarSource({ webinar: { viewingMode: "embed" } }, "zoom")).toEqual({ webinar: { viewingMode: "embed" } });
+    expect(withWebinarSource({ webinar: { viewingMode: "hls" } }, "zoom")).toEqual({ webinar: { viewingMode: "hls" } });
   });
 
   it("the other source drops what the provisioner set for the old one, and keeps the rest", () => {

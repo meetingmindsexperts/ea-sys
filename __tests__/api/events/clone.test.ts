@@ -543,7 +543,7 @@ describe("POST /api/events/[eventId]/clone", () => {
       });
 
       it("a Zoom webinar copied for a partner is marked external", async () => {
-        const { webinar } = await clonedSettings({ webinar: { viewingMode: "embed", autoProvisionZoom: true } }, { webinarSource: "external" });
+        const { webinar } = await clonedSettings({ webinar: { viewingMode: "zoom", autoProvisionZoom: true } }, { webinarSource: "external" });
         expect(webinar).toEqual({ source: "external" });
       });
 

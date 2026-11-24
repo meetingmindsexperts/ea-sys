@@ -310,11 +310,13 @@ export function useEvents() {
  * "streamed by a partner" (Nov 16, 2026; partner-stream-readiness.ts). A server
  * setting, so it is read once and kept.
  */
-export function usePartnerStreamAvailability() {
+/** `enabled`: false where nobody could use the answer (the route asks `events.create`, which Member lacks). */
+export function usePartnerStreamAvailability(enabled = true) {
   return useQuery({
     queryKey: ["partner-stream-availability"],
     queryFn: () => fetchApi<{ offered: boolean }>("/api/events/partner-stream-availability"),
     staleTime: Infinity,
+    enabled,
   });
 }
 

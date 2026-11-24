@@ -25,6 +25,15 @@ import { toast } from "sonner";
 
 type VideoSource = "zoom" | "external";
 
+/** What the copy's video source means, in the Clone dialog. */
+function sourceHint(source: VideoSource, partnerUnavailable: boolean): string {
+  if (source === "external") {
+    return "No Zoom webinar is created for the copy. Run the provisioner from its Webinar Console, then issue the partner a stream key there. This cannot be changed after the copy is made.";
+  }
+  const zoom = "A Zoom webinar is created for the copy when you run the provisioner from its Webinar Console.";
+  return partnerUnavailable ? `Partner streams are not set up on this server, so the copy uses our Zoom webinar. ${zoom}` : zoom;
+}
+
 interface EventActionsProps {
   eventId: string;
   eventName: string;
@@ -43,11 +52,17 @@ export function EventActions({ eventId, eventName, webinarSource }: EventActions
   const [includeCertificates, setIncludeCertificates] = useState(true);
   // A webinar's copy can take the other video source (Nov 24, 2026), as a new webinar can. "A partner
   // streams" is offered only where the server can issue a partner's key (usePartnerStreamAvailability,
-  // as the new-event form asks); the copy of a partner's webinar can always switch to Zoom.
-  const partnerStreams = usePartnerStreamAvailability();
+  // as the new-event form asks); the copy of a partner's webinar can always switch to Zoom. Asked only
+  // by someone who can clone a webinar: the route refuses Member, and every event page has this button
+  // (review of b39076cc5).
+  const partnerStreams = usePartnerStreamAvailability(canClone && webinarSource !== null);
   const [copySource, setCopySource] = useState<VideoSource>(webinarSource ?? "zoom");
   const partnerOffered = partnerStreams.data?.offered === true;
+  const partnerRefused = partnerStreams.data?.offered === false;
   const showSourceChoice = webinarSource !== null && (partnerOffered || webinarSource === "external");
+  // Where partner streams are not offered, a partner's webinar is copied as Zoom: the choice shows it,
+  // instead of a blank box and a refusal on Clone.
+  const effectiveSource: VideoSource = partnerRefused ? "zoom" : copySource;
 
   // Every open starts from "copy everything", so a choice made for one clone
   // is never silently reused for the next.
@@ -77,7 +92,7 @@ export function EventActions({ eventId, eventName, webinarSource }: EventActions
         includeSpeakers,
         includeAgenda,
         includeCertificates,
-        ...(webinarSource !== null ? { webinarSource: copySource } : {}),
+        ...(webinarSource !== null ? { webinarSource: effectiveSource } : {}),
       });
       setOpen(false);
       toast.success(`Event cloned as "${result.name}"`);
@@ -177,21 +192,24 @@ export function EventActions({ eventId, eventName, webinarSource }: EventActions
                   {showSourceChoice && (
                     <div className="space-y-1.5 border-t pt-4">
                       <Label htmlFor="clone-webinar-source">Video source</Label>
-                      <Select value={copySource} onValueChange={(v) => setCopySource(v as VideoSource)}>
+                      <Select
+                        value={effectiveSource}
+                        onValueChange={(v) => setCopySource(v as VideoSource)}
+                        disabled={partnerStreams.isLoading}
+                      >
                         <SelectTrigger id="clone-webinar-source" data-testid="clone-webinar-source">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="zoom">Our Zoom webinar</SelectItem>
-                          {partnerOffered && (
-                            <SelectItem value="external">A partner streams from their own platform</SelectItem>
-                          )}
+                          <SelectItem value="external" disabled={!partnerOffered}>
+                            A partner streams from their own platform
+                            {partnerRefused ? " (not available on this server)" : ""}
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                       <p className="text-sm text-muted-foreground">
-                        {copySource === "external"
-                          ? "No Zoom webinar is created for the copy. Issue the partner a stream key from its Webinar Console. This cannot be changed after the copy is made."
-                          : "A Zoom webinar is created for the copy when you run the provisioner from its Webinar Console."}
+                        {sourceHint(effectiveSource, partnerRefused && webinarSource === "external")}
                       </p>
                     </div>
                   )}
