@@ -26,7 +26,30 @@ until `STREAM_RECORDING_ENABLED` is set, which waits on the later steps and on t
   (after a restart, or a call that failed) and closes one left open for six hours.
 - `recordings/` is registered as a private upload folder, never served through the app.
 
-Not run against a real stream server yet (step 0 of the plan).
+Review of 7563027f7 (0 BLOCKER, 0 HIGH, 4 MED, 9 LOW), fixed before anything calls the service:
+
+- **MED**: the sweep told the stream server what each recording had said when the sweep listed it, so a
+  Stop pressed in between was undone for up to a minute. Every path now reads the recording, tells the
+  server, reads again, and tells once more if it moved (`tellSettled`); the sweep has its own file
+  (`stream-recording-sweep.ts`), finds recordings in the privileged lane and works each in its own tenant.
+- **MED**: the six hour limit counted from when the recording was made, so one armed in the morning for an
+  afternoon webinar was closed before it. It counts from the webinar's scheduled end, or the last Start.
+- **MED**: a closed recording's setting was removed for one hour and then left. It is now removed until the
+  stream server confirms it (`serverClearedAt`, a second additive migration, `20261124110000`); an overrun
+  recording is closed even where the stream server cannot be reached; and deleting a session or an event
+  removes that stream's recording setting with the key captured before the delete.
+- **MED**: the tenant column could be written empty. Whoever starts a recording must name its organisation.
+- **LOW**: a Start that loses the race to someone closing the recording is refused, not answered "ok"; a
+  recording deleted mid-action leaves nothing on the stream server; "stopped at" is the last stop, not one
+  from before a later Start; the system finding no recording to close is not a warning; the sweep stops
+  after ten seconds and leaves the rest to the next minute; the lane guard knows the two new tables; a test
+  reads `mediamtx.yml` and fails if its general entry gains anything that would disconnect a partner on Start.
+
+Step 0, the proof on a real MediaMTX 1.17.1 (the owner ran the container): 15 of 15 checks. Start, Stop and
+removing the setting mid-stream all kept the sender's connection; recording carried on by itself after a drop;
+pieces are 6 to 8 seconds; they join into one MP4 through a pipe (15 MB in 47 ms) and play as an HLS replay,
+both in a browser. One finding changed the plan: a piece's length has to be measured, never taken from the
+gap to the next piece, which counts a pause as video. Still open: what a restart of the stream server forgets.
 
 ### A push no longer needs a gate record (November 24, 2026)
 

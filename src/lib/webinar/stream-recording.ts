@@ -68,11 +68,21 @@ export function serverSetting(status: RecordingStatus): ServerSetting {
   return status === "PAUSED" ? "hold" : "none";
 }
 
-/** A recording still open this long after it began is closed by the sweep: nobody pressed Finish. */
+/**
+ * The safety net for a recording nobody finishes: six hours after the webinar's
+ * scheduled end, or after recording was last started, whichever is later.
+ *
+ * Counted from the webinar and not from when the recording was made (review of
+ * 7563027f7): Start before the stream begins ARMS the recording, and a producer
+ * who armed it at nine for a four o'clock webinar found it closed at three.
+ * Counted from the last Start as well, so a webinar that runs long after its
+ * scheduled end is not cut off while someone is still deliberately recording.
+ */
 export const RECORDING_MAX_MS = 6 * 60 * 60 * 1000;
 
-export function recordingOverran(startedAt: Date, now: Date): boolean {
-  return now.getTime() - startedAt.getTime() >= RECORDING_MAX_MS;
+export function recordingOverran(recording: { lastStartedAt: Date; sessionEndTime: Date }, now: Date): boolean {
+  const from = Math.max(recording.lastStartedAt.getTime(), recording.sessionEndTime.getTime());
+  return now.getTime() - from >= RECORDING_MAX_MS;
 }
 
 /** How long a recording is kept (the owner, Nov 24, 2026: 12 months, changeable per recording). */

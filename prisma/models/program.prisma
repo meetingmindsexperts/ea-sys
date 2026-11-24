@@ -727,6 +727,9 @@ model StreamRecording {
   lastStartedAt         DateTime              @default(now())
   stoppedAt             DateTime?
   finishedAt            DateTime?
+  // When the stream server was confirmed to hold no setting for this closed
+  // recording. Null on a closed recording means the sweep still owes a clear.
+  serverClearedAt       DateTime?
   // Where the pieces and the MP4 live, as a stored path ("/uploads/recordings/...").
   storagePrefix         String
   segmentCount          Int                   @default(0)

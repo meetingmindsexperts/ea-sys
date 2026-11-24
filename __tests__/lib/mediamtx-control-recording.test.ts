@@ -7,6 +7,8 @@
  * anything but `record` makes MediaMTX disconnect the sender mid-webinar.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 const { mockLogger } = vi.hoisted(() => ({ mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
@@ -176,5 +178,37 @@ describe("clearPathRecording", () => {
   it("a bare 404 is some other server: not counted as cleared", async () => {
     serve(null, json(404, null));
     expect(await clearPathRecording(KEY)).toEqual({ ok: false, code: "BAD_ANSWER" });
+  });
+});
+
+/**
+ * Why sending `record` alone is enough (review of 7563027f7). A setting made
+ * through the API is built from MediaMTX's `pathDefaults`, and a live stream is
+ * on the general `all` entry. The sender stays connected only if those two
+ * differ in recording fields and nothing else, so `all` must itself add nothing
+ * to the defaults. `source: publisher` IS the default. Any other line under
+ * `paths: all:` would make every Start disconnect the partner mid-webinar: the
+ * recording defaults of the plan go under `pathDefaults:`, never here.
+ */
+describe("mediamtx.yml", () => {
+  const yml = readFileSync(path.join(process.cwd(), "mediamtx.yml"), "utf8");
+  const lines = yml.split("\n").map((l) => l.replace(/\s+#.*$/, "").trimEnd());
+
+  it("the general `all` entry holds nothing but the default source", () => {
+    const start = lines.findIndex((l) => l === "paths:");
+    expect(start).toBeGreaterThan(-1);
+    const block: string[] = [];
+    for (const line of lines.slice(start + 1)) {
+      if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
+      if (!/^\s/.test(line)) break;
+      block.push(line);
+    }
+    expect(block).toEqual(["  all:", "    source: publisher"]);
+  });
+
+  it("the control API stays behind our webhook: `api` is never excluded from the check", () => {
+    const start = lines.findIndex((l) => l === "authHTTPExclude:");
+    const excluded = lines.slice(start + 1, start + 8).filter((l) => /^\s+- action:/.test(l)).map((l) => l.trim());
+    expect(excluded).not.toContain("- action: api");
   });
 });

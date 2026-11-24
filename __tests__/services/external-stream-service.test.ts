@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { mockDb, mockLogger, control, probeSpy } = vi.hoisted(() => ({
-  control: { isMediamtxControlConfigured: vi.fn(), disconnectPublishers: vi.fn() },
+  control: { isMediamtxControlConfigured: vi.fn(), disconnectPublishers: vi.fn(), clearPathRecording: vi.fn() },
   probeSpy: vi.fn(),
   mockDb: {
     $queryRaw: vi.fn(),
@@ -71,6 +71,7 @@ beforeEach(() => {
   mockDb.auditLog.create.mockResolvedValue({});
   control.isMediamtxControlConfigured.mockReturnValue(true);
   control.disconnectPublishers.mockResolvedValue({ ok: true, disconnected: 0 });
+  control.clearPathRecording.mockResolvedValue({ ok: true, changed: false });
   mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
   mockDb.$queryRaw.mockResolvedValue([]);
 });
@@ -466,8 +467,39 @@ describe("capturePartnerStreamsBeforeDelete (a session or event deleted with a p
 
   it("no log line carries the key", async () => {
     control.disconnectPublishers.mockResolvedValue({ ok: true, disconnected: 1 });
+    control.clearPathRecording.mockResolvedValue({ ok: false, code: "REFUSED" });
     await (await capturePartnerStreamsBeforeDelete({ eventId: "ev1" }))();
     expect(JSON.stringify([mockLogger.info.mock.calls, mockLogger.warn.mock.calls])).not.toContain(KEY);
+  });
+
+  // Review of 7563027f7: the session's recording row goes with the session (cascade), and with the
+  // row gone the minute sweep no longer knows to remove that stream's recording setting.
+  it("also removes that stream's recording setting from the stream server, after the delete", async () => {
+    const end = await capturePartnerStreamsBeforeDelete({ eventId: "ev1" });
+    expect(control.clearPathRecording).not.toHaveBeenCalled();
+    await end();
+    expect(control.clearPathRecording).toHaveBeenCalledWith(KEY);
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
+
+  it("a recording setting that could not be removed is said, and the publisher is still disconnected", async () => {
+    control.clearPathRecording.mockResolvedValue({ ok: false, code: "UNREACHABLE" });
+    await (await capturePartnerStreamsBeforeDelete({ eventId: "ev1" }))();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1", code: "UNREACHABLE" }),
+      "external-stream:recording-setting-not-cleared-after-delete",
+    );
+    expect(control.disconnectPublishers).toHaveBeenCalledWith(KEY);
+    control.clearPathRecording.mockRejectedValue(new Error("boom"));
+    await expect((await capturePartnerStreamsBeforeDelete({ eventId: "ev1" }))()).resolves.toBeUndefined();
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.anything(), "external-stream:recording-setting-clear-after-delete-errored");
+  });
+
+  it("a server not set up for the control API is not a warning", async () => {
+    control.clearPathRecording.mockResolvedValue({ ok: false, code: "NOT_CONFIGURED" });
+    control.disconnectPublishers.mockResolvedValue({ ok: true, disconnected: 0 });
+    await (await capturePartnerStreamsBeforeDelete({ eventId: "ev1" }))();
+    expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 });
 

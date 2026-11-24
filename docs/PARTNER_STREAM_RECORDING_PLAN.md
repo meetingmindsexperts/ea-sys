@@ -40,12 +40,46 @@ Read in the stream server's own source code, MediaMTX v1.17.1, the version produ
 | Can the server run a command when a piece is finished? | It has the hook, but the production image has no shell, so the hook cannot run anything. | Read in the Dockerfile |
 | Formats | Fragmented MP4 or MPEG-TS. | Read in the config |
 | Do settings sent through the control API survive a restart of the server? | Not found. Planned as if they do not. | Unknown |
-| How long is a piece really, with a sender's 2 second keyframes? | The setting is a minimum; where the cut falls is not in the files read. | Unknown |
+| How long is a piece really, with a sender's 2 second keyframes? | 6 to 8 seconds: the cut is at the first keyframe after the minimum. | Run in step 0 |
 
-Not run anywhere yet. Step 0 below proves the unknowns on a throwaway server before any code is
-written. I tried to run the server binary on this machine for that and the permission system
-refused the download, so step 0 needs either that permission or the owner running one Docker
-command.
+### 2.1 Step 0: run on a real server (Nov 24, 2026)
+
+Run against MediaMTX 1.17.1 in Docker on the owner's machine (the production image, production's
+stream settings plus the recording defaults of 4.1), with a 720p test stream at 2.5 Mbps and
+2 second keyframes. 15 of 15 checks passed.
+
+| Checked | Result |
+|---|---|
+| Start while the stream is live | The sender's connection stayed the same one; pieces appeared within seconds. |
+| Stop, then Start again | Same connection throughout; no piece written while stopped. |
+| Removing the setting while live | Same connection; recording stopped. |
+| The sender drops and reconnects while recording | Recording carried on by itself. |
+| Armed before the stream starts | Recording began with the first frame. |
+| The control API's answers | As the code assumes: 200 `{"status":"ok"}` for a change, 404 with MediaMTX's error body for a setting that is not there. |
+| A setting with nobody publishing | The path is listed with `source: null`, which our readers already take as "nobody". |
+| The pieces | 6 to 8 seconds each (cut at the first keyframe after 6 seconds), about 2.2 MB, named by their start time. The last piece before a stop is short (1.3 seconds). |
+| One MP4 through a pipe | 15 MB of pieces joined in 47 ms. 45.3 seconds from 45.8 seconds of pieces: the 12 second pause is closed up, not frozen through. |
+| The MP4 in a browser | Plays, and seeks across the pause, the reconnect and to the end, with no error. |
+| The pieces as an HLS replay | Plays and seeks the same way, with a break mark at the pause and at the reconnect. |
+
+What it changed in the plan:
+
+- **A piece's length must be measured, not inferred.** The first draft took it as the gap to the
+  next piece's start. Across a stop or a drop that counts the pause as video (13.4 seconds for a
+  1.3 second piece), and the replay's timeline came out 15 seconds too long. Step 2 reads each
+  piece's own length (`ffprobe`, so `ffmpeg` joins the worker image at step 2, not step 4).
+- **A break is where a piece does not follow on**: the next piece starts more than a second
+  after this one ends, by the clock in their names.
+- **File names carry the stream server's own clock zone** (UTC in the container). The setting
+  will use the Unix time form (`%s-%f`), so no zone is ever assumed. To be checked on the
+  throwaway server before step 2.
+
+Small things seen, none blocking: the MP4's first frame is held for 2 seconds (the recording
+starts between keyframes); `ffmpeg` reports three out-of-order timestamps at the joins, which
+players pass over; QuickTime and Vimeo's upload are not yet tried on the MP4.
+
+Still open: whether settings made through the control API survive a restart of the stream
+server (needs the owner's `docker restart`; the code already assumes they do not).
 
 ## 3. Why the disk is still touched, and how little
 
@@ -80,9 +114,16 @@ would leave a hole in the recording that nothing can fill.
 - MPEG-TS and not fragmented MP4: each TS piece stands alone, so the pieces are an HLS replay as
   they are, and joined end to end they are the whole programme.
 - Settings sent through the API are assumed lost when the stream server restarts. The stream
-  watchdog's minute sweep (`worker/jobs/webinar-stream-watchdog.ts`) puts back the setting of
-  every recording that should be running, and alerts when a running recording has produced no
-  piece for 2 minutes while its stream is live.
+  watchdog's minute sweep (`src/lib/webinar/stream-recording-sweep.ts`) makes the stream server
+  hold what every open recording says, and keeps removing the setting of a closed one until the
+  stream server confirms it is gone. It only finds which recordings to look at; each is then read
+  afresh and worked in its own organisation, because acting on a list a minute old undid a Stop
+  pressed meanwhile (review of step 1). From step 2 it also alerts when a running recording has
+  produced no piece for 2 minutes while its stream is live.
+- The recording defaults go under `pathDefaults:` in `mediamtx.yml`, never under `paths: all:`.
+  A setting made through the API is built from the defaults, and the sender stays connected only
+  while that and the general `all` entry differ in recording fields alone. A test reads
+  `mediamtx.yml` and fails if `all` gains anything but its default source.
 - **Never add `action: api` to `authHTTPExclude`** stays true: these calls go through the same
   webhook check as cutting a feed.
 
@@ -95,8 +136,8 @@ would leave a hole in the recording that nothing can fill.
   running recording: every piece except the newest (still being written) is uploaded, recorded as
   a row, then deleted locally. After Stop, the last piece goes too once it has been still for
   5 seconds.
-- A piece's length is the gap to the next piece's start time (the file name carries it to the
-  microsecond); the last piece's length is read from the file.
+- A piece's length is read from the piece itself, never taken from the gap to the next one
+  (2.1). A piece starts a break when it begins more than a second after the one before it ends.
 - Where: `recordings/{eventId}/{sessionId}/{recordingId}/` (D3 says which bucket). Private,
   registered in `src/lib/upload-prefixes.ts`, read only through signed links.
 
@@ -113,8 +154,10 @@ the first day:
   follows a break (the stream dropped, or recording was paused).
 
 One recording per webinar. Stop and Start again continue the same recording with a break marked.
-It is finished when the room closes, or when staff press **Finish recording**, or 6 hours after
-it began (safety).
+It is finished when the room closes, or when staff press **Finish recording**, or by the sweep
+6 hours after the webinar's scheduled end or after recording was last started, whichever is later
+(safety). Not counted from when the recording was made: Start before the stream arms it, possibly
+hours early.
 
 All of it lives in a new `src/services/stream-recording-service.ts`, called by the console's
 routes and the worker. The key is still read only through `session-stream.ts` and
@@ -129,7 +172,7 @@ carries on through it.
   comes out. Nothing is written to the box.
 - The cost is small because nothing is re-encoded: an estimate of about a minute of one CPU for a
   two hour webinar, measured in step 0. The box averaged 6% CPU over the week before this plan.
-- `ffmpeg` is added to the worker image only (D8). The MP4 is the "fragmented" kind, the only kind
+- `ffmpeg` is in the worker image only (D8; added at step 2, for reading each piece's length). The MP4 is the "fragmented" kind, the only kind
   that can be written without a disk. Browsers, VLC, QuickTime and Vimeo's upload are expected to
   take it; step 0 checks each on a real file before anything depends on it.
 - Staff download it from the console's Recording tab through a 5 minute signed link
@@ -235,7 +278,7 @@ built first and attendees watch through Vimeo until phase 2; D2 follows the rese
 
 | | Step | Days |
 |---|---|---|
-| 0 | **Prove it** on a throwaway stream server with a test stream: switch recording on and off mid-stream and watch that the sender stays connected; the real length of pieces; what a restart does to API settings; a drop and reconnect; pieces joined to an MP4 through `ffmpeg` with no file on disk; the MP4 opened in Chrome, Safari, VLC, QuickTime and uploaded to Vimeo; the pieces played as an HLS replay on an iPhone. | 0.5 |
+| 0 | **DONE Nov 24, 2026, but for the restart check (2.1).** Prove it on a throwaway stream server with a test stream: switch recording on and off mid-stream and watch that the sender stays connected; the real length of pieces; what a restart does to API settings; a drop and reconnect; pieces joined to an MP4 through `ffmpeg` with no file on disk; the MP4 opened in Chrome, Safari, VLC, QuickTime and uploaded to Vimeo; the pieces played as an HLS replay on an iPhone. | 0.5 |
 | 1 | **BUILT Nov 24, 2026.** The two tables (additive migration `20261124100000`, row policies), the rules (`src/lib/webinar/stream-recording.ts`), `stream-recording-service.ts` (start, stop, finish), the control API calls (`setPathRecording`, `clearPathRecording`, the body pinned to `record` alone), and the sweep that puts settings back and closes a recording nobody finished, run from the stream watchdog job. Nothing calls start yet. | 1 |
 | 2 | The shipping job, the disk guard, the waiting-pieces alert. | 1 |
 | 3 | The console: agreement tick, Start, Stop, Finish, the REC mark, the Recording tab. | 1 |
@@ -251,9 +294,17 @@ Each step is its own commit with its tests, reviewed once, as usual.
 
 **Owed by later steps, noted while building step 1:**
 
-- Step 3: the room closing calls `finishStreamRecording` (reason `room-closed`), and deleting a
-  session or its partner stream finishes its recording first
-  (`capturePartnerStreamsBeforeDelete` is the place).
+- Step 3: the room closing calls `finishStreamRecording` (reason `room-closed`). Deleting a
+  session or an event already removes that stream's recording setting from the stream server
+  (`capturePartnerStreamsBeforeDelete`, with the key captured before the delete), since the
+  recording's row goes with the session and the sweep can no longer know. If that one call
+  fails nothing retries it: the key is dead and its sender disconnected, so the setting records
+  nothing, and it is gone at the stream server's next restart.
+- Step 3: whoever starts a recording must name its organisation (`StartCaller`). A start fired
+  by the stream beginning, where no organisation is at hand, reads it from the event first.
+- Set `STREAM_RECORDING_ENABLED` only AFTER the `mediamtx.yml` change is on the box. Before it,
+  a recording would use the stream server's own defaults: fragmented MP4, inside the container,
+  kept a day.
 - Step 4: nothing moves a recording out of `FINISHING` until the finishing job exists, which is
   why the switch stays off until then. Deleting an event or a session removes the rows by
   cascade and leaves the files, so step 4 also needs the sweep that clears files no row claims
@@ -261,9 +312,8 @@ Each step is its own commit with its tests, reviewed once, as usual.
 - A setting made through the control API makes the stream server list that path even with
   nobody publishing. The readers in `mediamtx-control.ts` already take a path without a source
   as "nobody"; step 0 confirms it on a real server.
-- The sweep reads recordings across organisations with no tenant in scope, like the partner
-  stream sweep. On an instance with row policies it finds nothing (ROADMAP, "Webinar
-  streaming", item 2); production has none.
+- The sweep finds recordings across organisations in the privileged lane and works each in its
+  own, so it is right on an instance with row policies too.
 
 ## 8. Steps that are the owner's
 
@@ -292,7 +342,8 @@ Handed over as exact commands when their step is reached; none is run by the age
 - **Two webinars recorded at once** double the buffer and the shipping, both small. The 6 GB
   disk guard is per start.
 - **The picture is single quality.** An attendee on a weak connection may buffer in phase 2.
-- **A recording nobody stops.** It is finished when the room closes, and at 6 hours at the latest.
+- **A recording nobody stops.** It is finished when the room closes, and by the sweep 6 hours
+  after the webinar's scheduled end at the latest.
 - **Deleted is not gone at once** in a versioned bucket: the lifecycle rule is what clears it.
 
 ## 10. Not in this plan

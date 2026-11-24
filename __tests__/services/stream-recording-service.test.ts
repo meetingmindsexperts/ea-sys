@@ -34,10 +34,10 @@ vi.mock("@/lib/webinar/mediamtx-control", () => control);
 vi.mock("@/lib/webinar/session-stream", () => ({ sessionStream: streamSpy }));
 
 import {
-  convergeStreamRecordings,
   finishStreamRecording,
   getStreamRecording,
-  resetStreamRecordingSweep,
+  keepRecordingInStep,
+  resetStreamRecordingReports,
   startStreamRecording,
   stopStreamRecording,
   streamRecordingAvailable,
@@ -45,6 +45,7 @@ import {
 
 const KEY = "0123456789abcdef0123456789abcdef";
 const NOW = new Date("2026-12-01T09:00:00Z");
+const SESSION_END = new Date("2026-12-01T10:00:00Z");
 const caller = { organizationId: "org1", eventId: "ev1", sessionId: "s1", userId: "u1", source: "rest" as const };
 
 const row = (extra: Record<string, unknown> = {}) => ({
@@ -58,6 +59,8 @@ const row = (extra: Record<string, unknown> = {}) => ({
   lastStartedAt: NOW,
   stoppedAt: null,
   finishedAt: null,
+  serverClearedAt: null,
+  session: { endTime: SESSION_END },
   segmentCount: 0,
   totalBytes: BigInt(0),
   durationMs: 0,
@@ -68,15 +71,19 @@ const row = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-/** The row the service reads: `before` on the first read, `after` on every later one. */
-function reads(before: unknown, after: unknown = before) {
+/** The row as the service reads it, read by read; the last one given answers every later read. */
+function reads(...sequence: unknown[]) {
   mockDb.streamRecording.findFirst.mockReset();
-  mockDb.streamRecording.findFirst.mockResolvedValueOnce(before).mockResolvedValue(after);
+  sequence.slice(0, -1).forEach((r) => mockDb.streamRecording.findFirst.mockResolvedValueOnce(r));
+  mockDb.streamRecording.findFirst.mockResolvedValue(sequence[sequence.length - 1]);
 }
+/** The writes that move a recording's state (as against the mark that the server was cleared). */
+const moves = () => mockDb.streamRecording.updateMany.mock.calls.map(([arg]) => arg).filter((arg) => "status" in arg.data);
+const clearedMarks = () => mockDb.streamRecording.updateMany.mock.calls.map(([arg]) => arg).filter((arg) => "serverClearedAt" in arg.data);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  resetStreamRecordingSweep();
+  resetStreamRecordingReports();
   process.env.STREAM_RECORDING_ENABLED = "true";
   control.isMediamtxControlConfigured.mockReturnValue(true);
   control.setPathRecording.mockResolvedValue({ ok: true, changed: true });
@@ -174,10 +181,7 @@ describe("startStreamRecording", () => {
     reads(row({ status: "PAUSED" }), row());
     const result = await startStreamRecording({ ...caller, now: NOW });
     expect(result).toMatchObject({ ok: true, recording: { status: "RECORDING" } });
-    expect(mockDb.streamRecording.updateMany).toHaveBeenCalledWith({
-      where: { id: "r1", status: "PAUSED" },
-      data: { status: "RECORDING", lastStartedAt: NOW },
-    });
+    expect(moves()).toEqual([{ where: { id: "r1", status: "PAUSED" }, data: { status: "RECORDING", lastStartedAt: NOW } }]);
     expect(mockDb.auditLog.create.mock.calls[0][0].data.action).toBe("STREAM_RECORDING_RESUMED");
   });
 
@@ -202,6 +206,24 @@ describe("startStreamRecording", () => {
     reads(null);
     mockDb.streamRecording.create.mockRejectedValue(Object.assign(new Error("down"), { code: "P1001" }));
     await expect(startStreamRecording({ ...caller, partnerAgreed: true, now: NOW })).rejects.toThrow("down");
+  });
+
+  // Review of 7563027f7: this answered ok with a FINISHING recording, as if the Start had happened.
+  it("loses the race to someone closing it: the Start is refused, not answered ok with a finished recording", async () => {
+    reads(row({ status: "PAUSED" }), row({ status: "FINISHING" }));
+    mockDb.streamRecording.updateMany.mockResolvedValue({ count: 0 });
+    const result = await startStreamRecording({ ...caller, now: NOW });
+    expect(result).toMatchObject({ ok: false, code: "ALREADY_FINISHED" });
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+    expect(control.setPathRecording).not.toHaveBeenCalled();
+  });
+
+  it("loses the race to someone else's Start: the same recording, answered ok, audited once by them", async () => {
+    reads(row({ status: "PAUSED" }), row());
+    mockDb.streamRecording.updateMany.mockResolvedValue({ count: 0 });
+    const result = await startStreamRecording({ ...caller, now: NOW });
+    expect(result).toMatchObject({ ok: true, recording: { status: "RECORDING" } });
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
   });
 
   it.each(["FINISHING", "READY", "FAILED"])("a %s recording is never recorded into again", async (status) => {
@@ -230,7 +252,7 @@ describe("stopStreamRecording", () => {
     reads(row(), row({ status: "PAUSED", stoppedAt: NOW }));
     const result = await stopStreamRecording({ ...caller, now: NOW });
     expect(result).toMatchObject({ ok: true, recording: { status: "PAUSED", stoppedAt: NOW } });
-    expect(mockDb.streamRecording.updateMany).toHaveBeenCalledWith({ where: { id: "r1", status: "RECORDING" }, data: { status: "PAUSED", stoppedAt: NOW } });
+    expect(moves()).toEqual([{ where: { id: "r1", status: "RECORDING" }, data: { status: "PAUSED", stoppedAt: NOW } }]);
     expect(control.setPathRecording).toHaveBeenCalledWith(KEY, false);
     expect(mockDb.auditLog.create.mock.calls[0][0].data.action).toBe("STREAM_RECORDING_STOPPED");
   });
@@ -242,6 +264,27 @@ describe("stopStreamRecording", () => {
     expect(result).toMatchObject({ ok: true, recording: { status: "FINISHING" } });
     expect(mockDb.auditLog.create).not.toHaveBeenCalled();
     // The stream server is told what the row NOW says: a finished recording keeps no setting.
+    expect(control.clearPathRecording).toHaveBeenCalledWith(KEY);
+    expect(control.setPathRecording).not.toHaveBeenCalled();
+  });
+
+  // Review of 7563027f7 (M1): told from a row read earlier, a Start pressed meanwhile was undone.
+  it("the row moved while the stream server was being told: it is told again, with what the row now says", async () => {
+    // Stop reads RECORDING and pauses it; the server is told "do not record"; meanwhile someone pressed Start.
+    reads(row(), row({ status: "PAUSED" }), row(), row());
+    const result = await stopStreamRecording({ ...caller, now: NOW });
+    expect(control.setPathRecording.mock.calls).toEqual([
+      [KEY, false],
+      [KEY, true],
+    ]);
+    expect(result).toMatchObject({ ok: true, recording: { status: "RECORDING" } });
+  });
+
+  // Review of 7563027f7 (L2): it fell back to the row from before the move and sent "record" for a recording that was gone.
+  it("the recording was deleted meanwhile: nothing is left on the stream server, and the answer says there is none", async () => {
+    reads(row(), null);
+    const result = await stopStreamRecording({ ...caller, now: NOW });
+    expect(result).toMatchObject({ ok: false, code: "NOT_STARTED" });
     expect(control.clearPathRecording).toHaveBeenCalledWith(KEY);
     expect(control.setPathRecording).not.toHaveBeenCalled();
   });
@@ -265,11 +308,10 @@ describe("finishStreamRecording", () => {
     reads(row(), row({ status: "FINISHING", stoppedAt: NOW, finishedAt: NOW }));
     const result = await finishStreamRecording({ ...caller, reason: "staff", now: NOW });
     expect(result).toMatchObject({ ok: true, recording: { status: "FINISHING", finishedAt: NOW } });
-    expect(mockDb.streamRecording.updateMany).toHaveBeenCalledWith({
-      where: { id: "r1", status: "RECORDING" },
-      data: { status: "FINISHING", stoppedAt: NOW, finishedAt: NOW },
-    });
+    expect(moves()).toEqual([{ where: { id: "r1", status: "RECORDING" }, data: { status: "FINISHING", stoppedAt: NOW, finishedAt: NOW } }]);
     expect(control.clearPathRecording).toHaveBeenCalledWith(KEY);
+    // The clear was confirmed, so the sweep will not ask again.
+    expect(clearedMarks()).toEqual([{ where: { id: "r1", serverClearedAt: null }, data: { serverClearedAt: expect.any(Date) } }]);
     expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: "STREAM_RECORDING_FINISHED", changes: { reason: "staff" } });
   });
 
@@ -277,15 +319,41 @@ describe("finishStreamRecording", () => {
     const stopped = new Date("2026-12-01T08:30:00Z");
     reads(row({ status: "PAUSED", stoppedAt: stopped }), row({ status: "FINISHING" }));
     await finishStreamRecording({ ...caller, reason: "room-closed", now: NOW });
-    expect(mockDb.streamRecording.updateMany.mock.calls[0][0].data).toEqual({ status: "FINISHING", stoppedAt: stopped, finishedAt: NOW });
+    expect(moves()[0].data).toEqual({ status: "FINISHING", stoppedAt: stopped, finishedAt: NOW });
+  });
+
+  // Review of 7563027f7 (L1): Stop at 10:20, Start at 10:30, Finish at 11:30 stored 10:20.
+  it("a Stop from before a later Start is not when recording stopped", async () => {
+    reads(row({ status: "RECORDING", stoppedAt: new Date("2026-12-01T08:20:00Z") }), row({ status: "FINISHING" }));
+    await finishStreamRecording({ ...caller, reason: "staff", now: NOW });
+    expect(moves()[0].data.stoppedAt).toEqual(NOW);
+  });
+
+  it("a clear the stream server did not take is NOT marked as done: the sweep owes it", async () => {
+    reads(row(), row({ status: "FINISHING" }));
+    control.clearPathRecording.mockResolvedValue({ ok: false, code: "UNREACHABLE" });
+    const result = await finishStreamRecording({ ...caller, reason: "staff", now: NOW });
+    expect(result).toMatchObject({ ok: true, server: { ok: false, code: "UNREACHABLE" } });
+    expect(clearedMarks()).toEqual([]);
   });
 
   it("twice is not an error, and is not written or audited twice", async () => {
     reads(row({ status: "FINISHING", finishedAt: NOW }));
     const result = await finishStreamRecording({ ...caller, reason: "room-closed", now: NOW });
     expect(result).toMatchObject({ ok: true, recording: { status: "FINISHING" } });
-    expect(mockDb.streamRecording.updateMany).not.toHaveBeenCalled();
+    expect(moves()).toEqual([]);
     expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  // Review of 7563027f7 (L6): the room closing calls this for every webinar, and most were never recorded.
+  it("the system finding nothing to close is not a warning; a person is told", async () => {
+    reads(null);
+    expect(await finishStreamRecording({ ...caller, userId: null, source: "room", reason: "room-closed" })).toMatchObject({ ok: false, code: "NOT_STARTED" });
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.objectContaining({ code: "NOT_STARTED" }), "stream-recording:finish-refused");
+    reads(null);
+    await finishStreamRecording({ ...caller, reason: "staff" });
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ code: "NOT_STARTED" }), "stream-recording:finish-refused");
   });
 
   it("the system closes without a person: the audit has no user", async () => {
@@ -302,7 +370,9 @@ describe("finishStreamRecording", () => {
     const result = await finishStreamRecording({ ...caller, reason: "staff", now: NOW });
     expect(result).toMatchObject({ ok: true, recording: { status: "FINISHING" }, server: { ok: false } });
     expect(control.clearPathRecording).not.toHaveBeenCalled();
-    expect(mockLogger.warn).toHaveBeenCalledWith(expect.anything(), "stream-recording:no-partner-stream-to-tell");
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ status: "FINISHING" }), "stream-recording:closed-without-partner-stream");
+    // No key is left to clear with, so the sweep is told to stop asking.
+    expect(clearedMarks()).toHaveLength(1);
   });
 
   it("a failed audit write never fails the action", async () => {
@@ -328,85 +398,94 @@ describe("getStreamRecording", () => {
   });
 });
 
-describe("convergeStreamRecordings (the minute sweep)", () => {
-  it("does nothing, and asks nothing, while the stream server cannot be reached by us", async () => {
-    control.isMediamtxControlConfigured.mockReturnValue(false);
-    expect(await convergeStreamRecordings(NOW)).toEqual({ checked: 0, corrected: 0, closed: 0 });
-    expect(mockDb.streamRecording.findMany).not.toHaveBeenCalled();
-  });
+describe("keepRecordingInStep (the sweep's work for one recording)", () => {
+  const at = { eventId: "ev1", sessionId: "s1", organizationId: "org1" };
 
-  it("makes the stream server hold what each recording says", async () => {
-    mockDb.streamRecording.findMany.mockResolvedValue([
-      row({ id: "r1", sessionId: "s1" }),
-      row({ id: "r2", sessionId: "s2", status: "PAUSED" }),
-      row({ id: "r3", sessionId: "s3", status: "FINISHING", finishedAt: NOW }),
-    ]);
+  it("reads the recording afresh and makes the stream server hold what it says", async () => {
     control.setPathRecording.mockResolvedValue({ ok: true, changed: false });
-    control.clearPathRecording.mockResolvedValue({ ok: true, changed: false });
-    const report = await convergeStreamRecordings(NOW);
-    expect(report).toEqual({ checked: 3, corrected: 0, closed: 0 });
-    expect(control.setPathRecording.mock.calls).toEqual([
-      [KEY, true],
-      [KEY, false],
-    ]);
-    expect(control.clearPathRecording).toHaveBeenCalledTimes(1);
-    expect(streamSpy.mock.calls).toEqual([
-      ["s1", "ev1"],
-      ["s2", "ev1"],
-      ["s3", "ev1"],
-    ]);
+    reads(row({ status: "PAUSED" }));
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("unchanged");
+    expect(control.setPathRecording).toHaveBeenCalledWith(KEY, false);
+    expect(mockDb.streamRecording.findFirst).toHaveBeenCalled();
   });
 
   it("says so when it had to put the server right (a failed button press, or a restart)", async () => {
-    mockDb.streamRecording.findMany.mockResolvedValue([row()]);
+    reads(row());
     control.setPathRecording.mockResolvedValue({ ok: true, changed: true });
-    expect(await convergeStreamRecordings(NOW)).toEqual({ checked: 1, corrected: 1, closed: 0 });
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("corrected");
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ status: "RECORDING" }), "stream-recording:server-setting-put-right");
   });
 
-  it("looks at open recordings, and at ones closed within the hour only", async () => {
-    await convergeStreamRecordings(NOW);
-    const where = mockDb.streamRecording.findMany.mock.calls[0][0].where;
-    expect(where.OR[0]).toEqual({ status: { in: ["RECORDING", "PAUSED"] } });
-    expect(where.OR[1]).toEqual({
-      status: { in: ["FINISHING", "READY", "FAILED"] },
-      finishedAt: { gte: new Date("2026-12-01T08:00:00Z") },
-    });
+  it("a closed recording: its setting is removed, marked as confirmed, and that is not a correction", async () => {
+    reads(row({ status: "FINISHING", finishedAt: NOW }));
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("unchanged");
+    expect(control.clearPathRecording).toHaveBeenCalledWith(KEY);
+    expect(clearedMarks()).toHaveLength(1);
+    expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 
-  it("closes a recording nobody finished after six hours, as the system", async () => {
-    const old = row({ startedAt: new Date("2026-12-01T03:00:00Z") });
-    mockDb.streamRecording.findMany.mockResolvedValue([old]);
-    reads(old, row({ status: "FINISHING" }));
-    expect(await convergeStreamRecordings(NOW)).toEqual({ checked: 1, corrected: 0, closed: 1 });
-    expect(mockDb.streamRecording.updateMany.mock.calls[0][0].data).toMatchObject({ status: "FINISHING", finishedAt: NOW });
+  // Review of 7563027f7 (M3): it gave up after an hour, and a "record" setting could outlive its recording.
+  it("a closed recording whose clear keeps failing is never marked, however old it is", async () => {
+    reads(row({ status: "READY", finishedAt: new Date("2026-11-01T09:00:00Z") }));
+    control.clearPathRecording.mockResolvedValue({ ok: false, code: "REFUSED" });
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("unchanged");
+    expect(clearedMarks()).toEqual([]);
+  });
+
+  it("a closed recording already confirmed clear is not marked again", async () => {
+    reads(row({ status: "READY", serverClearedAt: NOW }));
+    await keepRecordingInStep(at, NOW, true);
+    expect(clearedMarks()).toEqual([]);
+  });
+
+  it("closes a recording nobody finished, six hours after the webinar's end, as the system", async () => {
+    const old = row({ lastStartedAt: new Date("2026-12-01T03:00:00Z"), session: { endTime: new Date("2026-12-01T03:00:00Z") } });
+    reads(old, old, row({ status: "FINISHING" }));
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("closed");
+    expect(moves()[0].data).toMatchObject({ status: "FINISHING", finishedAt: NOW });
     expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ reason: "overran", source: "worker" });
     expect(control.clearPathRecording).toHaveBeenCalledWith(KEY);
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.anything(), "stream-recording:closed-after-limit");
   });
 
-  it("a recording whose session lost its partner stream is said once, not every minute", async () => {
-    mockDb.streamRecording.findMany.mockResolvedValue([row()]);
+  // Review of 7563027f7 (M2).
+  it("armed hours before the webinar: left open while the webinar has not run its course", async () => {
+    control.setPathRecording.mockResolvedValue({ ok: true, changed: false });
+    reads(row({ startedAt: new Date("2026-12-01T01:00:00Z"), lastStartedAt: new Date("2026-12-01T01:00:00Z") }));
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("unchanged");
+    expect(moves()).toEqual([]);
+  });
+
+  it("with no stream server to talk to it still closes an overrun recording, and asks the server nothing otherwise", async () => {
+    reads(row());
+    expect(await keepRecordingInStep(at, NOW, false)).toBe("unchanged");
+    expect(control.setPathRecording).not.toHaveBeenCalled();
+    const old = row({ lastStartedAt: new Date("2026-12-01T02:00:00Z"), session: { endTime: new Date("2026-12-01T02:00:00Z") } });
+    reads(old, old, row({ status: "FINISHING" }));
+    expect(await keepRecordingInStep(at, NOW, false)).toBe("closed");
+  });
+
+  it("a close that did not happen is not counted as one", async () => {
+    const old = row({ lastStartedAt: new Date("2026-12-01T02:00:00Z"), session: { endTime: new Date("2026-12-01T02:00:00Z") } });
+    // Read as open and overrun, then gone by the time finish reads it.
+    reads(old, null);
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("unchanged");
+    expect(mockLogger.warn).not.toHaveBeenCalledWith(expect.anything(), "stream-recording:closed-after-limit");
+  });
+
+  it("an open recording whose session lost its partner stream is said once, not every minute", async () => {
+    reads(row());
     streamSpy.mockResolvedValue(null);
-    await convergeStreamRecordings(NOW);
-    await convergeStreamRecordings(NOW);
+    await keepRecordingInStep(at, NOW, true);
+    await keepRecordingInStep(at, NOW, true);
     const said = mockLogger.warn.mock.calls.filter(([, msg]) => msg === "stream-recording:recording-without-partner-stream");
     expect(said).toHaveLength(1);
     expect(control.setPathRecording).not.toHaveBeenCalled();
   });
 
-  it("one recording's failure never stops the others", async () => {
-    mockDb.streamRecording.findMany.mockResolvedValue([row({ id: "r1", sessionId: "s1" }), row({ id: "r2", sessionId: "s2" })]);
-    streamSpy.mockRejectedValueOnce(new Error("lookup failed"));
-    control.setPathRecording.mockResolvedValue({ ok: true, changed: false });
-    expect(await convergeStreamRecordings(NOW)).toEqual({ checked: 2, corrected: 0, closed: 0 });
-    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "s1" }), "stream-recording:sweep-failed");
-    expect(control.setPathRecording).toHaveBeenCalledTimes(1);
-  });
-
-  it("a stream server that fails mid-sweep is logged and not counted as put right", async () => {
-    mockDb.streamRecording.findMany.mockResolvedValue([row()]);
-    control.setPathRecording.mockResolvedValue({ ok: false, code: "UNREACHABLE" });
-    expect(await convergeStreamRecordings(NOW)).toEqual({ checked: 1, corrected: 0, closed: 0 });
-    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ code: "UNREACHABLE" }), "stream-recording:server-not-told");
+  it("no recording: nothing to do", async () => {
+    reads(null);
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("unchanged");
+    expect(streamSpy).not.toHaveBeenCalled();
   });
 });

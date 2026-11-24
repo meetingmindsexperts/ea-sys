@@ -8,9 +8,17 @@
  * recording's state first and then tells MediaMTX (mediamtx-control.ts). When
  * that call fails the action still succeeded: the answer carries `server` with
  * `ok: false` INSIDE an `ok: true` result, the route tells the producer, and
- * the minute sweep (convergeStreamRecordings, from the stream watchdog job)
- * makes the server agree. The same sweep covers a stream server that restarted
- * and forgot its settings, and closes a recording nobody finished.
+ * the minute sweep (src/lib/webinar/stream-recording-sweep.ts, from the stream
+ * watchdog job) makes the server agree through keepRecordingInStep below. The
+ * same sweep covers a stream server that restarted and forgot its settings,
+ * and closes a recording nobody finished.
+ *
+ * NEVER TELL THE SERVER FROM A ROW READ EARLIER (review of 7563027f7). The
+ * first version of the sweep listed the recordings and then told the server
+ * what each had said when listed; a Stop pressed in between was undone, and
+ * the stream was recorded for a minute while the row said paused. Every path
+ * now goes through tellSettled, which reads the row, tells the server, reads
+ * again, and tells once more if the row moved meanwhile.
  *
  * Only a partner's stream is recorded this way. Our own Zoom webinars have
  * Zoom's cloud recording, which does not depend on the stream reaching us.
@@ -66,11 +74,19 @@ interface At {
 }
 
 interface Caller extends At {
+  /** For the audit row. Null only where the system acts on a recording whose organisation it was not handed. */
   organizationId: string | null;
   /** Null when the system acts. */
   userId: string | null;
   source: StreamRecordingSource;
 }
+
+/**
+ * Whoever STARTS a recording names its organisation: the row's tenant column
+ * is stamped from it, and a row without one is invisible once row policies
+ * apply (review of 7563027f7).
+ */
+type StartCaller = Caller & { organizationId: string };
 
 export type StreamRecordingErrorCode =
   | "NOT_AVAILABLE"
@@ -124,6 +140,7 @@ const ROW_SELECT = {
   lastStartedAt: true,
   stoppedAt: true,
   finishedAt: true,
+  serverClearedAt: true,
   segmentCount: true,
   totalBytes: true,
   durationMs: true,
@@ -131,6 +148,7 @@ const ROW_SELECT = {
   archiveBytes: true,
   error: true,
   deleteAfter: true,
+  session: { select: { endTime: true } },
 } as const;
 
 interface Row {
@@ -144,6 +162,7 @@ interface Row {
   lastStartedAt: Date;
   stoppedAt: Date | null;
   finishedAt: Date | null;
+  serverClearedAt: Date | null;
   segmentCount: number;
   totalBytes: bigint;
   durationMs: number;
@@ -151,6 +170,7 @@ interface Row {
   archiveBytes: bigint | null;
   error: string | null;
   deleteAfter: Date | null;
+  session: { endTime: Date };
 }
 
 function toView(row: Row): StreamRecordingView {
@@ -175,7 +195,10 @@ function toView(row: Row): StreamRecordingView {
 }
 
 function refuse(caller: Caller, op: RecordingAction, code: StreamRecordingErrorCode): { ok: false; code: StreamRecordingErrorCode; message: string } {
-  apiLogger.warn({ eventId: caller.eventId, sessionId: caller.sessionId, userId: caller.userId, code }, `stream-recording:${op}-refused`);
+  // A person refused is a warning. The system finding nothing to do (the room closing on a webinar
+  // that was never recorded, which is most of them) is not.
+  const level = caller.source !== "rest" && code === "NOT_STARTED" ? "info" : "warn";
+  apiLogger[level]({ eventId: caller.eventId, sessionId: caller.sessionId, userId: caller.userId, code }, `stream-recording:${op}-refused`);
   return { ok: false, code, message: MESSAGES[code] };
 }
 
@@ -232,6 +255,69 @@ const NO_STREAM: ServerOutcome = {
   message: "This session no longer has a partner stream, so the stream server could not be told.",
 };
 
+/** Open recordings without a partner stream already reported, so each is said once, not every minute. */
+const reportedWithoutStream = new Set<string>();
+const REPORTED_MAX = 500;
+
+/** Test hook. */
+export function resetStreamRecordingReports(): void {
+  reportedWithoutStream.clear();
+}
+
+/** The stream server is confirmed to hold nothing for this closed recording: the sweep stops asking. */
+async function markServerCleared(row: Row): Promise<void> {
+  if (row.serverClearedAt || isRecordingOpen(row.status)) return;
+  await db.streamRecording.updateMany({ where: { id: row.id, serverClearedAt: null }, data: { serverClearedAt: new Date() } });
+}
+
+/**
+ * A recording whose session has no partner stream to tell. A closed one is
+ * marked as cleared, since there is no key left to clear with and asking every
+ * minute would never end; an open one is said once.
+ */
+async function withoutStream(at: At, row: Row): Promise<void> {
+  if (!isRecordingOpen(row.status)) {
+    apiLogger.warn({ eventId: at.eventId, sessionId: at.sessionId, status: row.status }, "stream-recording:closed-without-partner-stream");
+    await markServerCleared(row);
+    return;
+  }
+  if (reportedWithoutStream.has(row.id)) return;
+  if (reportedWithoutStream.size >= REPORTED_MAX) reportedWithoutStream.clear();
+  reportedWithoutStream.add(row.id);
+  apiLogger.warn({ eventId: at.eventId, sessionId: at.sessionId, status: row.status }, "stream-recording:recording-without-partner-stream");
+}
+
+/**
+ * Tell the stream server what the recording says NOW, and make sure that is
+ * still what it says once the server has been told: the row is read, the
+ * server told, the row read again, and if it moved meanwhile the server is told
+ * once more. A row that is gone leaves no setting behind.
+ *
+ * `row` null: the session has no recording (any more).
+ */
+async function tellSettled(at: At): Promise<{ row: Row | null; server: ServerOutcome }> {
+  let row = await readRow(at);
+  let server: ServerOutcome = NO_STREAM;
+  for (let round = 0; round < 2; round++) {
+    const streamKey = await partnerKey(at);
+    if (!row) {
+      if (streamKey) server = toOutcome(await clearPathRecording(streamKey));
+      return { row: null, server };
+    }
+    if (!streamKey) {
+      await withoutStream(at, row);
+      return { row, server: NO_STREAM };
+    }
+    const told = await tellServer(at, streamKey, row.status);
+    server = toOutcome(told);
+    if (told.ok && serverSetting(row.status) === "none") await markServerCleared(row);
+    const after = await readRow(at);
+    if (after && after.status === row.status) return { row: after, server };
+    row = after;
+  }
+  return { row, server };
+}
+
 /**
  * Move an existing recording, if it is still in the state we read. False when
  * someone else moved it meanwhile: the caller reads again and answers with
@@ -243,17 +329,14 @@ async function move(row: Row, data: { status: RecordingStatus; lastStartedAt?: D
 }
 
 /** The answer after a write: the row as it now is, and what the stream server said. */
-async function answer(caller: Caller, fallback: Row): Promise<StreamRecordingResult> {
-  const row = (await readRow(caller)) ?? fallback;
-  const streamKey = await partnerKey(caller);
-  if (!streamKey) {
-    apiLogger.warn({ eventId: caller.eventId, sessionId: caller.sessionId }, "stream-recording:no-partner-stream-to-tell");
-    return { ok: true, recording: toView(row), server: NO_STREAM };
-  }
-  return { ok: true, recording: toView(row), server: toOutcome(await tellServer(caller, streamKey, row.status)) };
+async function answer(caller: Caller, op: RecordingAction): Promise<StreamRecordingResult> {
+  const { row, server } = await tellSettled(caller);
+  // Deleted while we were at it: there is no recording to answer with.
+  if (!row) return refuse(caller, op, "NOT_STARTED");
+  return { ok: true, recording: toView(row), server };
 }
 
-async function createRecording(input: Caller, now: Date): Promise<Row | null> {
+async function createRecording(input: StartCaller, now: Date): Promise<Row | null> {
   const id = randomUUID();
   try {
     return await db.streamRecording.create({
@@ -286,7 +369,7 @@ async function createRecording(input: Caller, now: Date): Promise<Row | null> {
  * stream begins this arms the recording: the stream server records from the
  * moment the partner connects.
  */
-export async function startStreamRecording(input: Caller & { partnerAgreed?: boolean; now?: Date }): Promise<StreamRecordingResult> {
+export async function startStreamRecording(input: StartCaller & { partnerAgreed?: boolean; now?: Date }): Promise<StreamRecordingResult> {
   if (!streamRecordingAvailable()) return refuse(input, "start", "NOT_AVAILABLE");
   if (!(await partnerKey(input))) return refuse(input, "start", "NOT_PARTNER_STREAM");
   const now = input.now ?? new Date();
@@ -298,22 +381,26 @@ export async function startStreamRecording(input: Caller & { partnerAgreed?: boo
   if (!existing) {
     if (input.partnerAgreed !== true) return refuse(input, "start", "AGREEMENT_REQUIRED");
     const created = await createRecording(input, now);
-    if (!created) {
-      // Lost the race to another Start: answer with theirs, which is the same recording.
-      const theirs = await readRow(input);
-      if (!theirs) throw new Error("stream-recording: the session's recording exists and cannot be read");
-      return answer(input, theirs);
+    // Null: lost the race to another Start. Theirs is the same recording, and the answer reads it.
+    if (created) {
+      apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "stream-recording:started");
+      await audit(input, "STREAM_RECORDING_STARTED", created.id, { partnerAgreed: true });
     }
-    apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "stream-recording:started");
-    await audit(input, "STREAM_RECORDING_STARTED", created.id, { partnerAgreed: true });
-    return answer(input, created);
+    return answer(input, "start");
   }
 
-  if (step.changed && (await move(existing, { status: "RECORDING", lastStartedAt: now }))) {
+  if (!step.changed) return answer(input, "start");
+  if (await move(existing, { status: "RECORDING", lastStartedAt: now })) {
     apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "stream-recording:resumed");
     await audit(input, "STREAM_RECORDING_RESUMED", existing.id, {});
+    return answer(input, "start");
   }
-  return answer(input, existing);
+  // Someone moved it first. If they closed it, this Start did not happen and says so, instead of
+  // answering "ok" with a finished recording.
+  const current = await readRow(input);
+  const again = recordingTransition(current?.status ?? null, "start");
+  if (!current || !again.ok) return refuse(input, "start", again.ok ? "NOT_STARTED" : again.code);
+  return answer(input, "start");
 }
 
 /** Stop recording for now. Start again continues the same recording, with a break marked. */
@@ -326,7 +413,8 @@ export async function stopStreamRecording(input: Caller & { now?: Date }): Promi
     apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "stream-recording:stopped");
     await audit(input, "STREAM_RECORDING_STOPPED", existing.id, {});
   }
-  return answer(input, existing);
+  // Lost a race here means someone else stopped or closed it: either way it is not recording, which is what Stop asked.
+  return answer(input, "stop");
 }
 
 /**
@@ -342,93 +430,51 @@ export async function finishStreamRecording(
   if (!step.ok || !existing) return refuse(input, "finish", step.ok ? "NOT_STARTED" : step.code);
 
   const now = input.now ?? new Date();
-  if (step.changed && (await move(existing, { status: "FINISHING", stoppedAt: existing.stoppedAt ?? now, finishedAt: now }))) {
+  // When recording last stopped: the moment it was paused, or now. A Stop from before a later Start is not it.
+  const stoppedAt = existing.status === "PAUSED" ? (existing.stoppedAt ?? now) : now;
+  if (step.changed && (await move(existing, { status: "FINISHING", stoppedAt, finishedAt: now }))) {
     apiLogger.info(
       { eventId: input.eventId, sessionId: input.sessionId, userId: input.userId, reason: input.reason },
       "stream-recording:finishing",
     );
     await audit(input, "STREAM_RECORDING_FINISHED", existing.id, { reason: input.reason });
   }
-  return answer(input, existing);
+  return answer(input, "finish");
 }
 
-// ── The minute sweep ──
-
-/** A recording closed this recently still has its setting cleared again, in case the first clear failed. */
-const CLEAR_AGAIN_FOR_MS = 60 * 60 * 1000;
-/** Far above anything one box records at once, and a bound on one sweep. */
-const SWEEP_MAX = 200;
-
-export interface RecordingSweepReport {
-  /** Recordings looked at. */
-  checked: number;
-  /** Times the stream server had to be put right. */
-  corrected: number;
-  /** Recordings closed because they ran past their limit. */
-  closed: number;
-}
-
-/** Recordings without a partner stream already reported, so each is said once, not every minute. */
-const reportedWithoutStream = new Set<string>();
-
-/** Test hook. */
-export function resetStreamRecordingSweep(): void {
-  reportedWithoutStream.clear();
-}
-
-async function sweepOne(row: Row, now: Date, report: RecordingSweepReport): Promise<void> {
-  const at: Caller = { eventId: row.eventId, sessionId: row.sessionId, organizationId: row.organizationId, userId: null, source: "worker" };
-  if (isRecordingOpen(row.status) && recordingOverran(row.startedAt, now)) {
-    apiLogger.warn({ eventId: row.eventId, sessionId: row.sessionId }, "stream-recording:closed-after-limit");
-    await finishStreamRecording({ ...at, reason: "overran", now });
-    report.closed += 1;
-    return;
-  }
-  const streamKey = await partnerKey(at);
-  if (!streamKey) {
-    if (reportedWithoutStream.has(row.id)) return;
-    if (reportedWithoutStream.size >= SWEEP_MAX) reportedWithoutStream.clear();
-    reportedWithoutStream.add(row.id);
-    apiLogger.warn({ eventId: row.eventId, sessionId: row.sessionId, status: row.status }, "stream-recording:recording-without-partner-stream");
-    return;
-  }
-  const result = await tellServer(at, streamKey, row.status);
-  if (!result.ok || !result.changed) return;
-  // The server did not hold what the recording says: a call that failed when the button was pressed, or a restart.
-  report.corrected += 1;
-  apiLogger.warn({ eventId: row.eventId, sessionId: row.sessionId, status: row.status }, "stream-recording:server-setting-put-right");
-}
+/** What the sweep found for one recording. */
+export type KeepInStepOutcome = "closed" | "corrected" | "unchanged";
 
 /**
- * Make the stream server agree with every recording that is open, clear the
- * setting of one closed in the last hour, and close any that ran past its
- * limit. Called every minute by the stream watchdog job. Does nothing while
- * the control API is not set up. Reads across organisations without a tenant
- * in scope, like the partner stream sweep beside it (and with the same limit
- * on an instance with row policies: ROADMAP, "Webinar streaming", item 2).
+ * The sweep's work for one recording, run inside that recording's own tenant:
+ * close it if it ran past its limit, otherwise make the stream server hold
+ * what it says. Reads the recording afresh: the sweep's own list is only the
+ * list of which to look at. `serverReachable` false (the control address is
+ * not set up here) still closes an overrun recording, which is a database
+ * matter.
  */
-export async function convergeStreamRecordings(now: Date = new Date()): Promise<RecordingSweepReport> {
-  const report: RecordingSweepReport = { checked: 0, corrected: 0, closed: 0 };
-  if (!isMediamtxControlConfigured()) return report;
-  const rows = await db.streamRecording.findMany({
-    where: {
-      OR: [
-        { status: { in: ["RECORDING", "PAUSED"] } },
-        { status: { in: ["FINISHING", "READY", "FAILED"] }, finishedAt: { gte: new Date(now.getTime() - CLEAR_AGAIN_FOR_MS) } },
-      ],
-    },
-    select: ROW_SELECT,
-    orderBy: { startedAt: "asc" },
-    take: SWEEP_MAX,
-  });
-  for (const row of rows) {
-    report.checked += 1;
-    try {
-      await sweepOne(row, now, report);
-    } catch (err) {
-      // One recording's failure never stops the others.
-      apiLogger.error({ err, eventId: row.eventId, sessionId: row.sessionId }, "stream-recording:sweep-failed");
-    }
+export async function keepRecordingInStep(
+  at: At & { organizationId: string | null },
+  now: Date,
+  serverReachable: boolean,
+): Promise<KeepInStepOutcome> {
+  const row = await readRow(at);
+  if (!row) return "unchanged";
+  if (
+    isRecordingOpen(row.status) &&
+    recordingOverran({ lastStartedAt: row.lastStartedAt, sessionEndTime: row.session.endTime }, now)
+  ) {
+    const closed = await finishStreamRecording({ ...at, userId: null, source: "worker", reason: "overran", now });
+    if (!closed.ok) return "unchanged";
+    apiLogger.warn({ eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:closed-after-limit");
+    return "closed";
   }
-  return report;
+  if (!serverReachable) return "unchanged";
+  const { row: after, server } = await tellSettled(at);
+  if (!after || !server.ok || !server.changed) return "unchanged";
+  // A closed recording's setting being removed is the ordinary end of it. For an open one, the
+  // server did not hold what the recording says: a call that failed when the button was pressed, or a restart.
+  if (!isRecordingOpen(after.status)) return "unchanged";
+  apiLogger.warn({ eventId: at.eventId, sessionId: at.sessionId, status: after.status }, "stream-recording:server-setting-put-right");
+  return "corrected";
 }

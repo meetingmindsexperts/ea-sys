@@ -9,7 +9,7 @@
  */
 import { runStreamWatchdogTick } from "@/lib/webinar/stream-watchdog";
 import { sweepExternalPublishers } from "@/lib/webinar/external-stream-sweep";
-import { convergeStreamRecordings } from "@/services/stream-recording-service";
+import { convergeStreamRecordings } from "@/lib/webinar/stream-recording-sweep";
 import { apiLogger } from "@/lib/logger";
 import { withJobLock } from "../lib/job-lease";
 import { JOB_IDS } from "../lib/job-ids";
@@ -38,7 +38,7 @@ export async function tick(): Promise<void> {
       apiLogger.error({ err, msg: "worker:tick-uncaught", job: JOB_NAME, part: "external-sweep" });
     }
     // The stream server is made to agree with every recording of a partner's stream, and a
-    // recording nobody finished is closed (stream-recording-service.ts). Its own try, as above.
+    // recording nobody finished is closed (stream-recording-sweep.ts). Its own try, as above.
     try {
       const recordings = await convergeStreamRecordings();
       if (recordings.corrected > 0 || recordings.closed > 0) {

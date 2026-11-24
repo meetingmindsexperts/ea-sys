@@ -14,7 +14,7 @@ const { tickSpy, sweepSpy, recordingSpy, mockLogger } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/webinar/stream-watchdog", () => ({ runStreamWatchdogTick: tickSpy }));
 vi.mock("@/lib/webinar/external-stream-sweep", () => ({ sweepExternalPublishers: sweepSpy }));
-vi.mock("@/services/stream-recording-service", () => ({ convergeStreamRecordings: recordingSpy }));
+vi.mock("@/lib/webinar/stream-recording-sweep", () => ({ convergeStreamRecordings: recordingSpy }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("../../worker/lib/job-lease", () => ({
   withJobLock: async (_id: number, _name: string, fn: () => Promise<void>) => fn(),

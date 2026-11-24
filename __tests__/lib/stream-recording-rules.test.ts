@@ -69,11 +69,28 @@ describe("serverSetting", () => {
 
 describe("limits", () => {
   const start = new Date("2026-12-01T09:00:00Z");
+  const sessionEnd = new Date("2026-12-01T10:00:00Z");
+  const hours = (h: number) => new Date(sessionEnd.getTime() + h * 60 * 60 * 1000);
 
-  it("a recording is closed by the sweep at six hours, not before", () => {
-    expect(recordingOverran(start, new Date(start.getTime() + RECORDING_MAX_MS - 1))).toBe(false);
-    expect(recordingOverran(start, new Date(start.getTime() + RECORDING_MAX_MS))).toBe(true);
+  it("a recording nobody finished is closed six hours after the webinar's scheduled end, not before", () => {
+    const recording = { lastStartedAt: start, sessionEndTime: sessionEnd };
+    expect(recordingOverran(recording, new Date(hours(6).getTime() - 1))).toBe(false);
+    expect(recordingOverran(recording, hours(6))).toBe(true);
     expect(RECORDING_MAX_MS).toBe(6 * 60 * 60 * 1000);
+  });
+
+  // Review of 7563027f7: counted from when the recording was made, arming at nine closed it at three.
+  it("armed in the morning for an afternoon webinar: still open when the webinar runs", () => {
+    const armed = { lastStartedAt: new Date("2026-12-01T05:00:00Z"), sessionEndTime: new Date("2026-12-01T13:00:00Z") };
+    expect(recordingOverran(armed, new Date("2026-12-01T12:30:00Z"))).toBe(false);
+    expect(recordingOverran(armed, new Date("2026-12-01T18:59:00Z"))).toBe(false);
+    expect(recordingOverran(armed, new Date("2026-12-01T19:00:00Z"))).toBe(true);
+  });
+
+  it("a Start pressed after the scheduled end counts from that Start", () => {
+    const late = { lastStartedAt: hours(5), sessionEndTime: sessionEnd };
+    expect(recordingOverran(late, hours(10))).toBe(false);
+    expect(recordingOverran(late, hours(11))).toBe(true);
   });
 
   it("kept for twelve months from the day it began", () => {

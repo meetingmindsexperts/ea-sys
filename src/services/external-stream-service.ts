@@ -44,7 +44,12 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { externalStreamCredentials } from "@/lib/webinar/external-stream";
 import { isPartnerPublishSecretSet, newStreamKey } from "@/lib/webinar/livestream";
-import { disconnectPublishers, isMediamtxControlConfigured, type DisconnectResult } from "@/lib/webinar/mediamtx-control";
+import {
+  clearPathRecording,
+  disconnectPublishers,
+  isMediamtxControlConfigured,
+  type DisconnectResult,
+} from "@/lib/webinar/mediamtx-control";
 import { externalStreamValidUntil } from "@/lib/webinar/session-stream";
 import { probeStream } from "@/lib/webinar/stream-probe";
 import { lockSessionVideoSource, ZoomMeetingExistsError } from "@/lib/webinar/video-source";
@@ -447,7 +452,26 @@ export async function capturePartnerStreamsBeforeDelete(at: {
   };
 }
 
+/**
+ * A deleted session takes its recording's row with it (cascade), and with the
+ * row gone the minute sweep no longer knows to remove that stream's recording
+ * setting from the stream server (review of 7563027f7). So it is removed here,
+ * with the key captured before the delete. Asked whether or not the session
+ * was ever recorded: removing a setting that is not there is the outcome
+ * wanted, and nothing is asked on a server not set up for the control API.
+ */
+async function clearDeletedStreamRecording(eventId: string, row: { sessionId: string; streamKey: string }): Promise<void> {
+  try {
+    const cleared = await clearPathRecording(row.streamKey);
+    if (cleared.ok || cleared.code === "NOT_CONFIGURED") return;
+    apiLogger.warn({ eventId, sessionId: row.sessionId, code: cleared.code }, "external-stream:recording-setting-not-cleared-after-delete");
+  } catch (err) {
+    apiLogger.error({ err, eventId, sessionId: row.sessionId }, "external-stream:recording-setting-clear-after-delete-errored");
+  }
+}
+
 async function endDeletedStream(eventId: string, row: { sessionId: string; streamKey: string }): Promise<void> {
+  await clearDeletedStreamRecording(eventId, row);
   try {
     const result = await disconnectPublishers(row.streamKey);
     if (!result.ok) {
