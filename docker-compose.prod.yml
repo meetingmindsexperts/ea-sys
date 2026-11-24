@@ -221,6 +221,10 @@ services:
       # Shared log directory so the file logger has a writable target
       # AND the existing /logs viewer can read worker output.
       - ./logs:/app/logs
+      # MediaMTX's recording buffer, READ-ONLY: the worker reads each piece to ship it to
+      # S3, and asks MediaMTX itself to delete it (it writes them as root; the worker is
+      # not). An empty folder until the owner recreates MediaMTX with its own mount.
+      - ./recordings:/recordings:ro
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:3099/health"]
       interval: 30s
@@ -263,6 +267,11 @@ services:
       - ./mediamtx.yml:/mediamtx.yml
       # Its log file, beside app.log, for the CloudWatch agent (mediamtx.yml logFile).
       - ./logs:/logs
+      # Recordings of a partner's stream, a buffer of about a minute: the worker ships
+      # each piece to S3 and has MediaMTX delete it (docs/PARTNER_STREAM_RECORDING_PLAN.md).
+      # Takes effect only when this container is recreated, which cuts any live stream:
+      # between webinars, by the owner.
+      - ./recordings:/recordings
       # The box's trusted certificate authorities, read-only. The image has none,
       # so the publish check's HTTPS call to /api/webhooks/mediamtx-auth failed
       # "x509: certificate signed by unknown authority" and EVERY publish was

@@ -9,7 +9,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockDb, mockLogger, control, streamSpy } = vi.hoisted(() => ({
+const { mockDb, mockLogger, control, streamSpy, diskSpy } = vi.hoisted(() => ({
+  diskSpy: vi.fn(),
   control: {
     isMediamtxControlConfigured: vi.fn(),
     setPathRecording: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/webinar/mediamtx-control", () => control);
 vi.mock("@/lib/webinar/session-stream", () => ({ sessionStream: streamSpy }));
+vi.mock("@/lib/webinar/recording-disk", () => ({ freeDiskBytes: diskSpy, RECORDING_MIN_FREE_BYTES: 6 * 1024 ** 3 }));
 
 import {
   finishStreamRecording,
@@ -92,6 +94,7 @@ beforeEach(() => {
   mockDb.streamRecording.updateMany.mockResolvedValue({ count: 1 });
   mockDb.streamRecording.findMany.mockResolvedValue([]);
   mockDb.auditLog.create.mockResolvedValue({});
+  diskSpy.mockResolvedValue(18 * 1024 ** 3);
 });
 afterEach(() => {
   delete process.env.STREAM_RECORDING_ENABLED;
@@ -230,6 +233,30 @@ describe("startStreamRecording", () => {
     reads(row({ status }));
     expect(await startStreamRecording({ ...caller, partnerAgreed: true, now: NOW })).toMatchObject({ ok: false, code: "ALREADY_FINISHED" });
     expect(control.setPathRecording).not.toHaveBeenCalled();
+  });
+
+  it("refused on a disk short of room for the stream server's buffer, and nothing is written", async () => {
+    reads(null);
+    diskSpy.mockResolvedValue(5 * 1024 ** 3);
+    expect(await startStreamRecording({ ...caller, partnerAgreed: true, now: NOW })).toMatchObject({ ok: false, code: "DISK_LOW" });
+    expect(mockDb.streamRecording.create).not.toHaveBeenCalled();
+    expect(control.setPathRecording).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ freeBytes: 5 * 1024 ** 3 }), "stream-recording:disk-low");
+  });
+
+  // Pessimistic (owner, Nov 24, 2026): space that could not be read is not taken as enough.
+  it("refused when the free space could not be read", async () => {
+    reads(row({ status: "PAUSED" }));
+    diskSpy.mockResolvedValue(null);
+    expect(await startStreamRecording({ ...caller, now: NOW })).toMatchObject({ ok: false, code: "DISK_LOW" });
+    expect(moves()).toEqual([]);
+  });
+
+  it("pressing Start on a recording already running never fails on the disk: nothing is switched on", async () => {
+    reads(row());
+    diskSpy.mockResolvedValue(null);
+    expect(await startStreamRecording({ ...caller, now: NOW })).toMatchObject({ ok: true, recording: { status: "RECORDING" } });
+    expect(diskSpy).not.toHaveBeenCalled();
   });
 
   it("only a partner's stream: our own Zoom webinar, or no stream at all, is refused", async () => {

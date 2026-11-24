@@ -48,6 +48,7 @@ import {
   type ControlFailure,
   type RecordingChangeResult,
 } from "@/lib/webinar/mediamtx-control";
+import { freeDiskBytes, RECORDING_MIN_FREE_BYTES } from "@/lib/webinar/recording-disk";
 import { sessionStream } from "@/lib/webinar/session-stream";
 import {
   isRecordingOpen,
@@ -90,6 +91,7 @@ type StartCaller = Caller & { organizationId: string };
 
 export type StreamRecordingErrorCode =
   | "NOT_AVAILABLE"
+  | "DISK_LOW"
   | "NOT_PARTNER_STREAM"
   | "AGREEMENT_REQUIRED"
   | "NOT_STARTED"
@@ -123,6 +125,8 @@ export type StreamRecordingResult =
 
 const MESSAGES: Record<StreamRecordingErrorCode, string> = {
   NOT_AVAILABLE: "Recording is not set up on this server.",
+  DISK_LOW:
+    "Recording was not started: the server is short of disk space, or it could not be checked. A recording needs room for up to two hours of video on the server before it reaches storage.",
   NOT_PARTNER_STREAM: "Only a partner's stream is recorded here. This session has none.",
   AGREEMENT_REQUIRED: "Confirm that the partner has agreed to be recorded before starting.",
   NOT_STARTED: "This webinar has no recording.",
@@ -229,6 +233,14 @@ function readRow(at: At): Promise<Row | null> {
 export async function getStreamRecording(at: At): Promise<StreamRecordingView | null> {
   const row = await readRow(at);
   return row ? toView(row) : null;
+}
+
+/** Room on the server's disk for the stream server's buffer (recording-disk.ts). */
+async function diskHasRoom(at: At): Promise<boolean> {
+  const free = await freeDiskBytes();
+  if (free !== null && free >= RECORDING_MIN_FREE_BYTES) return true;
+  apiLogger.warn({ eventId: at.eventId, sessionId: at.sessionId, freeBytes: free }, "stream-recording:disk-low");
+  return false;
 }
 
 /** The session's partner stream key, or null when its stream is not a partner's. Handed on, never kept. */
@@ -377,6 +389,9 @@ export async function startStreamRecording(input: StartCaller & { partnerAgreed?
   const existing = await readRow(input);
   const step = recordingTransition(existing?.status ?? null, "start");
   if (!step.ok) return refuse(input, "start", step.code);
+  // Pessimistic: free space that could not be read is not taken as enough. Asked only when this
+  // Start would switch recording on, so pressing Start on a running recording never fails on it.
+  if (step.changed && !(await diskHasRoom(input))) return refuse(input, "start", "DISK_LOW");
 
   if (!existing) {
     if (input.partnerAgreed !== true) return refuse(input, "start", "AGREEMENT_REQUIRED");

@@ -13,7 +13,7 @@ import path from "node:path";
 const { mockLogger } = vi.hoisted(() => ({ mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 
-import { clearPathRecording, pathRecording, setPathRecording } from "@/lib/webinar/mediamtx-control";
+import { clearPathRecording, deleteRecordingPiece, pathRecording, setPathRecording } from "@/lib/webinar/mediamtx-control";
 
 const SECRET = "s".repeat(40);
 const KEY = "0123456789abcdef0123456789abcdef";
@@ -181,6 +181,39 @@ describe("clearPathRecording", () => {
   });
 });
 
+describe("deleteRecordingPiece", () => {
+  const START = "2026-11-24T09:24:56.718063Z";
+
+  it("asks MediaMTX to delete the piece by its path and exact start", async () => {
+    serve(null, json(200, { status: "ok" }));
+    expect(await deleteRecordingPiece(KEY, START)).toEqual({ ok: true, changed: true });
+    const [call] = calls();
+    expect(call.method).toBe("DELETE");
+    const url = new URL(BASE + call.path);
+    expect(url.pathname).toBe("/v3/recordings/deletesegment");
+    expect(url.searchParams.get("path")).toBe(`live/${KEY}`);
+    expect(url.searchParams.get("start")).toBe(START);
+  });
+
+  // What MediaMTX 1.17.1 answered on the throwaway server for a piece already gone.
+  it("already gone is the outcome wanted", async () => {
+    serve(null, json(400, { status: "error", error: `remove /recordings/live/${KEY}/1795512296-718063.ts: no such file or directory` }));
+    expect(await deleteRecordingPiece(KEY, START)).toEqual({ ok: true, changed: false });
+  });
+
+  it("any other refusal is REFUSED, logged without the key", async () => {
+    serve(null, json(400, { status: "error", error: "invalid path name" }));
+    expect(await deleteRecordingPiece(KEY, START)).toEqual({ ok: false, code: "REFUSED" });
+    expect(mockLogger.warn).toHaveBeenCalledWith({ status: 400 }, "mediamtx-control:piece-delete-refused");
+    expect(JSON.stringify(mockLogger.warn.mock.calls)).not.toContain(KEY);
+  });
+
+  it("an answer that is not MediaMTX's is BAD_ANSWER, never done", async () => {
+    serve(null, json(502, null));
+    expect(await deleteRecordingPiece(KEY, START)).toEqual({ ok: false, code: "BAD_ANSWER" });
+  });
+});
+
 /**
  * Why sending `record` alone is enough (review of 7563027f7). A setting made
  * through the API is built from MediaMTX's `pathDefaults`, and a live stream is
@@ -204,6 +237,17 @@ describe("mediamtx.yml", () => {
       block.push(line);
     }
     expect(block).toEqual(["  all:", "    source: publisher"]);
+  });
+
+  // Recording is off unless our app switches it on for one stream: a default of "yes" would record every webinar.
+  it("records nothing by default, into the buffer folder, in named-by-Unix-time pieces", () => {
+    const start = lines.findIndex((l) => l === "pathDefaults:");
+    expect(start).toBeGreaterThan(-1);
+    const block = lines.slice(start + 1, start + 12).filter((l) => /^\s+\S/.test(l)).map((l) => l.trim());
+    expect(block).toContain("record: no");
+    expect(block).toContain("recordPath: /recordings/%path/%s-%f");
+    expect(block).toContain("recordFormat: mpegts");
+    expect(block.some((l) => /^recordDeleteAfter: \d+h$/.test(l))).toBe(true);
   });
 
   it("the control API stays behind our webhook: `api` is never excluded from the check", () => {

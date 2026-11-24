@@ -63,6 +63,28 @@ hlsSegmentMaxSize: 50M
 hlsAlwaysRemux: true
 
 # Allow all paths
+# Recording a partner's stream (Nov 24, 2026; docs/PARTNER_STREAM_RECORDING_PLAN.md).
+# Off for every stream. Our app switches it on for ONE stream at a time, through
+# the control API, with a setting that carries `record` and nothing else.
+#
+# These defaults MUST live here, in pathDefaults, and never under `paths: all:`
+# below. A setting made through the API is built from pathDefaults, and MediaMTX
+# keeps a live sender connected through a settings change only when nothing but
+# recording fields differ from the setting the stream is on. A test reads this
+# file (mediamtx-control-recording.test.ts) and fails if `all` gains anything.
+#
+# Pieces of at least 6 seconds (cut at the next keyframe), named by their start
+# in Unix time so no clock zone is assumed, in /recordings (mounted from the
+# box's ./recordings, read-only in the worker). The worker ships each piece to
+# S3 and then asks MediaMTX to delete it; recordDeleteAfter is only the backstop
+# for a piece nobody shipped. All of it was run on a throwaway 1.17.1 first.
+pathDefaults:
+  record: no
+  recordPath: /recordings/%path/%s-%f
+  recordFormat: mpegts
+  recordSegmentDuration: 6s
+  recordDeleteAfter: 2h
+
 paths:
   all:
     source: publisher

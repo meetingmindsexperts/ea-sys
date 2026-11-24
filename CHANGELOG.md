@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Recording a partner's stream, step 2: the pieces go to S3 (November 24, 2026)
+
+Plan: `docs/PARTNER_STREAM_RECORDING_PLAN.md` §4.2. Still dark: nothing starts a recording until
+`STREAM_RECORDING_ENABLED` is set.
+
+- New worker job `stream-recording-ship`, every minute: each finished piece of each recording is read from the
+  stream server's buffer, measured, uploaded to `recordings/{event}/{session}/{recording}/`, given its row, and
+  then deleted by the stream server itself. Safe to stop anywhere; pieces go in order; a failed delete does not
+  stop the shipping. Pieces recorded while the organisers said not to record are deleted, never shipped.
+- A piece's length is read from the timestamps inside it (`mpegts-duration.ts`): it matched `ffprobe` to the
+  millisecond on real pieces, so the worker image gains no video tools.
+- `mediamtx.yml` gains the recording defaults, recording off for every stream; `docker-compose.prod.yml` mounts
+  `./recordings` into the stream server and, read-only, into the worker. The stream server picks both up only
+  when the owner recreates it, between webinars.
+- Start is refused when the server's disk has less than 6 GB free, or when that cannot be read.
+- Said once in ten minutes per recording: pieces left waiting over two minutes, and a recording that should be
+  running that has made nothing for two minutes while its stream is live.
+
 ### The help assistant gives the event team's phone and office hours (November 24, 2026)
 
 Owner: "when someone not staff asks a question and the model is not sure, it is suggesting to reach out to the

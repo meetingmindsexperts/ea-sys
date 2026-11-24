@@ -1,6 +1,6 @@
 # Recording a partner's stream
 
-Status: IN BUILD (Nov 24, 2026). Step 1 of 8 is built and dark (`STREAM_RECORDING_ENABLED` unset);
+Status: IN BUILD (Nov 24, 2026). Steps 1 and 2 of 8 are built and dark (`STREAM_RECORDING_ENABLED` unset);
 step 0, the proof on a throwaway stream server, is done (2.1). Owner: "plan it please, partner side for now, we will use S3 for storage and
 not disk", the recording is for both attendees to watch and an archive file for us and the client,
 then "ok fine, proceed" on the proposals of section 6.
@@ -130,17 +130,40 @@ would leave a hole in the recording that nothing can fill.
 
 ### 4.2 Shipping to S3
 
-- A new folder on the box, `recordings/`, is mounted into both the stream server and the worker
-  (`docker-compose.prod.yml`). Recreating the stream server container cuts any live stream, so
-  this is done between webinars.
-- New worker job `stream-recording-ship`, every 10 seconds, singleton like the others. For each
-  running recording: every piece except the newest (still being written) is uploaded, recorded as
-  a row, then deleted locally. After Stop, the last piece goes too once it has been still for
-  5 seconds.
-- A piece's length is read from the piece itself, never taken from the gap to the next one
-  (2.1). A piece starts a break when it begins more than a second after the one before it ends.
-- Where: `recordings/{eventId}/{sessionId}/{recordingId}/` (D3 says which bucket). Private,
-  registered in `src/lib/upload-prefixes.ts`, read only through signed links.
+Built in step 2 (Nov 24, 2026), changed from the first draft by what step 0 and the code found:
+
+- A new folder on the box, `recordings/`, mounted into the stream server (read and write) and
+  into the worker **read-only** (`docker-compose.prod.yml`). The stream server writes as root and
+  the worker runs as user 1001, so the worker could not delete a piece anyway; instead it asks
+  the stream server to (`DELETE /v3/recordings/deletesegment`, run on the throwaway server:
+  deleted by its exact start, refused a path with `..`). No container changes its user.
+  Recreating the stream server container cuts any live stream, so its mount waits for the
+  owner, between webinars; the worker's mount arrives with the next deploy, as an empty folder.
+- New worker job `stream-recording-ship`, **every minute** at second 15 (first draft: every
+  10 seconds; each run writes a JobRun row and a lease, kept 14 days, and a minute of video is
+  about 25 MB). For each recording that is recording, stopped or finishing, inside its own tenant
+  (`src/services/stream-recording-shipping.ts`): every finished piece, oldest first, is read,
+  measured, uploaded, given its row (the totals in the same transaction), and then deleted
+  through the stream server. A piece is finished when a newer one exists, or when it has not
+  changed for 20 seconds. A run stops starting work after 20 seconds and the next takes the rest.
+- **A piece's length is read from the timestamps inside it** (`src/lib/webinar/mpegts-duration.ts`),
+  in plain code: it matched `ffprobe` to the millisecond on six real pieces with B-frames. So the
+  worker image needs no video tools for this step; `ffmpeg` is a step 4 question (the MP4).
+- A piece **recorded while the organisers said not to record** (begun after a Stop, inside the
+  last pause, or after Finish: the stream server was told late) is deleted and never shipped
+  (`pieceWanted`, `src/lib/webinar/recording-pieces.ts`).
+- Safe to stop anywhere: the upload goes to the same name, a piece whose row exists is only
+  deleted, a row is never written twice. Pieces go strictly in order and a run stops at the first
+  that fails to ship. A failed DELETE does not stop it: with the stream server's API down for two
+  hours, its own clean-up would otherwise delete every piece never shipped.
+- Said, once in ten minutes per recording: pieces left over two minutes (error,
+  `stream-recording-ship:pieces-waiting`); a recording that should be running with nothing new
+  for two minutes while its stream is live (`stream-recording-ship:live-but-not-recording`).
+- Where: `recordings/{eventId}/{sessionId}/{recordingId}/{piece}`, private, registered in
+  `src/lib/upload-prefixes.ts`, read only through signed links.
+- Start is refused when the disk has less than 6 GB free, or when that could not be read
+  (pessimistic), asked from the app's own container (`src/lib/webinar/recording-disk.ts`): on
+  the box all containers and the buffer share one disk.
 
 ### 4.3 The record
 
@@ -173,7 +196,7 @@ carries on through it.
   comes out. Nothing is written to the box.
 - The cost is small because nothing is re-encoded: an estimate of about a minute of one CPU for a
   two hour webinar, measured in step 0. The box averaged 6% CPU over the week before this plan.
-- `ffmpeg` is in the worker image only (D8; added at step 2, for reading each piece's length). The MP4 is the "fragmented" kind, the only kind
+- `ffmpeg` in the worker image only (D8), added at this step; step 2 did not need it (4.2). The MP4 is the "fragmented" kind, the only kind
   that can be written without a disk. Browsers, VLC, QuickTime and Vimeo's upload are expected to
   take it; step 0 checks each on a real file before anything depends on it.
 - Staff download it from the console's Recording tab through a 5 minute signed link
@@ -281,7 +304,7 @@ built first and attendees watch through Vimeo until phase 2; D2 follows the rese
 |---|---|---|
 | 0 | **DONE Nov 24, 2026** (2.1). Prove it on a throwaway stream server with a test stream: switch recording on and off mid-stream and watch that the sender stays connected; the real length of pieces; what a restart does to API settings; a drop and reconnect; pieces joined to an MP4 through `ffmpeg` with no file on disk; the MP4 opened in Chrome, Safari, VLC, QuickTime and uploaded to Vimeo; the pieces played as an HLS replay on an iPhone. | 0.5 |
 | 1 | **BUILT Nov 24, 2026.** The two tables (additive migration `20261124100000`, row policies), the rules (`src/lib/webinar/stream-recording.ts`), `stream-recording-service.ts` (start, stop, finish), the control API calls (`setPathRecording`, `clearPathRecording`, the body pinned to `record` alone), and the sweep that puts settings back and closes a recording nobody finished, run from the stream watchdog job. Nothing calls start yet. | 1 |
-| 2 | The shipping job, the disk guard, the waiting-pieces alert. | 1 |
+| 2 | **BUILT Nov 24, 2026** (4.2). The shipping job, the disk guard, the waiting-pieces and not-recording alerts, the piece length reader, the stream server's recording defaults in `mediamtx.yml`, and the two mounts. | 1 |
 | 3 | The console: agreement tick, Start, Stop, Finish, the REC mark, the Recording tab. | 1 |
 | 4 | The finishing job, `ffmpeg` in the worker image, Download, Delete, retention. | 1 |
 | 5 | Docs, the user guide, and a production rehearsal with a real partner-style stream of an hour. | 0.5 |
@@ -320,9 +343,14 @@ Each step is its own commit with its tests, reviewed once, as usual.
 
 Handed over as exact commands when their step is reached; none is run by the agent.
 
-- **Before step 2 goes live**, between webinars: create `recordings/` on the box, add it to the
-  stream server and the worker in `docker-compose.prod.yml`, put the new `mediamtx.yml` in place,
-  recreate the stream server container.
+- **Before recording is switched on**, between webinars (the stream server is restarted, which
+  cuts any live stream): on the box, from `/home/ubuntu/ea-sys` after a deploy that carries
+  step 2, check the new `mediamtx.yml` loads in a throwaway copy, then recreate the stream server
+  so it picks up its new mount and settings, and check it is up:
+  `docker run --rm -v "$PWD/mediamtx.yml:/mediamtx.yml:ro" bluenviron/mediamtx:1.17.1` (it must
+  start without a config error; stop it with Ctrl-C), then
+  `docker compose -f docker-compose.prod.yml up -d --force-recreate mediamtx` and
+  `docker logs ea-sys-mediamtx --since 1m`. The recordings folder appears on its own.
 - **S3**: a lifecycle rule on `recordings/` (old versions cleared, unfinished uploads cleared
   after a day), and whether the Singapore copy includes it (D3). The box's role should already
   reach that prefix, since it reads and writes the rest of the bucket; checked at that step.

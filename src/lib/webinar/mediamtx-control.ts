@@ -45,6 +45,7 @@
  *   record       POST   /v3/config/paths/add/live/<key>     {"record": true}
  *   switch       PATCH  /v3/config/paths/patch/live/<key>   {"record": bool}
  *   forget       DELETE /v3/config/paths/delete/live/<key>
+ *   drop piece   DELETE /v3/recordings/deletesegment?path=live/<key>&start=<t>
  *
  * THE BODY IS ONLY EVER {"record": ...}. MediaMTX keeps a live stream
  * connected through a settings change only when nothing but the recording
@@ -448,4 +449,23 @@ export async function clearPathRecording(streamKey: string): Promise<RecordingCh
   // Already gone is the outcome wanted.
   if (answer.status === 404 && isMediamtxError(answer.json)) return { ok: true, changed: false };
   return changeOutcome(answer, "delete");
+}
+
+/**
+ * Have MediaMTX delete one recorded piece, named by when it began, exactly as
+ * its own API writes it (recording-pieces.ts, `iso`). The worker ships a piece
+ * and then calls this: MediaMTX wrote the file as root, and the worker reads
+ * the folder but may not change it. True when it is gone, including when it
+ * already was (MediaMTX answers 400 naming the missing file, not 404).
+ */
+export async function deleteRecordingPiece(streamKey: string, startIso: string): Promise<RecordingChangeResult> {
+  const query = new URLSearchParams({ path: `live/${streamKey}`, start: startIso }).toString();
+  const answer = await call(`/v3/recordings/deletesegment?${query}`, "DELETE", "recording");
+  if (typeof answer === "string") return { ok: false, code: answer };
+  if (answer.status === 200) return { ok: true, changed: true };
+  const error = isMediamtxError(answer.json) ? (answer.json as { error: string }).error : "";
+  if (answer.status === 400 && error.includes("no such file or directory")) return { ok: true, changed: false };
+  apiLogger.warn({ status: answer.status }, "mediamtx-control:piece-delete-refused");
+  if (answer.status === 401 || answer.status === 403 || error) return { ok: false, code: "REFUSED" };
+  return { ok: false, code: "BAD_ANSWER" };
 }

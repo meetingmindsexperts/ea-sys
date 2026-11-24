@@ -476,6 +476,7 @@ OPERATOR_LANE_ALLOWLIST=(
   "src/lib/webinar/room-autoclose.ts"        # open webinar rooms candidate scan (writes run in runWithTenant)
   "src/lib/webinar/stream-watchdog.ts"       # open custom-stream rooms candidate scan (each room runs in runWithTenant)
   "src/lib/webinar/stream-recording-sweep.ts" # recordings of a partner's stream to keep in step (each runs in runWithTenant)
+  "src/lib/webinar/stream-recording-ship.ts"  # recordings of a partner's stream to ship to S3 (each runs in runWithTenant)
   "src/lib/certificates/auto-issue.ts"       # survey-completed candidate sweep
   "src/lib/certificates/issue-worker.ts"     # active-run scan + stall reclamation
   "src/lib/dtcm-eticket/issue-worker.ts"     # RUNNING DET-run scan (each run worked in its own lane)
@@ -555,7 +556,7 @@ SWEPT_MODELS='event|emailTemplate|notification|eventStats|importLog|invoiceCount
 # a call placed before the wrap is a swept read the first alternative cannot see.
 # The recording service's four (src/services/stream-recording-service.ts, Nov 24,
 # 2026) read StreamRecording the same way.
-SWEPT_OP_RE="([.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)|(sessionStream|cachedSessionStream|setSessionStreamStatus|getStreamRecording|startStreamRecording|stopStreamRecording|finishStreamRecording)[(])"
+SWEPT_OP_RE="([.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)|(sessionStream|cachedSessionStream|setSessionStreamStatus|getStreamRecording|startStreamRecording|stopStreamRecording|finishStreamRecording|shipRecordingPieces)[(])"
 
 violations=0
 fail_header() {

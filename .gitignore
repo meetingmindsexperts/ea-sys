@@ -111,3 +111,6 @@ contacts-quarantine*.json
 # Local dev-DB snapshots (scripts/db-snapshot.sh) — pg_dumps of the LOCAL
 # prod copy, so real attendee data. Never commit them.
 .local-snapshots/
+
+# MediaMTX's recording buffer on the box (docker-compose.prod.yml); never in git.
+/recordings/
