@@ -230,6 +230,10 @@ day each.
   a key the list no longer has, shown as the raw key. Rare (a delete is offered only for an unused own
   type) and harmless beyond the name; the fix, if it is ever seen, is reading the organisation `FOR SHARE`
   inside each door's write.
+- **A written name can mean two types** (review of 33d5aa63f). A key keeps its first name, so after "Case
+  report" is renamed "Clinical case" and a new "Case report" is added, "Case report" is a name of one and the
+  made key of the other. `matchWrittenPresentationType` refuses such a text (the caller lists the choices) rather
+  than guess; a key written exactly is always read as that key.
 - **The step 3 editor must keep one type live**: with every type retired an event has nothing to offer and
   nobody can submit. `offeredPresentationTypes` falls back to any live type; with none, it is empty.
 

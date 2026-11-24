@@ -6,7 +6,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, submitReview, aggregates } = vi.hoisted(() => ({
+const { mockDb, submitReview, aggregates, strictTypes } = vi.hoisted(() => ({
+  strictTypes: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
     abstract: { findMany: vi.fn(), findFirst: vi.fn() },
@@ -36,7 +37,7 @@ vi.mock("@/lib/abstract-presentation-types-server", async () => {
       { key: "SYMPOSIUM", label: "Panel discussion" },
     ],
   });
-  return { loadPresentationTypes: async () => types, loadPresentationTypesStrict: async () => types };
+  return { loadPresentationTypes: async () => types, loadPresentationTypesStrict: strictTypes.mockImplementation(async () => types) };
 });
 
 import { ABSTRACT_EXECUTORS } from "@/lib/agent/tools/abstracts";
@@ -65,6 +66,12 @@ describe("a recommendation written by its name", () => {
     const res = (await ABSTRACT_EXECUTORS.submit_abstract_review({ abstractId: "ab1", recommendedFormat: "Keynote" }, ctx)) as Record<string, unknown>;
     expect(submitReview).toHaveBeenCalledWith(expect.objectContaining({ recommendedFormat: "Keynote" }));
     expect(res).toMatchObject({ code: "INVALID_RECOMMENDED_FORMAT" });
+  });
+
+  it("the success reply names the type recorded (review of 33d5aa63f)", async () => {
+    submitReview.mockResolvedValue({ ok: true, submission: { id: "s1", recommendedFormat: "SYMPOSIUM" } });
+    const res = (await ABSTRACT_EXECUTORS.submit_abstract_review({ abstractId: "ab1", recommendedFormat: "Panel discussion" }, ctx)) as { submission: Record<string, unknown> };
+    expect(res.submission).toMatchObject({ recommendedFormat: "SYMPOSIUM", recommendedFormatName: "Panel discussion" });
   });
 
   it("no recommendation, nothing resolved", async () => {
@@ -108,5 +115,19 @@ describe("types reported by name beside the key", () => {
       { key: "SYMPOSIUM", name: "Panel discussion" },
       { key: "NEITHER", name: "Neither" },
     ]);
+  });
+
+  it("get_event_info says the list could not be read, never the built-ins in its place", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", name: "Event", eventType: "CONFERENCE", settings: {} });
+    strictTypes.mockRejectedValueOnce(new Error("db down"));
+    const res = (await EVENT_EXECUTORS.list_event_info({}, ctx)) as Record<string, unknown>;
+    expect(res).toMatchObject({ presentationTypes: null, recommendableFormats: null });
+    expect(res.presentationTypesError).toBeTruthy();
+  });
+
+  it("get_event_info lists no types on a webinar, which takes no abstracts", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", name: "Webinar", eventType: "WEBINAR", settings: {} });
+    const res = (await EVENT_EXECUTORS.list_event_info({}, ctx)) as Record<string, unknown>;
+    expect(res).toMatchObject({ presentationTypes: [], recommendableFormats: [] });
   });
 });

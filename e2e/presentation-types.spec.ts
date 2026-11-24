@@ -44,9 +44,9 @@ test("an own presentation type is added, submitted with, recommended and decided
     await page.getByPlaceholder("Enter your abstract content here...").fill("An abstract on the organisation's own type.");
     await pickSelect(page, "Select speaker", "Sam Submitter");
     await pickSelect(page, "Select type", name);
-    // A required theme picker shows no text until chosen: the third picker in Details (speaker, type, theme).
-    const details = page.locator("div").filter({ has: page.getByRole("heading", { name: "Details" }) }).last();
-    await details.getByRole("combobox").nth(2).click();
+    // A required theme picker shows no text until chosen: found by its field's "Theme" label.
+    const themeField = page.locator("div.space-y-1\\.5").filter({ has: page.getByText(/^Theme/) }).last();
+    await themeField.getByRole("combobox").click();
     await page.getByRole("option", { name: "General", exact: true }).click();
     await shot(page, "2-abstract-on-the-type");
     await page.getByRole("button", { name: /submit for review/i }).click();

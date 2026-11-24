@@ -7,7 +7,7 @@ import { eventCodeReferences, isEventCodeTaken } from "@/lib/event-code";
 import { resolveDtcmEventConfig } from "@/lib/dtcm-performance-code";
 import { createEvent as createEventInService } from "@/services/event-service";
 import { partnerStreamReadiness } from "@/lib/webinar/partner-stream-readiness";
-import { loadPresentationTypes } from "@/lib/abstract-presentation-types-server";
+import { loadPresentationTypesStrict } from "@/lib/abstract-presentation-types-server";
 import { offeredPresentationTypes } from "@/lib/abstract-presentation-types";
 import { recommendableFormats, recommendedFormatLabel } from "@/lib/recommended-formats";
 import type { ToolExecutor } from "./_shared";
@@ -89,7 +89,15 @@ const listEventInfo: ToolExecutor = async (_input, ctx) => {
     // The types this event's abstract form offers and what a reviewer may recommend
     // (step 5 of docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md): the organisation's list,
     // so a tool that takes a type can be given its key or its name.
-    const types = await loadPresentationTypes(ctx.organizationId);
+    // Read strictly: on a failed read the assistant is told so, never handed the
+    // five built-ins as if this event offered them (review of 33d5aa63f). A
+    // webinar takes no abstracts, so it lists none.
+    if (info.eventType === "WEBINAR") return { ...info, presentationTypes: [], recommendableFormats: [] };
+    const types = await loadPresentationTypesStrict(ctx.organizationId).catch((err: unknown) => {
+      apiLogger.error({ err, msg: "agent:list_event_info-presentation-types-failed", organizationId: ctx.organizationId });
+      return null;
+    });
+    if (!types) return { ...info, presentationTypes: null, recommendableFormats: null, presentationTypesError: "The presentation types could not be read; do not say which the event offers." };
     return {
       ...info,
       presentationTypes: offeredPresentationTypes(settings, types).map((t) => ({ key: t.key, name: t.label })),

@@ -21,7 +21,12 @@ Plan: `docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md` (all five steps now built).
   renamed type is reported by its current name.
 - A browser spec (`e2e/presentation-types.spec.ts`) adds a type on the Content page, enters an abstract on it,
   has the reviewer recommend it by its name and accepts the abstract.
-- Version 0.4.70: four tools' descriptions changed. **A connected assistant (claude.ai, Claude Desktop) must
+- One rule reads a written type, for the assistant and the CSV import (`matchWrittenPresentationType`): a key as
+  written, then a name (ignoring case, spacing and accents), then the key a name would make. A renamed type's old
+  name that now belongs to a newer type is ambiguous and refused with the list, never stored as the wrong type; a
+  saved review's reply names the type recorded; `get_event_info` says when the list could not be read and lists
+  none on a webinar (review of 33d5aa63f).
+- Version 0.4.70: five tools' descriptions changed. **A connected assistant (claude.ai, Claude Desktop) must
   disconnect and reconnect to see them.**
 
 ### Presentation types, step 4: a reviewer recommends the organisation's own types (November 24, 2026)

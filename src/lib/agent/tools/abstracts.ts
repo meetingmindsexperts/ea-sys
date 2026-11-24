@@ -16,8 +16,8 @@ import {
   unassignReviewer as unassignReviewerService,
   type AbstractTransitionStatus,
 } from "@/services/abstract-service";
-import { loadPresentationTypes } from "@/lib/abstract-presentation-types-server";
-import { presentationTypeLabel } from "@/lib/abstract-presentation-types";
+import { loadPresentationTypes, loadPresentationTypesStrict } from "@/lib/abstract-presentation-types-server";
+import { presentationTypeLabel, type PresentationTypeDef } from "@/lib/abstract-presentation-types";
 import { recommendedFormatLabel, resolveWrittenRecommendation } from "@/lib/recommended-formats";
 import type { ToolExecutor } from "./_shared";
 
@@ -429,6 +429,7 @@ const submitAbstractReviewTool: ToolExecutor = async (input, ctx) => {
       };
     }
 
+    const review = await reviewFieldsFor(input, ctx.organizationId);
     const result = await submitAbstractReview({
       eventId: ctx.eventId,
       abstractId,
@@ -436,11 +437,11 @@ const submitAbstractReviewTool: ToolExecutor = async (input, ctx) => {
       // No session role on AgentContext — the org-admin self-submit bypass is
       // deliberately unavailable via MCP (unchanged from the old copy).
       actor: { userId: ctx.userId },
-      ...(await reviewFieldsFor(input, ctx.organizationId)),
+      ...review.fields,
       source: ctx.source,
     });
     if (!result.ok) return { error: result.message, code: result.code };
-    return { success: true, submission: result.submission };
+    return { success: true, submission: withFormatName(result.submission, review.types) };
     });
   } catch (err) {
     apiLogger.error({ err }, "agent:submit_abstract_review failed");
@@ -487,11 +488,20 @@ function parseReviewFields(input: Record<string, unknown>): {
  * key, a type's name or Neither (step 5 of docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md).
  * Whether the event allows it is still the review service's decision.
  */
-async function reviewFieldsFor(input: Record<string, unknown>, organizationId: string): Promise<ReturnType<typeof parseReviewFields>> {
+async function reviewFieldsFor(
+  input: Record<string, unknown>,
+  organizationId: string,
+): Promise<{ fields: ReturnType<typeof parseReviewFields>; types: PresentationTypeDef[] }> {
   const fields = parseReviewFields(input);
-  if (!fields.recommendedFormat) return fields;
-  const types = await loadPresentationTypes(organizationId);
-  return { ...fields, recommendedFormat: resolveWrittenRecommendation(fields.recommendedFormat, types) };
+  // Strict: this decides what is written, so never a cached or stand-in list (review of 33d5aa63f).
+  const types = await loadPresentationTypesStrict(organizationId);
+  if (!fields.recommendedFormat) return { fields, types };
+  return { fields: { ...fields, recommendedFormat: resolveWrittenRecommendation(fields.recommendedFormat, types) }, types };
+}
+
+/** The saved review with its recommendation's name, so the assistant can see which type it recorded. */
+function withFormatName<T extends { recommendedFormat?: string | null }>(submission: T, types: readonly PresentationTypeDef[]) {
+  return { ...submission, recommendedFormatName: recommendedFormatLabel(types, submission.recommendedFormat) || null };
 }
 
 // Org-admin-only sibling of submit_abstract_review. Takes an explicit
@@ -507,18 +517,19 @@ const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
     if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
     if (!reviewerUserId) return { error: "reviewerUserId is required", code: "MISSING_REVIEWER_USER_ID" };
 
+    const review = await reviewFieldsFor(input, ctx.organizationId);
     const result = await submitAbstractReview({
       eventId: ctx.eventId,
       abstractId,
       reviewerUserId,
       actor: { userId: ctx.userId },
-      ...(await reviewFieldsFor(input, ctx.organizationId)),
+      ...review.fields,
       source: ctx.source,
     });
     if (!result.ok) return { error: result.message, code: result.code };
     return {
       success: true,
-      submission: result.submission,
+      submission: withFormatName(result.submission, review.types),
       onBehalfOf: {
         userId: reviewerUserId,
         name: `${result.reviewer?.firstName ?? ""} ${result.reviewer?.lastName ?? ""}`.trim(),

@@ -82,6 +82,27 @@ describe("resolveWrittenRecommendation (step 5: the assistant writes a name or a
     expect(resolveWrittenRecommendation("NEITHER", own)).toBe("NEITHER");
   });
 
+  it("a renamed type's old name, now another type's, is ambiguous and passed on to be refused (review of 33d5aa63f)", () => {
+    const reused = readPresentationTypes({
+      presentationTypes: [
+        { key: "POSTER", label: "E-poster" },
+        { key: "POSTER_2", label: "Poster" },
+        { key: "CASE_REPORT", label: "Clinical case" },
+        { key: "CASE_REPORT_2", label: "Case report" },
+      ],
+    });
+    expect(resolveWrittenRecommendation("Poster", reused)).toBe("Poster");
+    expect(resolveWrittenRecommendation("Case report", reused)).toBe("Case report");
+    // A key as written, or the current name with no other claim on it, is never ambiguous.
+    expect(resolveWrittenRecommendation("POSTER", reused)).toBe("POSTER");
+    expect(resolveWrittenRecommendation("POSTER_2", reused)).toBe("POSTER_2");
+    expect(resolveWrittenRecommendation("clinical case", reused)).toBe("CASE_REPORT");
+    // "Oral Poster" names an own type and has the shape of the built-in's key: refused with the list, then sent by key.
+    const oralPoster = readPresentationTypes({ presentationTypes: [{ key: "ORAL_POSTER_2", label: "Oral Poster" }] });
+    expect(resolveWrittenRecommendation("Oral Poster", oralPoster)).toBe("Oral Poster");
+    expect(resolveWrittenRecommendation("ORAL_POSTER_2", oralPoster)).toBe("ORAL_POSTER_2");
+  });
+
   it("passes on what matches nothing, and Oral or Poster, for the review service to refuse with the choices", () => {
     expect(resolveWrittenRecommendation("Keynote", own)).toBe("Keynote");
     expect(resolveWrittenRecommendation("Oral or Poster", own)).toBe("ORAL_POSTER");

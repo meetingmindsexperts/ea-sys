@@ -255,11 +255,35 @@ export function inDecisionOrder(types: readonly PresentationTypeDef[]): Presenta
 }
 
 /**
+ * Which of these types a written name or key means: ONE rule for the CSV import
+ * and the assistant (review of 33d5aa63f). In order:
+ *   1. a key exactly as written ("CASE_REPORT", what the CSV export writes);
+ *   2. a name, ignoring case, spacing and accents (as the editor compares names);
+ *   3. the key a written name would have ("case report" for CASE_REPORT), only
+ *      when no name matches.
+ * A key keeps the name its type was made with, so after a rename the old name
+ * may belong to a newer type: where a name and a made key point at different
+ * types the text is ambiguous and matches nothing, so the caller refuses it
+ * with the list instead of storing the wrong type.
+ */
+export function matchWrittenPresentationType(written: string, types: readonly PresentationTypeDef[]): PresentationTypeDef | null {
+  const text = written.replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  const exact = types.find((t) => t.key === text);
+  if (exact) return exact;
+  const byName = types.find((t) => sameName(t.label, text));
+  const madeKey = text.toUpperCase().replace(/[\s-]+/g, "_");
+  const byMadeKey = types.find((t) => t.key === madeKey);
+  if (byName && byMadeKey && byName.key !== byMadeKey.key) return null;
+  return byName ?? byMadeKey ?? null;
+}
+
+/**
  * The type a written cell names (a CSV import), among the types an event
- * offers: by key (what the CSV export writes) or by name, whatever the case.
- * An empty cell is no type; a cell naming a type the event does not offer is
- * refused, never dropped (review of 6e04916ec: the import dropped an
- * organisation's own type without a word, and took a retired one).
+ * offers, by `matchWrittenPresentationType`. An empty cell is no type; a cell
+ * naming a type the event does not offer is refused, never dropped (review of
+ * 6e04916ec: the import dropped an organisation's own type without a word, and
+ * took a retired one).
  */
 export function resolveWrittenPresentationType(
   cell: string | null | undefined,
@@ -267,9 +291,7 @@ export function resolveWrittenPresentationType(
 ): { key: string | null } | { refused: string } {
   const written = cell?.replace(/\s+/g, " ").trim();
   if (!written) return { key: null };
-  const upper = written.toUpperCase();
-  const lower = written.toLowerCase();
-  const match = offered.find((t) => t.key === upper || t.label.toLowerCase() === lower);
+  const match = matchWrittenPresentationType(written, offered);
   return match ? { key: match.key } : { refused: written };
 }
 
