@@ -49,6 +49,7 @@ vi.mock("@/lib/security", async (importOriginal) => ({
 import { domainMatrix, type HandlerCase } from "./harness";
 import { GET as orgGET, PUT as orgPUT } from "@/app/api/organization/route";
 import { GET as brandingGET } from "@/app/api/organization/branding/route";
+import { GET as presentationTypesGET, PUT as presentationTypesPUT } from "@/app/api/organization/presentation-types/route";
 import { GET as activeUsersGET } from "@/app/api/organization/active-users/route";
 import { GET as loginActivityGET } from "@/app/api/organization/login-activity/route";
 import { GET as aiGET, PUT as aiPUT, DELETE as aiDELETE } from "@/app/api/organization/ai/credentials/route";
@@ -81,6 +82,8 @@ const CASES: HandlerCase[] = [
   { name: "GET organization", handler: orgGET, method: "GET", ...org },
   { name: "PUT organization", handler: orgPUT, method: "PUT", body: { name: "Renamed Org" }, ...org },
   { name: "GET organization/branding", handler: brandingGET, method: "GET", ...org },
+  { name: "GET organization/presentation-types", handler: presentationTypesGET, method: "GET", ...org },
+  { name: "PUT organization/presentation-types", handler: presentationTypesPUT, method: "PUT", body: { action: "add", label: "Symposium" }, ...org },
   { name: "GET organization/active-users", handler: activeUsersGET, method: "GET", ...org },
   { name: "GET organization/login-activity", handler: loginActivityGET, method: "GET", ...org },
   { name: "GET organization/ai/credentials", handler: aiGET, method: "GET", ...org },

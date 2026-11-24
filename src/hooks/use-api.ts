@@ -3,7 +3,7 @@
 
 import type { MakePresentersOutcome } from "@/lib/make-presenters-outcome";
 import type { ReviewScoreScale } from "@/lib/abstract-score";
-import type { EventPresentationType } from "@/lib/abstract-presentation-types";
+import type { EventPresentationType, PresentationTypeChange, PresentationTypeWithUse } from "@/lib/abstract-presentation-types";
 import type { EventListRow } from "@/lib/event-visibility";
 import { useIsMutating, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -97,6 +97,7 @@ export const queryKeys = {
   abstracts: (eventId: string) => ["events", eventId, "abstracts"] as const,
   abstractThemes: (eventId: string) => ["events", eventId, "abstract-themes"] as const,
   presentationTypes: (eventId: string) => ["events", eventId, "presentation-types"] as const,
+  orgPresentationTypes: ["organization", "presentation-types"] as const,
   sessionProposals: (eventId: string) => ["events", eventId, "session-proposals"] as const,
   sessionProposalThemes: (eventId: string) => ["events", eventId, "session-proposal-themes"] as const,
   submissionShares: (eventId: string) => ["events", eventId, "submission-shares"] as const,
@@ -2260,6 +2261,33 @@ export function usePresentationTypes(eventId: string) {
     queryKey: queryKeys.presentationTypes(eventId),
     queryFn: () => fetchApi<{ types: EventPresentationType[] }>(`/api/events/${eventId}/presentation-types`).then((r) => r.types),
     enabled: !!eventId,
+  });
+}
+
+/** The organisation's list with what holds each type, for the editor (`abstracts.types.manage`). */
+export function useOrgPresentationTypes(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.orgPresentationTypes,
+    queryFn: () => fetchApi<{ types: PresentationTypeWithUse[] }>("/api/organization/presentation-types").then((r) => r.types),
+    enabled,
+  });
+}
+
+/** One change to the organisation's list; every page's names and offered lists refresh after it. */
+export function useChangePresentationType() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (change: PresentationTypeChange) =>
+      fetchApi<{ key: string; types: PresentationTypeWithUse[] }>("/api/organization/presentation-types", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(change),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.orgPresentationTypes });
+      // Every event's list: the names and the offered marks come from the organisation's list.
+      queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === "events" && q.queryKey[2] === "presentation-types" });
+    },
   });
 }
 

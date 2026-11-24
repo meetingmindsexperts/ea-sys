@@ -59,6 +59,44 @@ GET organization/branding
   API_KEY     200
   NONE        200
 
+GET organization/presentation-types
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  BASE        403
+  BASE_MKT    403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT organization/presentation-types
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  BASE        403
+  BASE_MKT    403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
 GET organization/active-users
   caller      -
   SUPER_ADMIN 200

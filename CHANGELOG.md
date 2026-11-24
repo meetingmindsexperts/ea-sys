@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Presentation types, step 3: the organiser's own list (November 24, 2026)
+
+Owner: "give the complete control to organizer on what the list should be and if they want to add new at one
+place". Plan: `docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md`.
+
+- **One card on the event's Content page, Abstracts tab** (Presentation Types): tick what this event offers,
+  and, with `abstracts.types.manage`, change the organisation's list in the same place: **add** a type (it is
+  offered on that event at once, and on no other until ticked there), **rename** any type (the built-ins
+  included; their behaviour follows the key), **retire** and **restore**, and **delete** a type the
+  organisation added while nothing holds it. Each type shows how many abstracts and reviews hold it, and the
+  two built-ins with behaviour say what it is (the either-way choice, the poster certificate).
+- **New permission key `abstracts.types.manage`**, organisation-wide, held by Super Admin, Admin and
+  Organizer (owner D5: whoever holds "Abstract themes"), grantable to a custom role.
+- `PUT /api/organization/presentation-types` takes one change at a time; `src/services/presentation-type-service.ts`
+  runs it under the organisation's row lock, counts what holds a type through each abstract's event, and writes
+  the audit row. A name another type has (whatever its case), the last live type, a built-in's deletion and a
+  type in use are refused in words. Readers see a change at once in the same process, within 30 seconds elsewhere.
+- An organisation's own type, once ticked, can be chosen by authors and set by staff on every door; a reviewer
+  still recommends only the built-ins (step 4).
+
+Checked locally in a visible browser on Author Test Event: Symposium added (stored, ticked on that event only),
+"oral" refused ("\"Oral\" is already a presentation type."), Poster renamed E-poster (the new-abstract form then
+offered Oral or Poster, Oral, E-poster, Workshop, Symposium), Video retired (a new abstract with it refused, 400),
+an abstract created with Symposium (stored as the key, the old enum column empty, as designed), and Symposium then
+offering Retire instead of Delete. The organisation and the event were restored byte for byte and the test rows
+deleted by id.
+
 ### Presentation types, step 2: stored as text (November 24, 2026)
 
 Plan: `docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md`. Nothing a user sees changes; this is what lets an

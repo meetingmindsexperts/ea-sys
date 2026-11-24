@@ -257,3 +257,116 @@ export function eventPresentationTypes(eventSettings: unknown, types: readonly P
   const offered = new Set(offeredPresentationTypes(eventSettings, types).map((t) => t.key));
   return types.map((t) => ({ ...t, offered: offered.has(t.key) }));
 }
+
+// ── Changing the list (step 3, Nov 24, 2026) ────────────────────────────────
+
+/** A type as the editor shows it: with how many abstracts and reviews hold it (a type held is retired, never deleted). */
+export type PresentationTypeWithUse = PresentationTypeDef & { inUse: number };
+// Pure: the service runs one of these on the list it read under the row lock
+// and stores what comes back (`storedPresentationTypes`).
+
+export type PresentationTypeChange =
+  | { action: "add"; label: string }
+  | { action: "rename"; key: string; label: string }
+  | { action: "retire"; key: string }
+  | { action: "restore"; key: string }
+  | { action: "delete"; key: string };
+
+export type PresentationTypeChangeRefusal =
+  | "LABEL_INVALID"
+  | "LABEL_TAKEN"
+  | "TOO_MANY"
+  | "NOT_FOUND"
+  | "BUILT_IN_NOT_DELETABLE"
+  | "IN_USE"
+  | "LAST_LIVE_TYPE"
+  | "NO_CHANGE";
+
+export type PresentationTypeChangeResult =
+  | { ok: true; types: PresentationTypeDef[]; key: string }
+  | { ok: false; code: PresentationTypeChangeRefusal; message: string };
+
+/** Two names that read the same: case, accents and spacing are ignored. */
+function sameName(a: string, b: string): boolean {
+  const fold = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  return fold(a) === fold(b);
+}
+
+/**
+ * The key a new type gets, made once from its name and never changed: capitals,
+ * digits and underscores, no longer than 40, never a built-in's, never NEITHER,
+ * never one the list holds (a deleted type's key may come back: nothing holds it).
+ */
+export function newPresentationTypeKey(label: string, types: readonly PresentationTypeDef[]): string {
+  const base =
+    label
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 36) || "TYPE";
+  const start = /^[A-Z0-9]/.test(base) ? base : `T_${base}`.slice(0, 36);
+  const taken = new Set<string>([...types.map((t) => t.key), ...BUILT_IN_PRESENTATION_TYPE_KEYS, ...RESERVED_PRESENTATION_TYPE_KEYS]);
+  if (!taken.has(start)) return start;
+  for (let n = 2; ; n += 1) {
+    const candidate = `${start}_${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+/**
+ * One change to the list. `inUse` is how many abstracts and reviews hold the
+ * key, asked only for a delete: a type that anything holds is retired, never
+ * deleted, so no abstract loses its type (owner decision D2).
+ */
+export function applyPresentationTypeChange(
+  types: readonly PresentationTypeDef[],
+  change: PresentationTypeChange,
+  inUse = 0,
+): PresentationTypeChangeResult {
+  const refuse = (code: PresentationTypeChangeRefusal, message: string): PresentationTypeChangeResult => ({ ok: false, code, message });
+  if (change.action === "add" || change.action === "rename") {
+    const label = cleanPresentationTypeLabel(change.label);
+    if (!label) return refuse("LABEL_INVALID", `A name is 1 to ${MAX_PRESENTATION_TYPE_LABEL} characters.`);
+    const clash = types.find((t) => sameName(t.label, label) && !(change.action === "rename" && t.key === change.key));
+    if (clash) return refuse("LABEL_TAKEN", `"${clash.label}" is already a presentation type${clash.retired ? " (retired: restore it instead)" : ""}.`);
+    if (change.action === "add") {
+      if (types.length >= MAX_PRESENTATION_TYPES) return refuse("TOO_MANY", `An organisation has at most ${MAX_PRESENTATION_TYPES} presentation types.`);
+      const key = newPresentationTypeKey(label, types);
+      return { ok: true, key, types: [...types, { key, label, retired: false, builtIn: false }] };
+    }
+    const target = types.find((t) => t.key === change.key);
+    if (!target) return refuse("NOT_FOUND", "That presentation type no longer exists.");
+    if (target.label === label) return refuse("NO_CHANGE", "That is already its name.");
+    return { ok: true, key: target.key, types: types.map((t) => (t.key === target.key ? { ...t, label } : t)) };
+  }
+
+  const target = types.find((t) => t.key === change.key);
+  if (!target) return refuse("NOT_FOUND", "That presentation type no longer exists.");
+  if (change.action === "restore") {
+    if (!target.retired) return refuse("NO_CHANGE", "That presentation type is not retired.");
+    return { ok: true, key: target.key, types: types.map((t) => (t.key === target.key ? { ...t, retired: false } : t)) };
+  }
+  if (change.action === "retire") {
+    if (target.retired) return refuse("NO_CHANGE", "That presentation type is already retired.");
+    if (types.filter((t) => !t.retired).length <= 1) {
+      return refuse("LAST_LIVE_TYPE", "Keep at least one presentation type: authors must choose one to submit.");
+    }
+    return { ok: true, key: target.key, types: types.map((t) => (t.key === target.key ? { ...t, retired: true } : t)) };
+  }
+  // delete
+  if (target.builtIn) return refuse("BUILT_IN_NOT_DELETABLE", "A built-in presentation type can be renamed or retired, never deleted.");
+  if (inUse > 0) {
+    return refuse("IN_USE", `${inUse} abstract${inUse === 1 ? "" : "s"} or review${inUse === 1 ? "" : "s"} hold this type. Retire it instead: they keep it, and no event offers it any more.`);
+  }
+  if (!target.retired && types.filter((t) => !t.retired).length <= 1) {
+    return refuse("LAST_LIVE_TYPE", "Keep at least one presentation type: authors must choose one to submit.");
+  }
+  return { ok: true, key: target.key, types: types.filter((t) => t.key !== target.key) };
+}
+
+/** What `Organization.settings.presentationTypes` stores: every type, built-ins included, in order. */
+export function storedPresentationTypes(types: readonly PresentationTypeDef[]): Array<{ key: string; label: string; retired: boolean }> {
+  return types.map(({ key, label, retired }) => ({ key, label, retired }));
+}

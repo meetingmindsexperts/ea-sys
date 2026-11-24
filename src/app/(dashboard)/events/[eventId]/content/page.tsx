@@ -12,11 +12,10 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { DEFAULT_ABSTRACT_GUIDELINES_HTML } from "@/lib/default-terms";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys, usePresentationTypes } from "@/hooks/use-api";
 import { AgreementPdfImagesCard } from "@/components/events/agreement-pdf-images-card";
+import { PresentationTypesCard } from "@/components/abstracts/presentation-types-card";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
@@ -28,6 +27,8 @@ export default function ContentPage() {
   const eventId = params.eventId as string;
   // Every Save on this page is the event PUT.
   const canSave = useCan("events.settings", eventId) === "allowed";
+  // The organisation's presentation types themselves (add, rename, retire): a key of its own.
+  const canManageTypes = useCan("abstracts.types.manage") === "allowed";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -52,12 +53,25 @@ export default function ContentPage() {
   // Event.settings.abstractPresentationTypes. Null until the organiser ticks
   // something: until then the ticks are what the event offers now.
   const queryClient = useQueryClient();
-  const { data: typeList, isError: typesFailed } = usePresentationTypes(eventId);
+  const { data: typeList } = usePresentationTypes(eventId);
   const [tickedTypes, setTickedTypes] = useState<string[] | null>(null);
   const presentationTypes = tickedTypes ?? (typeList ?? []).filter((t) => t.offered).map((t) => t.key);
-  const setPresentationTypes = (next: (prev: string[]) => string[]) => setTickedTypes(next(presentationTypes));
-  // A retired type is offered nowhere, so it has no tick here (the editor that retires it is step 3).
-  const shownTypes = (typeList ?? []).filter((t) => !t.retired);
+
+  // A type just added to the organisation's list is offered on this event at
+  // once: its ticks are saved straight away, alone (the rest of the page keeps
+  // its own Save).
+  const saveTicksNow = async (ticks: string[]) => {
+    const res = await fetch(`/api/events/${eventId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ settings: { abstractPresentationTypes: ticks } }),
+    });
+    if (!res.ok) {
+      toast.error("The new type was added, but it could not be offered on this event. Tick it and save.");
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys.presentationTypes(eventId) });
+  };
   // Agreement-PDF letterhead images (July 17, 2026) — the speaker and
   // presenter agreements each have their own pair. Managed by their own
   // cards via a dedicated upload route — NOT part of the handleSave PUT.
@@ -244,53 +258,14 @@ export default function ContentPage() {
         {/* Abstract Content */}
         <TabsContent value="abstracts">
           <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Presentation Types Offered</CardTitle>
-                <CardDescription>
-                  Which presentation types submitters can choose on the abstract form.
-                  At least one must stay enabled; existing abstracts keep their current
-                  type even if you disable it later.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {typesFailed && !typeList && (
-                  <p className="mb-3 text-sm text-destructive">
-                    The presentation types could not be loaded. Reload the page to change them.
-                  </p>
-                )}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {shownTypes.map((o) => {
-                    const checked = presentationTypes.includes(o.key);
-                    return (
-                      <Label
-                        key={o.key}
-                        className="flex items-center gap-2 rounded-md border p-3 text-sm font-normal cursor-pointer hover:bg-muted/50"
-                      >
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={(next) => {
-                            if (next === true) {
-                              setPresentationTypes((prev) => [...prev, o.key]);
-                              return;
-                            }
-                            // Never allow an empty offering — the type is
-                            // mandatory to submit, so zero types would make
-                            // submission impossible.
-                            if (presentationTypes.length === 1) {
-                              toast.error("At least one presentation type must stay enabled");
-                              return;
-                            }
-                            setPresentationTypes((prev) => prev.filter((v) => v !== o.key));
-                          }}
-                        />
-                        {o.label}
-                      </Label>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
+            <PresentationTypesCard
+              eventId={eventId}
+              ticked={presentationTypes}
+              onTickedChange={setTickedTypes}
+              onAdded={saveTicksNow}
+              canTick={canSave}
+              canManage={canManageTypes}
+            />
 
             <Card>
               <CardHeader>

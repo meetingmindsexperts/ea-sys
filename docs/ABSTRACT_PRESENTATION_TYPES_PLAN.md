@@ -1,6 +1,6 @@
 # Presentation types the organiser owns
 
-**Status:** IN BUILD (November 24, 2026). Section 6 has the steps; steps 1 and 2 are built. Sections 2 and 8 hold
+**Status:** IN BUILD (November 24, 2026). Section 6 has the steps; steps 1, 2 and 3 are built. Sections 2 and 8 hold
 the owner's decisions.
 
 **Owner's request:** "give the complete control to organizer on what the list should be and if they want
@@ -179,8 +179,13 @@ changes nothing a user can see; step 1 changed only the wording of the names (se
    local copy of production: the same counts by type before and after (182 abstracts, no row where a key
    and its enum differ), a second run changed nothing, and the triggers were tried in every direction.
    The recommended format still accepts only what the enum can hold (step 4).
-3. **The editor.** The route and its permission key, and the card on the Content page: add, rename, retire,
-   restore, delete, tick. From here an organiser's own type can be chosen by an author and set by staff.
+3. **The editor.** BUILT Nov 24, 2026. `abstracts.types.manage` (SUPER_ADMIN, ADMIN, ORGANIZER), the
+   rules in `applyPresentationTypeChange`, `src/services/presentation-type-service.ts` (one change under
+   the organisation's row lock, what holds a type counted through each abstract's event, the audit row),
+   `PUT /api/organization/presentation-types`, and the card on the Content page (`PresentationTypesCard`):
+   add (ticked on that event at once, its ticks saved alone), rename, retire, restore, delete (an own type
+   nothing holds), tick. From here an organiser's own type can be chosen by an author and set by staff;
+   a reviewer still recommends only the built-ins (step 4).
 4. **The reviewer's recommendation** takes the organiser's own types.
 5. **The edges.** CSV import and the assistant read a written name, and the import respects what the event
    offers (it accepts any type today, found by the review of step 1); the assistant's tool descriptions and

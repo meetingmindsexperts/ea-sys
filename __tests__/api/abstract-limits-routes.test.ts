@@ -49,11 +49,13 @@ vi.mock("@/lib/abstract-serial", () => ({
   formatAbstractSerial: (n: number | null | undefined) => (n == null ? "-" : `A-${n}`),
 }));
 // The organisation's presentation types: the five built-ins, as for an organisation that never edited them.
+const { strictTypes } = vi.hoisted(() => ({ strictTypes: vi.fn() }));
 vi.mock("@/lib/abstract-presentation-types-server", async () => {
   const { defaultPresentationTypes } = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
+  strictTypes.mockImplementation(async () => defaultPresentationTypes());
   return {
     loadPresentationTypes: async () => defaultPresentationTypes(),
-    loadPresentationTypesStrict: async () => defaultPresentationTypes(),
+    loadPresentationTypesStrict: strictTypes,
     loadPresentationTypesForEvent: async () => defaultPresentationTypes(),
   };
 });
@@ -420,6 +422,21 @@ describe("a type the event does not offer", () => {
     expect(mockWarn).toHaveBeenCalledWith(expect.objectContaining({ msg: "abstract-update:presentation-type-not-offered", presentationType: "HOLOGRAM" }));
     expect(mockDb.abstract.updateMany).not.toHaveBeenCalled();
     expect((await PUT(req("PUT", { presentationType: "hologram!" }), putParams)).status).toBe(400);
+  });
+});
+
+// Step 3 (Nov 24, 2026): an organisation's own type, ticked on the event, is a type like any other.
+describe("an organisation's own type", () => {
+  it("is accepted where the event offers it, and stored as its key", async () => {
+    const { readPresentationTypes } = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
+    strictTypes.mockResolvedValueOnce(readPresentationTypes({ presentationTypes: [{ key: "SYMPOSIUM", label: "Symposium" }] }));
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", organizationId: "org1", name: "Ev",
+      settings: { allowAbstractSubmissions: true, abstractPresentationTypes: ["SYMPOSIUM", "ORAL"] },
+    });
+    const res = await CREATE(req("POST", { ...VALID_CREATE, presentationType: "SYMPOSIUM" }), createParams);
+    expect(res.status).toBe(201);
+    expect(mockDb.abstract.create.mock.calls[0][0].data).toMatchObject({ presentationType: "SYMPOSIUM", requestedPresentationType: "SYMPOSIUM" });
   });
 });
 

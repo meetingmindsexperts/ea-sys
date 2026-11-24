@@ -219,6 +219,7 @@ export const PERMISSION_KEYS = [
   // Organisation
   "org.settings",
   "formFields.manage",
+  "abstracts.types.manage",
   "org.credentials",
   "users.read",
   "users.invite",
@@ -662,6 +663,10 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   // ── Organisation ──
   app("org.settings", "Organisation", "Organisation settings", "Change the organisation's name, branding and defaults."),
   app("formFields.manage", "Organisation", "Form fields", "Change the answers the organisation's forms offer, such as the Specialty list. They show on every event."),
+  // The organisation's list of presentation types (Nov 24, 2026; owner D5:
+  // whoever holds "Abstract themes", which is ADMIN and ORGANIZER). Org-wide
+  // like Form fields: a type added or renamed shows on every event.
+  app("abstracts.types.manage", "Organisation", "Presentation types", "Add, rename, retire and delete the presentation types abstracts can have. They show on every event; each event ticks which it offers."),
   app("org.credentials", "Organisation", "Integrations", "Hold and test the AI, Stripe, Zoom and EventsAir credentials.", S),
   app("users.read", "Organisation", "See the team", "List the organisation's team members and open their records. Everyone sees their own."),
   app("users.invite", "Organisation", "Invite users", "Invite team members, no wider than your own access."),

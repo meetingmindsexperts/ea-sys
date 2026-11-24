@@ -303,6 +303,9 @@ const ORGANIZER_ORG: PermissionKey[] = [
   // The answers the organisation's forms offer (the Specialty list): admins
   // and organisers (owner, Nov 13, 2026: "give the option to organizer too").
   "formFields.manage",
+  // The organisation's presentation types (Nov 24, 2026; owner D5: whoever
+  // holds "Abstract themes" today, which is ADMIN and ORGANIZER).
+  "abstracts.types.manage",
   // The team list and a colleague's record (Settings, the Onsite Staff card,
   // the activity feed's people filter). Owner, Oct 5, 2026: staff whose screens
   // use it; ONSITE, WEBINARS, CRM_USER and HR_USER no longer read it.

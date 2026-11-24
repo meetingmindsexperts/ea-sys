@@ -10,6 +10,9 @@ import {
   defaultPresentationTypes,
   eventPresentationTypes,
   inDecisionOrder,
+  applyPresentationTypeChange,
+  newPresentationTypeKey,
+  storedPresentationTypes,
   isPresentationTypeOffered,
   offeredPresentationTypeNames,
   offeredPresentationTypes,
@@ -174,5 +177,75 @@ describe("edges the review found", () => {
       ],
     });
     expect(keys(offeredPresentationTypes({}, allBuiltInsRetired))).toEqual(["SYMPOSIUM"]);
+  });
+});
+
+// Step 3 (Nov 24, 2026): the organisation changes its list.
+describe("applyPresentationTypeChange: one change to the list", () => {
+  const own = readPresentationTypes({ presentationTypes: [{ key: "SYMPOSIUM", label: "Symposium" }] });
+  const apply = (change: Parameters<typeof applyPresentationTypeChange>[1], list = own, inUse = 0) => applyPresentationTypeChange(list, change, inUse);
+
+  it("adds a type after the others, with a key made from its name, live and not built in", () => {
+    const r = apply({ action: "add", label: "  Case   report " });
+    expect(r).toMatchObject({ ok: true, key: "CASE_REPORT" });
+    if (!r.ok) throw new Error("refused");
+    expect(r.types.at(-1)).toEqual({ key: "CASE_REPORT", label: "Case report", retired: false, builtIn: false });
+  });
+
+  it("never reuses a key the list holds, a built-in's or NEITHER", () => {
+    expect(newPresentationTypeKey("Poster", own)).toBe("POSTER_2");
+    expect(newPresentationTypeKey("Neither", own)).toBe("NEITHER_2");
+    expect(newPresentationTypeKey("Symposium", own)).toBe("SYMPOSIUM_2");
+    expect(newPresentationTypeKey("مداخلة", own)).toBe("TYPE");
+    expect(newPresentationTypeKey("É-poster", own)).toBe("E_POSTER");
+  });
+
+  it("refuses a name another type has, whatever its case or spacing, and says when that one is retired", () => {
+    expect(apply({ action: "add", label: "oral" })).toMatchObject({ ok: false, code: "LABEL_TAKEN" });
+    const retired = readPresentationTypes({ presentationTypes: [{ key: "VIDEO", label: "Video", retired: true }] });
+    const r = apply({ action: "add", label: "VIDEO" }, retired);
+    expect(r).toMatchObject({ ok: false, code: "LABEL_TAKEN" });
+    expect(r.ok ? "" : r.message).toContain("restore it instead");
+    expect(apply({ action: "add", label: "   " })).toMatchObject({ ok: false, code: "LABEL_INVALID" });
+  });
+
+  it("renames a built-in, keeping its key and so what it does", () => {
+    const r = apply({ action: "rename", key: "POSTER", label: "E-poster" });
+    expect(r).toMatchObject({ ok: true, key: "POSTER" });
+    if (!r.ok) throw new Error("refused");
+    expect(presentationTypeLabel(r.types, "POSTER")).toBe("E-poster");
+    expect(apply({ action: "rename", key: "POSTER", label: "Poster" })).toMatchObject({ ok: false, code: "NO_CHANGE" });
+    expect(apply({ action: "rename", key: "GONE", label: "X" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+  });
+
+  it("retires and restores any type, and never retires the last live one", () => {
+    const r = apply({ action: "retire", key: "VIDEO" });
+    expect(r.ok && r.types.find((t) => t.key === "VIDEO")?.retired).toBe(true);
+    if (!r.ok) throw new Error("refused");
+    const back = apply({ action: "restore", key: "VIDEO" }, r.types);
+    expect(back.ok && back.types.find((t) => t.key === "VIDEO")?.retired).toBe(false);
+    const oneLive = readPresentationTypes({
+      presentationTypes: BUILT_IN_PRESENTATION_TYPE_KEYS.map((key) => ({ key, label: key, retired: key !== "ORAL" })),
+    });
+    expect(apply({ action: "retire", key: "ORAL" }, oneLive)).toMatchObject({ ok: false, code: "LAST_LIVE_TYPE" });
+  });
+
+  it("deletes only an organisation's own type that nothing holds", () => {
+    expect(apply({ action: "delete", key: "POSTER" })).toMatchObject({ ok: false, code: "BUILT_IN_NOT_DELETABLE" });
+    expect(apply({ action: "delete", key: "SYMPOSIUM" }, own, 3)).toMatchObject({ ok: false, code: "IN_USE" });
+    const r = apply({ action: "delete", key: "SYMPOSIUM" });
+    expect(r.ok && r.types.map((t) => t.key)).toEqual([...BUILT_IN_PRESENTATION_TYPE_KEYS]);
+  });
+
+  it("refuses a type past the limit", () => {
+    const full = readPresentationTypes({ presentationTypes: Array.from({ length: 30 }, (_, i) => ({ key: `T${i}`, label: `Type ${i}` })) });
+    expect(full).toHaveLength(30);
+    expect(apply({ action: "add", label: "One more" }, full)).toMatchObject({ ok: false, code: "TOO_MANY" });
+  });
+
+  it("stores every type, built-ins included, and reads back the same list", () => {
+    const r = apply({ action: "add", label: "Case report" });
+    if (!r.ok) throw new Error("refused");
+    expect(readPresentationTypes({ presentationTypes: storedPresentationTypes(r.types) })).toEqual(r.types);
   });
 });
