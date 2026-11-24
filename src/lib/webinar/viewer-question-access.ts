@@ -13,7 +13,7 @@ import { apiLogger } from "@/lib/logger";
 import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
-import { viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
+import { viewerAccessWhere } from "@/lib/webinar/viewer-entitlement";
 
 export type Asker =
   | { kind: "staff"; name: string }
@@ -30,7 +30,7 @@ export async function resolveAsker(
   }
   const registration = await db.registration.findFirst({
     // Only webinar rooms take questions (loadQuestionContext), so the webinar rule.
-    where: viewerRegistrationWhere(eventId, userId, "WEBINAR"),
+    where: await viewerAccessWhere(eventId, userId, "WEBINAR"),
     // Oldest first, so someone holding two registrations always votes and asks
     // as the same one.
     orderBy: { createdAt: "asc" },

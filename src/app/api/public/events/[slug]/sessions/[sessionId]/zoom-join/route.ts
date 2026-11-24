@@ -13,7 +13,7 @@ import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import {
   isViewerRoomOpen,
   viewerRefusal,
-  viewerRegistrationWhere,
+  viewerAccessWhere,
   VIEWER_REFUSAL_MESSAGE,
 } from "@/lib/webinar/viewer-entitlement";
 
@@ -74,7 +74,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       attendeeEmail = authSession.user.email ?? "";
     } else {
       const registration = await db.registration.findFirst({
-        where: viewerRegistrationWhere(event.id, authSession.user.id, event.eventType),
+        where: await viewerAccessWhere(event.id, authSession.user.id, event.eventType),
         select: {
           id: true,
           attendee: { select: { firstName: true, lastName: true, email: true } },

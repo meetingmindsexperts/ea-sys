@@ -4,14 +4,20 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb } = vi.hoisted(() => ({
-  mockDb: { registration: { findMany: vi.fn() }, eventSession: { findFirst: vi.fn() } },
+const { mockDb, mockWarn } = vi.hoisted(() => ({
+  mockDb: { registration: { findMany: vi.fn() }, eventSession: { findFirst: vi.fn() }, user: { findUnique: vi.fn() } },
+  mockWarn: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: mockWarn, error: vi.fn() } }));
 
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import {
   isViewerRoomOpen,
   resetRoomOpenCache,
+  resetViewerAddressCache,
+  viewerAccessWhere,
   viewerRefusal,
   viewerRegistrationWhere,
   viewerStandingWhere,
@@ -20,6 +26,117 @@ import {
 beforeEach(() => {
   vi.clearAllMocks();
   resetRoomOpenCache();
+  resetViewerAddressCache();
+  mockDb.user.findUnique.mockResolvedValue({ email: "Jane.Doe@Hospital.org " });
+});
+
+/**
+ * Owner, Nov 24, 2026: someone with an older account who registered for a webinar without signing
+ * in was told "Register to join" until they confirmed their address with the old account's
+ * password. 6 of the 120 registered for that evening's webinar were in that state.
+ */
+describe("viewerAccessWhere: a free webinar is also watched through an unheld registration on the account's own address", () => {
+  const FREE = {
+    OR: [
+      { pricingTier: { price: 0 } },
+      { pricingTierId: null, OR: [{ ticketTypeId: null }, { ticketType: { price: 0 } }] },
+    ],
+  };
+
+  it("on a webinar: the account's own registration, or one on its address that no account holds and that owes nothing", async () => {
+    expect(await viewerAccessWhere("ev1", "u1", "WEBINAR")).toEqual({
+      eventId: "ev1",
+      AND: [
+        viewerStandingWhere("WEBINAR"),
+        {
+          OR: [
+            { userId: "u1" },
+            // The escaped, case-blind match (like-escape.ts), on the address as the database holds it.
+            { AND: [{ userId: null }, { attendee: { email: { equals: "jane.doe@hospital.org", mode: "insensitive" } } }, FREE] },
+          ],
+        },
+      ],
+    });
+    expect(mockDb.user.findUnique).toHaveBeenCalledWith({ where: { id: "u1" }, select: { email: true } });
+  });
+
+  it("the address branch never reaches a registration another account holds", async () => {
+    const where = await viewerAccessWhere("ev1", "u1", "WEBINAR");
+    const branch = ((where.AND as unknown[])[1] as { OR: { AND?: unknown[] }[] }).OR[1].AND!;
+    expect(branch[0]).toEqual({ userId: null });
+  });
+
+  it("the address branch is for a registration with no price: a paid seat still needs the account", async () => {
+    const where = await viewerAccessWhere("ev1", "u1", "WEBINAR");
+    const branch = ((where.AND as unknown[])[1] as { OR: { AND?: unknown[] }[] }).OR[1].AND!;
+    expect(branch[2]).toEqual(FREE);
+    // And the standing rule (confirmed, never pending) holds for both branches.
+    expect((where.AND as unknown[])[0]).toEqual(viewerStandingWhere("WEBINAR"));
+  });
+
+  it("an underscore in the address matches only itself", async () => {
+    mockDb.user.findUnique.mockResolvedValue({ email: "john_smith@x.org" });
+    const where = await viewerAccessWhere("ev1", "u9", "WEBINAR");
+    expect(JSON.stringify(where)).toContain("john\\\\_smith@x.org");
+  });
+
+  it.each(["CONFERENCE", "HYBRID", null])("a %s event keeps the account-only rule, and no address is read", async (eventType) => {
+    expect(await viewerAccessWhere("ev1", "u1", eventType)).toEqual(viewerRegistrationWhere("ev1", "u1", eventType));
+    expect(mockDb.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the account is gone", null],
+    ["the account has no address", { email: "" }],
+  ])("when %s the account-only rule stands", async (_name, user) => {
+    mockDb.user.findUnique.mockResolvedValue(user);
+    expect(await viewerAccessWhere("ev1", "u1", "WEBINAR")).toEqual(viewerRegistrationWhere("ev1", "u1", "WEBINAR"));
+  });
+
+  it("when the address cannot be read the account-only rule stands, it is logged, and the next request asks again", async () => {
+    mockDb.user.findUnique.mockRejectedValueOnce(new Error("db down"));
+    expect(await viewerAccessWhere("ev1", "u1", "WEBINAR")).toEqual(viewerRegistrationWhere("ev1", "u1", "WEBINAR"));
+    expect(mockWarn).toHaveBeenCalledWith(expect.objectContaining({ msg: "webinar-viewer:address-read-failed", userId: "u1" }));
+    await viewerAccessWhere("ev1", "u1", "WEBINAR");
+    expect(mockDb.user.findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  it("the address is read once a minute per viewer, not on every poll", async () => {
+    await viewerAccessWhere("ev1", "u1", "WEBINAR");
+    await viewerAccessWhere("ev1", "u1", "WEBINAR");
+    await viewerAccessWhere("ev2", "u1", "WEBINAR");
+    expect(mockDb.user.findUnique).toHaveBeenCalledTimes(1);
+    await viewerAccessWhere("ev1", "u2", "WEBINAR");
+    expect(mockDb.user.findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  // Every attendee route goes through the one function. A route that asked the
+  // account-only half would bring "Register to join" back for these people.
+  it("no file outside the rule names the account-only half, and every attendee route asks the whole rule", () => {
+    const SRC = join(process.cwd(), "src");
+    const files = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        const path = join(dir, name);
+        if (statSync(path).isDirectory()) return files(path);
+        return /\.(ts|tsx)$/.test(name) ? [path] : [];
+      });
+    const naming = (mark: string) =>
+      files(SRC)
+        .filter((path) => readFileSync(path, "utf8").includes(mark))
+        .map((path) => path.slice(SRC.length + 1))
+        .sort();
+
+    expect(naming("viewerRegistrationWhere")).toEqual(["lib/webinar/viewer-entitlement.ts"]);
+    expect(naming("viewerAccessWhere(")).toEqual([
+      "app/api/public/events/[slug]/sessions/[sessionId]/end-survey/route.ts",
+      "app/api/public/events/[slug]/sessions/[sessionId]/presence/route.ts",
+      "app/api/public/events/[slug]/sessions/[sessionId]/recording/route.ts",
+      "app/api/public/events/[slug]/sessions/[sessionId]/stream-status/route.ts",
+      "app/api/public/events/[slug]/sessions/[sessionId]/zoom-join/route.ts",
+      "lib/webinar/viewer-entitlement.ts",
+      "lib/webinar/viewer-question-access.ts",
+    ]);
+  });
 });
 
 describe("viewerRegistrationWhere", () => {

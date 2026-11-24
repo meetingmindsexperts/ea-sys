@@ -74,6 +74,14 @@ for an account needs email confirmation; registering for an event does not**;
   offers a link too where it says the person is not registered
   (`ConfirmEmailNotice forJoining`, purpose "join"), to every unconfirmed
   account alike, and lets the person in once the address is confirmed.
+  **Since Nov 24, 2026 (owner) a free webinar does not wait for that**: a
+  signed-in account watches through a registration on its own address that
+  no account holds and that owes nothing (`viewerAccessWhere`,
+  viewer-entitlement.ts). It opens the room only. The registration is not
+  attached, and everything this plan protects (My events, details, payment,
+  certificates) still wants the confirmed address. The owner tried the
+  journey on production that morning and stopped at the password box; 6 of
+  120 registered for that evening's webinar were in the same state.
 - **A password reset no longer confirms the address.** Sessions from before
   the reset live up to five more minutes and could belong to whoever made the
   account; the new owner confirms from their own fresh session. Accepting an

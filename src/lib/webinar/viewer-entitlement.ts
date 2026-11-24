@@ -14,9 +14,15 @@
  * Applies to WEBINAR events only. A conference's Zoom sessions keep the old rule: an in-person
  * delegate paying at the desk must still open the session link, and the approval types belong to
  * the webinars.
+ *
+ * WHOSE registration (owner, Nov 24, 2026): one in the viewer's account, or, on a free webinar
+ * registration only, one on the account's own address that no account holds. Every route asks
+ * `viewerAccessWhere`; the reasons and the limits are on it.
  */
 import type { Prisma, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 import { readWebinarSettings } from "@/lib/webinar";
 
 export const WEBINAR_VIEWER_STATUSES: RegistrationStatus[] = ["CONFIRMED", "CHECKED_IN"];
@@ -45,13 +51,92 @@ export function viewerStandingWhere(eventType: string | null | undefined): Prism
   };
 }
 
-/** The registration filter for a viewer of this event. `eventType` picks the rule (see the header). */
+/**
+ * A registration IN the viewer's account, with the standing to watch. `eventType` picks the rule
+ * (see the header). This is half of who may watch: a route asks `viewerAccessWhere` below, which
+ * adds the free-webinar allowance. A test keeps this name out of every route.
+ */
 export function viewerRegistrationWhere(
   eventId: string,
   userId: string,
   eventType: string | null | undefined,
 ): Prisma.RegistrationWhereInput {
   return { eventId, userId, ...viewerStandingWhere(eventType) };
+}
+
+/**
+ * THE filter a route uses to find the registration someone watches through (owner, Nov 24, 2026).
+ *
+ * It is `viewerRegistrationWhere` (a registration in their account) and, on a WEBINAR only, one
+ * more case: a registration that owes nothing, sits on the account's OWN email address, and is in
+ * no account at all. That is someone who has an older account and registered without signing in.
+ * Until this day they were told "Register to join" and had to confirm their address with the old
+ * account's password first: 6 of the 120 people registered for the webinar of that evening, and
+ * the owner's own trial that morning ended at the password box.
+ *
+ * What the allowance is NOT. It never attaches the registration to the account and it opens
+ * nothing but the room: My events, the person's details, payment and certificates still go by
+ * registrant-access.ts, which wants the address confirmed. It never applies to a registration
+ * with a price (someone could otherwise take a paid seat by making an account on the payer's
+ * address), to a conference, or to a registration another account holds.
+ *
+ * What it gives up, knowingly: an account made on a registered person's address can watch a free
+ * webinar as them, their name on a question they ask and the attendance credited to them. On a
+ * free webinar that person could have registered themselves, so nothing is gained by it.
+ *
+ * The address is the ACCOUNT's, read from the database (a session carries the address it signed
+ * in with, which a later change of email leaves stale). If it cannot be read the old rule stands.
+ */
+export async function viewerAccessWhere(
+  eventId: string,
+  userId: string,
+  eventType: string | null | undefined,
+): Promise<Prisma.RegistrationWhereInput> {
+  const own = viewerRegistrationWhere(eventId, userId, eventType);
+  if (eventType !== "WEBINAR") return own;
+  const email = await viewerAddress(userId);
+  if (!email) return own;
+  return {
+    eventId,
+    AND: [
+      viewerStandingWhere(eventType),
+      {
+        OR: [
+          { userId },
+          { AND: [{ userId: null }, { attendee: { email: equalsIgnoringCase(email) } }, NOTHING_OWED] },
+        ],
+      },
+    ],
+  };
+}
+
+// The account's address, kept for a minute per instance: the routes that ask are polled by every
+// viewer (stream status, presence), and a second query on each poll is a query per viewer per
+// few seconds for an answer that almost never changes.
+const addressCache = new Map<string, { email: string | null; at: number }>();
+const ADDRESS_TTL_MS = 60_000;
+const ADDRESS_CACHE_MAX = 5_000;
+
+/** For tests. */
+export function resetViewerAddressCache(): void {
+  addressCache.clear();
+}
+
+async function viewerAddress(userId: string): Promise<string | null> {
+  const cached = addressCache.get(userId);
+  if (cached && Date.now() - cached.at < ADDRESS_TTL_MS) return cached.email;
+  try {
+    const user = await db.user.findUnique({ where: { id: userId }, select: { email: true } });
+    const email = user?.email?.trim().toLowerCase() || null;
+    if (addressCache.size >= ADDRESS_CACHE_MAX) addressCache.clear();
+    addressCache.set(userId, { email, at: Date.now() });
+    return email;
+  } catch (err) {
+    // Not cached: the next request asks again. Without the address only a registration in the
+    // account watches, which is the rule as it was.
+    apiLogger.warn({ err, msg: "webinar-viewer:address-read-failed", userId });
+    return null;
+  }
 }
 
 export type ViewerRefusal = "PENDING_APPROVAL" | "WAITLISTED" | "PAYMENT_OUTSTANDING";

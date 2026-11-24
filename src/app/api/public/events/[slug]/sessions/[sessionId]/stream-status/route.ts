@@ -9,7 +9,7 @@ import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { can, principalFromUser } from "@/lib/permissions/can";
 import { cachedSessionStream, hlsPlaybackUrls, setSessionStreamStatus } from "@/lib/webinar/session-stream";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
-import { isViewerRoomOpen, viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
+import { isViewerRoomOpen, viewerAccessWhere } from "@/lib/webinar/viewer-entitlement";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -43,7 +43,7 @@ async function viewerKind(
   if (cachedUntil && cachedUntil > Date.now()) return "attendee";
 
   const registration = await db.registration.findFirst({
-    where: viewerRegistrationWhere(event.id, user.id, event.eventType),
+    where: await viewerAccessWhere(event.id, user.id, event.eventType),
     select: { id: true },
   });
   if (!registration) return null;

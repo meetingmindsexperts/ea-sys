@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### A free webinar no longer asks for the account to be confirmed first (November 24, 2026)
+
+Owner: "I am thinking, we disable account confirmation to attend webinars", after trying the journey on production that morning and stopping at the password box.
+
+- **Someone who has an older account and registered for a free webinar without signing in now gets in by signing in.** Until today the page said "Register to join", because the registration was not in their account yet, and the way in was to confirm the email address with the old account's password. On the webinar of that evening 6 of 120 registered people were in that state, and 5 of 120 on the next one
+- **The rule:** a signed-in account may watch a webinar through a registration that is on its own email address, is in no account at all, and owes nothing. One function, `viewerAccessWhere`, that the join, the stream, presence, Q&A, polls, handouts, the recording and the end survey all ask
+- **What it does not open.** The registration is not attached to the account. My events, personal details, payment and certificates still wait for the confirmed address, exactly as before. A registration with a price still needs the account (nobody can take a paid seat by making an account on the payer's address), and conferences are unchanged
+- **What it gives up, knowingly:** an account made on a registered person's address can watch a free webinar as them, with their name on a question they ask and the attendance credited to them. On a free webinar that person could have registered themselves
+- The "Already registered?" notice and its confirmation link stay for the cases this does not cover (a priced registration, a pending one)
+
 ### Cloning a webinar asks for its video source (November 24, 2026)
 
 Owner: "when a webinar is cloned, video source option is not coming there."

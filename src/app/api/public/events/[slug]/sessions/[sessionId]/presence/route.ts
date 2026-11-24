@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isViewerRoomOpen, viewerRegistrationWhere } from "@/lib/webinar/viewer-entitlement";
+import { isViewerRoomOpen, viewerAccessWhere } from "@/lib/webinar/viewer-entitlement";
 import { apiLogger } from "@/lib/logger";
 import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { checkRateLimit } from "@/lib/security";
@@ -96,7 +96,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Must be a registered (non-cancelled) attendee of this event.
     const registration = await db.registration.findFirst({
-      where: viewerRegistrationWhere(event.id, authSession.user.id, event.eventType),
+      where: await viewerAccessWhere(event.id, authSession.user.id, event.eventType),
       select: { id: true },
     });
     if (!registration) {
