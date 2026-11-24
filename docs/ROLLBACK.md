@@ -282,8 +282,13 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   "presentationType" IS NULL;` (and the same for the requested type and the recommendation). Those
   abstracts show NO type to the older image; an edit there that sets a built-in replaces the
   organisation's type, and one that clears it changes nothing (the enum was already empty, so the
-  trigger sees no change and the key stays). Never drop the triggers or the enum columns while an
-  older image may run, and drop the two triggers and all three functions (`enum_key_pair_sync`,
+  trigger sees no change and the key stays). Rolling back across `3d5f076aa` (step 4) has one more
+  hazard: the step 2 and step 3 images refuse every recommendation but the four built-ins and
+  Neither, and their review page sends the stored one back on every save, so a reviewer who
+  recommended an organisation's own type gets "Invalid input" on each save there until they pick a
+  built-in, which overwrites it. Count them first: `SELECT count(*) FROM "AbstractReviewSubmission"
+  WHERE "recommendedFormatKey" IS NOT NULL AND "recommendedFormat" IS NULL;`. Never drop the
+  triggers or the enum columns while an older image may run, and drop the two triggers and all three functions (`enum_key_pair_sync`,
   `abstract_presentation_type_key_sync`, `review_recommended_format_key_sync`) BEFORE the columns
   when that day comes.
 

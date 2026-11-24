@@ -7,7 +7,7 @@ the owner's decisions.
 to add new at one place. 2 things, CRUD presentation type and show which presentation type needed for the
 event."
 
-## 1. What is there today
+## 1. What was there when this plan was written (before step 1)
 
 An abstract has a presentation type. The list is fixed at five, as a Postgres enum
 (`PresentationType` in `prisma/models/program.prisma`): Oral or Poster, Oral, Poster, Video, Workshop.
@@ -193,7 +193,9 @@ changes nothing a user can see; step 1 changed only the wording of the names (se
    description changed).
 5. **The edges.** The CSV import part was done with step 3's review: it reads a written name or key through
    `resolveWrittenPresentationType`, only among the event's offered types, and reports a row it refuses. Left:
-   the assistant reads a written name; the assistant's tool descriptions and
+   the assistant reads a written name; `get_event_info` lists the event's offered types (key and name),
+   and `get_abstract_scores` gives each recommendation's name beside its key (review of 3d5f076aa: an own
+   type's key keeps its first name after a rename); the assistant's tool descriptions and
    the help chat describe the list as the event's, not five fixed values; the user guide, `docs/ROLLBACK.md`
    and `CLAUDE.md`; a browser spec that adds a type, submits with it, reviews it and decides it.
 
@@ -221,6 +223,12 @@ day each.
   organiser's own type with a validation error. `presentation-type-names.test.ts` catches a list written
   as an array, a union, a record of names, the enum read directly or JSX text; it cannot see a name built
   at run time.
+- **A save racing a delete can keep a deleted key** (reviews of 6e04916ec and 3d5f076aa, LOW, accepted).
+  An abstract or review door reads the organisation's types without a lock and then writes; a delete that
+  locks the organisation, counts nothing holding the type and commits in between leaves the save holding
+  a key the list no longer has, shown as the raw key. Rare (a delete is offered only for an unused own
+  type) and harmless beyond the name; the fix, if it is ever seen, is reading the organisation `FOR SHARE`
+  inside each door's write.
 - **The step 3 editor must keep one type live**: with every type retired an event has nothing to offer and
   nobody can submit. `offeredPresentationTypes` falls back to any live type; with none, it is empty.
 

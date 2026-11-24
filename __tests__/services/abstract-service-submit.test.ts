@@ -390,13 +390,23 @@ describe("submitAbstractReview: the recommended format follows the event's prese
     const { readPresentationTypes } = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
     const own = readPresentationTypes({ presentationTypes: [{ key: "SYMPOSIUM", label: "Symposium" }, { key: "CASE_REPORT", label: "Case report" }] });
     strictTypes.mockResolvedValue(own);
-    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, abstractPresentationTypes: ["SYMPOSIUM", "ORAL"] } });
-    expect((await submitAbstractReview({ ...input, recommendedFormat: "SYMPOSIUM" })).ok).toBe(true);
-    const refused = await submitAbstractReview({ ...input, recommendedFormat: "CASE_REPORT" });
-    expect(refused).toMatchObject({ ok: false, code: "INVALID_RECOMMENDED_FORMAT" });
-    expect(refused.ok ? "" : refused.message).toContain("Symposium (SYMPOSIUM)");
-    const defaults = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
-    strictTypes.mockImplementation(async () => defaults.defaultPresentationTypes());
+    try {
+      mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, abstractPresentationTypes: ["SYMPOSIUM", "ORAL"] } });
+      expect((await submitAbstractReview({ ...input, recommendedFormat: "SYMPOSIUM" })).ok).toBe(true);
+      const refused = await submitAbstractReview({ ...input, recommendedFormat: "CASE_REPORT" });
+      expect(refused).toMatchObject({ ok: false, code: "INVALID_RECOMMENDED_FORMAT" });
+      expect(refused.ok ? "" : refused.message).toContain("Symposium (SYMPOSIUM)");
+    } finally {
+      // Restored even when an assertion fails, so later tests see the five built-ins (review of 3d5f076aa).
+      strictTypes.mockImplementation(async () => readPresentationTypes({}));
+    }
+  });
+
+  it("never takes Oral or Poster as a recommendation, even where the event offers it", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, abstractPresentationTypes: ["ORAL_POSTER"] } });
+    const r = await submitAbstractReview({ ...input, recommendedFormat: "ORAL_POSTER" });
+    expect(r).toMatchObject({ ok: false, code: "INVALID_RECOMMENDED_FORMAT" });
+    expect((await submitAbstractReview({ ...input, recommendedFormat: "POSTER" })).ok).toBe(true);
   });
 
   it("keeps a format already on the review after the organiser stops offering it", async () => {
