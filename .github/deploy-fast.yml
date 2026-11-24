@@ -1,0 +1,151 @@
+# FAST DEPLOY: no lint, no type check job, no tests, no gating build, no tenancy,
+# no migration replay. It builds the two images and deploys them, nothing else.
+#
+# This file sits OUTSIDE .github/workflows/ on purpose, so GitHub ignores it.
+# To use it, swap it in for the normal pipeline:
+#
+#   mv .github/workflows/deploy.yml .github/deploy-full.yml
+#   cp .github/deploy-fast.yml .github/workflows/deploy.yml
+#
+# and swap back afterwards:
+#
+#   mv .github/deploy-full.yml .github/workflows/deploy.yml
+#
+# Same workflow name and concurrency group as the full pipeline, so two deploys
+# never run on the box at once.
+
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  build-push:
+    name: Build & push ${{ matrix.image }} image → ECR
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: web
+            dockerfile: Dockerfile
+            tag_prefix: ""
+          - image: worker
+            dockerfile: Dockerfile.worker
+            tag_prefix: "worker-"
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::803726282629:role/ea-sys-gha-ecr-push
+          aws-region: ap-south-1
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute build metadata
+        id: meta
+        run: echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push ${{ matrix.image }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:${{ matrix.tag_prefix }}${{ github.sha }}
+            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:${{ matrix.tag_prefix }}latest
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ secrets.NEXT_PUBLIC_SENTRY_DSN || vars.NEXT_PUBLIC_SENTRY_DSN }}
+          # Read the layer cache the full pipeline writes, but do not write it
+          # back: exporting it costs about 80 s.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          provenance: false
+          sbom: false
+
+  deploy:
+    name: Deploy → Mumbai (ap-south-1)
+    needs: build-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.MUMBAI_EC2_HOST }}
+          username: ${{ secrets.MUMBAI_EC2_USER }}
+          key: ${{ secrets.MUMBAI_EC2_SSH_KEY }}
+          port: 22
+          script_stop: true
+          command_timeout: 25m
+          envs: IMAGE_TAG
+          script: |
+            set -e
+            cd /home/ubuntu/ea-sys
+            sudo chown -R ubuntu:ubuntu /home/ubuntu/ea-sys/public/uploads /home/ubuntu/ea-sys/logs
+            git fetch origin
+            if ! git cat-file -e "${IMAGE_TAG}^{commit}" 2>/dev/null; then
+              echo "✗ Commit $IMAGE_TAG not found on the box after fetch. Aborting."
+              exit 1
+            fi
+            git reset --hard "$IMAGE_TAG"
+            bash scripts/deploy.sh
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+
+  notify-failure:
+    name: Alert on failure
+    needs: [build-push, deploy]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send SES alert
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.MUMBAI_EC2_HOST }}
+          username: ${{ secrets.MUMBAI_EC2_USER }}
+          key: ${{ secrets.MUMBAI_EC2_SSH_KEY }}
+          port: 22
+          command_timeout: 3m
+          envs: RUN_URL,SHA,ACTOR
+          script: |
+            cd /home/ubuntu/ea-sys
+            bash scripts/ops-alert.sh "EA-SYS FAST DEPLOY FAILED: ${SHA:0:7}" "A fast deploy (no checks) failed.
+
+            Commit : ${SHA}
+            By     : ${ACTOR}
+            Run    : ${RUN_URL}
+
+            The box may be half-deployed. Roll back with:
+              IMAGE_TAG=<previous-full-40-char-sha> bash scripts/deploy.sh
+            Runbook: docs/ROLLBACK.md"
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
