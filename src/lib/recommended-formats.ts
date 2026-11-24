@@ -50,6 +50,23 @@ export function recommendableFormats(eventSettings: unknown, types: readonly Pre
   return [...inOrder, NEITHER_FORMAT];
 }
 
+/**
+ * A recommendation as an assistant writes it (step 5): a key, a type's name or
+ * Neither, in any case and spacing ("case report", "Case Report", "CASE_REPORT").
+ * Only the written form is read here; whether the event allows it stays the
+ * review service's rule. What matches nothing is passed on as written, so the
+ * service refuses it with the event's choices.
+ */
+export function resolveWrittenRecommendation(written: string, types: readonly PresentationTypeDef[]): string {
+  const text = written.replace(/\s+/g, " ").trim();
+  const lower = text.toLowerCase();
+  const asKey = text.toUpperCase().replace(/[\s-]+/g, "_");
+  if (asKey === NEITHER_FORMAT) return NEITHER_FORMAT;
+  const byKey = types.find((t) => t.key === asKey);
+  if (byKey) return byKey.key;
+  return types.find((t) => t.label.toLowerCase() === lower)?.key ?? text;
+}
+
 /** A recommendation's name: the type's, or Neither. A value the list does not know shows as itself. */
 export function recommendedFormatLabel(types: readonly PresentationTypeDef[], value: string | null | undefined): string {
   if (!value) return "";

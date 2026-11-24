@@ -4,7 +4,7 @@
  * types and their names are the organisation's.
  */
 import { describe, it, expect } from "vitest";
-import { recommendableFormats, recommendedFormatLabel, recommendedFormatSchema } from "@/lib/recommended-formats";
+import { recommendableFormats, recommendedFormatLabel, recommendedFormatSchema, resolveWrittenRecommendation } from "@/lib/recommended-formats";
 import { defaultPresentationTypes, readPresentationTypes } from "@/lib/abstract-presentation-types";
 
 const DEFAULTS = defaultPresentationTypes();
@@ -52,5 +52,38 @@ describe("recommendableFormats", () => {
     expect(recommendedFormatSchema.safeParse("SYMPOSIUM").success).toBe(true);
     expect(recommendedFormatSchema.safeParse("NEITHER").success).toBe(true);
     expect(recommendedFormatSchema.safeParse("a symposium").success).toBe(false);
+  });
+});
+
+describe("resolveWrittenRecommendation (step 5: the assistant writes a name or a key)", () => {
+  const own = readPresentationTypes({
+    presentationTypes: [
+      { key: "CASE_REPORT", label: "Case report" },
+      { key: "SYMPOSIUM", label: "Panel discussion" },
+      { key: "POSTER", label: "E-poster" },
+    ],
+  });
+
+  it("reads a key or a name in any case and spacing", () => {
+    expect(resolveWrittenRecommendation("CASE_REPORT", own)).toBe("CASE_REPORT");
+    expect(resolveWrittenRecommendation("case report", own)).toBe("CASE_REPORT");
+    expect(resolveWrittenRecommendation("  Case   Report ", own)).toBe("CASE_REPORT");
+    expect(resolveWrittenRecommendation("oral", own)).toBe("ORAL");
+  });
+
+  it("a renamed type is found by its new name and its old key", () => {
+    expect(resolveWrittenRecommendation("Panel discussion", own)).toBe("SYMPOSIUM");
+    expect(resolveWrittenRecommendation("symposium", own)).toBe("SYMPOSIUM");
+    expect(resolveWrittenRecommendation("E-poster", own)).toBe("POSTER");
+  });
+
+  it("Neither in any case", () => {
+    expect(resolveWrittenRecommendation("neither", own)).toBe("NEITHER");
+    expect(resolveWrittenRecommendation("NEITHER", own)).toBe("NEITHER");
+  });
+
+  it("passes on what matches nothing, and Oral or Poster, for the review service to refuse with the choices", () => {
+    expect(resolveWrittenRecommendation("Keynote", own)).toBe("Keynote");
+    expect(resolveWrittenRecommendation("Oral or Poster", own)).toBe("ORAL_POSTER");
   });
 });

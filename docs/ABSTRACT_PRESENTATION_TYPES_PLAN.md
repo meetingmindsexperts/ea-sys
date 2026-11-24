@@ -1,6 +1,6 @@
 # Presentation types the organiser owns
 
-**Status:** IN BUILD (November 24, 2026). Section 6 has the steps; steps 1 to 4 are built. Sections 2 and 8 hold
+**Status:** BUILT (November 24, 2026). Section 6 has the steps; all five are built. Sections 2 and 8 hold
 the owner's decisions.
 
 **Owner's request:** "give the complete control to organizer on what the list should be and if they want
@@ -191,13 +191,14 @@ changes nothing a user can see; step 1 changed only the wording of the names (se
    retired), and the review route and the assistant's two review tools take a key's shape
    (`recommendedFormatSchema`) and leave the choice to the review service. Package version 0.4.69 (the tools'
    description changed).
-5. **The edges.** The CSV import part was done with step 3's review: it reads a written name or key through
-   `resolveWrittenPresentationType`, only among the event's offered types, and reports a row it refuses. Left:
-   the assistant reads a written name; `get_event_info` lists the event's offered types (key and name),
-   and `get_abstract_scores` gives each recommendation's name beside its key (review of 3d5f076aa: an own
-   type's key keeps its first name after a rename); the assistant's tool descriptions and
-   the help chat describe the list as the event's, not five fixed values; the user guide, `docs/ROLLBACK.md`
-   and `CLAUDE.md`; a browser spec that adds a type, submits with it, reviews it and decides it.
+5. **The edges.** BUILT Nov 24, 2026. The CSV import reads a written name or key through
+   `resolveWrittenPresentationType`, only among the event's offered types, and reports a row it refuses (done
+   with step 3's review). The assistant's review tools read a recommendation by its name or key
+   (`resolveWrittenRecommendation`); `get_event_info` lists the event's offered types and what a reviewer may
+   recommend (key and name); `list_abstracts` and `get_abstract_scores` give each type's current name beside
+   its key (review of 3d5f076aa: an own type's key keeps its first name after a rename). The help chat already
+   read the event's own list (`help-chat/event-facts.ts`, step 1). `e2e/presentation-types.spec.ts` adds a type,
+   enters an abstract on it, has the reviewer recommend it by its name and accepts it. Package version 0.4.70.
 
 Rough size: steps 1 and 2 are the bulk (about a day each with review), 3 about a day, 4 and 5 about half a
 day each.

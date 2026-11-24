@@ -16,6 +16,9 @@ import {
   unassignReviewer as unassignReviewerService,
   type AbstractTransitionStatus,
 } from "@/services/abstract-service";
+import { loadPresentationTypes } from "@/lib/abstract-presentation-types-server";
+import { presentationTypeLabel } from "@/lib/abstract-presentation-types";
+import { recommendedFormatLabel, resolveWrittenRecommendation } from "@/lib/recommended-formats";
 import type { ToolExecutor } from "./_shared";
 
 const ABSTRACT_STATUSES = new Set(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]);
@@ -189,12 +192,17 @@ const listAbstracts: ToolExecutor = async (input, ctx) => {
     });
     // Fold a lightweight aggregate onto each row so the list UI + Claude
     // don't have to make a second call just to show scores.
+    // Each type's name beside its key (step 5): an own type's key keeps the name
+    // it was created with, so a renamed type is reported by its current name.
+    const types = await loadPresentationTypes(ctx.organizationId);
     const enriched = abstracts.map((a) => {
       // Strip the submissions array — agent callers only want the rollup.
       const rest: Omit<typeof a, "submissions"> & { submissions?: typeof a.submissions } = { ...a };
       delete rest.submissions;
       return {
         ...rest,
+        presentationTypeName: a.presentationType ? presentationTypeLabel(types, a.presentationType) : null,
+        requestedPresentationTypeName: a.requestedPresentationType ? presentationTypeLabel(types, a.requestedPresentationType) : null,
         reviewCount: a.submissions.length,
         // Shared rounding — identical to the detail aggregate + REST list.
         meanOverallScore: meanOverallScore(a.submissions.map((s) => s.overallScore)),
@@ -428,7 +436,7 @@ const submitAbstractReviewTool: ToolExecutor = async (input, ctx) => {
       // No session role on AgentContext — the org-admin self-submit bypass is
       // deliberately unavailable via MCP (unchanged from the old copy).
       actor: { userId: ctx.userId },
-      ...parseReviewFields(input),
+      ...(await reviewFieldsFor(input, ctx.organizationId)),
       source: ctx.source,
     });
     if (!result.ok) return { error: result.message, code: result.code };
@@ -474,6 +482,18 @@ function parseReviewFields(input: Record<string, unknown>): {
   };
 }
 
+/**
+ * The review fields with the recommendation read as an assistant writes it: a
+ * key, a type's name or Neither (step 5 of docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md).
+ * Whether the event allows it is still the review service's decision.
+ */
+async function reviewFieldsFor(input: Record<string, unknown>, organizationId: string): Promise<ReturnType<typeof parseReviewFields>> {
+  const fields = parseReviewFields(input);
+  if (!fields.recommendedFormat) return fields;
+  const types = await loadPresentationTypes(organizationId);
+  return { ...fields, recommendedFormat: resolveWrittenRecommendation(fields.recommendedFormat, types) };
+}
+
 // Org-admin-only sibling of submit_abstract_review. Takes an explicit
 // reviewerUserId so API-key / OAuth-less callers can record a submission
 // attributed to a specific human. Same shared service; the on-behalf path
@@ -492,7 +512,7 @@ const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
       abstractId,
       reviewerUserId,
       actor: { userId: ctx.userId },
-      ...parseReviewFields(input),
+      ...(await reviewFieldsFor(input, ctx.organizationId)),
       source: ctx.source,
     });
     if (!result.ok) return { error: result.message, code: result.code };
@@ -541,7 +561,10 @@ const getAbstractScores: ToolExecutor = async (input, ctx) => {
     });
     if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
 
-    const aggregate = await computeSubmissionAggregates(abstractId);
+    const [aggregate, types] = await Promise.all([
+      computeSubmissionAggregates(abstractId),
+      loadPresentationTypes(ctx.organizationId),
+    ]);
     const requiredCount = readRequiredReviewCount(abstract.event.settings);
 
     return {
@@ -552,7 +575,8 @@ const getAbstractScores: ToolExecutor = async (input, ctx) => {
         assignedAt: r.assignedAt,
         user: r.user,
       })),
-      submissions: aggregate.submissions,
+      // The recommendation's name beside its key (review of 3d5f076aa): a key keeps the name it was created with.
+      submissions: aggregate.submissions.map((s) => ({ ...s, recommendedFormatName: recommendedFormatLabel(types, s.recommendedFormat) || null })),
       aggregates: aggregate.aggregates,
       // What each criterion score and the perCriterion figures are out of on
       // this event. overallScore and the overall figures are always out of 100.

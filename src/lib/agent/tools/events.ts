@@ -7,6 +7,9 @@ import { eventCodeReferences, isEventCodeTaken } from "@/lib/event-code";
 import { resolveDtcmEventConfig } from "@/lib/dtcm-performance-code";
 import { createEvent as createEventInService } from "@/services/event-service";
 import { partnerStreamReadiness } from "@/lib/webinar/partner-stream-readiness";
+import { loadPresentationTypes } from "@/lib/abstract-presentation-types-server";
+import { offeredPresentationTypes } from "@/lib/abstract-presentation-types";
+import { recommendableFormats, recommendedFormatLabel } from "@/lib/recommended-formats";
 import type { ToolExecutor } from "./_shared";
 
 const EVENT_TYPES = new Set(["CONFERENCE", "WEBINAR", "HYBRID"]);
@@ -69,6 +72,8 @@ const listEventInfo: ToolExecutor = async (_input, ctx) => {
         // barcode field applies to this event.
         requiresDtcmBarcode: true,
         dtcmPerformanceCode: true,
+        // Read for the presentation types below, never returned whole.
+        settings: true,
         _count: {
           select: {
             registrations: true,
@@ -80,7 +85,16 @@ const listEventInfo: ToolExecutor = async (_input, ctx) => {
       },
     });
     if (!event) return { error: "Event not found" };
-    return event;
+    const { settings, ...info } = event;
+    // The types this event's abstract form offers and what a reviewer may recommend
+    // (step 5 of docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md): the organisation's list,
+    // so a tool that takes a type can be given its key or its name.
+    const types = await loadPresentationTypes(ctx.organizationId);
+    return {
+      ...info,
+      presentationTypes: offeredPresentationTypes(settings, types).map((t) => ({ key: t.key, name: t.label })),
+      recommendableFormats: recommendableFormats(settings, types).map((key) => ({ key, name: recommendedFormatLabel(types, key) })),
+    };
     });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_event_info failed");

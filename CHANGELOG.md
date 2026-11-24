@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Presentation types, step 5: the assistant knows the organisation's list (November 24, 2026)
+
+Plan: `docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md` (all five steps now built).
+
+- The assistant's two review tools take a recommendation by its **name or its key**, in any case ("case report",
+  "Case report" or `CASE_REPORT`, and Neither). Only the written form is read at the door
+  (`resolveWrittenRecommendation`); whether the event allows it is still the review service's rule, which refuses
+  what matches nothing with the event's choices.
+- `get_event_info` now lists the event's `presentationTypes` (what its abstract form offers) and
+  `recommendableFormats` (what a reviewer may recommend), each as key and name. `list_abstracts` gives
+  `presentationTypeName` and `requestedPresentationTypeName` beside the keys, and `get_abstract_scores` gives
+  each recommendation's `recommendedFormatName`: an own type's key keeps the name it was made with, so a
+  renamed type is reported by its current name.
+- A browser spec (`e2e/presentation-types.spec.ts`) adds a type on the Content page, enters an abstract on it,
+  has the reviewer recommend it by its name and accepts the abstract.
+- Version 0.4.70: four tools' descriptions changed. **A connected assistant (claude.ai, Claude Desktop) must
+  disconnect and reconnect to see them.**
+
 ### Presentation types, step 4: a reviewer recommends the organisation's own types (November 24, 2026)
 
 Plan: `docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md`.
