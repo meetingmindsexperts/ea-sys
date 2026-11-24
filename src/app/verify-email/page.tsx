@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getSession, signIn } from "next-auth/react";
 import { CheckCircle2, KeyRound, Loader2, XCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type State = "verifying" | "password" | "success" | "error";
 
@@ -42,6 +43,11 @@ function VerifyEmailInner() {
     hasParams ? "Verifying your email…" : "This verification link is missing information."
   );
   const [password, setPassword] = useState("");
+  // A refused password, shown at the box. Until Nov 24, 2026 the only sign was
+  // the grey sentence above the form changing, and a second wrong try changed
+  // nothing at all: the owner typed one twice on production and saw no error.
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const passwordBox = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [signedIn, setSignedIn] = useState(true);
   const ran = useRef(false);
@@ -68,7 +74,16 @@ function VerifyEmailInner() {
     }
     // Not signed in, signed in as someone else, or a wrong password: the token
     // is unspent, so the account's password completes it here.
-    if (["SIGN_IN_REQUIRED", "WRONG_ACCOUNT", "BAD_PASSWORD"].includes(data.code)) {
+    if (data.code === "BAD_PASSWORD") {
+      // The sentence above the form keeps saying what to do; the refusal goes
+      // at the box, which is emptied so a second wrong try is seen as one.
+      setState("password");
+      setPasswordError(data.error || "That password is not right for this account.");
+      setPassword("");
+      passwordBox.current?.focus();
+      return;
+    }
+    if (["SIGN_IN_REQUIRED", "WRONG_ACCOUNT"].includes(data.code)) {
       setState("password");
       setMessage(data.error || "Enter your password to confirm this account.");
       return;
@@ -101,11 +116,12 @@ function VerifyEmailInner() {
     e.preventDefault();
     if (!password) return;
     setSubmitting(true);
+    setPasswordError(null);
     try {
       await confirm(password);
     } catch (err) {
       console.error("[verify-email] confirm with password failed", err);
-      setMessage("Something went wrong. Please try again.");
+      setPasswordError("Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -130,13 +146,34 @@ function VerifyEmailInner() {
               <label htmlFor="confirm-password" className="text-sm font-medium text-slate-900">Password</label>
               <input
                 id="confirm-password"
+                ref={passwordBox}
                 type="password"
                 autoComplete="current-password"
                 autoFocus
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm focus:border-[#00aade] focus:outline-none focus:ring-2 focus:ring-[#00aade]/30"
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  // Typing again answers the refusal: it goes as soon as they start.
+                  setPasswordError(null);
+                }}
+                aria-invalid={passwordError ? true : undefined}
+                aria-describedby={passwordError ? "confirm-password-error" : "confirm-password-hint"}
+                className={cn(
+                  "h-10 w-full rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-2",
+                  passwordError
+                    ? "border-red-500 focus:border-red-500 focus:ring-red-500/30"
+                    : "border-slate-200 focus:border-[#00aade] focus:ring-[#00aade]/30",
+                )}
               />
+              {passwordError ? (
+                <p id="confirm-password-error" role="alert" className="text-sm font-medium text-red-600">
+                  {passwordError}
+                </p>
+              ) : (
+                <p id="confirm-password-hint" className="text-xs text-slate-500">
+                  The password of the account you already have, not one typed on a registration form.
+                </p>
+              )}
             </div>
             <button
               type="submit"

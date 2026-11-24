@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The confirmation page says so when the password is wrong (November 24, 2026)
+
+Owner: "when I enter wrong password, it throwed no error or ui state", about the link in "Confirm your email to add your registration to your account".
+
+- **A wrong password on the confirmation page now shows at the box:** "That password is not right for this account." in red under it, a red border, and the box emptied with the cursor back in it. Until today the only sign was the grey sentence above the form changing to another grey sentence, and a second wrong try changed nothing at all. Production's log shows the owner trying twice, three seconds apart, on two occasions that morning
+- **The page says which password it wants** before anyone gets it wrong: "The password of the account you already have, not one typed on a registration form."
+- The message goes as soon as the person starts typing again. A request that fails while confirming is said at the box too
+- Nothing else about confirming changed: a refusal still does not spend the link, and "Reset the password" is still under the form. The event sign-in page already showed its own error and is untouched
+
 ### A free webinar no longer asks for the account to be confirmed first (November 24, 2026)
 
 Owner: "I am thinking, we disable account confirmation to attend webinars", after trying the journey on production that morning and stopping at the password box.
