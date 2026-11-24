@@ -37,6 +37,23 @@
  *   when begun   GET /v3/rtmpconns/get/<id>       only where a replaced key
  *                                                 has to be judged
  *
+ * And, since Nov 24, 2026, whether ONE stream is recorded
+ * (docs/PARTNER_STREAM_RECORDING_PLAN.md), through a setting named for that
+ * stream alone:
+ *
+ *   is it        GET    /v3/config/paths/get/live/<key>
+ *   record       POST   /v3/config/paths/add/live/<key>     {"record": true}
+ *   switch       PATCH  /v3/config/paths/patch/live/<key>   {"record": bool}
+ *   forget       DELETE /v3/config/paths/delete/live/<key>
+ *
+ * THE BODY IS ONLY EVER {"record": ...}. MediaMTX keeps a live stream
+ * connected through a settings change only when nothing but the recording
+ * fields differ (`pathConfCanBeUpdated`, internal/core/path_manager.go); any
+ * other field in that setting disconnects the sender mid-webinar. A test pins
+ * the body. A setting made this way makes MediaMTX list the path even while
+ * nobody publishes to it; such a path has no source, which the readers below
+ * already take as "nobody".
+ *
  * NOT VERIFIED AGAINST A RUNNING SERVER when written (the shapes and the
  * behaviour above are from MediaMTX 1.17.1's source and its OpenAPI file). So
  * it is written to fail safe: an answer it does not understand is BAD_ANSWER,
@@ -118,15 +135,18 @@ export function isValidControlCaller(user: string | undefined | null, password: 
 
 async function call(
   path: string,
-  method: "GET" | "POST",
-  what: "list" | "path" | "connection" | "kick" | "check",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  what: "list" | "path" | "connection" | "kick" | "check" | "recording",
+  body?: Record<string, unknown>,
 ): Promise<{ status: number; json: unknown } | ControlFailure> {
   const cfg = config();
   if (!cfg) return "NOT_CONFIGURED";
   try {
+    const authorization = `Basic ${Buffer.from(`${MEDIAMTX_API_USER}:${cfg.secret}`).toString("base64")}`;
     const res = await fetch(`${cfg.base}${path}`, {
       method,
-      headers: { Authorization: `Basic ${Buffer.from(`${MEDIAMTX_API_USER}:${cfg.secret}`).toString("base64")}` },
+      headers: body ? { Authorization: authorization, "Content-Type": "application/json" } : { Authorization: authorization },
+      body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     const json: unknown = await res.json().catch(() => null);
@@ -365,4 +385,67 @@ export async function disconnectPublishers(streamKey: string): Promise<Disconnec
   }
   apiLogger.info({ disconnected: 1 }, "mediamtx-control:publisher-disconnected");
   return { ok: true, disconnected: 1 };
+}
+
+// ── Recording one stream (docs/PARTNER_STREAM_RECORDING_PLAN.md) ──
+
+/** What MediaMTX holds for one stream: told to record, told not to, or no setting of its own. */
+export type PathRecording = "on" | "off" | "none";
+export type PathRecordingResult = { ok: true; recording: PathRecording } | { ok: false; code: ControlFailure };
+export type RecordingChangeResult = { ok: true; changed: boolean } | { ok: false; code: ControlFailure };
+
+function recordingSettingPath(verb: "get" | "add" | "patch" | "delete", streamKey: string): string {
+  return `/v3/config/paths/${verb}/live/${encodeURIComponent(streamKey)}`;
+}
+
+/** Whether this one stream has a recording setting, and what it says. */
+export async function pathRecording(streamKey: string): Promise<PathRecordingResult> {
+  const answer = await call(recordingSettingPath("get", streamKey), "GET", "recording");
+  if (typeof answer === "string") return { ok: false, code: answer };
+  if (answer.status === 401 || answer.status === 403) return { ok: false, code: "REFUSED" };
+  // 404 WITH MediaMTX's own error body: no setting for this stream. A bare 404 is some other server.
+  if (answer.status === 404 && isMediamtxError(answer.json)) return { ok: true, recording: "none" };
+  const record = answer.status === 200 && answer.json && typeof answer.json === "object" ? (answer.json as { record?: unknown }).record : undefined;
+  if (typeof record !== "boolean") {
+    apiLogger.warn({ status: answer.status }, "mediamtx-control:recording-setting-not-understood");
+    return { ok: false, code: "BAD_ANSWER" };
+  }
+  return { ok: true, recording: record ? "on" : "off" };
+}
+
+/** How MediaMTX answered a change to a setting: done, or why not. Never the stream key. */
+function changeOutcome(answer: { status: number; json: unknown }, verb: string): RecordingChangeResult {
+  if (answer.status === 200) return { ok: true, changed: true };
+  apiLogger.warn({ status: answer.status, verb }, "mediamtx-control:recording-change-refused");
+  if (answer.status === 401 || answer.status === 403 || isMediamtxError(answer.json)) return { ok: false, code: "REFUSED" };
+  return { ok: false, code: "BAD_ANSWER" };
+}
+
+/**
+ * Tell MediaMTX to record this one stream, or to stop. Asks first, so calling
+ * it again changes nothing (the minute sweep does exactly that). A stream with
+ * no setting of its own is not recorded, so "stop" there is already true.
+ */
+export async function setPathRecording(streamKey: string, record: boolean): Promise<RecordingChangeResult> {
+  const current = await pathRecording(streamKey);
+  if (!current.ok) return current;
+  if (current.recording === (record ? "on" : "off")) return { ok: true, changed: false };
+  if (current.recording === "none" && !record) return { ok: true, changed: false };
+  const verb = current.recording === "none" ? "add" : "patch";
+  const answer = await call(recordingSettingPath(verb, streamKey), verb === "add" ? "POST" : "PATCH", "recording", { record });
+  if (typeof answer === "string") return { ok: false, code: answer };
+  return changeOutcome(answer, verb);
+}
+
+/**
+ * Remove this stream's own setting: it goes back to the general one, which
+ * never records. For a recording that is over, so nothing of it is left on the
+ * stream server.
+ */
+export async function clearPathRecording(streamKey: string): Promise<RecordingChangeResult> {
+  const answer = await call(recordingSettingPath("delete", streamKey), "DELETE", "recording");
+  if (typeof answer === "string") return { ok: false, code: answer };
+  // Already gone is the outcome wanted.
+  if (answer.status === 404 && isMediamtxError(answer.json)) return { ok: true, changed: false };
+  return changeOutcome(answer, "delete");
 }

@@ -239,6 +239,7 @@ describe("every file that names the stream key is known", () => {
     ["src/services/external-stream-service.ts", "issues, replaces and shows a partner's key to staff"],
     ["src/lib/webinar/mediamtx-control.ts", "disconnects the publisher on a key it is handed"],
     ["src/lib/webinar/external-stream-sweep.ts", "takes keys from MediaMTX's publisher list and asks streamKeyOwner"],
+    ["src/services/stream-recording-service.ts", "asks sessionStream for a partner's key and hands it to mediamtx-control, to record that stream"],
     ["src/lib/webinar/livestream.ts", "tells OUR Zoom where to push, and signs publish passwords: Zoom-only"],
     ["src/lib/zoom/meetings.ts", "sends the key to Zoom's API"],
     ["src/lib/webinar/stream-probe.ts", "asks MediaMTX about a key it is handed"],

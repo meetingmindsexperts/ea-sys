@@ -1,8 +1,10 @@
 # Recording a partner's stream
 
-Status: PLANNED, NOT BUILT (Nov 24, 2026). Owner: "plan it please, partner side for now, we will
-use S3 for storage and not disk", and the recording is for both attendees to watch and an archive
-file for us and the client.
+Status: IN BUILD (Nov 24, 2026). Step 1 of 8 is built and dark (`STREAM_RECORDING_ENABLED` unset);
+step 0, the proof on a throwaway stream server, is prepared and waits on one Docker command from
+the owner (section 7). Owner: "plan it please, partner side for now, we will use S3 for storage and
+not disk", the recording is for both attendees to watch and an archive file for us and the client,
+then "ok fine, proceed" on the proposals of section 6.
 
 This replaces option 3 of section 4.7 in
 [EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md](EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md) ("we record
@@ -117,8 +119,8 @@ it began (safety).
 All of it lives in a new `src/services/stream-recording-service.ts`, called by the console's
 routes and the worker. The key is still read only through `session-stream.ts` and
 `external-stream-service.ts`; the test that lists every file naming `streamKey` gains the new
-ones. Replacing a partner's key during a recording moves the recording to the new key in the
-same service call.
+ones. Replacing a partner's key changes its password only, never the key itself, so a recording
+carries on through it.
 
 ### 4.4 The MP4
 
@@ -215,7 +217,10 @@ for 125.
 
 ## 6. Decisions that are the owner's
 
-| | Decision | Proposed |
+**Decided Nov 24, 2026** (owner: "ok fine, proceed"): each as proposed below. D1 means phase 1 is
+built first and attendees watch through Vimeo until phase 2; D2 follows the research of 5.1.
+
+| | Decision | Proposed, and decided |
 |---|---|---|
 | D1 | How attendees watch: staff upload the MP4 to Vimeo (works on phase 1 alone), or our page plays the recording (phase 2). | Phase 1 first, with Vimeo. Phase 2 once a real recording has been seen. |
 | D2 | If phase 2: links through CloudFront with its own signing key, or S3's signed links. | CloudFront. It is the route with 1 TB free a month, against 100 GB (5.1); S3 links signed by the box also stop working when the box's credentials rotate, which can be mid-viewing; and CloudFront is closer to viewers. More AWS steps. |
@@ -231,7 +236,7 @@ for 125.
 | | Step | Days |
 |---|---|---|
 | 0 | **Prove it** on a throwaway stream server with a test stream: switch recording on and off mid-stream and watch that the sender stays connected; the real length of pieces; what a restart does to API settings; a drop and reconnect; pieces joined to an MP4 through `ffmpeg` with no file on disk; the MP4 opened in Chrome, Safari, VLC, QuickTime and uploaded to Vimeo; the pieces played as an HLS replay on an iPhone. | 0.5 |
-| 1 | The two tables (additive migration, row policies), `stream-recording-service.ts`, the control API calls, the sweep that puts settings back. | 1 |
+| 1 | **BUILT Nov 24, 2026.** The two tables (additive migration `20261124100000`, row policies), the rules (`src/lib/webinar/stream-recording.ts`), `stream-recording-service.ts` (start, stop, finish), the control API calls (`setPathRecording`, `clearPathRecording`, the body pinned to `record` alone), and the sweep that puts settings back and closes a recording nobody finished, run from the stream watchdog job. Nothing calls start yet. | 1 |
 | 2 | The shipping job, the disk guard, the waiting-pieces alert. | 1 |
 | 3 | The console: agreement tick, Start, Stop, Finish, the REC mark, the Recording tab. | 1 |
 | 4 | The finishing job, `ffmpeg` in the worker image, Download, Delete, retention. | 1 |
@@ -243,6 +248,22 @@ for 125.
 | | **Phase 2** | **3.5** |
 
 Each step is its own commit with its tests, reviewed once, as usual.
+
+**Owed by later steps, noted while building step 1:**
+
+- Step 3: the room closing calls `finishStreamRecording` (reason `room-closed`), and deleting a
+  session or its partner stream finishes its recording first
+  (`capturePartnerStreamsBeforeDelete` is the place).
+- Step 4: nothing moves a recording out of `FINISHING` until the finishing job exists, which is
+  why the switch stays off until then. Deleting an event or a session removes the rows by
+  cascade and leaves the files, so step 4 also needs the sweep that clears files no row claims
+  (as the supporting documents prune does).
+- A setting made through the control API makes the stream server list that path even with
+  nobody publishing. The readers in `mediamtx-control.ts` already take a path without a source
+  as "nobody"; step 0 confirms it on a real server.
+- The sweep reads recordings across organisations with no tenant in scope, like the partner
+  stream sweep. On an instance with row policies it finds nothing (ROADMAP, "Webinar
+  streaming", item 2); production has none.
 
 ## 8. Steps that are the owner's
 

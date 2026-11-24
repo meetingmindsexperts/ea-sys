@@ -33,6 +33,7 @@ describe("the private set", () => {
     ["CRM inbound email attachments", UPLOAD_SEGMENT.crmEmailAttachments],
     ["venue drawings (often the hotel's own plan)", UPLOAD_SEGMENT.venueDrawings],
     ["speaker presentations (unpublished slides and videos)", UPLOAD_SEGMENT.presentations],
+    ["recordings of a partner's stream", UPLOAD_SEGMENT.recordings],
   ] as const;
 
   it.each(PRIVATE)("%s is NOT publicly servable", (_label, segment) => {

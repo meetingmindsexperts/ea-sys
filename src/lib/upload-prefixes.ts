@@ -93,6 +93,16 @@ export const UPLOAD_SEGMENT = {
    * on S3: it buffers the whole object, and these run to hundreds of MB.
    */
   presentations: "presentations",
+  /**
+   * Recordings of a partner's stream (Nov 24, 2026;
+   * docs/PARTNER_STREAM_RECORDING_PLAN.md): the six second pieces the worker
+   * ships from the stream server's buffer folder, and the MP4 made from them.
+   * Private: read only through signed links an authenticated route hands out.
+   * From `recordings/{eventId}/{sessionId}/{recordingId}/`. Never read with
+   * `readStoredFile` on S3, and never served through the app: one viewer-hour
+   * of video is over a gigabyte.
+   */
+  recordings: "recordings",
 } as const;
 
 export type UploadSegment = (typeof UPLOAD_SEGMENT)[keyof typeof UPLOAD_SEGMENT];
@@ -118,6 +128,7 @@ export const UPLOAD_PREFIX = {
   webinarHandouts: uploadPrefix(UPLOAD_SEGMENT.webinarHandouts),
   venueDrawings: uploadPrefix(UPLOAD_SEGMENT.venueDrawings),
   presentations: uploadPrefix(UPLOAD_SEGMENT.presentations),
+  recordings: uploadPrefix(UPLOAD_SEGMENT.recordings),
 } as const;
 
 /**

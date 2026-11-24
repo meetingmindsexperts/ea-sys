@@ -117,3 +117,20 @@ CREATE POLICY externalstream_tenant_isolation ON "ExternalStream"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- StreamRecording and its pieces (Nov 24, 2026): a recording of a partner's
+-- stream. Both born with the column (migration 20261124100000); the service
+-- stamps the recording from the event and each piece from its recording.
+ALTER TABLE "StreamRecording" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS streamrecording_tenant_isolation ON "StreamRecording";
+CREATE POLICY streamrecording_tenant_isolation ON "StreamRecording"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "StreamRecordingSegment" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS streamrecordingsegment_tenant_isolation ON "StreamRecordingSegment";
+CREATE POLICY streamrecordingsegment_tenant_isolation ON "StreamRecordingSegment"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

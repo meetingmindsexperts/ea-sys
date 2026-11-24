@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Recording a partner's stream, step 1: the record and the switch (November 24, 2026)
+
+Owner: "plan it please, partner side for now, we will use S3 for storage and not disk", then "ok fine,
+proceed". Plan: `docs/PARTNER_STREAM_RECORDING_PLAN.md`. **Nothing is offered yet**: the feature is dark
+until `STREAM_RECORDING_ENABLED` is set, which waits on the later steps and on the owner's steps on the box.
+
+- Two new tables, `StreamRecording` (one per session) and `StreamRecordingSegment` (one per shipped piece),
+  by an additive, re-runnable migration (`20261124100000_stream_recording`), each with a row policy.
+- The rules (`src/lib/webinar/stream-recording.ts`): one recording per webinar; Start and Stop move it
+  between recording and paused; once finished it is never recorded into again; kept 12 months.
+- `src/services/stream-recording-service.ts`: start (the first one needs "the partner has agreed", stored
+  with who and when), stop, finish. The database is written first and the stream server told second; a
+  stream server that fails is reported to the caller and put right by the minute sweep.
+- The stream server calls (`setPathRecording`, `clearPathRecording` in `mediamtx-control.ts`) send a setting
+  for that one stream that carries `record` and nothing else: any other field would disconnect the sender
+  mid-webinar (read in MediaMTX 1.17.1's source). A test pins the body.
+- The stream watchdog job, every minute, now also makes the stream server agree with every open recording
+  (after a restart, or a call that failed) and closes one left open for six hours.
+- `recordings/` is registered as a private upload folder, never served through the app.
+
+Not run against a real stream server yet (step 0 of the plan).
+
 ### A push no longer needs a gate record (November 24, 2026)
 
 Owner: "disable the gate to push, from now on, I will manually ask to gate and push or you run the gate in

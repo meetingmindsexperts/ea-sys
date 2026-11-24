@@ -152,3 +152,20 @@ export function isSpeakerPresentationsEnabled(): boolean {
   return process.env.SPEAKER_PRESENTATIONS_ENABLED === "true";
 }
 
+/**
+ * Recording a partner's stream (docs/PARTNER_STREAM_RECORDING_PLAN.md).
+ *
+ * It works only after steps on the box that are the owner's to make: the
+ * buffer folder mounted into the stream server and the worker, the recording
+ * defaults in `mediamtx.yml`, and a lifecycle rule on the bucket. Until they
+ * are done a Start button would tell the stream server to write into a folder
+ * nothing ships from, so the feature ships dark and this is set to "true" once
+ * they are. FAILS CLOSED: unset is off, on every server and every provider.
+ *
+ * Read through `streamRecordingAvailable()` in the recording service, which
+ * also asks whether the stream server's control address is set up.
+ */
+export function isStreamRecordingEnabled(): boolean {
+  return process.env.STREAM_RECORDING_ENABLED === "true";
+}
+

@@ -507,6 +507,7 @@ model EventSession {
   topics           SessionTopic[]
   zoomMeeting      ZoomMeeting?
   externalStream   ExternalStream?
+  streamRecording  StreamRecording?
   presentations    SpeakerPresentation[]
   zoomAttendances  ZoomAttendance[]
   webinarPresences WebinarPresence[]
@@ -700,6 +701,78 @@ model ExternalStream {
   event   Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([eventId])
+  @@index([organizationId])
+}
+
+// A recording of a partner's stream (Nov 24, 2026; docs/PARTNER_STREAM_RECORDING_PLAN.md).
+// One per session. The stream server writes pieces of about 6 seconds to a
+// buffer folder, the worker ships each to S3 and writes a StreamRecordingSegment
+// row, and one MP4 is made at the end. The row never holds the stream key: the
+// path recorded is the session's partner key, asked of session-stream.ts.
+model StreamRecording {
+  id                    String                @id @default(cuid())
+  sessionId             String                @unique
+  eventId               String
+  // Tenant key, stamped by every writer (see ZoomMeeting).
+  organizationId        String?
+  // What the stream server is told: RECORDING (record), PAUSED (do not), and
+  // from FINISHING on, never again. The minute sweep makes the server agree.
+  status                StreamRecordingStatus @default(RECORDING)
+  // The partner agreed to be recorded: who ticked it and when. Required before the first start.
+  partnerAgreedAt       DateTime
+  partnerAgreedByUserId String?
+  startedAt             DateTime              @default(now())
+  startedByUserId       String?
+  // When recording was last switched on or off, and when it was closed for good.
+  lastStartedAt         DateTime              @default(now())
+  stoppedAt             DateTime?
+  finishedAt            DateTime?
+  // Where the pieces and the MP4 live, as a stored path ("/uploads/recordings/...").
+  storagePrefix         String
+  segmentCount          Int                   @default(0)
+  totalBytes            BigInt                @default(0)
+  durationMs            Int                   @default(0)
+  archivePath           String?
+  archiveBytes          BigInt?
+  // Why it FAILED, in words staff can read.
+  error                 String?
+  // When the recording is to be removed (the owner's retention; null keeps it).
+  deleteAfter           DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  session  EventSession             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  event    Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  segments StreamRecordingSegment[]
+
+  @@index([eventId])
+  @@index([organizationId])
+  @@index([status])
+}
+
+// One shipped piece of a recording, in order. `sourceName` is the file's name
+// in the buffer folder: unique per recording, so shipping a piece twice writes
+// one row.
+model StreamRecordingSegment {
+  id             String   @id @default(cuid())
+  recordingId    String
+  // Denormalized tenant key, copied from the recording.
+  organizationId String?
+  seq            Int
+  sourceName     String
+  startedAt      DateTime
+  durationMs     Int
+  bytes          Int
+  storedPath     String
+  // The piece does not follow straight on from the one before: the stream
+  // dropped, or recording was paused. The replay marks a break there.
+  afterBreak     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  recording StreamRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+
+  @@unique([recordingId, seq])
+  @@unique([recordingId, sourceName])
   @@index([organizationId])
 }
 
@@ -1010,6 +1083,14 @@ enum StreamStatus {
   ACTIVE
   ENDED
   ERROR
+}
+
+enum StreamRecordingStatus {
+  RECORDING
+  PAUSED
+  FINISHING
+  READY
+  FAILED
 }
 
 // ── Speaker reimbursement (July 20, 2026) ──────────────────────────
