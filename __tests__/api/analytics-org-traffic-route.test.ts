@@ -54,10 +54,12 @@ describe("GET /api/analytics/traffic", () => {
     expect(where).not.toEqual({ organizationId: "org1" });
   });
 
-  it("an attendee account with an organisation (internal domain) reads no events", async () => {
-    mockAuth.mockResolvedValueOnce({ user: { id: "reg1", role: "REGISTRANT", organizationId: "org1" } });
-    await GET(req());
+  it.each(["REGISTRANT", "SUBMITTER", "REVIEWER"])("a %s account with an organisation (internal domain) reads no events", async (role) => {
+    mockAuth.mockResolvedValueOnce({ user: { id: "x1", role, organizationId: "org1" } });
+    mockDb.event.findMany.mockResolvedValueOnce([]);
+    const res = await GET(req());
     expect(mockDb.event.findMany.mock.calls[0][0].where).toEqual({ id: { in: [] } });
+    expect((await res.json()).eventsInScope).toBe(0);
   });
 
   it("defaults to 30 days and refuses any other window", async () => {
@@ -75,6 +77,6 @@ describe("GET /api/analytics/traffic", () => {
     const limited = await GET(req());
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBe("60");
-    expect(await limited.json()).toMatchObject({ retryAfterSeconds: 60, limit: 120, windowSeconds: 3600 });
+    expect(await limited.json()).toMatchObject({ code: "RATE_LIMITED", retryAfterSeconds: 60, limit: 120, windowSeconds: 3600 });
   });
 });

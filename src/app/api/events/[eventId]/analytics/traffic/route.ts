@@ -19,6 +19,7 @@ import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
+import { rateLimited } from "@/lib/api-errors";
 import { getEventTraffic } from "@/analytics/store/event-traffic";
 
 interface RouteParams {
@@ -62,17 +63,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Cheap per-user bound. The query is capped and indexed, but this page is
     // reachable by anyone who can see the event and there is no reason for one
     // person to run it hundreds of times an hour.
-    const { allowed, retryAfterSeconds } = checkRateLimit({
-      key: `analytics-traffic:${session.user.id}`,
-      limit: 120,
-      windowMs: 3600_000,
-    });
-    if (!allowed) {
-      apiLogger.warn({ userId: session.user.id, eventId }, "analytics-traffic:rate-limited");
-      return NextResponse.json(
-        { error: "Too many requests" },
-        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
-      );
+    const rl = checkRateLimit({ key: `analytics-traffic:${session.user.id}`, limit: 120, windowMs: 3600_000 });
+    if (!rl.allowed) {
+      return rateLimited(rl, { route: "analytics-traffic", userId: session.user.id, eventId, limit: 120, windowSeconds: 3600 });
     }
 
     const to = new Date();

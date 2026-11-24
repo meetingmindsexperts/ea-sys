@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import type { Session } from "next-auth";
-import { requirePermission } from "./require-permission";
+import { isLinkedRole, requirePermission } from "./require-permission";
 
 /**
  * Event filters for the dashboard's own server pages (custom roles Phase 6,
@@ -28,6 +28,9 @@ function pageWhere(
  * no events.
  */
 export function staffAnalyticsEventWhere(session: Session, route: string): Prisma.EventWhereInput {
+  // An attendee-side account never holds analytics.read today; this keeps it so
+  // even if a custom role ever reached one (review of 9b4eb396a).
+  if (isLinkedRole(session.user.role)) return { id: { in: [] } };
   return pageWhere(session, "analytics.read", route, undefined, "none");
 }
 

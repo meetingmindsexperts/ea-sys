@@ -4,9 +4,10 @@
  *
  *   GET /api/analytics/traffic?days=30
  *
- * Which events count is decided by buildEventAccessWhere, the same rule as
- * the events list, so a role scoped to some events sees only those and a role
- * with no events (CRM, HR) gets an empty page rather than a refusal. There is
+ * Which events count is `staffAnalyticsEventWhere` (`analytics.read`, staff
+ * only): a role scoped to some events sees only those, a role with no events
+ * (CRM, HR) gets an empty page rather than a refusal, and an attendee account
+ * gets no events. There is
  * no finance data and nothing personal here: counts of cookieless page views
  * and of public-form registrations.
  */
@@ -16,10 +17,16 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
+import { rateLimited } from "@/lib/api-errors";
 import { requireOrgId } from "@/lib/require-org";
 import { staffAnalyticsEventWhere } from "@/lib/permissions/page-event-where";
 import { getOrgTraffic } from "@/analytics/store/org-traffic";
 import { runWithTenant } from "@/lib/tenant-context";
+
+// Same per-user bound as the per-event card: the read is capped and indexed,
+// but nobody needs it hundreds of times an hour.
+const RATE_LIMIT = 120;
+const RATE_WINDOW_S = 3600;
 
 /** The windows the page offers; an arbitrary number would let one request scan a year. */
 const ALLOWED_DAYS = [7, 30, 90, 365] as const;
@@ -53,17 +60,9 @@ export async function GET(req: Request) {
 
     // Same per-user bound as the per-event card: the read is capped and
     // indexed, but nobody needs it hundreds of times an hour.
-    const { allowed, retryAfterSeconds } = checkRateLimit({
-      key: `analytics-org-traffic:${session.user.id}`,
-      limit: 120,
-      windowMs: 3600_000,
-    });
-    if (!allowed) {
-      apiLogger.warn({ userId: session.user.id }, "analytics:org-traffic-rate-limited");
-      return NextResponse.json(
-        { error: "Too many requests", retryAfterSeconds, limit: 120, windowSeconds: 3600 },
-        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
-      );
+    const rl = checkRateLimit({ key: `analytics-org-traffic:${session.user.id}`, limit: RATE_LIMIT, windowMs: RATE_WINDOW_S * 1000 });
+    if (!rl.allowed) {
+      return rateLimited(rl, { route: "analytics:org-traffic", userId: session.user.id, limit: RATE_LIMIT, windowSeconds: RATE_WINDOW_S });
     }
 
     // The events whose analytics this person may read (was the manage scoping),

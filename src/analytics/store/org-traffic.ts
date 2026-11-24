@@ -7,8 +7,8 @@
  *
  * The adapter side, like event-traffic.ts: Prisma, tenancy and the
  * Registration table live here; the arithmetic is in core/aggregate.ts.
- * The caller decides WHICH events (buildEventAccessWhere), so a role scoped to
- * some events sees only those.
+ * The caller decides WHICH events (staffAnalyticsEventWhere, analytics.read),
+ * so a role scoped to some events sees only those.
  */
 
 import { db } from "@/lib/db";

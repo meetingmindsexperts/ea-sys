@@ -10,8 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - `GET /api/analytics/traffic`: an attendee account with an organisation (an internal-domain registrant) now reads
   no events, as on the Attendee portal card (`staffAnalyticsEventWhere`); before, it could read the traffic of the
-  events it was registered at through the API. Its "too many requests" answer now carries `retryAfterSeconds`,
-  `limit` and `windowSeconds`, as every other limited route does. Review of 85a9b8ce3.
+  events it was registered at through the API. Its "too many requests" answer, the per-event traffic route's and the
+  portal card's now come from the shared `rateLimited()`: `code: "RATE_LIMITED"`, `retryAfterSeconds`, `limit` and
+  `windowSeconds`. Reviews of 85a9b8ce3 and 9b4eb396a.
 
 ### Analytics: an Attendee portal card (November 24, 2026)
 

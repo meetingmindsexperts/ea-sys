@@ -13,10 +13,14 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
+import { rateLimited } from "@/lib/api-errors";
 import { requireOrgId } from "@/lib/require-org";
 import { staffAnalyticsEventWhere } from "@/lib/permissions/page-event-where";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getPortalUsage } from "@/lib/portal-usage";
+
+const RATE_LIMIT = 120;
+const RATE_WINDOW_S = 3600;
 
 export async function GET() {
   try {
@@ -25,17 +29,9 @@ export async function GET() {
     const orgGuard = requireOrgId(session, { route: "analytics:portal-usage" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const { allowed, retryAfterSeconds } = checkRateLimit({
-      key: `analytics-portal-usage:${session.user.id}`,
-      limit: 120,
-      windowMs: 3600_000,
-    });
-    if (!allowed) {
-      apiLogger.warn({ userId: session.user.id }, "analytics:portal-usage-rate-limited");
-      return NextResponse.json(
-        { error: "Too many requests", retryAfterSeconds, limit: 120, windowSeconds: 3600 },
-        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
-      );
+    const rl = checkRateLimit({ key: `analytics-portal-usage:${session.user.id}`, limit: RATE_LIMIT, windowMs: RATE_WINDOW_S * 1000 });
+    if (!rl.allowed) {
+      return rateLimited(rl, { route: "analytics:portal-usage", userId: session.user.id, limit: RATE_LIMIT, windowSeconds: RATE_WINDOW_S });
     }
 
     // analytics.read WITHOUT the linked-role allowance hubEventWhere grants (review
