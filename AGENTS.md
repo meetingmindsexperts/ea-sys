@@ -130,7 +130,8 @@ because the editor extension fills only one side. Anything that reads the schema
 ```bash
 npm run gate            # the commit at HEAD; `npm run gate -- <sha>` for another
 ```
-One command, on exactly that commit in a clean worktree beside the checkout: Prisma client, then two
+One command, about three minutes (173 s on Nov 24, 2026), on exactly that commit in a clean worktree
+beside the checkout: Prisma client, then two
 lanes side by side (route types, type check, build | unit tests, lint, every `scripts/check-*` guard;
 `GATE_SERIAL=1` runs them one after the other), then the
 browser suite with the **route smoke test** (`e2e/route-smoke.spec.ts`: every GET route, found on
@@ -144,7 +145,13 @@ just read the same files, route types included (`next typegen` writes them first
 `GATE_TYPES_ALREADY_CHECKED` anywhere but `scripts/gate.sh`, and never move the type check out of the
 build's lane**: the build rewrites `.next/types` while the type check would be reading it.
 
-**Three things enforce it, so none of it rests on memory** (Nov 17, 2026; before that, a month of
+**When the gate runs is the owner's call (Nov 24, 2026: "disable the gate to push, from now on I will
+manually ask to gate and push").** A push is no longer refused for want of a gate. The owner asks for
+"gate and push"; an agent asked to push and told nothing about the gate runs it first, once, on the
+final tip, never after every commit. A push without it has CI as its only check, and the browser
+suite with the route smoke test runs nowhere but in the gate.
+
+**Three things still act without being asked** (Nov 17, 2026; before that, a month of
 pushes had five red CI runs, and the agent permission file pre-approved `prisma migrate dev`).
 Install the first two once per clone with `npm run hooks:install`.
 
@@ -153,8 +160,9 @@ Install the first two once per clone with `npm run hooks:install`.
   your commit nor hide a problem in it. The index is shared too, so it refuses when what is staged
   changed while it checked. **Commit with `git commit -m "..." -- <your paths>`**: that form takes
   only the files named, whatever another session has staged.
-- **`pre-push`** refuses a push to main whose tip has no green gate record, or while a deploy is
-  running. A commit on top of a gated one is a new tip and needs its own run.
+- **`pre-push`** refuses a push to main while a deploy is running. From Nov 17 to Nov 24, 2026 it
+  also refused a tip with no green gate record; now it pushes one, says so and writes it in
+  `.git/gate/ungated-pushes.log`. A commit on top of a gated one is a new tip: the record is per commit.
 - **`scripts/agent-command-guard.mjs`** (a Claude Code hook, wired in `.claude/settings.example.json`)
   refuses outright `prisma migrate dev|reset`, `--shadow-database-url`, docker, `git add -A` /
   `git commit -a`, a forced push, and any attempt to switch the hooks off or write a gate record by
@@ -162,8 +170,8 @@ Install the first two once per clone with `npm run hooks:install`.
   committing a whole folder, and the commands that discard uncommitted work. It reads the command
   typed, not the scripts it runs: a seatbelt, not a sandbox.
 
-The owner's bypasses are `git commit --no-verify` and `GATE_OVERRIDE=1 git push` (recorded in
-`.git/gate/overrides.log`). An agent may not use either: the guard refuses the command.
+The owner's bypasses are `git commit --no-verify` and `GATE_OVERRIDE=1 git push` (pushes into a
+running deploy; recorded in `.git/gate/overrides.log`). An agent may not use either: the guard refuses the command.
 
 **Then review the commit, ranked.** A reviewer gets the code and the commit message, not the
 author's conclusions, and reports each finding with a `file:line`, a severity and a concrete failure

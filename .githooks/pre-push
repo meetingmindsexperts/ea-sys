@@ -1,13 +1,17 @@
 #!/bin/bash
-# A push to main is a production deploy. This hook refuses one whose tip has not
-# passed the gate (`npm run gate`), or while a deploy is already running.
+# A push to main is a production deploy. This hook refuses one while a deploy
+# is already running. It binds everyone who pushes from this checkout: every
+# agent session and the owner.
 #
-# It binds everyone who pushes from this checkout: every agent session and the
-# owner. Before it, "the gate ran" was a sentence in a chat; on Nov 17, 2026 a
-# tip was pushed that no session had gated, on top of a commit that failed two
-# CI checks.
+# IT NO LONGER REFUSES A TIP THAT HAS NOT PASSED THE GATE (owner, Nov 24, 2026:
+# "disable the gate to push, from now on I will manually ask to gate and push").
+# From Nov 17 to Nov 24, 2026 it did. Now an ungated tip is pushed, and the hook
+# says so and writes it down in <git dir>/gate/ungated-pushes.log, so a red CI
+# run can be traced to a push nobody gated. When the gate runs is the owner's
+# call (AGENTS.md rule 5): CI is then the only check before the deploy, and the
+# browser suite with its route smoke test runs nowhere but in the gate.
 #
-# OWNER OVERRIDE, recorded in <git dir>/gate/overrides.log:
+# OWNER OVERRIDE of the running-deploy check, recorded in <git dir>/gate/overrides.log:
 #   GATE_OVERRIDE=1 git push origin <sha>:main
 # Agents may not set it: scripts/agent-command-guard.mjs refuses the command.
 #
@@ -29,8 +33,7 @@ override() {
 }
 
 # A deploy already running, queued or waiting for main? Fails OPEN when gh
-# cannot answer: the gate record below is the check that matters, this one only
-# avoids overlapping deploys. gh is given 10 seconds and then killed (it is a
+# cannot answer: this check only avoids overlapping deploys. gh is given 10 seconds and then killed (it is a
 # Go program and ignores the alarm signal a `perl -e alarm` wrapper would send).
 deploy_running() {
   [ "${GATE_NO_CI_CHECK:-}" = "1" ] && return 1
@@ -58,18 +61,11 @@ while read -r local_ref local_sha remote_ref _remote_sha; do
   [ "$local_sha" = "$ZERO" ] && continue
   short=$(printf '%s' "$local_sha" | cut -c1-8)
 
+  # Said and written down, never refused (see the header).
   if [ ! -f "$(gate_stamp_file "$local_sha")" ]; then
-    if [ "${GATE_OVERRIDE:-}" = "1" ]; then
-      override "$local_sha" "the gate"
-    else
-      echo ""
-      echo "PUSH REFUSED: $short ($local_ref) has not passed the gate."
-      echo "  Run:    npm run gate -- $short     (about 5 minutes; it gates exactly that commit)"
-      echo "  Owner:  GATE_OVERRIDE=1 git push ...   pushes without it, and CI is then the only check."
-      echo ""
-      REFUSED=1
-      continue
-    fi
+    mkdir -p "$DIR"
+    printf '%s ungated %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$local_sha" >> "$DIR/ungated-pushes.log"
+    echo "pre-push: $short has not passed the gate (npm run gate -- $short, about 3 minutes). Pushing anyway: CI is the only check. Recorded."
   fi
 
   if deploy_running; then

@@ -452,56 +452,78 @@ describe("THE REAL HOOK: pre-push in a scratch repository", () => {
   });
   afterAll(() => s.remove());
 
-  it("refuses a push to main whose tip has no gate record, and says what to run", () => {
+  const ungatedLog = () => {
+    const file = path.join(stampDir(), "ungated-pushes.log");
+    return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  };
+
+  // Owner, Nov 24, 2026: "disable the gate to push". From Nov 17 the hook had refused this push.
+  it("lets through a push to main whose tip has no gate record, says so with the command to run, and writes it down", () => {
     const out = push(`refs/heads/main ${sha} refs/heads/main ${ZERO}`);
-    expect(out.status).toBe(1);
-    expect(out.stdout).toContain("PUSH REFUSED");
-    expect(out.stdout).toContain(`npm run gate -- ${sha.slice(0, 8)}`);
-  });
-
-  it("the refusal is about the commit being pushed, whatever the local ref is called (a push by SHA)", () => {
-    expect(push(`${sha} ${sha} refs/heads/main ${ZERO}`).status).toBe(1);
-  });
-
-  it("does not gate a push to another branch, or a delete", () => {
-    expect(push(`refs/heads/x ${sha} refs/heads/feature ${ZERO}`).status).toBe(0);
-    expect(push(`(delete) ${ZERO} refs/heads/main ${sha}`).status).toBe(0);
-  });
-
-  it("the owner's override pushes without a record, and is written down", () => {
-    const out = push(`refs/heads/main ${sha} refs/heads/main ${ZERO}`, { GATE_OVERRIDE: "1" });
     expect(out.status).toBe(0);
-    expect(out.stdout).toContain("Recorded");
-    expect(fs.readFileSync(path.join(stampDir(), "overrides.log"), "utf8")).toContain(`override ${sha} the gate`);
+    expect(out.stdout).not.toContain("PUSH REFUSED");
+    expect(out.stdout).toContain(`${sha.slice(0, 8)} has not passed the gate`);
+    expect(out.stdout).toContain(`npm run gate -- ${sha.slice(0, 8)}`);
+    expect(ungatedLog()).toContain(`ungated ${sha}`);
   });
 
-  it("allows the push once the gate has recorded that exact commit, and only that commit", () => {
+  it("the note is about the commit being pushed, whatever the local ref is called (a push by SHA)", () => {
+    const out = push(`${sha} ${sha} refs/heads/main ${ZERO}`);
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain(`${sha.slice(0, 8)} has not passed the gate`);
+  });
+
+  it("says nothing about a push to another branch, or a delete", () => {
+    const before = ungatedLog();
+    for (const line of [`refs/heads/x ${sha} refs/heads/feature ${ZERO}`, `(delete) ${ZERO} refs/heads/main ${sha}`]) {
+      const out = push(line);
+      expect(out.status).toBe(0);
+      expect(out.stdout).toBe("");
+    }
+    expect(ungatedLog()).toBe(before);
+  });
+
+  it("a gated tip is pushed without the note, and a commit on top of it is a new, ungated tip", () => {
     fs.mkdirSync(stampDir(), { recursive: true });
     fs.writeFileSync(path.join(stampDir(), `${sha}.ok`), "passed\n");
-    expect(push(`refs/heads/main ${sha} refs/heads/main ${ZERO}`).status).toBe(0);
+    const gated = push(`refs/heads/main ${sha} refs/heads/main ${ZERO}`);
+    expect(gated.status).toBe(0);
+    expect(gated.stdout).toBe("");
 
     s.git(...IDENTITY, "commit", "-q", "--allow-empty", "-m", "two");
     const next = s.git("rev-parse", "HEAD");
-    // A commit on top of a gated one is a different tip: it needs its own run.
-    expect(push(`refs/heads/main ${next} refs/heads/main ${sha}`).status).toBe(1);
+    const onTop = push(`refs/heads/main ${next} refs/heads/main ${sha}`);
+    expect(onTop.status).toBe(0);
+    expect(onTop.stdout).toContain(`${next.slice(0, 8)} has not passed the gate`);
+    expect(ungatedLog()).toContain(`ungated ${next}`);
   });
 
   it("a deploy already running refuses the push; a gh that cannot answer does not", () => {
-    const withGh = (body: string) => {
+    const withGh = (body: string, extra: Record<string, string> = {}, gated = true) => {
       const r = scratchRepo([".githooks/pre-push", "scripts/gate-stamp.sh"], { gh: body });
       r.git(...IDENTITY, "commit", "-q", "--allow-empty", "-m", "one");
       const tip = r.git("rev-parse", "HEAD");
       fs.mkdirSync(path.join(r.repo, ".git/gate"), { recursive: true });
-      fs.writeFileSync(path.join(r.repo, ".git/gate", `${tip}.ok`), "passed\n");
-      const out = r.run(".githooks/pre-push", {}, `refs/heads/main ${tip} refs/heads/main ${ZERO}\n`);
+      if (gated) fs.writeFileSync(path.join(r.repo, ".git/gate", `${tip}.ok`), "passed\n");
+      const out = r.run(".githooks/pre-push", extra, `refs/heads/main ${tip} refs/heads/main ${ZERO}\n`);
+      const overrides = path.join(r.repo, ".git/gate/overrides.log");
+      const recorded = fs.existsSync(overrides) ? fs.readFileSync(overrides, "utf8") : "";
       r.remove();
-      return out;
+      return { status: out.status, stdout: out.stdout, recorded, tip };
     };
     const running = withGh("echo 1");
     expect(running.status).toBe(1);
     expect(running.stdout).toContain("a deploy of main is running or queued");
     expect(withGh("echo 0").status).toBe(0);
     expect(withGh("exit 1").status).toBe(0); // not signed in, no network: fails open
+
+    // This check is the one refusal left, and it holds for an ungated tip as for a gated one.
+    expect(withGh("echo 1", {}, false).status).toBe(1);
+
+    // The owner's override pushes into a running deploy, and is written down.
+    const overridden = withGh("echo 1", { GATE_OVERRIDE: "1" });
+    expect(overridden.status).toBe(0);
+    expect(overridden.recorded).toContain(`override ${overridden.tip} the running-deploy check`);
   });
 });
 

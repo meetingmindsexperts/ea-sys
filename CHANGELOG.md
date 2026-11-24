@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### A push no longer needs a gate record (November 24, 2026)
+
+Owner: "disable the gate to push, from now on, I will manually ask to gate and push or you run the gate in
+my place when you dont hear anything from me". His own push had just been refused for a tip nobody had gated.
+
+- The push hook no longer refuses a tip that has not passed the gate (it had since Nov 17). It pushes,
+  says so with the command that would gate it, and writes the push in `.git/gate/ungated-pushes.log`, so a
+  red CI run can be traced to a push nobody gated.
+- It still refuses a push while a deploy is running; `GATE_OVERRIDE=1` is now the override of that check only.
+- When the gate runs is the owner's call (AGENTS.md rule 5): he asks for "gate and push", and an agent asked
+  to push and told nothing about the gate runs it first, once, on the final tip.
+- **What this gives up**: a push without the gate has CI as its only check before the deploy, and the
+  browser suite with the route smoke test runs nowhere but in the gate.
+- The agent command guard is unchanged: every push by an agent is still put to the owner, and an agent may
+  not set `GATE_OVERRIDE`.
+
 ### The gate runs its steps in two lanes (November 24, 2026)
 
 Owner: "how do reduce the gate time? I wanna reduce it". `npm run gate` took about 4 min 20 s (242 to 329 s
@@ -24,9 +40,9 @@ over eight runs) because every step ran one after another.
 - `GATE_SERIAL=1 npm run gate` runs the lanes one after the other, for a machine short of memory.
 - A killed gate stops both lanes and the tools under them before it removes its worktree.
 
-Measured in a scratch checkout on Nov 24: route types 3 s, type check 42 s, build without its own type
-check 45 s (66 to 79 s with it). **Not yet timed as a whole gate** (the owner had put gates on hold that
-day); from the steps' own times the estimate is about 2 min 30 s. `gate-parity.test.ts` runs the real
+**First whole run: 173 s** (on 9811bed4c, Nov 24, with a review agent working beside it), against 242 to
+329 s before. Beside the unit tests the type check took 64 s, not the 42 s it takes alone; the build
+took 32 s without its own type check (66 to 79 s with it). `gate-parity.test.ts` runs the real
 script with stubbed tools: the lanes are proven to overlap, the serial switch not to, and the build's
 switch to be named by no workflow, image or test server.
 
