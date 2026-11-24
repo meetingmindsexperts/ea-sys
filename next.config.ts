@@ -25,6 +25,16 @@ const nextConfig: NextConfig = {
   // line a header scanner prints.
   poweredByHeader: false,
 
+  // The gate's own build skips Next's TypeScript pass, and ONLY the gate's
+  // (scripts/gate.sh, Nov 24, 2026). The gate has just run the same check
+  // itself on the same files: `next typegen` writes the route types this pass
+  // would check, then `npm run type-check` reads them with the rest of the
+  // repo. Running it a second time inside the build cost about 44 s of a
+  // four-minute gate. CI's build and the production image never set this, so
+  // they type check as before. **Never set it anywhere else**: a test lists the
+  // files that may name it (gate-parity.test.ts).
+  typescript: { ignoreBuildErrors: process.env.GATE_TYPES_ALREADY_CHECKED === "1" },
+
   // NOTE (Next ≥16.2): the Turbopack file tracer mirrors the whole repo into
   // .next/standalone (triggered by the log-archive module's env-overridable fs
   // root) and emits an "unexpected file in NFT list" build warning. Both

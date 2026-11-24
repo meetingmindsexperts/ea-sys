@@ -130,15 +130,19 @@ because the editor extension fills only one side. Anything that reads the schema
 ```bash
 npm run gate            # the commit at HEAD; `npm run gate -- <sha>` for another
 ```
-One command, about five minutes, on exactly that commit in a clean worktree beside the checkout:
-Prisma client, type check, lint, every `scripts/check-*` guard, the unit tests, the build, and the
+One command, on exactly that commit in a clean worktree beside the checkout: Prisma client, then two
+lanes side by side (route types, type check, build | unit tests, lint, every `scripts/check-*` guard;
+`GATE_SERIAL=1` runs them one after the other), then the
 browser suite with the **route smoke test** (`e2e/route-smoke.spec.ts`: every GET route, found on
 disk, asked on a real database as each of the five seeded roles and signed out; none may answer
 with a server error). It is the list CI gates on (`gate-parity.test.ts` classifies every line the
 check jobs run, and fails on one nobody classified) less four checks that stay in CI, where they
 still block the deploy: the tenancy and integration database suites and the migration replay (they
 need containers), and the lockfile sync check. One gate runs at a time: they share port 3199 and
-the e2e database.
+the e2e database. The gate's build skips Next's own TypeScript pass, because the gate's type check has
+just read the same files, route types included (`next typegen` writes them first). **Never set
+`GATE_TYPES_ALREADY_CHECKED` anywhere but `scripts/gate.sh`, and never move the type check out of the
+build's lane**: the build rewrites `.next/types` while the type check would be reading it.
 
 **Three things enforce it, so none of it rests on memory** (Nov 17, 2026; before that, a month of
 pushes had five red CI runs, and the agent permission file pre-approved `prisma migrate dev`).

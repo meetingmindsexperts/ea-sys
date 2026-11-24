@@ -14,7 +14,10 @@
  *  2. every guard script on disk is run by CI (the gate finds them by name);
  *  3. the gate, the push hook and the commit hook are each RUN, in a scratch
  *     repository with the tools stubbed: a red step leaves no record, a record
- *     passes only its own commit, a file staged mid-check is refused.
+ *     passes only its own commit, a file staged mid-check is refused;
+ *  4. the gate's two lanes (Nov 24, 2026) really run side by side, the type
+ *     check and the build never do, and the build skips its own type check
+ *     only when the gate's passed, and nowhere but in the gate.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { spawnSync } from "node:child_process";
@@ -186,6 +189,34 @@ describe("the gate runs what CI gates on", () => {
     expect(gate).toContain("--forbid-only");
   });
 
+  it("the type check and the build share a lane, in that order: the build rewrites the route types the type check reads", () => {
+    const lane = (name: string) => {
+      const start = gate.indexOf(`${name}() {`);
+      expect(start, `gate.sh has no ${name}`).toBeGreaterThan(-1);
+      return gate.slice(start, gate.indexOf("\n}\n", start));
+    };
+    const build = lane("lane_types_and_build");
+    const order = ['step "route types"', 'step "type check"', 'step "build"'].map((text) => build.indexOf(text));
+    expect(order.every((at) => at > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // The other lane starts neither, and nothing in it writes to .next.
+    const checks = lane("lane_checks");
+    for (const text of ["type-check", "next build", "next typegen", "playwright"]) expect(checks).not.toContain(text);
+    // The browser suite serves the build: after both lanes, never beside them.
+    expect(gate.indexOf("npx playwright test --forbid-only")).toBeGreaterThan(gate.indexOf("\n  wait\n"));
+  });
+
+  it("only the gate may tell a build to skip its own type check", () => {
+    const SWITCH = "GATE_TYPES_ALREADY_CHECKED";
+    expect(read("next.config.ts")).toContain(`typescript: { ignoreBuildErrors: process.env.${SWITCH} === "1" }`);
+    expect(gate).toContain(`${SWITCH}=$checked npx next build`);
+    // Everything else that builds or serves the app: CI, the images, the deploy, the test servers.
+    const workflows = fs.readdirSync(path.join(ROOT, ".github/workflows")).map((f) => `.github/workflows/${f}`);
+    const builders = [...workflows, "Dockerfile", "Dockerfile.worker", "docker-compose.prod.yml", "scripts/deploy.sh", "package.json", "playwright.config.ts", "e2e/agent-golden/_server.mjs"];
+    expect(workflows.length).toBeGreaterThan(0);
+    expect(builders.filter((file) => read(file).includes(SWITCH))).toEqual([]);
+  });
+
   it("gate, hook and installer share one definition of where a pass is recorded", () => {
     for (const script of [gate, prePush]) expect(script).toContain("scripts/gate-stamp.sh");
     expect(read("scripts/install-git-hooks.sh")).toContain("git config core.hooksPath .githooks");
@@ -224,7 +255,7 @@ function scratchRepo(copies: string[], stubs: Record<string, string>) {
   const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => {
     const clean: NodeJS.ProcessEnv = { ...process.env, ...extra };
     // The suite may itself be running inside a git hook or a gate: none of that may leak in.
-    for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GATE_OVERRIDE", "GATE_WORKDIR"]) if (!(key in extra)) delete clean[key];
+    for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GATE_OVERRIDE", "GATE_WORKDIR", "GATE_SERIAL", "GATE_TYPES_ALREADY_CHECKED"]) if (!(key in extra)) delete clean[key];
     return { ...clean, PATH: `${bin}:${process.env.PATH}`, TMPDIR: dir };
   };
   const git = (...args: string[]) => {
@@ -244,8 +275,30 @@ function scratchRepo(copies: string[], stubs: Record<string, string>) {
 
 describe("THE REAL GATE, with every tool stubbed: what it records and when", () => {
   let s: ReturnType<typeof scratchRepo>;
-  /** npm and npx succeed unless their arguments contain $STUB_FAIL. Nothing listens on 3199 as far as the gate can tell. */
-  const tool = 'case "$*" in *"${STUB_FAIL:-no-such-step}"*) echo "stub: failing $*"; exit 1 ;; esac\nexit 0';
+  /**
+   * npm and npx succeed unless their arguments contain $STUB_FAIL. Nothing listens on 3199 as far as the gate can tell.
+   * `next typegen` writes the file the gate insists on (not with $STUB_NO_ROUTE_TYPES). `next build` writes what it
+   * was told about its own type check to $STUB_RECORD. With $STUB_MEET the type check and the unit tests each wait
+   * for the other to have started: both pass only when the two lanes are running at the same moment.
+   */
+  const tool = [
+    'case "$*" in *"${STUB_FAIL:-no-such-step}"*) echo "stub: failing $*"; exit 1 ;; esac',
+    'if [ "$*" = "next typegen" ] && [ -z "${STUB_NO_ROUTE_TYPES:-}" ]; then mkdir -p .next/types && echo "// stub" > .next/types/validator.ts; fi',
+    'if [ "$*" = "next build" ] && [ -n "${STUB_RECORD:-}" ]; then echo "${GATE_TYPES_ALREADY_CHECKED:-unset}" > "$STUB_RECORD"; fi',
+    'mine=""',
+    'if [ "$*" = "run type-check" ]; then mine=types; other=tests; fi',
+    'if [ "$*" = "test -- --allowOnly=false" ]; then mine=tests; other=types; fi',
+    'if [ -n "${STUB_MEET:-}" ] && [ -n "$mine" ]; then',
+    '  touch "$STUB_MEET/$mine"',
+    '  n=0',
+    '  while [ ! -f "$STUB_MEET/$other" ]; do',
+    '    n=$((n + 1))',
+    '    if [ "$n" -gt 40 ]; then echo "stub: $other never started beside $mine"; exit 1; fi',
+    '    sleep 0.1',
+    '  done',
+    'fi',
+    "exit 0",
+  ].join("\n");
   const stamp = (sha: string) => path.join(s.repo, ".git/gate", `${sha}.ok`);
   const gateRun = (extra: Record<string, string> = {}) => s.run("scripts/gate.sh", { GATE_WORKDIR: path.join(s.dir, "work"), ...extra });
 
@@ -273,9 +326,52 @@ describe("THE REAL GATE, with every tool stubbed: what it records and when", () 
     expect(fs.readFileSync(stamp(sha), "utf8")).toContain(`commit ${sha}`);
     expect(fs.existsSync(path.join(s.repo, ".git/gate/lock"))).toBe(false);
     expect(fs.readdirSync(path.join(s.dir, "work"))).toEqual([]);
+    // One log with both lanes in it, and none of the lanes' own files left beside it.
+    expect(fs.readdirSync(path.join(s.repo, ".git/gate")).sort()).toEqual([`${sha}.log`, `${sha}.ok`]);
+    const log = fs.readFileSync(path.join(s.repo, ".git/gate", `${sha}.log`), "utf8");
+    for (const name of ["prisma generate", "route types", "type check", "build", "unit tests", "lint", "guard check-alpha", "browser suite + route smoke"]) {
+      expect(log).toContain(`===== ${name} =====`);
+    }
   });
 
-  it.each([["type-check"], ["lint"], ["test"], ["next build"], ["playwright"]])("red when the %s step fails: exit 1, and the record of an earlier green run of the same commit is gone", (step) => {
+  it("the two lanes run side by side; GATE_SERIAL=1 runs them one after the other", () => {
+    const meet = (name: string) => {
+      const dir = path.join(s.dir, name);
+      fs.mkdirSync(dir);
+      return dir;
+    };
+    // Each of the two steps waits for the other to have started: green only when both lanes are running at once.
+    const together = gateRun({ STUB_MEET: meet("meet-together") });
+    expect(together.stdout).toContain("GATE GREEN");
+
+    // One after the other, the first lane's type check waits for unit tests that have not begun.
+    const serial = gateRun({ STUB_MEET: meet("meet-serial"), GATE_SERIAL: "1" });
+    expect(serial.status).toBe(1);
+    expect(serial.stdout).toContain("GATE RED");
+    expect(serial.stdout).toContain("[type check]");
+    expect(serial.stdout).not.toContain("[unit tests]");
+    // And without that wait a serial run is an ordinary green one.
+    expect(gateRun({ GATE_SERIAL: "1" }).status).toBe(0);
+  }, 30_000);
+
+  it("the build skips its own type check only when the gate's route types and type check both passed", () => {
+    const record = path.join(s.dir, "build-was-told");
+    const told = (extra: Record<string, string>) => {
+      fs.rmSync(record, { force: true });
+      const out = gateRun({ STUB_RECORD: record, ...extra });
+      return { status: out.status, told: fs.readFileSync(record, "utf8").trim(), stdout: out.stdout };
+    };
+    expect(told({})).toMatchObject({ status: 0, told: "1" });
+    // A failed type check: the build checks for itself, and the gate is red either way.
+    expect(told({ STUB_FAIL: "type-check" })).toMatchObject({ status: 1, told: "0" });
+    expect(told({ STUB_FAIL: "next typegen" })).toMatchObject({ status: 1, told: "0" });
+    // `next typegen` that says it worked and wrote nothing: the route types were checked by nobody.
+    const silent = told({ STUB_NO_ROUTE_TYPES: "1" });
+    expect(silent).toMatchObject({ status: 1, told: "0" });
+    expect(silent.stdout).toContain("[route types]");
+  }, 30_000);
+
+  it.each([["prisma generate"], ["next typegen"], ["type-check"], ["lint"], ["test"], ["next build"], ["playwright"]])("red when the %s step fails: exit 1, and the record of an earlier green run of the same commit is gone", (step) => {
     const sha = s.git("rev-parse", "HEAD");
     expect(gateRun().status).toBe(0);
     expect(fs.existsSync(stamp(sha))).toBe(true);

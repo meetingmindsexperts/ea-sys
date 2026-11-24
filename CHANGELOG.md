@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The gate runs its steps in two lanes (November 24, 2026)
+
+Owner: "how do reduce the gate time? I wanna reduce it". `npm run gate` took about 4 min 20 s (242 to 329 s
+over eight runs) because every step ran one after another.
+
+- **Two lanes side by side, then the browser suite**: route types, type check, build in one lane; unit
+  tests, lint and the guards in the other. Every step still runs and a failed step is still named; only the
+  order changed. The type check and the build share a lane on purpose: the build rewrites `.next/types`,
+  which the type check reads.
+- **The gate type checks once, not twice.** The build used to run TypeScript again (about 44 s) after the
+  gate's own type check had passed. The gate now runs `next typegen` first, so its own type check reads the
+  route types the build's pass would check (proven in a scratch checkout: a route handler with a wrong
+  argument fails it), and its build skips that pass through `GATE_TYPES_ALREADY_CHECKED`, read only by
+  `next.config.ts`. CI's build and the production image never set it. The build skips only when the route
+  types and the type check both passed in the same run.
+- `GATE_SERIAL=1 npm run gate` runs the lanes one after the other, for a machine short of memory.
+- A killed gate stops both lanes and the tools under them before it removes its worktree.
+
+Measured in a scratch checkout on Nov 24: route types 3 s, type check 42 s, build without its own type
+check 45 s (66 to 79 s with it). **Not yet timed as a whole gate** (the owner had put gates on hold that
+day); from the steps' own times the estimate is about 2 min 30 s. `gate-parity.test.ts` runs the real
+script with stubbed tools: the lanes are proven to overlap, the serial switch not to, and the build's
+switch to be named by no workflow, image or test server.
+
 ### The webinar player's full screen on a phone (November 24, 2026)
 
 Owner: "mobile full screen can be improved". On a phone the Full screen button barely helped: held upright
