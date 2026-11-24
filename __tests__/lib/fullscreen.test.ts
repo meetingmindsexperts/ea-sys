@@ -140,7 +140,14 @@ describe("resolveVideoFullscreen (iPhone, Nov 24, 2026)", () => {
   it("hands the video to Apple's player once it has a picture", () => {
     const enter = vi.fn();
     const exit = vi.fn();
-    const video = { webkitEnterFullscreen: enter, webkitExitFullscreen: exit, webkitSupportsFullscreen: true, webkitDisplayingFullscreen: false };
+    const video = {
+      webkitEnterFullscreen: enter,
+      webkitExitFullscreen: exit,
+      webkitSupportsFullscreen: true,
+      webkitDisplayingFullscreen: false,
+      readyState: 4,
+      error: null,
+    };
     const api = resolveVideoFullscreen(video as unknown as HTMLVideoElement);
     expect(api).not.toBeNull();
     api!.enter();
@@ -153,8 +160,17 @@ describe("resolveVideoFullscreen (iPhone, Nov 24, 2026)", () => {
   });
 
   it("is null before the video has a picture, so the in-page box is used", () => {
-    const video = { webkitEnterFullscreen: vi.fn(), webkitSupportsFullscreen: false };
+    const video = { webkitEnterFullscreen: vi.fn(), webkitSupportsFullscreen: false, readyState: 0, error: null };
     expect(resolveVideoFullscreen(video as unknown as HTMLVideoElement)).toBeNull();
+  });
+
+  // Review of 9dc1aae07: the browser's flag can be true for a video with a source and no picture
+  // (reconnecting, or the stream dropped), and Apple's player would open black over our message.
+  it("is null while the video has nothing to show, whatever the browser's flag says", () => {
+    const base = { webkitEnterFullscreen: vi.fn(), webkitSupportsFullscreen: true };
+    expect(resolveVideoFullscreen({ ...base, readyState: 0, error: null } as unknown as HTMLVideoElement)).toBeNull();
+    expect(resolveVideoFullscreen({ ...base, readyState: 4, error: { code: 4 } } as unknown as HTMLVideoElement)).toBeNull();
+    expect(resolveVideoFullscreen({ ...base, readyState: 1, error: null } as unknown as HTMLVideoElement)).not.toBeNull();
   });
 
   it("is null on a browser without Apple's player, and with no video", () => {

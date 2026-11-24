@@ -46,14 +46,38 @@ export interface UseFullscreen {
  * whose panel is not a video:
  * - `video`: where the element cannot go fullscreen (iPhone), hand the video
  *   to Apple's own full screen player before falling back to the in-page box.
+ *   `videoReady` (default true) says the video is showing its picture: while
+ *   false the in-page box is used, and a closed Apple player is not resumed.
  * - `landscape`: once fullscreen, turn a phone sideways (Android), so the
  *   picture fills the screen instead of a third of it.
  */
+type AppleVideo = HTMLVideoElement & { webkitDisplayingFullscreen?: boolean; webkitExitFullscreen?: () => void };
+
+/** Apple's player is open on this video now. Asked of the video itself, whatever state its stream is in. */
+function videoFullscreenOpen(video: HTMLVideoElement | null): boolean {
+  return (video as AppleVideo | null)?.webkitDisplayingFullscreen === true;
+}
+
+/** Close Apple's player if it is open. A throw is logged: the rest of the exit still runs. */
+function closeVideoFullscreen(video: HTMLVideoElement | null): void {
+  if (!videoFullscreenOpen(video)) return;
+  try {
+    (video as AppleVideo).webkitExitFullscreen?.();
+  } catch (err) {
+    console.warn("fullscreen:video-fullscreen-exit-failed", err);
+  }
+}
+
 export function useFullscreen(
   ref: RefObject<HTMLElement | null>,
-  options: { video?: RefObject<HTMLVideoElement | null>; landscape?: boolean } = {},
+  options: { video?: RefObject<HTMLVideoElement | null>; videoReady?: boolean; landscape?: boolean } = {},
 ): UseFullscreen {
-  const { video: videoRef, landscape = false } = options;
+  const { video: videoRef, videoReady = true, landscape = false } = options;
+  // Latest value for the listeners below, which are bound once.
+  const videoReadyRef = useRef(videoReady);
+  useEffect(() => {
+    videoReadyRef.current = videoReady;
+  }, [videoReady]);
   const [isNative, setIsNative] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
   const [isVideoFullscreen, setIsVideoFullscreen] = useState(false);
@@ -89,12 +113,28 @@ export function useFullscreen(
   useEffect(() => {
     const video = videoRef?.current;
     if (!video) return;
-    const onBegin = () => setIsVideoFullscreen(true);
+    type PresentedVideo = HTMLVideoElement & { webkitPresentationMode?: string };
+    // The same two events fire around picture in picture on an iPhone: that
+    // is not our full screen, and closing a mini player must not start play.
+    let ours = false;
+    let hadControls = false;
+    const onBegin = () => {
+      if ((video as PresentedVideo).webkitPresentationMode === "picture-in-picture") return;
+      ours = true;
+      hadControls = video.controls;
+      setIsVideoFullscreen(true);
+    };
     const onEnd = () => {
       setIsVideoFullscreen(false);
+      if (!ours) return;
+      ours = false;
+      // Safari sometimes leaves its own controls on the inline video.
+      if (!hadControls) video.controls = false;
       // Some iPhones pause the video on Done. A live broadcast has nothing to
-      // pause for (the player has no Pause button), so it carries on inline.
-      if (video.paused) video.play().catch((err) => console.warn("fullscreen:resume-after-video-fullscreen-failed", err));
+      // pause for (the player has no Pause button), so it carries on inline:
+      // only while there is a picture to carry on with, and the page is in view.
+      if (!video.paused || !videoReadyRef.current || document.visibilityState !== "visible") return;
+      video.play().catch((err) => console.warn("fullscreen:resume-after-video-fullscreen-failed", err));
     };
     video.addEventListener("webkitbeginfullscreen", onBegin);
     video.addEventListener("webkitendfullscreen", onEnd);
@@ -122,6 +162,11 @@ export function useFullscreen(
 
   useEffect(
     () => () => {
+      // The room closing unmounts the player with the phone still sideways.
+      if (lockedRef.current) {
+        lockedRef.current = false;
+        unlockOrientation(window);
+      }
       const el = enteredRef.current;
       if (!el) return;
       const api = resolveFullscreenApi(el);
@@ -133,8 +178,10 @@ export function useFullscreen(
 
   const exit = useCallback(async () => {
     setIsFallback(false);
-    const videoApi = resolveVideoFullscreen(videoRef?.current ?? null);
-    if (videoApi?.active()) videoApi.exit();
+    // Cleared here as well as by Apple's player's own event: if that event
+    // never comes, the button must not stay on "exit" for good.
+    setIsVideoFullscreen(false);
+    closeVideoFullscreen(videoRef?.current ?? null);
     if (lockedRef.current) {
       lockedRef.current = false;
       unlockOrientation(window);
@@ -151,7 +198,11 @@ export function useFullscreen(
   }, [ref, videoRef]);
 
   const toggle = useCallback(async () => {
-    if (isNative || isFallback || isVideoFullscreen) {
+    // "In Apple's player" with the player not open is a flag left behind by
+    // a missed event: put it right and carry on as a request to enter.
+    const staleVideoFlag = isVideoFullscreen && !videoFullscreenOpen(videoRef?.current ?? null);
+    if (staleVideoFlag) setIsVideoFullscreen(false);
+    if (isNative || isFallback || (isVideoFullscreen && !staleVideoFlag)) {
       await exit();
       return;
     }
@@ -170,7 +221,10 @@ export function useFullscreen(
         console.warn("fullscreen:native-refused", err);
       }
     }
-    const videoApi = resolveVideoFullscreen(videoRef?.current ?? null);
+    // Apple's player only where the element cannot go fullscreen at all (an
+    // iPhone). After a refusal it is not tried: Chrome has the same method,
+    // fails without saying so, and the viewer would get nothing.
+    const videoApi = api || !videoReady ? null : resolveVideoFullscreen(videoRef?.current ?? null);
     if (videoApi) {
       try {
         videoApi.enter();
@@ -180,7 +234,7 @@ export function useFullscreen(
       }
     }
     setIsFallback(true);
-  }, [exit, isFallback, isNative, isVideoFullscreen, landscape, ref, videoRef]);
+  }, [exit, isFallback, isNative, isVideoFullscreen, landscape, ref, videoReady, videoRef]);
 
   return { isFullscreen: isNative || isFallback || isVideoFullscreen, isFallback, isVideoFullscreen, toggle, exit };
 }

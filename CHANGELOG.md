@@ -25,8 +25,25 @@ address bar still showing, and held sideways the player's own bar took 13% of th
 - The Zoom embed is unchanged: both additions are options of the shared hook (`useFullscreen`'s `video` and
   `landscape`) and only the HLS player passes them.
 
-Checked in a headed browser against a local test stream at phone and desktop sizes. Apple's player and the
-turn sideways need a real iPhone and a real Android phone: a desktop browser has neither.
+Review of 9dc1aae07 (0 BLOCKER, 1 HIGH, 3 MED, 6 LOW), all fixed but one LOW left on purpose:
+
+- **HIGH**: in full screen, once the bar had faded, a tap on "Tap to turn on sound" only showed the bar and
+  the sound stayed off. Only a tap that lands in the bar is held back now.
+- **MED**: the Full screen button could stay dead if Apple's player closed without telling the page; it now
+  checks the player itself. Apple's player opens only on a picture that is playing: while waiting, after a
+  drop or on an error the in-page box is used, where the message can be read. When the stream stops or fails
+  while a viewer is in Apple's player, they are brought back to the page (not for a short reconnect).
+- **LOW**: sound chosen in Apple's player is remembered like our own button's; closing a mini player no
+  longer starts play; the page is not resumed while out of view; Apple's player is not tried after a
+  refusal (Chrome has the method and fails silently); a key shows the bar, and it stays under a resting
+  mouse or a key's focus; a touch that became a swipe no longer eats the next key press; the screen is
+  unlocked when the room closes with the phone sideways.
+- Left as it is: a viewer who pauses in Apple's player and presses Done is resumed. A live broadcast has no
+  pause on our page either (owner, Nov 5, 2026).
+
+Checked in a headed browser against a local test stream at phone and desktop sizes, with an iPhone
+simulated (no element full screen, Apple's methods stubbed). Apple's player and the turn sideways need a
+real iPhone and a real Android phone: a desktop browser has neither.
 
 ### The confirmation page carries the logo and the sign-in pages' frame (November 24, 2026)
 

@@ -15,6 +15,13 @@ import {
 import { cn } from "@/lib/utils";
 import { useFullscreen } from "@/hooks/use-fullscreen";
 
+/** The floating bar is being used, so it does not fade: a mouse resting on it, or a key's focus inside it. */
+function barInUse(bar: HTMLElement | null): boolean {
+  if (!bar) return false;
+  if (bar.querySelector(":focus-visible")) return true;
+  return window.matchMedia("(hover: hover)").matches && bar.matches(":hover");
+}
+
 /** The floating bar's padding in full screen: clear of a notch and rounded corners where the browser reports them. */
 const FULLSCREEN_BAR_INSETS = {
   height: "calc(2.75rem + env(safe-area-inset-top, 0px))",
@@ -173,10 +180,30 @@ export function LivePlayer({
   // Shared with the Zoom embed: browser fullscreen with Esc tracked, and the
   // in-page fallback. On a phone (Nov 24, 2026): an iPhone gets Apple's own
   // full screen video player, and Android turns sideways for the 16:9 picture.
-  const { isFullscreen, isFallback, isVideoFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef, {
+  const {
+    isFullscreen,
+    isFallback,
+    isVideoFullscreen,
+    toggle: toggleFullscreen,
+    exit: exitFullscreen,
+  } = useFullscreen(containerRef, {
     video: videoRef,
+    // Apple's player only for a picture that is playing: while waiting, after a
+    // drop or on an error the in-page box is used, where the message can be read.
+    videoReady: status === "playing",
     landscape: true,
   });
+  // The stream stopped or failed while an iPhone viewer is in Apple's player:
+  // bring them back to the page, which says what happened and has the Retry
+  // button. Their player would only show a frozen picture (review of
+  // 9dc1aae07; picture in picture has the same rule below). Not for a
+  // reconnect ("loading"): that is a few seconds, and they could not be put
+  // back in full screen without a tap.
+  useEffect(() => {
+    if (!isVideoFullscreen) return;
+    if (status !== "offline" && status !== "error") return;
+    void exitFullscreen();
+  }, [isVideoFullscreen, status, exitFullscreen]);
   // Our own box fills the screen (browser fullscreen or the in-page one). Not
   // while Apple's player has the video: the page behind keeps its layout, so
   // the viewer comes back to the page as they left it.
@@ -184,15 +211,22 @@ export function LivePlayer({
   // In full screen the bar floats over the picture and fades, so the picture
   // gets the whole height (a phone held sideways lost 13% of it to the bar).
   // A touch, a click, a mouse move or a key brings it back. It stays while
-  // there is something to act on: no picture yet, or behind the live moment.
+  // there is something to act on (no picture yet, or behind the live moment)
+  // and while it is in use (barInUse).
   const [barShown, setBarShown] = useState(true);
   const barTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   // The tap in progress found the bar faded: it shows the bar and presses nothing.
   const tapShowedBarRef = useRef(false);
   const revealBar = useCallback(() => {
     setBarShown(true);
     if (barTimerRef.current) clearTimeout(barTimerRef.current);
-    barTimerRef.current = setTimeout(() => setBarShown(false), FULLSCREEN_BAR_HIDE_MS);
+    barTimerRef.current = setTimeout(() => {
+      // In use, it stays: a mouse resting on it, or a key's focus on one of
+      // its buttons. (A finger's tap leaves focus too, but not a visible one.)
+      if (barInUse(barRef.current)) return revealBar();
+      setBarShown(false);
+    }, FULLSCREEN_BAR_HIDE_MS);
   }, []);
   useEffect(
     () => () => {
@@ -492,10 +526,14 @@ export function LivePlayer({
     const onVolumeChange = () => {
       setIsMuted(video.muted);
       if (!video.muted) setSoundChosen(true);
+      // A choice made in Apple's player is the viewer's own, so it is kept
+      // like one made with our buttons. Only there: elsewhere this event is
+      // also our own code muting for autoplay, which is not a choice.
+      if (isVideoFullscreen && !measurable) writeSoundPref(video.muted ? "off" : "on");
     };
     video.addEventListener("volumechange", onVolumeChange);
     return () => video.removeEventListener("volumechange", onVolumeChange);
-  }, []);
+  }, [isVideoFullscreen, measurable]);
 
   const toggleMute = () => {
     if (videoRef.current) {
@@ -660,14 +698,23 @@ export function LivePlayer({
   // A tap while the bar is faded only shows it. The bar takes taps again as
   // soon as it is shown, which is before the finger lifts, so without this the
   // same tap pressed a button the viewer could not see and left full screen.
-  // A mouse shows the bar by moving, so its click is never one of these.
+  // Only a click that lands in the bar is held back (review of 9dc1aae07): the
+  // first version held back every click, so "Tap to turn on sound", which is
+  // in plain sight over the picture, did nothing once the bar had faded.
   const onStagePointerDown = () => {
     tapShowedBarRef.current = !barVisible;
     revealBar();
   };
-  const onStageClick = (e: React.MouseEvent) => {
-    if (!tapShowedBarRef.current) return;
+  const onStagePointerCancel = () => {
+    // A touch that became a scroll or a swipe never clicks.
     tapShowedBarRef.current = false;
+  };
+  const onStageClick = (e: React.MouseEvent) => {
+    const tapShowedBar = tapShowedBarRef.current;
+    tapShowedBarRef.current = false;
+    // `detail` 0 is a key press or a screen reader: never one of these taps.
+    if (!tapShowedBar || e.detail === 0) return;
+    if (!barRef.current?.contains(e.target as Node)) return;
     e.preventDefault();
     e.stopPropagation();
   };
@@ -685,6 +732,8 @@ export function LivePlayer({
       // sibling margin, which would leave a strip of page showing below it.
       style={isFallback ? { margin: 0 } : undefined}
       onPointerDownCapture={fillsScreen ? onStagePointerDown : undefined}
+      onPointerCancelCapture={fillsScreen ? onStagePointerCancel : undefined}
+      onKeyDownCapture={fillsScreen ? revealBar : undefined}
       onClickCapture={fillsScreen ? onStageClick : undefined}
       onPointerMove={fillsScreen ? revealBar : undefined}
       onFocusCapture={fillsScreen ? revealBar : undefined}
@@ -698,6 +747,7 @@ export function LivePlayer({
           faded it takes no taps, and the tap that shows it presses nothing
           (onStageClick). */}
       <div
+        ref={barRef}
         className={cn(
           "flex h-11 shrink-0 items-center justify-between gap-3 px-3 text-white",
           fillsScreen

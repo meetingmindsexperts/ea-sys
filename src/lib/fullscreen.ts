@@ -94,12 +94,15 @@ export interface VideoFullscreenApi {
  * can be improved"). It is the only true full screen an iPhone offers a web
  * page: it hides Safari's bars and turns sideways with the phone, where the
  * in-page fallback is a black box under the address bar. Null until the video
- * has a picture (`webkitSupportsFullscreen` is false before its metadata), so
- * a player that is still waiting falls back to the in-page box.
+ * has something to show, so a player that is waiting, reconnecting or failed
+ * falls back to the in-page box, where its message can be read. The browser's
+ * own flag is not enough for that (review of 9dc1aae07): it can be true for a
+ * video that has a source and no picture, and Apple's player would open black.
  */
 export function resolveVideoFullscreen(video: HTMLVideoElement | null): VideoFullscreenApi | null {
   const v = video as WebkitVideo | null;
   if (!v || typeof v.webkitEnterFullscreen !== "function" || v.webkitSupportsFullscreen !== true) return null;
+  if (v.readyState < 1 || v.error) return null;
   return {
     enter: () => v.webkitEnterFullscreen?.(),
     exit: () => v.webkitExitFullscreen?.(),
