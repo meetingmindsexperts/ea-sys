@@ -11,8 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Owner: "when I enter wrong password, it throwed no error or ui state", about the link in "Confirm your email to add your registration to your account".
 
 - **A wrong password on the confirmation page now shows at the box:** "That password is not right for this account." in red under it, a red border, and the box emptied with the cursor back in it. Until today the only sign was the grey sentence above the form changing to another grey sentence, and a second wrong try changed nothing at all. Production's log shows the owner trying twice, three seconds apart, on two occasions that morning
-- **The page says which password it wants** before anyone gets it wrong: "The password of the account you already have, not one typed on a registration form."
-- The message goes as soon as the person starts typing again. A request that fails while confirming is said at the box too
+- **The page says which password it wants**, with or without a refusal beside it: "The password you sign in with. If this address already had an account before you registered, it is that account's password."
+- The message goes as soon as the person starts typing again. Too many tries, and a failure on our side, are said at the box too and keep the form: the eleventh wrong try in fifteen minutes used to replace it with "Verification failed", as if the link were dead
+- Review of `7a84e8032` (0 BLOCKER, 0 HIGH, 1 MED, 5 LOW). Fixed: the first wording of the hint ("not one typed on a registration form") was true only for an older account, and wrong for someone whose account was just made by the form they typed it on (the MED); the hint vanished exactly when the password was refused; a server failure still dropped the form; text typed during a slow answer was wiped; two tests could pass for the wrong reason. Left: on a phone the keyboard may not come back by itself after a refusal; a screen reader may hear the refusal after the hint
 - Nothing else about confirming changed: a refusal still does not spend the link, and "Reset the password" is still under the form. The event sign-in page already showed its own error and is untouched
 
 ### A free webinar no longer asks for the account to be confirmed first (November 24, 2026)

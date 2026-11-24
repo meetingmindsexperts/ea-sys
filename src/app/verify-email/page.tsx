@@ -77,10 +77,20 @@ function VerifyEmailInner() {
     if (data.code === "BAD_PASSWORD") {
       // The sentence above the form keeps saying what to do; the refusal goes
       // at the box, which is emptied so a second wrong try is seen as one.
+      // Only what was SENT is emptied: someone already retyping keeps it.
       setState("password");
       setPasswordError(data.error || "That password is not right for this account.");
-      setPassword("");
+      setPassword((typed) => (typed === withPassword ? "" : typed));
       passwordBox.current?.focus();
+      return;
+    }
+    // A password was sent and the answer is not about it: too many tries, or
+    // the server failed. The link is unspent either way, so the form stays and
+    // says so at the box (review of 7a84e8032: both used to replace the form
+    // with "Verification failed", as if the link were dead).
+    if (withPassword && (res.status === 429 || res.status >= 500)) {
+      setState("password");
+      setPasswordError(res.status === 429 ? throttleMessage(data.retryAfterSeconds) : "Something went wrong. Please try again.");
       return;
     }
     if (["SIGN_IN_REQUIRED", "WRONG_ACCOUNT"].includes(data.code)) {
@@ -157,7 +167,8 @@ function VerifyEmailInner() {
                   setPasswordError(null);
                 }}
                 aria-invalid={passwordError ? true : undefined}
-                aria-describedby={passwordError ? "confirm-password-error" : "confirm-password-hint"}
+                // The hint only: the refusal below is an alert, which is read by itself.
+                aria-describedby="confirm-password-hint"
                 className={cn(
                   "h-10 w-full rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-2",
                   passwordError
@@ -165,15 +176,17 @@ function VerifyEmailInner() {
                     : "border-slate-200 focus:border-[#00aade] focus:ring-[#00aade]/30",
                 )}
               />
-              {passwordError ? (
-                <p id="confirm-password-error" role="alert" className="text-sm font-medium text-red-600">
+              {passwordError && (
+                <p role="alert" className="text-sm font-medium text-red-600">
                   {passwordError}
                 </p>
-              ) : (
-                <p id="confirm-password-hint" className="text-xs text-slate-500">
-                  The password of the account you already have, not one typed on a registration form.
-                </p>
               )}
+              {/* Always there, and most useful beside a refusal. True however the
+                  person came: a new account's password is the one they just chose. */}
+              <p id="confirm-password-hint" className="text-xs text-slate-500">
+                The password you sign in with. If this address already had an account before you registered, it is
+                that account&apos;s password.
+              </p>
             </div>
             <button
               type="submit"
@@ -221,6 +234,13 @@ function VerifyEmailInner() {
       </div>
     </main>
   );
+}
+
+/** What a throttled attempt is told, with the wait when the server gave one. */
+function throttleMessage(retryAfterSeconds: unknown): string {
+  if (typeof retryAfterSeconds !== "number" || retryAfterSeconds <= 0) return "Too many attempts. Please wait a few minutes and try again.";
+  const minutes = Math.ceil(retryAfterSeconds / 60);
+  return `Too many attempts. Please try again in about ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`;
 }
 
 function StateIcon({ state }: { state: State }) {

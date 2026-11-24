@@ -36,7 +36,8 @@ describe("a wrong password on the confirmation page", () => {
 
   it("empties the box and puts the cursor back in it, so a second wrong try is seen as one", () => {
     const bad = branch("BAD_PASSWORD");
-    expect(bad).toContain('setPassword("")');
+    // Only what was sent: someone already retyping during a slow answer keeps it.
+    expect(bad).toContain('setPassword((typed) => (typed === withPassword ? "" : typed))');
     expect(bad).toContain("passwordBox.current?.focus()");
   });
 
@@ -44,10 +45,11 @@ describe("a wrong password on the confirmation page", () => {
     expect(branch("BAD_PASSWORD")).toContain('setState("password")');
   });
 
-  it("is announced and red: an alert under the box, and the box marked invalid", () => {
-    expect(page).toMatch(/role="alert"[^>]*className="[^"]*text-red-600/);
+  it("is announced and red: an alert under the box that shows the refusal, and the box marked invalid", () => {
+    expect(page).toMatch(/role="alert"[^>]*className="[^"]*text-red-600[^>]*>\s*\{passwordError\}/);
     expect(page).toContain("aria-invalid={passwordError ? true : undefined}");
-    expect(page).toContain("border-red-500");
+    // The resting border, not only the focused one.
+    expect(page).toMatch(/\? "border-red-500 /);
   });
 
   it("goes when the person submits again or starts typing", () => {
@@ -57,12 +59,36 @@ describe("a wrong password on the confirmation page", () => {
     expect(box).toContain("setPasswordError(null)");
   });
 
-  it("says which password is wanted before anyone gets it wrong", () => {
-    expect(page).toContain("The password of the account you already have, not one typed on a registration form.");
+  // Review of 7a84e8032: the first wording ("not one typed on a registration form") was true
+  // only for an older account. A NEW account's password IS the one just typed on a form.
+  it("says which password is wanted, in words true for a new account and an older one, and keeps saying it beside a refusal", () => {
+    expect(page).toContain("The password you sign in with.");
+    expect(page).not.toContain("not one typed on a registration form");
+    const hint = page.indexOf('id="confirm-password-hint"');
+    // Not inside the refusal's condition: it shows with or without one.
+    expect(page.slice(page.lastIndexOf("{passwordError && (", hint), hint)).toContain(")}");
+    expect(page).toContain('aria-describedby="confirm-password-hint"');
   });
 
   it("a failed request while confirming is said at the box too", () => {
     const submit = page.slice(page.indexOf("const onSubmit"), page.indexOf("return (", page.indexOf("const onSubmit")));
     expect(submit).toMatch(/catch[\s\S]*setPasswordError\("Something went wrong\. Please try again\."\)/);
+  });
+
+  // The link is unspent in both cases, so the form must stay. Before, the 11th wrong try in 15
+  // minutes replaced the form with "Verification failed", as if the link were dead.
+  it("too many tries, or a server failure, keeps the form and says so at the box", () => {
+    const start = page.indexOf("withPassword && (res.status === 429 || res.status >= 500)");
+    expect(start).toBeGreaterThan(-1);
+    const kept = page.slice(start, page.indexOf("return;", start));
+    expect(kept).toContain('setState("password")');
+    expect(kept).toContain("setPasswordError(");
+    expect(kept).toContain("throttleMessage(data.retryAfterSeconds)");
+    // And it is asked BEFORE the page gives up on the link.
+    expect(start).toBeLessThan(page.indexOf('setState("error");\n    setMessage(data.error || "We couldn\'t verify your email.")'));
+  });
+
+  it("the route sends the wait with a throttled answer", () => {
+    expect(route).toMatch(/retryAfterSeconds: check\.retryAfterSeconds/);
   });
 });
