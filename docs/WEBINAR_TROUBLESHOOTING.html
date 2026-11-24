@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webinar Troubleshooting</title>
+<style>
+  :root { --ink:#1a2333; --muted:#5b6678; --line:#dbe1ea; --accent:#00aade; --bg:#f7f9fc; --card:#ffffff; --good:#1d8a4e; --warn:#b7791f; --bad:#c0392b; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); margin: 0; padding: 32px 16px 80px; line-height: 1.55; }
+  main { max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin: 0 0 4px; }
+  h2 { font-size: 1.3rem; margin: 44px 0 12px; border-bottom: 2px solid var(--accent); padding-bottom: 6px; }
+  h3 { font-size: 1.05rem; margin: 26px 0 8px; }
+  .sub { color: var(--muted); margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin: 14px 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .86em; background: #eef2f7; padding: 1px 5px; border-radius: 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; margin: 12px 0; background: var(--card); }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #eef4fa; }
+  th:first-child { width: 30%; }
+  th:nth-child(2) { width: 25%; }
+  td code, li code, p code { overflow-wrap: anywhere; }
+  /* On a phone each scenario is one block: what you see, then why, then what to do. */
+  @media (max-width: 640px) {
+    table, tbody, tr, td { display: block; width: 100%; }
+    tr:first-child { display: none; }
+    tr { border: 1px solid var(--line); border-radius: 8px; margin: 10px 0; background: var(--card); }
+    td { border: 0; border-top: 1px solid var(--line); }
+    td:first-child { border-top: 0; font-weight: 600; }
+    td:nth-child(2)::before { content: "Why: "; font-weight: 700; color: var(--muted); }
+    td:nth-child(3)::before { content: "What to do: "; font-weight: 700; color: var(--muted); }
+    table { background: none; border: 0; }
+  }
+  ul, ol { margin: 8px 0 8px 22px; padding: 0; }
+  li { margin: 4px 0; }
+  .note { border-left: 4px solid var(--accent); background: #eaf7fc; padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: .94rem; }
+  .warn { border-left-color: var(--warn); background: #fdf6e8; }
+  .bad { border-left-color: var(--bad); background: #fdeeee; }
+  .toc a { color: #0a6f92; text-decoration: none; }
+  .toc li { margin: 2px 0; }
+  .id { font-weight: 700; color: var(--muted); font-size: .8rem; display: block; }
+  .dev { display: inline-block; font-size: .72rem; font-weight: 700; padding: 1px 8px; border-radius: 99px; background: #fdeeee; color: var(--bad); margin-top: 4px; }
+  .q { font-style: italic; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Webinar Troubleshooting</h1>
+<p class="sub">What can go wrong with a webinar, how to recognise it, and how to fix it yourself. Written for the webinar
+team running webinars in EA-SYS, Nov 24, 2026, from the screens and messages as they are today. Organised by what you or an
+attendee sees. Words in quotation marks are exactly what appears on screen. A <span class="dev">Developer</span> mark means
+the fix needs someone with access to the server.</p>
+
+<div class="card toc">
+  <b>Contents</b>
+  <ol>
+    <li><a href="#rules">Five facts that explain most problems</a></li>
+    <li><a href="#first">The first three things to check</a></li>
+    <li><a href="#before">Before the day: a checklist</a></li>
+    <li><a href="#setup">Setting up the webinar</a></li>
+    <li><a href="#register">Registering and getting in</a></li>
+    <li><a href="#zoom">Going live with our Zoom</a></li>
+    <li><a href="#partner">Going live with a partner's stream</a></li>
+    <li><a href="#watch">Attendees watching</a></li>
+    <li><a href="#during">During the webinar</a></li>
+    <li><a href="#after">After the webinar</a></li>
+    <li><a href="#limits">Things the system does not do (yet)</a></li>
+    <li><a href="#escalate">When you call a developer</a></li>
+  </ol>
+</div>
+
+<h2 id="rules">1. Five facts that explain most problems</h2>
+<ol>
+  <li><b>The room opens only when you open it.</b> Attendees wait in the waiting room until someone presses
+    "Open the room / Go live" in the Webinar Console. Starting Zoom as host does not let anyone in, and the room never opens
+    by itself at the start time.</li>
+  <li><b>Who may watch:</b> someone with a registration that is Confirmed (or Checked in) and paid, complimentary, or with
+    nothing to pay. Pending approval, waiting list and unpaid registrations are kept out. Staff of the organisation can always
+    get in, which is why a test as staff can look fine when attendees cannot.</li>
+  <li><b>Attendees cannot get in more than 15 minutes before the scheduled start.</b> Before that they see when join opens.</li>
+  <li><b>Closing the room after the start ends the webinar.</b> Attendees get the thank-you screen and the survey. It is not
+    a pause. To continue, use "Re-open the room".</li>
+  <li><b>A Draft event behaves differently.</b> Its room counts as open the whole time, and only staff can see it. Test on a
+    published event, or remember that Draft is not what attendees will get.</li>
+</ol>
+
+<h2 id="first">2. The first three things to check</h2>
+<p>Most calls on the day are one of these:</p>
+<table>
+  <tr><th>Attendees say</th><th>Usually</th><th>What to do</th></tr>
+  <tr><td>"Registration is closed" on a webinar you just made</td><td>The registration rates start switched off on every new event</td><td>Registration Types page: switch the rate on (see <a href="#b1">B1</a>).</td></tr>
+  <tr><td>Stuck in the waiting room after the start time</td><td>The room was not opened</td><td>Webinar Console, Setup tab, Go live card: "Open the room / Go live" (see <a href="#c1">C1</a>).</td></tr>
+  <tr><td>"Waiting for stream to start..." with the room open</td><td>The video is not reaching us: Zoom not started, still in Zoom's practice session, or the stream not started</td><td>See <a href="#c3">C3</a> (our Zoom) or <a href="#d4">D4</a> (partner).</td></tr>
+</table>
+
+<h2 id="before">3. Before the day: a checklist</h2>
+<div class="card">
+<ul>
+  <li>The event is <b>Published</b> (event Settings, General, "Status").</li>
+  <li>A registration rate is <b>switched on</b> and ticked for the main Register link (Registration Types page).</li>
+  <li>The Webinar Console shows a Zoom webinar attached (no "Zoom webinar not provisioned" banner), or, for a partner's
+    webinar, the key is issued and handed over.</li>
+  <li>The viewing mode is the one you want: Waiting Room card, "How attendees watch".</li>
+  <li>For our Zoom with Custom stream: "Preview the stream" shows "Stream is arriving" during the rehearsal.</li>
+  <li>Panelists imported ("Import from Speakers") after the speakers are final.</li>
+  <li>"Auto-recording" is "Cloud (recommended)" if you want Zoom's recording (Settings tab, set before the Zoom webinar is
+    created; see <a href="#a7">A7</a>).</li>
+  <li>The end-of-webinar survey is chosen and the survey itself is open.</li>
+  <li>No other Zoom webinar overlaps (one Zoom licence runs one webinar at a time).</li>
+  <li>Tell the developers the date and time, so nobody deploys or restarts the server during it.</li>
+</ul>
+</div>
+
+<!-- ───────────────────────────── A ───────────────────────────── -->
+<h2 id="setup">4. Setting up the webinar</h2>
+<table>
+  <tr><th>What you see</th><th>Why</th><th>What to do</th></tr>
+  <tr id="a1"><td><span class="id">A1</span>Banner "Zoom webinar not provisioned" with "Configure Zoom" and "Run provisioner". Panelists and Recording say "No Zoom webinar attached yet."</td>
+    <td>Zoom is not connected for the organisation, or Zoom refused to create the webinar.</td>
+    <td>An admin checks organisation Settings, <b>Integrations</b> tab, "Zoom Integration": fill in the details, "Save Credentials", "Test Connection". ("Configure Zoom" opens Settings on its first tab: click Integrations.) Then press "Run provisioner".<br>
+    The toast tells you what happened: "Webinar provisioned" is done; "Anchor session created. Zoom isn't configured" means the details are missing; "Anchor session created, but Zoom webinar creation failed" means Zoom refused.<br>
+    <span class="dev">Developer</span> if it keeps failing while "Test Connection" passes.</td></tr>
+  <tr><td><span class="id">A2</span>"Not a Webinar Event"</td><td>The event's type is not Webinar.</td><td>Change the type in the event's Settings, then press "Run provisioner". Nothing runs it for you after a type change.</td></tr>
+  <tr><td><span class="id">A3</span>The "Video source" choice is missing when creating a webinar, or the Clone dialog shows the partner option greyed out ("not available on this server")</td>
+    <td>The server is not yet set up for partner streams.</td>
+    <td>Nothing to do yourself. Without it, a webinar can only use our Zoom. The choice cannot be changed after the webinar is created: if the wrong one was picked, create the webinar again. <span class="dev">Developer</span> to set up partner streams.</td></tr>
+  <tr><td><span class="id">A4</span>Saving "How attendees watch" fails: "Custom stream needs the event's Zoom webinar. Run the provisioner first, or keep the Zoom embed." or "Could not set up the custom stream in Zoom: ..."</td>
+    <td>No Zoom webinar yet, or live streaming is switched off in our Zoom account.</td>
+    <td>Run the provisioner first. For the second message, a Zoom account admin switches on "Allow livestreaming of webinars" and "Custom Live Streaming Service" in Zoom, then save again, or press "Re-send stream settings to Zoom".</td></tr>
+  <tr><td><span class="id">A5</span>"Too many requests" when saving console settings</td>
+    <td>All the console's settings (lobby, branding, survey, exit button, recording switch, replay link, polls, upvotes) share one limit of 20 saves an hour per webinar.</td>
+    <td>Wait, then save once. Avoid switching things on and off repeatedly on the day.</td></tr>
+  <tr><td><span class="id">A6</span>The Zoom embed works for you but attendees on the live site get "Couldn't load the embedded meeting"</td>
+    <td>Zoom's embedding is still in test mode, or our site is not on Zoom's list of allowed sites.</td>
+    <td>An admin sets Integrations, Zoom Integration, "Active SDK Mode" to "Production" and saves. Meanwhile attendees can use "Open in Zoom app instead". <span class="dev">Developer</span> or Zoom admin for the allowed sites, or for "Signature is invalid".</td></tr>
+  <tr id="a7"><td><span class="id">A7</span>A switch on the console's Settings tab seems to do nothing</td>
+    <td>Some of those switches are only used when the Zoom webinar is first created, and some are not used at all today.</td>
+    <td>"Auto-recording" counts only when the Zoom webinar is created: to change it afterwards, change it in Zoom. "Automation enabled", "Waiting room" and "Default passcode" do not change anything today: turning Automation off does NOT stop the emails. To stop an email, cancel it in Communications, "Scheduled Emails", "Cancel scheduled email".</td></tr>
+  <tr><td><span class="id">A8</span>A cloned webinar has no Zoom webinar, or going live says "Can't open the room: viewing mode is Custom stream but the stream isn't set up in Zoom yet"</td>
+    <td>A clone starts as a Draft with no Zoom webinar, and keeps the viewing mode of the original.</td>
+    <td>On the copy: "Run provisioner", then "Re-send stream settings to Zoom". Also set again what a clone does not copy: the end survey, the exit link, handouts, the replay link, "Show the recording to attendees", live polls, upvotes and chat settings. If the agenda was copied, check the talks are on the webinar's own session (see <a href="#a9">A9</a>).</td></tr>
+  <tr id="a9"><td><span class="id">A9</span>"Import from Speakers" says "No speakers assigned to the webinar session yet." / "All speakers are already panelists." / "All speakers are missing an email address."</td>
+    <td>Only speakers on the webinar's own session (or its topics) are imported, and only once: someone added or removed later is not changed in Zoom.</td>
+    <td>Put the speakers on the webinar session in the Agenda, add their emails on the Speakers page, and press "Import from Speakers" again. Or add someone by hand with Name, Email and "Add". "Resend the panelist invitation email" sends their link again. Never send "Zoom details (hosts only)" to attendees.</td></tr>
+  <tr><td><span class="id">A10</span>After moving the webinar's time: "Session saved, but updating the linked Zoom meeting's time failed" or "... rescheduling the webinar's reminder emails failed"</td>
+    <td>Zoom or the email schedule did not take the new time.</td>
+    <td>Save again from the Agenda. For the emails, press "Re-enqueue" in the console's Email Sequence card. A partner key with its own "Works until" date does not move with the webinar (see <a href="#d5">D5</a>).</td></tr>
+</table>
+
+<!-- ───────────────────────────── B ───────────────────────────── -->
+<h2 id="register">5. Registering and getting in</h2>
+<table>
+  <tr><th>What the attendee sees</th><th>Why</th><th>What to do</th></tr>
+  <tr id="b1"><td><span class="id">B1</span>"Registration is closed", a "Closed" button, or "Registration Closed" with "Registration is not currently open for ..."</td>
+    <td>Every new event starts with its registration rates switched off. Or "Registration Open" is off, or no rate is ticked for the main Register link.</td>
+    <td>Registration Types page: tick the box at the left of the rate's row (or "Edit tier", "Active"), and set the price. Check "Main registration link": with nothing ticked the general link always shows "Registration Closed". Event Settings, Registration tab: "Registration Open", then "Save registration settings".</td></tr>
+  <tr><td><span class="id">B2</span>"{Rate} registration is currently closed", or on submitting "Pricing tier not found or inactive"</td><td>That rate or its registration type is switched off.</td><td>As B1.</td></tr>
+  <tr><td><span class="id">B3</span>On submitting: "Registration sales have not started" / "Registration sales have ended"</td><td>The rate's sales dates.</td><td>There is no field for these dates on the Registration Types page. <span class="dev">Developer</span></td></tr>
+  <tr><td><span class="id">B4</span>"Fully booked", "Registration Full", "Sold out"</td><td>The event's "Maximum Attendees" or a type's or rate's "Seat Limit" is reached.</td><td>Raise the limit (event Settings, Registration tab; or the Registration Types page) and save.</td></tr>
+  <tr><td><span class="id">B5</span>"Event not found" / "Please check the link and try again."</td><td>The event is Draft or Cancelled.</td><td>Event Settings, General, "Status": Published.</td></tr>
+  <tr id="b6"><td><span class="id">B6</span>"Your registration is not active yet" on the webinar page, with "Your registration is awaiting approval..."</td>
+    <td>The type, the rate, or the event requires approval, and nobody has approved it.</td>
+    <td>Registrations, open the person, "Registration Status": Confirmed. Note: no email is sent when you approve, and the person may already have a "You're confirmed" email from when they registered. Tell them they can now join.</td></tr>
+  <tr><td><span class="id">B7</span>"Your registration is not active yet" with "You are on the waiting list..." or "Your registration's payment is not complete..."</td>
+    <td>Waiting list, or unpaid.</td>
+    <td>"Registration Status": Confirmed, and "Payment Status": Paid, Complimentary or Inclusive. For many at once: Registrations, tick them, "Payment, badge or cancel".</td></tr>
+  <tr><td><span class="id">B8</span>"You're already registered for this event."</td><td>They registered earlier and lost the email.</td>
+    <td>Copy the attendee page link from the console's status bar ("Copy the attendee page link") and email it. Do not use the registration sheet's "Send Email", "Registration Confirmation": that is the conference confirmation, not the webinar's join email.</td></tr>
+  <tr id="b9"><td><span class="id">B9</span>"Register to join" although they did register</td>
+    <td>They signed in with a different email from the one they registered with, or registered without signing in and have not confirmed their address yet. (A free webinar on an open type lets them in anyway; a paid one or an approval type does not.)</td>
+    <td>Tell them to press "Send confirmation link" in the "Already registered?" box above the button and open the email: the page lets them in by itself once confirmed. Wrong email: sign out and in with the registered address, or change the registration's email (registration sheet, Email, "Change").</td></tr>
+  <tr><td><span class="id">B10</span>When registering: "You already have an account with this email. Sign in first..."</td><td>They have an account already.</td><td>Tell them to sign in with it ("Sign in instead", or "Forgotten it? Reset"). The password they typed does not change their account.</td></tr>
+  <tr><td><span class="id">B11</span>Sign-in fails: "Invalid email or password", "Too many failed sign-in attempts...", "Confirm your email first..."</td><td>Wrong password, too many tries, or an account never confirmed.</td><td>"Forgot password?" on the event's sign-in page. A password reset does not confirm the address: they still need the confirmation link (B9).</td></tr>
+  <tr><td><span class="id">B12</span>Confirmation link errors: "This verification link is invalid or has already been used.", "This verification link has expired.", "You are signed in to a different account..."</td><td>Old link, or the wrong account open.</td><td>Ask them to request a new link from the webinar page. Rate limits: "Please wait {n} minute(s) before asking for another link."</td></tr>
+  <tr><td><span class="id">B13</span>Times look wrong to the attendee</td><td>The page shows the event's time zone, with its label.</td><td>Check event Settings, General, "Timezone". Move the webinar's time on the Agenda, which also moves the reminder emails.</td></tr>
+  <tr><td><span class="id">B14</span>"Sign in to join" / "This webinar is open to registered attendees only."</td><td>Not signed in.</td><td>Sign in; they come back to the webinar page.</td></tr>
+  <tr id="b15"><td><span class="id">B15</span>"Session Not Available" with "Back to Agenda"</td>
+    <td>Most often: the event was set to <b>Completed</b>. The webinar page then stops working for attendees. Or the event is Draft, or Cancelled.</td>
+    <td>Keep "Status" on Published until the replay and survey period is over. After Completed, the replay is only under the attendee's My events. Set it back to Published if needed.</td></tr>
+  <tr><td><span class="id">B16</span>"Session hasn't started yet" / "Join opens at {time}"</td><td>More than 15 minutes before the start.</td><td>Nothing: this is how it works.</td></tr>
+  <tr><td><span class="id">B17</span>On a hospital or office network, the page shows nothing at the top, or stays on "Waiting for stream to start..." while others watch</td>
+    <td>Many people behind one network address can hit our per-address limits.</td>
+    <td>Ask them to try mobile data. <span class="dev">Developer</span> if a whole site is affected.</td></tr>
+</table>
+
+<!-- ───────────────────────────── C ───────────────────────────── -->
+<h2 id="zoom">6. Going live with our Zoom</h2>
+<p>Everything here is in the Webinar Console. The Setup tab holds the Go live card, the Stream timeline and the Waiting Room
+card, which has the "Custom stream" box ("Start stream", "Stop stream", "Re-send stream settings to Zoom") and "Preview the
+stream".</p>
+<table>
+  <tr><th>What you see</th><th>Why</th><th>What to do</th></tr>
+  <tr id="c1"><td><span class="id">C1</span>Attendees stuck in the waiting room. The console shows "The scheduled start has passed and the room is still closed" and the badge "Room closed".</td>
+    <td>The room was not opened. "Start as Host" alone does not admit anyone.</td>
+    <td>Go live card: "Open the room / Go live". Or "Start as Host" and choose "Start and open the room" (not "Start only"). Attendees are let in within about 20 seconds, without refreshing.</td></tr>
+  <tr><td><span class="id">C2</span>"Can't open the room: viewing mode is Custom stream but the stream isn't set up in Zoom yet..."</td><td>Streaming was never set up for this Zoom webinar.</td><td>"Re-send stream settings to Zoom" ("Stream settings sent to Zoom"), then open the room.</td></tr>
+  <tr id="c3"><td><span class="id">C3</span>"Zoom refused to start the stream: the webinar is not live in Zoom yet..."</td><td>The host has not started, or Zoom is in its practice session. Zoom never streams a practice session.</td><td>The host clicks "Start Webinar" in Zoom, then press "Start stream".</td></tr>
+  <tr><td><span class="id">C4</span>"Zoom is still handling the previous start request (it accepts one every 30 seconds)..."</td><td>Pressed twice quickly.</td><td>Wait half a minute, check the attendee page, then press once more if needed.</td></tr>
+  <tr><td><span class="id">C5</span>"Zoom says this webinar no longer exists. Re-run the provisioner to create it again."</td><td>The Zoom webinar was deleted in Zoom.</td><td>"Re-run provisioner", then "Re-send stream settings to Zoom" (the new one needs it), then send panelists their new links.</td></tr>
+  <tr><td><span class="id">C6</span>"The stream still has not started. Check that the webinar is running in Zoom, then press Start stream..."</td><td>After opening the room the console tries to start the stream five times, 30 seconds apart, then gives up.</td><td>Check Zoom is live (not practice), press "Start stream". Last resort, in the Zoom app: More, "Live on Custom Live Streaming Service".</td></tr>
+  <tr id="c7"><td><span class="id">C7</span>"Preview the stream" stays on "No stream yet" with Zoom live</td><td>Zoom is not sending to us, or is sending with an old password.</td><td>Press "Re-send stream settings to Zoom", then "Start stream", and keep the preview open (it checks every 10 seconds). <span class="dev">Developer</span> if it stays "No stream yet" after that.</td></tr>
+  <tr id="c8"><td><span class="id">C8</span>The Stream timeline shows "Stream dropped", then "Restart requested automatically" (Attempt n of 5). Attendees see "The stream was interrupted" / "Reconnecting automatically".</td>
+    <td>Zoom's push stopped. The system restarts it by itself: it checks every minute and tries up to five times.</td>
+    <td>Usually nothing: it comes back in about a minute and attendees reconnect without refreshing. Press "Start stream" yourself if the timeline says "Automatic restart refused" or after five attempts. <span class="dev">Developer</span> if it drops again and again (the reason is only in the server's log, which is cleared after a while: call soon).</td></tr>
+  <tr><td><span class="id">C9</span>The stream comes back by itself after you stopped it in Zoom</td><td>Stopping inside Zoom looks like a drop, so it is restarted.</td><td>Always stop from the console: "Stop stream". The automatic restart then stays off until you press "Start stream" or open the room again.</td></tr>
+  <tr><td><span class="id">C10</span>The host ended Zoom by mistake and started again, but attendees have no picture</td><td>The room stays open (a Zoom end counts only after five minutes), but after Zoom said "not running" the automatic restart stops trying.</td><td>After the host restarts Zoom, press "Start stream".</td></tr>
+  <tr><td><span class="id">C11</span>Attendees say the picture is 10 to 20 seconds behind, or their question arrived late</td><td>Normal for the Custom stream: about 12 seconds plus Zoom's own delay. The Zoom embed is about 1 second.</td><td>If near real time matters, use "Zoom embed". To measure: "Our delay" under the preview, and "Measure Zoom delay" with the clock page shared in Zoom.</td></tr>
+  <tr><td><span class="id">C12</span>iPhones freeze while others play</td><td>Uneven video pieces, which iPhones handle badly.</td><td>Attendees reload the page. <span class="dev">Developer</span> if many report it: note the time.</td></tr>
+  <tr><td><span class="id">C13</span>The second host cannot start their Zoom webinar (Zoom's own message)</td><td>Our Zoom licence runs one webinar at a time. Zoom still lets you schedule two at once.</td><td>Do not overlap Zoom webinars. A partner-stream webinar can run alongside one.</td></tr>
+  <tr><td><span class="id">C14</span>Stream refused after a short outage or a server update</td><td>While the site is down, the stream server cannot check the stream's password, so a reconnect is refused.</td><td>Press "Start stream" once the site is back. Ask developers not to deploy during a webinar.</td></tr>
+</table>
+
+<!-- ───────────────────────────── D ───────────────────────────── -->
+<h2 id="partner">7. Going live with a partner's stream</h2>
+<p>A partner's webinar has a "Partner stream" card at the top of the Setup tab: issue the key, "Show the key", "Copy
+handover message", "Replace the key", "Cut the feed", and a "Signal" line. There is no Zoom webinar and no Panelists tab, and
+we cannot restart the partner's stream for them.</p>
+<table>
+  <tr><th>What you see</th><th>Why</th><th>What to do</th></tr>
+  <tr><td><span class="id">D1</span>"This server is not set up to issue a partner's stream key yet..."</td><td>Server setup missing.</td><td><span class="dev">Developer</span></td></tr>
+  <tr><td><span class="id">D2</span>Red warning: "The stream server's control connection is not answering." (or "refused", or "gave an answer we could not read")</td><td>We cannot end a running stream until this is fixed: "Cut the feed" and "Replace" still work for the next connection only.</td><td><span class="dev">Developer</span> before the webinar. The warning clears by itself once fixed.</td></tr>
+  <tr><td><span class="id">D3</span>"Showing the server and stream key needs "See Zoom host details"...", or "Copy handover message" is greyed out</td><td>Your role cannot see host details; or the key is switched off ("switch it on before you send it") or past its end date ("set a later "Works until" first").</td><td>Ask someone with that permission to hand it over. "Switch the key on", or set a later "Works until" and "Save details". The key includes its password after the question mark: the partner pastes the whole value.</td></tr>
+  <tr id="d4"><td><span class="id">D4</span>"Signal: Not receiving", or the partner says their platform is refused</td>
+    <td>Wrong server address; the key pasted without the part after the question mark; the key switched off or past its end; or an old key after "Replace".</td>
+    <td>Check with the partner: the whole key, the right server address. "Switch the key on". Set a later "Works until". After a Replace, send the new one ("Copy handover message"). "Not known" means our stream server did not answer the check. <span class="dev">Developer</span> if all of that is right.</td></tr>
+  <tr id="d5"><td><span class="id">D5</span>The partner's stream is cut, and admins get "Partner stream cut: the key reached its end date"</td><td>A key works until 24 hours after the scheduled end (or its own "Works until" date), then the running stream is ended.</td><td>Set a later "Works until", "Save details". A key with its own date does not move when the webinar is moved.</td></tr>
+  <tr><td><span class="id">D6</span>"Can't open the room: the partner's stream key has not been issued..."</td><td>No key yet.</td><td>Issue it in the Partner stream card and hand it over first.</td></tr>
+  <tr><td><span class="id">D7</span>After opening the room: "The partner's video is not arriving yet..." or "The partner's key is switched off..."</td><td>The partner has not started, or the key is off.</td><td>Call the partner; switch the key on. Attendees see "Waiting for stream to start" until it arrives. Check with "Preview the stream".</td></tr>
+  <tr><td><span class="id">D8</span>"... but the running stream could not be cut yet: ... It is tried again within a minute."</td><td>The stream server did not answer when you pressed Replace or Cut.</td><td>Wait a minute. If the Signal still says "Receiving" after two minutes, press "Cut the feed" again. <span class="dev">Developer</span> if it never cuts.</td></tr>
+  <tr><td><span class="id">D9</span>Admins get "Partner stream stopped" ("We cannot restart it from here: call the partner")</td><td>The partner's stream dropped. Not sent after your own Cut, or within three minutes of your own Replace.</td><td>Phone the partner. "Partner stream is back" follows when it returns.</td></tr>
+  <tr><td><span class="id">D10</span>iPhones freeze or viewers buffer on a partner's stream</td><td>The partner's encoder settings.</td><td>Ask for what the card lists under "What to ask the partner's encoder for": H.264 video, AAC audio, a keyframe every 2 seconds (in OBS: Output, "Keyframe Interval" 2), 720p at 30 frames, about 2.5 Mbps.</td></tr>
+  <tr><td><span class="id">D11</span>"Replace the key" or "Cut the feed" by mistake</td><td>Replace stops the old key and cuts the stream; Cut switches the key off and cuts the stream. The room stays open.</td><td>After Replace: show the new key and send it. After Cut: "Switch the key on" ("the partner can connect again"). To end the webinar itself, close the room.</td></tr>
+</table>
+
+<!-- ───────────────────────────── E ───────────────────────────── -->
+<h2 id="watch">8. Attendees watching</h2>
+<h3>Custom stream (our player)</h3>
+<table>
+  <tr><th>What the attendee sees</th><th>Why</th><th>What to do</th></tr>
+  <tr><td><span class="id">E1</span>"You're in the waiting room" / "Waiting for the session to begin...", then "Running a little late..."</td><td>The room is not open (rule 1).</td><td>See <a href="#c1">C1</a>.</td></tr>
+  <tr><td><span class="id">E2</span>"Getting the stream ready..."</td><td>The room is open but no stream is set up for the session (made before streaming was turned on), or a partner key is not issued.</td><td>"Re-send stream settings to Zoom"; for a partner, issue the key.</td></tr>
+  <tr><td><span class="id">E3</span>"Waiting for stream to start..." / "Checking every 10 seconds..."</td><td>The room is open, but no video arrives.</td><td>See <a href="#c3">C3</a> to <a href="#c7">C7</a>, or <a href="#d4">D4</a> for a partner.</td></tr>
+  <tr><td><span class="id">E4</span>"The stream was interrupted" / "Reconnecting automatically. There is no need to refresh the page."</td><td>The stream dropped.</td><td>See <a href="#c8">C8</a>, or call the partner.</td></tr>
+  <tr><td><span class="id">E5</span>"The stream has stopped" / "If the webinar has finished, this page will show that in a few minutes..."</td><td>The host ended Zoom. The room closes by itself within a few minutes.</td><td>If it is over: "Close the room". If not: restart Zoom and "Start stream".</td></tr>
+  <tr><td><span class="id">E6</span>"Unable to play the stream" with "Retry"</td><td>An old or unusual browser.</td><td>Retry, reload, or use an up-to-date Chrome, Safari or Edge. <span class="dev">Developer</span> if many report it.</td></tr>
+  <tr><td><span class="id">E7</span>No sound</td><td>Browsers start video muted.</td><td>Tap "Tap to turn on sound" (or "Unmute" in the bar). It is remembered on that browser.</td></tr>
+  <tr><td><span class="id">E8</span>"Back to live"</td><td>They paused, or fell behind (a phone in low power mode can hold the video).</td><td>Tap "Back to live", or "Tap to turn on sound", which also starts the picture.</td></tr>
+  <tr><td><span class="id">E9</span>A frozen picture</td><td>A network hiccup, or uneven video pieces.</td><td>The player reconnects by itself after about 15 seconds. Otherwise reload.</td></tr>
+  <tr><td><span class="id">E10</span>Full screen on a phone</td><td>iPhone uses Apple's own player (it closes by itself if the stream stops); Android turns sideways. In full screen the controls fade after 3 seconds.</td><td>Tap the picture to show the controls again.</td></tr>
+</table>
+<h3>Zoom embed</h3>
+<table>
+  <tr><th>What the attendee sees</th><th>Why</th><th>What to do</th></tr>
+  <tr><td><span class="id">E11</span>"Couldn't load the embedded meeting", or stuck on "Loading Zoom..." / "Joining the webinar..."</td><td>Zoom's embedding settings (A6), a blocked network, or the webinar is full.</td><td>"Open in Zoom app instead". Check A6. <span class="dev">Developer</span> for "Signature is invalid".</td></tr>
+  <tr><td><span class="id">E12</span>"Waiting for the host to start the webinar"</td><td>The room is open but Zoom is not started.</td><td>"Start as Host" and start the webinar in Zoom. The page joins by itself.</td></tr>
+  <tr><td><span class="id">E13</span>"In meeting" and "Leave" but nothing is playing</td><td>A known fault when the organisation's Zoom embedding details are missing.</td><td>Press "Leave", then "Join Webinar", which opens Zoom. <span class="dev">Developer</span></td></tr>
+  <tr><td><span class="id">E14</span>"This webinar has ended" with "Rejoin"</td><td>The host ended Zoom.</td><td>If the host restarts, attendees press "Rejoin". Rejoining hours later can fail: reload the page.</td></tr>
+  <tr><td><span class="id">E15</span>The Zoom picture is small, with black at the sides</td><td>Zoom's own shape inside our page.</td><td>"Full screen". For a full-width picture use the Custom stream.</td></tr>
+</table>
+
+<!-- ───────────────────────────── F ───────────────────────────── -->
+<h2 id="during">9. During the webinar</h2>
+<table>
+  <tr><th>What you see</th><th>Why</th><th>What to do</th></tr>
+  <tr><td><span class="id">F1</span>"Running past the scheduled end..."</td><td>Information: attendees stay in the live view; the thank-you email and the survey wait until the room closes.</td><td>Nothing. With the Zoom embed the room closes by itself at the latest 2 hours after the scheduled end: for a longer overrun, re-open it. With a stream it stays open while video arrives, up to 6 hours.</td></tr>
+  <tr><td><span class="id">F2</span>The room closed by itself: "Room closed automatically" on the timeline</td><td>Zoom reported the webinar ended, or the safety net (long after the scheduled end).</td><td>If wrong: "Re-open the room". People with the page still open come back.</td></tr>
+  <tr><td><span class="id">F3</span>Finished early, but attendees still see "The stream was interrupted"</td><td>A Zoom end more than 15 minutes before the scheduled end does not close the room.</td><td>"Close the room", "End the webinar for attendees?", "Close the room". (Closing before the scheduled start counts as a rehearsal.)</td></tr>
+  <tr><td><span class="id">F4</span>Attendees cannot see each other's questions</td><td>Questions reach other attendees only once you show them.</td><td>Q&amp;A tab: "Show to attendees". Upvotes: "Let attendees upvote shown questions". In Zoom embed mode, Q&amp;A is in Zoom itself. Attendees asking a lot see "You have asked a lot of questions this hour" (20 an hour).</td></tr>
+  <tr><td><span class="id">F5</span>"Launch" for a poll is greyed out ("Turn on Enable live polls first")</td><td>Polls are off.</td><td>Polls tab: "Enable live polls". One poll at a time; turning polls off closes the open one. Results show only to people who answered, with "Show results to attendees who answered".</td></tr>
+  <tr><td><span class="id">F6</span>Chat problems ("Chat opens when the session starts.", "The moderator has paused chat.", "You are sending messages too quickly.")</td><td>Chat settings.</td><td>Chat tab: "Chat on" (needs a moderator: "Make me the moderator"), "Open in the waiting room", "Mute everyone", "Slow mode" (one message every 15 seconds). "Download the chat (CSV)" afterwards.</td></tr>
+  <tr><td><span class="id">F7</span>A handout will not upload</td><td>PDF, PPTX or DOCX only, 8 MB each, 10 at most.</td><td>Shrink or convert the file. "The handout list changed. Refresh and try again." means someone else changed it: refresh.</td></tr>
+  <tr><td><span class="id">F8</span>"Live now" shows fewer people than expected, or "No attendees on the page right now."</td><td>It counts only people with the page open and in view in the last minute, never staff, and only while the room is live. It is not Zoom's count.</td><td>Nothing: the full attendance is in the reports afterwards.</td></tr>
+  <tr><td><span class="id">F9</span>No Q&amp;A, polls or chat on the attendee page</td><td>These are on our page only with the Custom stream (or a partner's stream). In Zoom embed they are inside Zoom.</td><td>Choose the mode before the day.</td></tr>
+</table>
+
+<!-- ───────────────────────────── G ───────────────────────────── -->
+<h2 id="after">10. After the webinar</h2>
+<table>
+  <tr><th>What you or attendees see</th><th>Why</th><th>What to do</th></tr>
+  <tr><td><span class="id">G1</span>The survey popup does not appear</td>
+    <td>No survey chosen; the survey is closed or has no questions; the certificate (CME) survey was chosen, which never pops up; the viewer is staff (staff never see it); the webinar is not over; or the event is Completed (B15).</td>
+    <td>Setup tab, "End-of-webinar survey" card: choose a survey and save. Open the survey itself on the Surveys page ("Open for answers"). The card warns "The chosen survey is closed, so nothing pops up..." To email it too: "Also send the link in the thank-you email".</td></tr>
+  <tr><td><span class="id">G2</span>An attendee has no certificate ("No certificate yet")</td>
+    <td>Not assigned to it; has not answered the certificate survey (sent by personal link only); that survey is closed; or the attendee never confirmed their account's address. Certificates do not check attendance by themselves.</td>
+    <td>Certificates, "Recipients": assign, or "Add from a list of emails" using the attendance export. Send the survey: registration sheet, "Send Email", "Survey Invitation". Unconfirmed: "Send confirmation link" (B9).</td></tr>
+  <tr id="g3"><td><span class="id">G3</span>No replay for attendees</td>
+    <td>"Show the recording to attendees" is off (it starts off), or Zoom's recording is not in yet.</td>
+    <td>Webinar Console, <b>Recording</b> tab: switch on "Show the recording to attendees". If it says "Attendees cannot see this replay: switch on...", that is the switch.</td></tr>
+  <tr><td><span class="id">G4</span>Recording card: "Recording processing", "Fetch failed", "Fetch window expired", or "Cloud recording not yet polled"</td>
+    <td>Zoom's recording is fetched from 10 minutes after the end. If Zoom has none 6 hours after the end, it shows "Fetch window expired" (the "more than 7 days" wording is misleading then): usually cloud recording was off.</td>
+    <td>Check the recording exists in Zoom, then "Refetch now". For a partner's webinar there is no Zoom recording: ask the partner for the file (our own recording of partner streams is being built).</td></tr>
+  <tr><td><span class="id">G5</span>The Zoom replay link stops working weeks later</td><td>Zoom deletes recordings after the account's retention period, and the card still says available.</td><td>Download from Zoom, upload to Vimeo, paste it in "Replay link (Vimeo)", save, "Preview the saved replay". Vimeo replays do not expire.</td></tr>
+  <tr><td><span class="id">G6</span>The Vimeo replay shows a Vimeo error, or anyone with the link can watch it on Vimeo</td><td>The video's privacy or allowed-sites settings in Vimeo. A showcase or review link is refused ("Must be a Vimeo video link...").</td><td>Fix in Vimeo, then check with "Preview the saved replay": what you see there is what attendees get.</td></tr>
+  <tr><td><span class="id">G7</span>The thank-you email had no replay, or the old one</td><td>It is sent once, about 30 minutes after the room closes, and mentions a replay only if the switch was on by then. It is never re-sent.</td><td>Switch the recording on before the end. Afterwards, send the replay link in an email of your own.</td></tr>
+  <tr><td><span class="id">G8</span>Attendance: "Attendance will appear here after the session ends and Zoom finalizes..." or "Attendance report not ready yet"</td><td>Zoom's report comes about 30 minutes after the end, and is fetched for 30 days.</td><td>Wait, or "Sync now" (after the end). With the Custom stream or a partner's stream, the audience is in "Attendance on our page" (Zoom's report lists only the speakers then). Export within 90 days: the minute-by-minute record is archived after that.</td></tr>
+  <tr><td><span class="id">G9</span>Post-event report: "The webinar has not ended yet: these figures are so far." or attendance 0</td><td>Not closed yet, or Zoom's report not synced yet.</td><td>Close the room, wait for the attendance sync. Tick "Include survey comments in the PDF" only after reading them. "Too many requests" means 30 PDFs an hour was reached.</td></tr>
+  <tr><td><span class="id">G10</span>Email Sequence row shows "x/y sent (n failed)", or "Webinar email requested but event has no anchor session...", or "Stuck in processing..."</td><td>Some addresses bounced, the webinar was never provisioned, or a send was interrupted.</td><td>Communications, "Scheduled Emails", "Retry scheduled email"; "Failed recipients" shows who. Without a session: "Run provisioner", then "Re-enqueue" (it never re-sends a step already sent).</td></tr>
+  <tr><td><span class="id">G11</span>Reminders went to people who should not get them</td><td>The webinar emails go to every Confirmed registration at the time of sending, including test registrations and speakers.</td><td>Cancel test registrations before the day. To be selective, cancel the automatic email in "Scheduled Emails" and send your own from Communications.</td></tr>
+</table>
+
+<h2 id="limits">11. Things the system does not do (yet)</h2>
+<p>Found while writing this guide. Each is a gap, not something you are doing wrong. Plan around them until they are fixed.</p>
+<ul>
+  <li>No email is sent when you approve a registration (B6), and someone pending approval may already have a "You're confirmed" email.</li>
+  <li>"Automation enabled", "Waiting room" and "Default passcode" on the console's Settings tab do nothing; "Auto-recording" counts only when the Zoom webinar is created (A7).</li>
+  <li>A rate's sales dates cannot be set on the Registration Types page (B3).</li>
+  <li>Setting the event to Completed stops the webinar page, its survey and its replay for attendees (B15).</li>
+  <li>A pending, waiting-list or unpaid registration made while signed out shows "Register to join" instead of the real reason (B9).</li>
+  <li>With the Zoom embed and no embedding details for the organisation, attendees see "In meeting" with nothing playing (E13).</li>
+  <li>Panelists are not kept in step with the speakers: press "Import from Speakers" after every change (A9).</li>
+  <li>The webinar emails go to every Confirmed registration, speakers and tests included (G11).</li>
+  <li>Only one of our Zoom webinars can run at a time (C13).</li>
+  <li>We do not yet record a partner's stream ourselves (G4).</li>
+  <li>"Fetch window expired" can appear 6 hours after the end, while the card's text speaks of 7 days (G4).</li>
+</ul>
+
+<h2 id="escalate">12. When you call a developer</h2>
+<div class="card">
+<p>Send, in one message:</p>
+<ul>
+  <li>The webinar's name, and the link to its Webinar Console.</li>
+  <li>The time it happened (with the time zone), and whether it is still happening.</li>
+  <li>The exact words on screen, or a screenshot (ideally of the console and of the attendee page).</li>
+  <li>For an attendee problem: their email address, their device and browser (iPhone Safari, Chrome on Windows...), and their
+    network if it is a hospital or office.</li>
+  <li>What you already tried from this guide.</li>
+</ul>
+<p>Call quickly for a stream that drops again and again: the server's own record of why is cleared after a while.</p>
+</div>
+
+<p class="sub">Sources for this guide: the Webinar Console and the attendee pages as built on Nov 24, 2026. Technical
+background: <code>docs/WEBINAR_STREAMING.html</code>, <code>docs/LIVE_STREAMING.md</code>, <code>docs/WEBINAR_EVENTS.md</code>,
+and the operator guide, <code>public/user-guide.html</code> section 11. When a screen or message changes, change it here too.</p>
+
+</main>
+</body>
+</html>
