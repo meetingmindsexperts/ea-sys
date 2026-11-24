@@ -138,8 +138,9 @@ function VerifyEmailInner() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#f0fbff] to-[#f8fafc] px-4">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white px-8 py-10 text-center shadow-sm">
+    // Inside the sign-in frame (layout.tsx), which centres it and carries the logo.
+    <main className="w-full max-w-md">
+      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center shadow-sm sm:px-8 sm:py-10">
         <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-slate-50">
           <StateIcon state={state} />
         </div>
