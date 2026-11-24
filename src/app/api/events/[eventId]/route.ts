@@ -620,11 +620,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
       // When shifting, this is a READ-ONLY pre-check of the rule the
       // transaction enforces (review, Sep 2 2026). It has to run HERE, ahead
-      // of the settings and cap writes below: a blocked shift would otherwise
-      // leave those committed and poison the retry, because a deadline the
-      // organiser set in the refused request is then "stored", so the retry
-      // reads it as echoed and shifts it. The transaction keeps its own check
-      // as the race backstop.
+      // of the cap write below, which still commits on its own: a blocked
+      // shift would otherwise leave it committed. (The settings no longer
+      // need this: since Nov 24, 2026 they are written inside the shift's own
+      // transaction and roll back with it.) The transaction keeps its own
+      // check as the race backstop.
       const outOfRange = findSessionsOutsideAfterShift(eventSessions, {
         dayDelta: shifting ? dayDelta : 0,
         timeZone: effectiveTz,
@@ -802,7 +802,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         const out = await runWithTenant(orgGuard.orgId, () =>
           tenantTransaction(
             async (tx) => {
-              if (settingsPatch) await mergeSettingsInTransaction(tx, "Event", eventId, settingsPatch, { notFoundError: "EVENT_NOT_FOUND" });
+              if (settingsPatch) await mergeSettingsInTransaction(tx, "Event", eventId, settingsPatch, { notFoundError: "EVENT_NOT_FOUND", organizationId: orgGuard.orgId });
               const ev = await tx.event.update({ where: { id: eventId }, data: eventUpdateData });
               const summary = await applyScheduleShift(tx, {
                 eventId,
@@ -849,7 +849,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       event = await runWithTenant(orgGuard.orgId, () =>
         patch
           ? tenantTransaction(async (tx) => {
-              await mergeSettingsInTransaction(tx, "Event", eventId, patch, { notFoundError: "EVENT_NOT_FOUND" });
+              await mergeSettingsInTransaction(tx, "Event", eventId, patch, { notFoundError: "EVENT_NOT_FOUND", organizationId: orgGuard.orgId });
               return tx.event.update({ where: { id: eventId }, data: eventUpdateData });
             })
           : db.event.update({ where: { id: eventId }, data: eventUpdateData }),

@@ -216,17 +216,23 @@ export async function PUT(req: Request) {
 
     forgetBrand(orgId);
 
-    // Log the action
-    await db.auditLog.create({
-      data: {
-        userId: session.user.id,
-        organizationId: orgId,
-        action: "UPDATE",
-        entityType: "Organization",
-        entityId: orgId,
-        changes: { ...validated.data, ip: getClientIp(req) },
-      },
-    });
+    // Log the action. Inside the organisation's lane: under row security an
+    // insert naming an organisation outside its lane throws AFTER the save has
+    // committed, and the caller was told it failed (review of d78d5ca60; the
+    // event route fixed the same on Nov 18). A failed audit row is logged,
+    // never turned into "Failed to update" for a save that happened.
+    await runWithTenant(orgId, () =>
+      db.auditLog.create({
+        data: {
+          userId: session.user.id,
+          organizationId: orgId,
+          action: "UPDATE",
+          entityType: "Organization",
+          entityId: orgId,
+          changes: { ...validated.data, ip: getClientIp(req) },
+        },
+      }),
+    ).catch((err) => apiLogger.error({ err, organizationId: orgId, msg: "organization:PUT audit-log-failed" }));
 
     // The saved profile, never the row: the row's settings hold every encrypted
     // credential (Zoom, Stripe, AI, DET, EventsAir), which the GET was trimmed

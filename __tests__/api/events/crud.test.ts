@@ -74,7 +74,8 @@ vi.mock("@/lib/db", () => ({
 // (eventId, patch) as the old helper did, so the assertions on the patch hold.
 vi.mock("@/lib/event-settings", () => ({
   updateEventSettings: (...args: unknown[]) => mockUpdateEventSettings(...args),
-  mergeSettingsInTransaction: (_tx: unknown, _table: string, id: string, patch: unknown) => mockUpdateEventSettings(id, patch),
+  // The transaction's client is recorded third, so a test can check the merge ran on it.
+  mergeSettingsInTransaction: (tx: unknown, _table: string, id: string, patch: unknown, opts: unknown) => mockUpdateEventSettings(id, patch, tx, opts),
   updateOrganizationSettings: vi.fn(),
 }));
 
@@ -504,6 +505,9 @@ describe("PUT /api/events/[eventId]", () => {
       // Both halves inside that one transaction: the column update on its client, not the plain one.
       expect(tx.event.update).toHaveBeenCalledWith({ where: { id: "evt-1" }, data: expect.objectContaining({ name: "Renamed" }) });
       expect(mockDb.event.update).not.toHaveBeenCalled();
+      // The merge ran on that same transaction's client, inside the organisation (the second wall).
+      expect(mockUpdateEventSettings.mock.calls[0][2]).toBe(tx);
+      expect(mockUpdateEventSettings.mock.calls[0][3]).toMatchObject({ organizationId: expect.any(String) });
       expect(mockUpdateEventSettings.mock.invocationCallOrder[0]).toBeLessThan(tx.event.update.mock.invocationCallOrder[0]);
     } finally {
       delete (mockDb as unknown as { $transaction?: unknown }).$transaction;
@@ -730,6 +734,20 @@ describe("PUT /api/events/[eventId] — shiftSchedule (postponement)", () => {
     startDate: "2026-11-05T05:00:00.000Z",
     endDate: "2026-11-07T14:00:00.000Z",
   };
+
+  it("a shift that also saves settings merges them in the SAME transaction as the shift (review of d78d5ca60)", async () => {
+    const tx = { event: { update: vi.fn().mockResolvedValue(sampleEvent) } };
+    (mockDb as unknown as { $transaction: unknown }).$transaction = vi.fn(async (cb: (t: unknown) => unknown) => cb(tx));
+    try {
+      const res = await PUT(makePutRequest({ ...postponed, shiftSchedule: true, settings: { registrationOpen: false } }), makeParams("evt-1"));
+      expect(res.status).toBe(200);
+      expect(mockUpdateEventSettings.mock.calls[0][2]).toBe(tx);
+      expect(mockApplyShift.mock.calls[0][0]).toBe(tx);
+      expect(mockUpdateEventSettings.mock.invocationCallOrder[0]).toBeLessThan(mockApplyShift.mock.invocationCallOrder[0]);
+    } finally {
+      delete (mockDb as unknown as { $transaction?: unknown }).$transaction;
+    }
+  });
 
   it("runs the read-only pre-check, then the shift in the transaction, and reports it", async () => {
     const res = await PUT(makePutRequest({ ...postponed, shiftSchedule: true }), makeParams("evt-1"));

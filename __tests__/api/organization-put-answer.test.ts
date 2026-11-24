@@ -62,4 +62,10 @@ describe("PUT /api/organization", () => {
     expect(mockMerge).not.toHaveBeenCalled();
     expect(mockDb.organization.update).toHaveBeenCalledWith({ where: { id: "org1" }, data: { name: "Only a name" } });
   });
+
+  it("a failed audit row is logged and never turns a save that happened into a failure (review of d78d5ca60)", async () => {
+    mockDb.auditLog.create.mockRejectedValue(new Error("audit policy"));
+    const res = await put({ name: "MM Group" });
+    expect(res.status).toBe(200);
+  });
 });

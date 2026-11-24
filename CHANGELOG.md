@@ -15,10 +15,19 @@ Two older defects the review of the help assistant's phone and hours found; owne
   the save was not. It now answers with the profile only (id, name, slug, logo, colour). Only admins who may save
   the organisation ever received it, and no screen read the answer.
 - **Both saves wrote in two steps**: the settings in their own transaction, committed first, then the columns.
-  A failure of the second left half a save. Each is now one transaction: the organisation's columns ride in the
-  settings' own locked update, and an event's settings merge and its column update share one transaction (with
-  the date shift's, when the dates move), settings first as before. `mergeSettingsInTransaction` in
-  `src/lib/event-settings.ts` is the locked merge on a transaction the caller holds.
+  A failure of the second left half a save. The settings and the columns are now one transaction: the
+  organisation's columns ride in the settings' own locked update, and an event's settings merge and its column
+  update share one transaction (with the date shift's, when the dates move), settings first as before.
+  `mergeSettingsInTransaction` in `src/lib/event-settings.ts` is the locked merge on a transaction the caller
+  holds.
+- Review of d78d5ca60 (0 BLOCKER, 0 HIGH, 0 MED, 5 LOW), fixed in its own commit: the wording above (it said
+  each save was one transaction); a stale comment; the test now checks the merge runs on the transaction's own
+  client, also on a date shift; the organisation's columns keep their type check; the event's merge names its
+  organisation again (a second wall). Older, fixed there too: the organisation save's audit row is written in
+  the organisation's lane, so under row security it can no longer turn a save that happened into "Failed to
+  update" (the event save fixed the same on Nov 18). **Older, not fixed:** an event's attendee cap (and its
+  seat recount) still commits in its own transaction before the rest, so a save that then fails keeps the new
+  cap; and the date-shift answer carries the deadlines from before the shift (no screen reads them).
 
 Checked against the local database: a save of a column and a setting together stores both on both routes, a
 refused setting leaves the column unchanged, and the organisation's answer has no settings. Both rows were

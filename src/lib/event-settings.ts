@@ -35,11 +35,13 @@ function lockEvent(tx: Prisma.TransactionClient, id: string, organizationId?: st
 }
 
 /**
- * The locked read-merge-write, on a transaction the caller already holds.
- * `columns` are written in the same UPDATE, so a request that changes both an
- * event's (or an organisation's) columns and its settings is ONE write: until
- * Nov 24, 2026 the settings went first in their own transaction and a failure
- * of the column update left half a save (review of d3e669030).
+ * The locked read-merge-write, on a transaction the caller already holds, so
+ * a caller can write the settings and its other changes in ONE transaction:
+ * until Nov 24, 2026 the event and organisation saves wrote the settings first
+ * in their own transaction and a failure of the column update left half a
+ * save (review of d3e669030). `columns` ride in the same UPDATE (the
+ * organisation save uses it); the event save runs its own column update after
+ * this, in the same transaction.
  */
 export async function mergeSettingsInTransaction(
   tx: Prisma.TransactionClient,
@@ -113,7 +115,7 @@ export function updateEventSettings(eventId: string, patch: SettingsPatch, opts:
 export function updateOrganizationSettings(
   organizationId: string,
   patch: SettingsPatch,
-  opts: { columns?: Record<string, unknown> } = {},
+  opts: { columns?: Omit<Prisma.OrganizationUpdateInput, "settings"> } = {},
 ): Promise<SettingsObject> {
   return mergeSettingsLocked("Organization", organizationId, patch, "ORGANIZATION_NOT_FOUND", undefined, opts.columns);
 }
