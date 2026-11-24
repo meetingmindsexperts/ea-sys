@@ -50,8 +50,13 @@ export const PIECE_SETTLED_MS = 20_000;
  * The pieces that are finished, oldest first: every piece but the newest, and
  * the newest once it has not changed for PIECE_SETTLED_MS. Files that are not
  * pieces are left out.
+ *
+ * `newestMayBeOpen`: the stream is live and being recorded, so the newest piece
+ * is the one the stream server is writing even if it has not grown for a while
+ * (a sender that stalls without disconnecting; review of 9592d2151). Shipped
+ * and deleted then, the rest of it would be written into a file already gone.
  */
-export function finishedPieces(files: readonly PieceFile[], now: Date): PieceFile[] {
+export function finishedPieces(files: readonly PieceFile[], now: Date, opts: { newestMayBeOpen?: boolean } = {}): PieceFile[] {
   const pieces = files
     .map((file) => ({ file, start: pieceStart(file.name) }))
     .filter((p): p is { file: PieceFile; start: PieceStart } => p.start !== null)
@@ -59,7 +64,7 @@ export function finishedPieces(files: readonly PieceFile[], now: Date): PieceFil
     .map((p) => p.file);
   if (pieces.length === 0) return [];
   const newest = pieces[pieces.length - 1];
-  const settled = now.getTime() - newest.modifiedAt.getTime() >= PIECE_SETTLED_MS;
+  const settled = !opts.newestMayBeOpen && now.getTime() - newest.modifiedAt.getTime() >= PIECE_SETTLED_MS;
   return settled ? pieces : pieces.slice(0, -1);
 }
 
@@ -79,30 +84,44 @@ export function startsBreak(previous: { startedAt: Date; durationMs: number } | 
 const EDGE_MS = 2_000;
 
 /**
- * Whether a piece was recorded while the organisers said to record. A piece is
- * NOT wanted when it began after the recording was finished, after it was
- * stopped while it is still stopped, or inside the last pause of a recording
- * that was started again. Such a piece exists only when the stream server was
- * told late (a call that failed, a race with the minute sweep): it is deleted,
- * never shipped. Only the last pause is known, which is enough because pieces
- * are shipped within a minute of being written.
+ * Whether a piece was recorded while the organisers said to record: it began
+ * after the recording did, not after it was finished, and not inside any of its
+ * pauses (an open pause runs on). Such a piece exists only when the stream
+ * server was told late (a call that failed, a race with the minute sweep): it
+ * is deleted, never shipped.
+ *
+ * Every pause is asked, not only the last (review of 9592d2151): an unwanted
+ * piece whose delete failed is still in the folder on the next run, and judged
+ * against the last pause alone it became wanted after a later Stop and was
+ * shipped, out of order, into the client's archive. A piece older than the
+ * recording is a leftover under the same key, never its first piece.
  */
 export function pieceWanted(
-  recording: {
-    status: "RECORDING" | "PAUSED" | "FINISHING";
-    lastStartedAt: Date;
-    stoppedAt: Date | null;
-    finishedAt: Date | null;
-  },
+  recording: { startedAt: Date; finishedAt: Date | null; pauses: readonly { from: Date; to: Date | null }[] },
   pieceStartedAt: Date,
 ): boolean {
   const t = pieceStartedAt.getTime();
-  if (recording.status === "FINISHING") return !recording.finishedAt || t <= recording.finishedAt.getTime() + EDGE_MS;
-  const stopped = recording.stoppedAt?.getTime() ?? null;
-  if (recording.status === "PAUSED") return stopped === null || t <= stopped + EDGE_MS;
-  const restarted = recording.lastStartedAt.getTime();
-  const pausedInBetween = stopped !== null && stopped < restarted;
-  return !(pausedInBetween && t > stopped + EDGE_MS && t < restarted - EDGE_MS);
+  if (t < recording.startedAt.getTime() - EDGE_MS) return false;
+  if (recording.finishedAt && t > recording.finishedAt.getTime() + EDGE_MS) return false;
+  for (const pause of recording.pauses) {
+    const from = pause.from.getTime() + EDGE_MS;
+    const to = pause.to ? pause.to.getTime() - EDGE_MS : Infinity;
+    if (t > from && t < to) return false;
+  }
+  return true;
+}
+
+/**
+ * A piece's length when its own timestamps could not be read: the gap to the
+ * next piece's start, at most a long piece's length; nothing to go by without a
+ * next piece. Kept so one damaged piece does not read as a break after it.
+ */
+export const FALLBACK_PIECE_MAX_MS = 10_000;
+
+export function fallbackPieceMs(startedAt: Date, nextStartedAt: Date | null): number {
+  if (!nextStartedAt) return 0;
+  const gap = nextStartedAt.getTime() - startedAt.getTime();
+  return gap > 0 ? Math.min(gap, FALLBACK_PIECE_MAX_MS) : 0;
 }
 
 /** A piece that is still waiting to be shipped after this long means shipping is not keeping up. */

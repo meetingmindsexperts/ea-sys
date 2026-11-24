@@ -52,3 +52,7 @@ public/uploads/
 
 # Misc
 ecosystem.config.js
+
+# MediaMTX's recording buffer on the box: partner footage, in folders named by stream key.
+# Never in an image or its build context (an on-box fallback build sends the checkout).
+recordings/

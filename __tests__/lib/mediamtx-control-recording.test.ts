@@ -201,11 +201,11 @@ describe("deleteRecordingPiece", () => {
     expect(await deleteRecordingPiece(KEY, START)).toEqual({ ok: true, changed: false });
   });
 
-  it("any other refusal is REFUSED, logged without the key", async () => {
+  // Review of 9592d2151: logged here it was a row a minute per stuck piece; the shipping job says it, throttled.
+  it("any other refusal is REFUSED, and left to the caller to say", async () => {
     serve(null, json(400, { status: "error", error: "invalid path name" }));
     expect(await deleteRecordingPiece(KEY, START)).toEqual({ ok: false, code: "REFUSED" });
-    expect(mockLogger.warn).toHaveBeenCalledWith({ status: 400 }, "mediamtx-control:piece-delete-refused");
-    expect(JSON.stringify(mockLogger.warn.mock.calls)).not.toContain(KEY);
+    expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 
   it("an answer that is not MediaMTX's is BAD_ANSWER, never done", async () => {

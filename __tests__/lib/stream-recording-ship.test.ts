@@ -19,7 +19,10 @@ vi.mock("@/lib/tenant-context", () => ({
     return fn();
   },
 }));
-vi.mock("@/services/stream-recording-shipping", () => ({ shipRecordingPieces: shipSpy }));
+vi.mock("@/services/stream-recording-shipping", () => ({
+  shipRecordingPieces: shipSpy,
+  logSafe: (err: unknown) => ((err as { syscall?: string }).syscall ? { code: (err as { code?: string }).code } : err),
+}));
 
 import { SHIP_BUDGET_MS, shipStreamRecordings } from "@/lib/webinar/stream-recording-ship";
 
@@ -64,6 +67,13 @@ describe("shipStreamRecordings", () => {
     const clock = () => times.shift() ?? SHIP_BUDGET_MS;
     expect(await shipStreamRecordings(NOW, { clock })).toMatchObject({ recordings: 1 });
     expect(mockLogger.warn).toHaveBeenCalledWith({ recordings: 1, left: 2 }, "stream-recording-ship:out-of-time");
+  });
+
+  it("a file error from a recording is logged by its code, never with its path", async () => {
+    operator.streamRecording.findMany.mockResolvedValue([rec(1)]);
+    shipSpy.mockRejectedValueOnce(Object.assign(new Error("EACCES: permission denied, stat '/recordings/live/0123456789abcdef0123456789abcdef'"), { code: "EACCES", syscall: "stat" }));
+    await shipStreamRecordings(NOW);
+    expect(JSON.stringify(mockLogger.error.mock.calls)).not.toContain("0123456789abcdef");
   });
 
   it("one recording's failure never stops the others, and is logged with which it was", async () => {

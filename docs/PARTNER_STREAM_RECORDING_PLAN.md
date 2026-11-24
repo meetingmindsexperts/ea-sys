@@ -142,16 +142,28 @@ Built in step 2 (Nov 24, 2026), changed from the first draft by what step 0 and 
 - New worker job `stream-recording-ship`, **every minute** at second 15 (first draft: every
   10 seconds; each run writes a JobRun row and a lease, kept 14 days, and a minute of video is
   about 25 MB). For each recording that is recording, stopped or finishing, inside its own tenant
-  (`src/services/stream-recording-shipping.ts`): every finished piece, oldest first, is read,
-  measured, uploaded, given its row (the totals in the same transaction), and then deleted
-  through the stream server. A piece is finished when a newer one exists, or when it has not
-  changed for 20 seconds. A run stops starting work after 20 seconds and the next takes the rest.
+  (`src/services/stream-recording-shipping.ts`), in **two passes**: first every finished piece not
+  yet shipped, oldest first, is read, measured, uploaded and given its row (the totals in the same
+  transaction); then, with the time left, the stream server is asked to delete what is shipped or
+  unwanted, stopping at the first delete that fails. Shipping first is the review of step 2: with
+  the deletes first, a backlog of deletes timing out took each run's whole time, and the stream
+  server's two-hour clean-up would then remove footage never shipped. A piece is finished when a
+  newer one exists, or when it has not changed for 20 seconds, but the newest never while the
+  stream is live and being recorded (a sender that stalls without disconnecting). A run stops
+  starting work after 20 seconds and the next takes the rest.
 - **A piece's length is read from the timestamps inside it** (`src/lib/webinar/mpegts-duration.ts`),
   in plain code: it matched `ffprobe` to the millisecond on six real pieces with B-frames. So the
   worker image needs no video tools for this step; `ffmpeg` is a step 4 question (the MP4).
-- A piece **recorded while the organisers said not to record** (begun after a Stop, inside the
-  last pause, or after Finish: the stream server was told late) is deleted and never shipped
-  (`pieceWanted`, `src/lib/webinar/recording-pieces.ts`).
+- A piece **recorded while the organisers said not to record** (begun inside ANY pause of the
+  recording, after Finish, or before the recording began: the stream server was told late, or a
+  leftover under the same key) is deleted and never shipped (`pieceWanted`,
+  `src/lib/webinar/recording-pieces.ts`). Every pause is kept on the recording (`pauses`, a JSON
+  list, migration `20261124120000`): knowing only the last let an earlier pause's footage back in
+  after a later Stop (review of step 2). A piece that would be numbered behind one already
+  shipped is dropped and said, never put out of order.
+- A file error is logged by its code alone: the buffer folder is named by the stream key, and
+  Node's file errors repeat their path. A piece over 100 MB is dropped and said, never left to hold
+  up the rest. A piece whose length cannot be read is timed by the gap to the next one.
 - Safe to stop anywhere: the upload goes to the same name, a piece whose row exists is only
   deleted, a row is never written twice. Pieces go strictly in order and a run stops at the first
   that fails to ship. A failed DELETE does not stop it: with the stream server's API down for two

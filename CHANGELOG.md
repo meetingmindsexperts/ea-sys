@@ -24,6 +24,23 @@ Plan: `docs/PARTNER_STREAM_RECORDING_PLAN.md` §4.2. Still dark: nothing starts 
 - Said once in ten minutes per recording: pieces left waiting over two minutes, and a recording that should be
   running that has made nothing for two minutes while its stream is live.
 
+Review of 9592d2151 (0 BLOCKER, 1 HIGH, 3 MED, 7 LOW), fixed before anything starts a recording:
+
+- **HIGH**: a backlog of shipped pieces whose deletes kept failing took each run's whole time, so new pieces
+  stopped shipping and the stream server's own two-hour clean-up would have removed them for good. Each run
+  now ships first and deletes with the time left, stopping at the first delete that fails; the refused delete
+  is said once in ten minutes, not once per piece.
+- **MED**: only the last pause was known, so after a later Stop an earlier pause's footage could be shipped,
+  out of order, and a Finish after a Stop forgot the pause. Every pause is now kept (`pauses`, migration
+  `20261124120000`), and a piece is never numbered behind one already shipped.
+- **MED**: file errors were logged whole, and their path holds the stream key. They are logged by code alone.
+- **LOW**: a unique clash on the number is no longer taken as "already shipped"; the newest piece is never
+  taken while the stream is live and recording; a leftover older than the recording is dropped; a piece over
+  100 MB is dropped instead of holding up the rest; the length reader steps over a damaged packet and counts
+  Opus and AC-3 audio, and a piece it cannot read is timed by the gap to the next; `recordings/` is kept out
+  of image builds (`.dockerignore`). Left: a session whose partner stream is removed mid-recording leaves its
+  buffered pieces to the stream server's clean-up; the minute sweep already says so once.
+
 ### The help assistant gives the event team's phone and office hours (November 24, 2026)
 
 Owner: "when someone not staff asks a question and the model is not sure, it is suggesting to reach out to the

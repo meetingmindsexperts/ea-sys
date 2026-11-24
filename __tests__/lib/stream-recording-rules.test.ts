@@ -10,6 +10,10 @@ import {
   recordingOverran,
   recordingStoragePrefix,
   recordingTransition,
+  pausesAfterStart,
+  pausesAfterStop,
+  PAUSES_MAX,
+  readPauses,
   serverSetting,
   type RecordingStatus,
 } from "@/lib/webinar/stream-recording";
@@ -111,3 +115,44 @@ describe("recordingStoragePrefix", () => {
     expect(() => recordingStoragePrefix({ eventId: "ev1", sessionId: "s1", recordingId: bad })).toThrow();
   });
 });
+
+describe("the pause list (review of 9592d2151: every pause, not only the last)", () => {
+  const at = (m: number) => new Date(Date.UTC(2026, 11, 1, 9, m, 0));
+
+  it("a Stop opens a pause, a Start closes it, and every pause is kept", () => {
+    let list: unknown = [];
+    list = pausesAfterStop(list, at(10));
+    list = pausesAfterStart(list, at(20));
+    list = pausesAfterStop(list, at(40));
+    expect(list).toEqual([
+      { from: at(10).toISOString(), to: at(20).toISOString() },
+      { from: at(40).toISOString(), to: null },
+    ]);
+    expect(readPauses(list)).toEqual([
+      { from: at(10), to: at(20) },
+      { from: at(40), to: null },
+    ]);
+  });
+
+  it("a Start with no pause open changes nothing", () => {
+    const closed = [{ from: at(10).toISOString(), to: at(20).toISOString() }];
+    expect(pausesAfterStart(closed, at(30))).toEqual(closed);
+    expect(pausesAfterStart([], at(30))).toEqual([]);
+  });
+
+  it("reads what is stored defensively: anything that is not a pause is left out", () => {
+    expect(readPauses(null)).toEqual([]);
+    expect(readPauses("x")).toEqual([]);
+    expect(readPauses([{ from: "not a date" }, { to: at(1).toISOString() }, 7, { from: at(2).toISOString(), to: "bad" }])).toEqual([
+      { from: at(2), to: null },
+    ]);
+  });
+
+  it("keeps at most PAUSES_MAX, the newest", () => {
+    const many = Array.from({ length: PAUSES_MAX + 5 }, (_, i) => ({ from: new Date(i * 1000).toISOString(), to: new Date(i * 1000 + 500).toISOString() }));
+    const kept = readPauses(many);
+    expect(kept).toHaveLength(PAUSES_MAX);
+    expect(kept[0].from.getTime()).toBe(5000);
+  });
+});
+

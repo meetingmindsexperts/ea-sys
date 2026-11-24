@@ -22,7 +22,7 @@ const { fsMock, mockDb, tx, uploadSpy, deleteSpy, streamSpy, arrivingSpy, mockLo
   return {
     fsMock: { readdir: vi.fn(), stat: vi.fn(), readFile: vi.fn() },
     tx,
-    mockDb: { streamRecording: { findFirst: vi.fn() }, streamRecordingSegment: { findFirst: vi.fn() } },
+    mockDb: { streamRecording: { findFirst: vi.fn() }, streamRecordingSegment: { findFirst: vi.fn(), findMany: vi.fn() } },
     uploadSpy: vi.fn(),
     deleteSpy: vi.fn(),
     streamSpy: vi.fn(),
@@ -38,7 +38,7 @@ vi.mock("@/lib/webinar/mediamtx-control", () => ({ deleteRecordingPiece: deleteS
 vi.mock("@/lib/webinar/session-stream", () => ({ sessionStream: streamSpy }));
 vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: arrivingSpy }));
 
-import { resetShippingReports, shipRecordingPieces } from "@/services/stream-recording-shipping";
+import { logSafe, resetShippingReports, shipRecordingPieces } from "@/services/stream-recording-shipping";
 
 const KEY = "0123456789abcdef0123456789abcdef";
 const FOLDER = `/recordings/live/${KEY}`;
@@ -54,11 +54,15 @@ const recording = (extra: Record<string, unknown> = {}) => ({
   organizationId: "org1",
   status: "RECORDING",
   storagePrefix: PREFIX,
+  startedAt: new Date("2026-11-24T09:00:00Z"),
   lastStartedAt: new Date("2026-11-24T09:00:00Z"),
-  stoppedAt: null,
   finishedAt: null,
+  // As stored: JSON.
+  pauses: [],
   ...extra,
 });
+/** Names the database already has rows for. */
+let shippedAlready: string[] = [];
 // Three pieces, six seconds apart, as the stream server names them (Unix time and microseconds).
 const P1 = "1795512296-718063.ts"; // 09:24:56
 const P2 = "1795512302-614902.ts"; // 09:25:02
@@ -80,14 +84,19 @@ beforeEach(() => {
   });
   fsMock.readFile.mockResolvedValue(PIECE);
   mockDb.streamRecording.findFirst.mockResolvedValue(recording());
+  shippedAlready = [];
   mockDb.streamRecordingSegment.findFirst.mockResolvedValue(null);
+  mockDb.streamRecordingSegment.findMany.mockImplementation(async ({ where }: { where: { sourceName: { in: string[] } } }) =>
+    where.sourceName.in.filter((n) => shippedAlready.includes(n)).map((sourceName) => ({ sourceName })),
+  );
   tx.streamRecordingSegment.findFirst.mockResolvedValue(null);
   tx.streamRecordingSegment.create.mockResolvedValue({});
   tx.streamRecording.update.mockResolvedValue({});
   uploadSpy.mockImplementation(async (_buf: Buffer, name: string, _type: string, sub: string) => `/uploads/${sub}/${name}`);
   deleteSpy.mockResolvedValue({ ok: true, changed: true });
   streamSpy.mockResolvedValue({ source: "external", streamKey: KEY, streamStatus: "ACTIVE" });
-  arrivingSpy.mockResolvedValue(true);
+  // Not live by default, so a lone old piece counts as finished; the tests about a live stream say so.
+  arrivingSpy.mockResolvedValue(false);
   process.env.STREAM_RECORDINGS_DIR = "/recordings";
 });
 
@@ -141,9 +150,7 @@ describe("shipRecordingPieces", () => {
   });
 
   it("a piece already shipped by a run that stopped before its delete is only deleted", async () => {
-    mockDb.streamRecordingSegment.findFirst.mockImplementation(async ({ where }: { where: { sourceName: string } }) =>
-      where.sourceName === P1 ? { id: "seg1" } : null,
-    );
+    shippedAlready = [P1];
     const report = await shipRecordingPieces(at, opts());
     expect(report.shipped).toBe(1);
     expect(uploadSpy.mock.calls.map((c) => c[1])).toEqual([P2]);
@@ -152,10 +159,22 @@ describe("shipRecordingPieces", () => {
 
   it("a row written twice (two runs, or a retry) is the outcome wanted, not a failure", async () => {
     folder = [{ name: P1, ageMs: 60_000 }];
-    tx.streamRecordingSegment.create.mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" }));
+    tx.streamRecordingSegment.create.mockImplementation(async () => {
+      shippedAlready = [P1];
+      throw Object.assign(new Error("unique"), { code: "P2002" });
+    });
     expect(await shipRecordingPieces(at, opts())).toMatchObject({ shipped: 1 });
     expect(deleteSpy).toHaveBeenCalledTimes(1);
     expect(mockLogger.error).not.toHaveBeenCalled();
+  });
+
+  // Review of 9592d2151: a clash on the NUMBER means the piece was not recorded, and deleting it would lose it.
+  it("a unique clash that is not this piece's row is a failure: the piece is kept, not deleted", async () => {
+    folder = [{ name: P1, ageMs: 60_000 }];
+    tx.streamRecordingSegment.create.mockRejectedValue(Object.assign(new Error("unique seq"), { code: "P2002" }));
+    expect(await shipRecordingPieces(at, opts())).toEqual({ shipped: 0, discarded: 0, waiting: 1 });
+    expect(deleteSpy).not.toHaveBeenCalled();
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.anything(), "stream-recording-ship:piece-failed");
   });
 
   it("stops at the first piece that fails, so no later piece is numbered ahead of it", async () => {
@@ -167,21 +186,40 @@ describe("shipRecordingPieces", () => {
     expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "s1" }), "stream-recording-ship:piece-failed");
   });
 
-  // A failed delete must not stop the run: with the stream server's API down for two hours, its own
+  // A failed delete must not stop the shipping: with the stream server's API down for two hours, its own
   // clean-up would delete every piece never shipped.
   it("a piece the stream server would not delete is kept for the next run, and shipping carries on", async () => {
     deleteSpy.mockResolvedValue({ ok: false, code: "UNREACHABLE" });
     const report = await shipRecordingPieces(at, opts());
     expect(report).toEqual({ shipped: 2, discarded: 0, waiting: 0 });
     expect(uploadSpy).toHaveBeenCalledTimes(2);
-    // Said once, not once per piece.
+    // Deletes stop at the first failure, until the next run.
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
     const said = mockLogger.warn.mock.calls.filter(([, msg]) => msg === "stream-recording-ship:piece-not-deleted");
     expect(said).toHaveLength(1);
-    expect(said[0][0]).toMatchObject({ code: "UNREACHABLE" });
+    expect(said[0][0]).toMatchObject({ code: "UNREACHABLE", pending: 2 });
+  });
+
+  // Review of 9592d2151 (HIGH): a backlog of slow deletes at the head of the list took each run's whole time.
+  it("a backlog of shipped pieces whose deletes keep timing out never stops new pieces being shipped", async () => {
+    // Forty shipped-but-undeleted pieces ahead of two new ones; each delete takes three seconds and fails.
+    const backlog = Array.from({ length: 40 }, (_, i) => ({ name: `17955120${String(i).padStart(2, "0")}-000000.ts`, ageMs: 600_000 }));
+    folder = [...backlog, { name: P1, ageMs: 60_000 }, { name: P2, ageMs: 50_000 }];
+    shippedAlready = backlog.map((b) => b.name);
+    mockDb.streamRecording.findFirst.mockResolvedValue(recording({ startedAt: new Date("2026-11-24T08:00:00Z") }));
+    let t = 0;
+    deleteSpy.mockImplementation(async () => {
+      t += 3000;
+      return { ok: false, code: "UNREACHABLE" };
+    });
+    const report = await shipRecordingPieces(at, opts({ deadline: 20_000, clock: () => t }));
+    expect(report.shipped).toBe(2);
+    expect(uploadSpy.mock.calls.map((c) => c[1])).toEqual([P1, P2]);
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
   });
 
   it("on the next run a piece already shipped is not uploaded again, only its delete is tried", async () => {
-    mockDb.streamRecordingSegment.findFirst.mockResolvedValue({ id: "seg" });
+    shippedAlready = [P1, P2];
     const report = await shipRecordingPieces(at, opts());
     expect(report).toEqual({ shipped: 0, discarded: 0, waiting: 0 });
     expect(uploadSpy).not.toHaveBeenCalled();
@@ -189,7 +227,7 @@ describe("shipRecordingPieces", () => {
   });
 
   it("a piece begun after a Stop is deleted and never shipped", async () => {
-    mockDb.streamRecording.findFirst.mockResolvedValue(recording({ status: "PAUSED", stoppedAt: new Date("2026-11-24T09:25:00Z") }));
+    mockDb.streamRecording.findFirst.mockResolvedValue(recording({ status: "PAUSED", pauses: [{ from: "2026-11-24T09:25:00.000Z", to: null }] }));
     folder = [
       { name: P1, ageMs: 60_000 },
       { name: P2, ageMs: 50_000 },
@@ -200,10 +238,54 @@ describe("shipRecordingPieces", () => {
     expect(deleteSpy.mock.calls.map((c) => c[1])).toEqual(["2026-11-24T09:24:56.718063Z", "2026-11-24T09:25:02.614902Z"]);
   });
 
+  // Review of 9592d2151 (MED): an earlier pause's footage, still in the folder, became wanted after a later Stop.
+  it("a piece from an earlier pause stays unwanted after a later Start and Stop", async () => {
+    mockDb.streamRecording.findFirst.mockResolvedValue(
+      recording({
+        status: "PAUSED",
+        pauses: [
+          { from: "2026-11-24T09:24:58.000Z", to: "2026-11-24T09:25:05.000Z" },
+          { from: "2026-11-24T09:26:00.000Z", to: null },
+        ],
+      }),
+    );
+    // P2 (09:25:02) is inside the first pause; P1 and P3 are not.
+    folder = [
+      { name: P1, ageMs: 60_000 },
+      { name: P2, ageMs: 50_000 },
+      { name: P3, ageMs: 40_000 },
+    ];
+    expect(await shipRecordingPieces(at, opts())).toEqual({ shipped: 2, discarded: 1, waiting: 0 });
+    expect(uploadSpy.mock.calls.map((c) => c[1])).toEqual([P1, P3]);
+  });
+
   it("a stopped recording's last piece is shipped once it has settled", async () => {
-    mockDb.streamRecording.findFirst.mockResolvedValue(recording({ status: "PAUSED", stoppedAt: new Date("2026-11-24T09:25:10Z") }));
+    mockDb.streamRecording.findFirst.mockResolvedValue(recording({ status: "PAUSED", pauses: [{ from: "2026-11-24T09:25:10.000Z", to: null }] }));
     folder = [{ name: P3, ageMs: 30_000 }];
     expect(await shipRecordingPieces(at, opts())).toMatchObject({ shipped: 1 });
+  });
+
+  it("a leftover older than the recording is deleted, never shipped as its first piece", async () => {
+    mockDb.streamRecording.findFirst.mockResolvedValue(recording({ startedAt: new Date("2026-11-24T09:25:00Z") }));
+    expect(await shipRecordingPieces(at, opts())).toEqual({ shipped: 1, discarded: 1, waiting: 0 });
+    expect(uploadSpy.mock.calls.map((c) => c[1])).toEqual([P2]);
+  });
+
+  it("never numbers a piece behind one already shipped: it is dropped and said", async () => {
+    mockDb.streamRecordingSegment.findFirst.mockResolvedValue({ seq: 7, startedAt: new Date("2026-11-24T09:25:00Z"), durationMs: 6000 });
+    expect(await shipRecordingPieces(at, opts())).toEqual({ shipped: 1, discarded: 1, waiting: 0 });
+    expect(uploadSpy.mock.calls.map((c) => c[1])).toEqual([P2]);
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.anything(), "stream-recording-ship:piece-out-of-order");
+  });
+
+  it("while the stream is live and recording, the newest piece is never taken, however still it looks", async () => {
+    arrivingSpy.mockResolvedValue(true);
+    folder = [
+      { name: P1, ageMs: 60_000 },
+      { name: P2, ageMs: 50_000 },
+    ];
+    expect(await shipRecordingPieces(at, opts())).toMatchObject({ shipped: 1 });
+    expect(uploadSpy.mock.calls.map((c) => c[1])).toEqual([P1]);
   });
 
   it("stops starting new pieces at the deadline, and says how many wait", async () => {
@@ -243,18 +325,28 @@ describe("shipRecordingPieces", () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.anything(), "stream-recording-ship:folder-unreadable");
   });
 
-  it("a piece far too large is not shipped, and is said", async () => {
-    fsMock.stat.mockResolvedValue({ size: 200 * 1024 * 1024, mtime: new Date(NOW.getTime() - 60_000) });
-    expect(await shipRecordingPieces(at, opts())).toMatchObject({ shipped: 0 });
-    expect(mockLogger.error).toHaveBeenCalledWith(expect.anything(), "stream-recording-ship:piece-too-large");
+  // Review of 9592d2151: one such piece held up the rest for two hours.
+  it("a piece far too large is dropped, not left to hold up the ones after it, and said once", async () => {
+    folder = [
+      { name: P1, ageMs: 60_000 },
+      { name: P2, ageMs: 50_000 },
+    ];
+    fsMock.stat.mockImplementation(async (p: string) => ({
+      size: p.endsWith(P1) ? 200 * 1024 * 1024 : PIECE.length,
+      mtime: new Date(NOW.getTime() - 60_000),
+    }));
+    expect(await shipRecordingPieces(at, opts())).toEqual({ shipped: 1, discarded: 1, waiting: 0 });
+    expect(uploadSpy.mock.calls.map((c) => c[1])).toEqual([P2]);
+    await shipRecordingPieces(at, opts());
+    expect(mockLogger.error.mock.calls.filter(([, m]) => m === "stream-recording-ship:piece-too-large")).toHaveLength(1);
   });
 
-  it("a piece whose length cannot be read is shipped all the same, with a length of 0, and said", async () => {
-    fsMock.readFile.mockResolvedValue(Buffer.from("not video"));
-    folder = [{ name: P1, ageMs: 60_000 }];
-    expect(await shipRecordingPieces(at, opts())).toMatchObject({ shipped: 1 });
-    expect(tx.streamRecordingSegment.create.mock.calls[0][0].data.durationMs).toBe(0);
-    expect(mockLogger.warn).toHaveBeenCalledWith(expect.anything(), "stream-recording-ship:piece-length-unreadable");
+  it("a piece whose length cannot be read is shipped all the same, timed by the gap to the next piece, and said", async () => {
+    fsMock.readFile.mockResolvedValueOnce(Buffer.from("not video"));
+    expect(await shipRecordingPieces(at, opts())).toMatchObject({ shipped: 2 });
+    // P1 at 09:24:56.718, P2 at 09:25:02.614.
+    expect(tx.streamRecordingSegment.create.mock.calls[0][0].data.durationMs).toBe(5896);
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ durationMs: 5896 }), "stream-recording-ship:piece-length-unreadable");
   });
 
   it("refuses a stored path outside the recording's folder", async () => {
@@ -278,6 +370,7 @@ describe("shipRecordingPieces", () => {
   });
 
   it("recording but nothing new for two minutes while the stream is live: the stream server is not recording, said", async () => {
+    arrivingSpy.mockResolvedValue(true);
     folder = [{ name: P1, ageMs: 200_000 }];
     mockDb.streamRecording.findFirst.mockResolvedValue(recording({ lastStartedAt: new Date(NOW.getTime() - 600_000) }));
     await shipRecordingPieces(at, opts());
@@ -294,6 +387,28 @@ describe("shipRecordingPieces", () => {
     arrivingSpy.mockResolvedValue(true);
     await shipRecordingPieces(at, opts());
     expect(mockLogger.warn).not.toHaveBeenCalledWith(expect.anything(), "stream-recording-ship:live-but-not-recording");
+  });
+
+  // Review of 9592d2151: Node's file errors repeat their path, and the folder is named by the key.
+  it("a file error is logged by its code, never with its path (which holds the stream key)", async () => {
+    const fsError = (syscall: string) =>
+      Object.assign(new Error(`EACCES: permission denied, ${syscall} '${FOLDER}/${P1}'`), { code: "EACCES", syscall, path: `${FOLDER}/${P1}` });
+    fsMock.readFile.mockRejectedValue(fsError("open"));
+    await shipRecordingPieces(at, opts());
+    fsMock.readdir.mockRejectedValue(fsError("scandir"));
+    await shipRecordingPieces(at, opts());
+    fsMock.readdir.mockImplementation(async () => folder.map((f) => f.name));
+    fsMock.stat.mockRejectedValue(fsError("stat"));
+    await shipRecordingPieces(at, opts());
+    const logged = JSON.stringify([mockLogger.warn.mock.calls, mockLogger.error.mock.calls]);
+    expect(logged).not.toContain(KEY);
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ err: { code: "EACCES", syscall: "open" } }), "stream-recording-ship:piece-failed");
+  });
+
+  it("logSafe keeps a non-file error whole", () => {
+    const e = new Error("S3 down");
+    expect(logSafe(e)).toBe(e);
+    expect(logSafe(Object.assign(new Error(`x '${FOLDER}'`), { code: "ENOSPC", syscall: "write" }))).toEqual({ code: "ENOSPC", syscall: "write" });
   });
 
   it("never logs or stores the stream key", async () => {

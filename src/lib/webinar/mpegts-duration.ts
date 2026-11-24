@@ -15,7 +15,9 @@
  *
  * The rule: every audio and video packet carries a presentation time (PTS) on
  * a 90 kHz clock. A piece plays from its earliest PTS to its latest PTS plus
- * one frame of the stream that ends last. Pure; never throws.
+ * one frame of the stream that ends last. A damaged packet is stepped over to
+ * the next one. Pure; never throws. Null when nothing in it is timed; the
+ * shipping job then falls back to the gap to the next piece (fallbackPieceMs).
  */
 
 const PACKET = 188;
@@ -25,8 +27,17 @@ const CLOCK_HZ = 90_000;
 const WRAP = 2 ** 33;
 
 function isMediaStream(streamId: number): boolean {
-  // MPEG audio and video stream ids (ISO 13818-1, table 2-22).
-  return (streamId >= 0xc0 && streamId <= 0xdf) || (streamId >= 0xe0 && streamId <= 0xef);
+  // MPEG audio and video stream ids (ISO 13818-1, table 2-22), and private stream 1 (0xBD), which
+  // MediaMTX uses for Opus and AC-3 audio in MPEG-TS (review of 9592d2151).
+  return (streamId >= 0xc0 && streamId <= 0xdf) || (streamId >= 0xe0 && streamId <= 0xef) || streamId === 0xbd;
+}
+
+/** The next packet boundary at or after `from`: a sync byte with another one a packet later. */
+function resync(buf: Uint8Array, from: number): number {
+  for (let at = from; at + PACKET <= buf.length; at++) {
+    if (buf[at] === SYNC && (at + PACKET === buf.length || buf[at + PACKET] === SYNC)) return at;
+  }
+  return buf.length;
 }
 
 /** Where a packet's payload begins, or -1 when it has none. */
@@ -83,7 +94,11 @@ export function mpegtsDurationMs(buf: Uint8Array): number | null {
   const byStream = new Map<number, number[]>();
   let first: number | null = null;
   for (let at = 0; at + PACKET <= buf.length; at += PACKET) {
-    if (buf[at] !== SYNC) return null;
+    if (buf[at] !== SYNC) {
+      // One damaged byte must not lose the piece's length (review of 9592d2151): find the next packet.
+      at = resync(buf, at + 1) - PACKET;
+      continue;
+    }
     // Only the packet that begins a PES packet carries its header.
     if ((buf[at + 1] & 0x40) === 0) continue;
     const p = payloadStart(buf, at);

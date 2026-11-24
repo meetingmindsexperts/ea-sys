@@ -60,6 +60,7 @@ const row = (extra: Record<string, unknown> = {}) => ({
   startedAt: NOW,
   lastStartedAt: NOW,
   stoppedAt: null,
+  pauses: [],
   finishedAt: null,
   serverClearedAt: null,
   session: { endTime: SESSION_END },
@@ -180,11 +181,25 @@ describe("startStreamRecording", () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ code: "UNREACHABLE", setting: "record" }), "stream-recording:server-not-told");
   });
 
-  it("carries on a paused recording without asking for the agreement again", async () => {
-    reads(row({ status: "PAUSED" }), row());
+  it("carries on a paused recording without asking for the agreement again, and closes its pause", async () => {
+    const pauses = [
+      { from: "2026-12-01T08:00:00.000Z", to: "2026-12-01T08:10:00.000Z" },
+      { from: "2026-12-01T08:30:00.000Z", to: null },
+    ];
+    reads(row({ status: "PAUSED", pauses }), row());
     const result = await startStreamRecording({ ...caller, now: NOW });
     expect(result).toMatchObject({ ok: true, recording: { status: "RECORDING" } });
-    expect(moves()).toEqual([{ where: { id: "r1", status: "PAUSED" }, data: { status: "RECORDING", lastStartedAt: NOW } }]);
+    expect(moves()).toEqual([
+      {
+        where: { id: "r1", status: "PAUSED" },
+        data: {
+          status: "RECORDING",
+          lastStartedAt: NOW,
+          // Every pause is kept; the open one is closed at the Start.
+          pauses: [pauses[0], { from: "2026-12-01T08:30:00.000Z", to: NOW.toISOString() }],
+        },
+      },
+    ]);
     expect(mockDb.auditLog.create.mock.calls[0][0].data.action).toBe("STREAM_RECORDING_RESUMED");
   });
 
@@ -275,11 +290,17 @@ describe("startStreamRecording", () => {
 });
 
 describe("stopStreamRecording", () => {
-  it("pauses, and tells the stream server not to record", async () => {
-    reads(row(), row({ status: "PAUSED", stoppedAt: NOW }));
+  it("pauses, adds the pause to the list, and tells the stream server not to record", async () => {
+    const earlier = { from: "2026-12-01T08:00:00.000Z", to: "2026-12-01T08:10:00.000Z" };
+    reads(row({ pauses: [earlier] }), row({ status: "PAUSED", stoppedAt: NOW }));
     const result = await stopStreamRecording({ ...caller, now: NOW });
     expect(result).toMatchObject({ ok: true, recording: { status: "PAUSED", stoppedAt: NOW } });
-    expect(moves()).toEqual([{ where: { id: "r1", status: "RECORDING" }, data: { status: "PAUSED", stoppedAt: NOW } }]);
+    expect(moves()).toEqual([
+      {
+        where: { id: "r1", status: "RECORDING" },
+        data: { status: "PAUSED", stoppedAt: NOW, pauses: [earlier, { from: NOW.toISOString(), to: null }] },
+      },
+    ]);
     expect(control.setPathRecording).toHaveBeenCalledWith(KEY, false);
     expect(mockDb.auditLog.create.mock.calls[0][0].data.action).toBe("STREAM_RECORDING_STOPPED");
   });

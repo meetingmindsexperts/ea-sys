@@ -52,6 +52,8 @@ import { freeDiskBytes, RECORDING_MIN_FREE_BYTES } from "@/lib/webinar/recording
 import { sessionStream } from "@/lib/webinar/session-stream";
 import {
   isRecordingOpen,
+  pausesAfterStart,
+  pausesAfterStop,
   recordingDeleteAfter,
   recordingOverran,
   recordingStoragePrefix,
@@ -143,6 +145,7 @@ const ROW_SELECT = {
   startedAt: true,
   lastStartedAt: true,
   stoppedAt: true,
+  pauses: true,
   finishedAt: true,
   serverClearedAt: true,
   segmentCount: true,
@@ -165,6 +168,7 @@ interface Row {
   startedAt: Date;
   lastStartedAt: Date;
   stoppedAt: Date | null;
+  pauses: unknown;
   finishedAt: Date | null;
   serverClearedAt: Date | null;
   segmentCount: number;
@@ -335,7 +339,16 @@ async function tellSettled(at: At): Promise<{ row: Row | null; server: ServerOut
  * someone else moved it meanwhile: the caller reads again and answers with
  * what is there, so two people pressing at once never overwrite each other.
  */
-async function move(row: Row, data: { status: RecordingStatus; lastStartedAt?: Date; stoppedAt?: Date; finishedAt?: Date }): Promise<boolean> {
+async function move(
+  row: Row,
+  data: {
+    status: RecordingStatus;
+    lastStartedAt?: Date;
+    stoppedAt?: Date;
+    finishedAt?: Date;
+    pauses?: { from: string; to: string | null }[];
+  },
+): Promise<boolean> {
   const { count } = await db.streamRecording.updateMany({ where: { id: row.id, status: row.status }, data });
   return count === 1;
 }
@@ -405,7 +418,8 @@ export async function startStreamRecording(input: StartCaller & { partnerAgreed?
   }
 
   if (!step.changed) return answer(input, "start");
-  if (await move(existing, { status: "RECORDING", lastStartedAt: now })) {
+  // The list is written from the row read above; the status in the same where clause means nobody changed it meanwhile.
+  if (await move(existing, { status: "RECORDING", lastStartedAt: now, pauses: pausesAfterStart(existing.pauses, now) })) {
     apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "stream-recording:resumed");
     await audit(input, "STREAM_RECORDING_RESUMED", existing.id, {});
     return answer(input, "start");
@@ -424,7 +438,8 @@ export async function stopStreamRecording(input: Caller & { now?: Date }): Promi
   const step = recordingTransition(existing?.status ?? null, "stop");
   if (!step.ok || !existing) return refuse(input, "stop", step.ok ? "NOT_STARTED" : step.code);
 
-  if (step.changed && (await move(existing, { status: "PAUSED", stoppedAt: input.now ?? new Date() }))) {
+  const now = input.now ?? new Date();
+  if (step.changed && (await move(existing, { status: "PAUSED", stoppedAt: now, pauses: pausesAfterStop(existing.pauses, now) }))) {
     apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "stream-recording:stopped");
     await audit(input, "STREAM_RECORDING_STOPPED", existing.id, {});
   }

@@ -465,7 +465,8 @@ export async function deleteRecordingPiece(streamKey: string, startIso: string):
   if (answer.status === 200) return { ok: true, changed: true };
   const error = isMediamtxError(answer.json) ? (answer.json as { error: string }).error : "";
   if (answer.status === 400 && error.includes("no such file or directory")) return { ok: true, changed: false };
-  apiLogger.warn({ status: answer.status }, "mediamtx-control:piece-delete-refused");
+  // Not logged here: the shipping job says it, once in ten minutes per recording, with the code below
+  // (review of 9592d2151: logging every refused delete wrote a row a minute per stuck piece).
   if (answer.status === 401 || answer.status === 403 || error) return { ok: false, code: "REFUSED" };
   return { ok: false, code: "BAD_ANSWER" };
 }

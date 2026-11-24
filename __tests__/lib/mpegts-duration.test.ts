@@ -65,6 +65,19 @@ describe("mpegtsDurationMs", () => {
     expect(mpegtsDurationMs(piece.subarray(0, piece.length - 50))).toBe(6105);
   });
 
+  // Review of 9592d2151: one bad byte used to lose the whole piece's length.
+  it("steps over a damaged packet to the next one", () => {
+    const damaged = Buffer.from(piece);
+    damaged[188 * 40] = 0x00;
+    damaged[188 * 41 + 3] = 0x47;
+    expect(mpegtsDurationMs(damaged)).toBe(6105);
+  });
+
+  it("counts private stream 1 (Opus and AC-3 audio in MediaMTX's MPEG-TS) as media", () => {
+    const opus = Array.from({ length: 6 }, (_, i) => pesPacket(258, 0xbd, i * 1800));
+    expect(mpegtsDurationMs(Buffer.concat(opus))).toBe(120);
+  });
+
   it("null for what is not MPEG-TS, for nothing, and for packets with no timed audio or video", () => {
     expect(mpegtsDurationMs(Buffer.from("not a transport stream at all".repeat(20)))).toBeNull();
     expect(mpegtsDurationMs(Buffer.alloc(0))).toBeNull();

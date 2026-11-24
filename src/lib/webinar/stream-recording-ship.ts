@@ -14,7 +14,7 @@
 import { dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { shipRecordingPieces, type ShipReport } from "@/services/stream-recording-shipping";
+import { logSafe, shipRecordingPieces, type ShipReport } from "@/services/stream-recording-shipping";
 
 export const SHIP_BUDGET_MS = 20_000;
 /** Far above anything one box records at once. */
@@ -55,7 +55,8 @@ export async function shipStreamRecordings(
       report.waiting += one.waiting;
     } catch (err) {
       // One recording's failure never stops the others.
-      apiLogger.error({ err, eventId: row.eventId, sessionId: row.sessionId }, "stream-recording-ship:recording-failed");
+      // By code only when it is a file error: its path holds the stream key.
+      apiLogger.error({ err: logSafe(err), eventId: row.eventId, sessionId: row.sessionId }, "stream-recording-ship:recording-failed");
     }
   }
   return report;

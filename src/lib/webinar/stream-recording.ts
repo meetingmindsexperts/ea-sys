@@ -105,3 +105,49 @@ export function recordingStoragePrefix(ids: { eventId: string; sessionId: string
   }
   return `/uploads/recordings/${ids.eventId}/${ids.sessionId}/${ids.recordingId}`;
 }
+
+/**
+ * One pause of a recording: from a Stop to the Start after it, or still open.
+ * Kept for every pause (review of 9592d2151): the shipping job discards any
+ * piece begun inside one, and knowing only the last let earlier pauses' footage
+ * back in. Stored on the recording as JSON (`pauses`), oldest first.
+ */
+export interface RecordingPause {
+  from: Date;
+  to: Date | null;
+}
+
+/** A recording with more pauses than this is not one a person made; the oldest are dropped. */
+export const PAUSES_MAX = 500;
+
+/** The stored list as pauses, leaving out anything that is not one. */
+export function readPauses(raw: unknown): RecordingPause[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RecordingPause[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const { from, to } = item as { from?: unknown; to?: unknown };
+    const start = typeof from === "string" ? new Date(from) : null;
+    if (!start || Number.isNaN(start.getTime())) continue;
+    const end = typeof to === "string" ? new Date(to) : null;
+    out.push({ from: start, to: end && !Number.isNaN(end.getTime()) ? end : null });
+  }
+  return out.slice(-PAUSES_MAX);
+}
+
+function toJson(pauses: readonly RecordingPause[]): { from: string; to: string | null }[] {
+  return pauses.slice(-PAUSES_MAX).map((p) => ({ from: p.from.toISOString(), to: p.to ? p.to.toISOString() : null }));
+}
+
+/** The list after a Stop at `at`: a new open pause. */
+export function pausesAfterStop(raw: unknown, at: Date): { from: string; to: string | null }[] {
+  return toJson([...readPauses(raw), { from: at, to: null }]);
+}
+
+/** The list after a Start at `at`: the open pause, if any, closed. */
+export function pausesAfterStart(raw: unknown, at: Date): { from: string; to: string | null }[] {
+  const pauses = readPauses(raw);
+  const last = pauses[pauses.length - 1];
+  if (last && last.to === null) last.to = at;
+  return toJson(pauses);
+}

@@ -4,32 +4,33 @@
  * recording at a time, inside its own tenant, called every minute by the
  * worker (src/lib/webinar/stream-recording-ship.ts).
  *
- * For each finished piece, oldest first:
+ * Two passes, so a backlog of deletes can never stop the shipping (review of
+ * 9592d2151: deletes that kept timing out took each run's whole time, and the
+ * stream server's two-hour clean-up then removed footage never shipped):
  *
- *   1. read it from the buffer folder (mounted read-only into the worker),
- *   2. measure how long it plays (mpegts-duration.ts),
- *   3. upload it to the recording's place in storage,
- *   4. write its row and add it to the recording's totals, in one transaction,
- *   5. ask the stream server to delete it (it wrote the file as root).
+ *   1. SHIP, oldest first: read each finished piece from the buffer folder
+ *      (mounted read-only into the worker), measure it, upload it, and write
+ *      its row with the recording's totals in one transaction. The pass stops
+ *      at the first piece that cannot be shipped, so a piece is never numbered
+ *      ahead of one that began earlier.
+ *   2. DELETE, with the time left: ask the stream server to remove every piece
+ *      now in S3, and every piece it recorded while the organisers had
+ *      recording stopped (recording-pieces.ts, pieceWanted; never shipped). The
+ *      pass stops at the first delete that fails, until the next run.
  *
  * A crash between any two steps is safe on the next run: the upload goes to
- * the same name, a piece whose row exists is only deleted, and a row is never
- * written twice (one piece's name is unique per recording). Pieces are taken
- * strictly in order and the run stops at the first that fails to SHIP, so a
- * piece is never numbered before one that began earlier. A piece shipped but
- * not deleted does not stop the run: it is already numbered, its delete is
- * tried again next run, and stopping there would leave the rest unshipped
- * until the stream server's own two-hour clean-up deleted them for good.
+ * the same name, a piece whose row exists is only deleted, a row is never
+ * written twice (one piece's name is unique per recording).
  *
- * A piece recorded while the organisers said not to record (the stream server
- * told late: recording-pieces.ts, pieceWanted) is deleted and never shipped.
- *
- * Says so, once every ten minutes per recording, when pieces are piling up
- * (shipping is not keeping up, or failing) and when a recording that should be
- * running has produced nothing for two minutes while its stream is live.
+ * Says so, once every ten minutes per recording and per kind, when pieces pile
+ * up unshipped, when deletes fail, when one piece cannot be shipped, and when a
+ * recording that should be running has produced nothing for two minutes while
+ * its stream is live.
  *
  * The stream key is asked of session-stream.ts and used for the folder and the
- * delete only: never stored, returned or logged.
+ * delete only: never stored, returned or logged. The folder's path holds it,
+ * and Node's file errors repeat their path, so a file error is logged by its
+ * code alone (logSafe).
  */
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -40,6 +41,7 @@ import { deleteRecordingPiece } from "@/lib/webinar/mediamtx-control";
 import { mpegtsDurationMs } from "@/lib/webinar/mpegts-duration";
 import { recordingsDir } from "@/lib/webinar/recording-disk";
 import {
+  fallbackPieceMs,
   finishedPieces,
   PIECE_MAX_BYTES,
   PIECE_WAITING_ALERT_MS,
@@ -48,6 +50,7 @@ import {
   startsBreak,
   type PieceFile,
 } from "@/lib/webinar/recording-pieces";
+import { readPauses, type RecordingPause } from "@/lib/webinar/stream-recording";
 import { sessionStream } from "@/lib/webinar/session-stream";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
 
@@ -70,9 +73,10 @@ interface Row {
   organizationId: string | null;
   status: "RECORDING" | "PAUSED" | "FINISHING";
   storagePrefix: string;
+  startedAt: Date;
   lastStartedAt: Date;
-  stoppedAt: Date | null;
   finishedAt: Date | null;
+  pauses: RecordingPause[];
 }
 
 const SHIPPING = ["RECORDING", "PAUSED", "FINISHING"] as const;
@@ -96,12 +100,34 @@ function sayOnce(what: string, recordingId: string, now: Date, speak: () => void
   speak();
 }
 
+/**
+ * An error as it may be logged here. A file error (it has a `syscall`) repeats
+ * the path it failed on, and every path in the buffer holds the stream key:
+ * only its code and call are kept (review of 9592d2151). Anything else is
+ * logged whole.
+ */
+export function logSafe(err: unknown): unknown {
+  const e = err as NodeJS.ErrnoException | null;
+  if (e && typeof e === "object" && typeof e.syscall === "string") return { code: e.code, syscall: e.syscall };
+  return err;
+}
+
 async function readRecording(at: At): Promise<Row | null> {
   const row = await db.streamRecording.findFirst({
     where: { sessionId: at.sessionId, eventId: at.eventId, status: { in: [...SHIPPING] } },
-    select: { id: true, organizationId: true, status: true, storagePrefix: true, lastStartedAt: true, stoppedAt: true, finishedAt: true },
+    select: {
+      id: true,
+      organizationId: true,
+      status: true,
+      storagePrefix: true,
+      startedAt: true,
+      lastStartedAt: true,
+      finishedAt: true,
+      pauses: true,
+    },
   });
-  return row as Row | null;
+  if (!row) return null;
+  return { ...row, status: row.status as Row["status"], pauses: readPauses(row.pauses) };
 }
 
 /** The pieces in this stream's buffer folder, or none when it has none yet. */
@@ -112,7 +138,7 @@ async function listPieces(at: At, folder: string): Promise<PieceFile[]> {
   } catch (err) {
     // No folder yet: the stream server makes it with the first piece.
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    apiLogger.warn({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording-ship:folder-unreadable");
+    apiLogger.warn({ err: logSafe(err), eventId: at.eventId, sessionId: at.sessionId }, "stream-recording-ship:folder-unreadable");
     return [];
   }
   const files: PieceFile[] = [];
@@ -122,38 +148,58 @@ async function listPieces(at: At, folder: string): Promise<PieceFile[]> {
       const info = await stat(path.join(folder, name));
       files.push({ name, bytes: info.size, modifiedAt: info.mtime });
     } catch (err) {
-      // Deleted between the listing and the look: nothing to ship.
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      // Deleted between the listing and the look: nothing to ship. Anything else is logged by code only.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      apiLogger.warn({ err: logSafe(err), eventId: at.eventId, sessionId: at.sessionId }, "stream-recording-ship:piece-unreadable");
     }
   }
   return files;
 }
 
-/** Ask the stream server to remove a piece. False when it did not; said once in ten minutes per recording. */
-async function dropPiece(at: At, recordingId: string, streamKey: string, piece: PieceFile, now: Date): Promise<boolean> {
-  const start = pieceStart(piece.name);
-  if (!start) return false;
-  const result = await deleteRecordingPiece(streamKey, start.iso);
-  if (result.ok) return true;
-  sayOnce("not-deleted", recordingId, now, () =>
-    apiLogger.warn({ eventId: at.eventId, sessionId: at.sessionId, code: result.code }, "stream-recording-ship:piece-not-deleted"),
-  );
-  return false;
+interface Previous {
+  seq: number;
+  startedAt: Date;
+  durationMs: number;
 }
 
-/** Upload one piece and write its row. False when it was not shipped. */
-async function shipPiece(at: At, row: Row, folder: string, piece: PieceFile): Promise<boolean> {
+async function lastShipped(recordingId: string): Promise<Previous | null> {
+  return db.streamRecordingSegment.findFirst({
+    where: { recordingId },
+    orderBy: { seq: "desc" },
+    select: { seq: true, startedAt: true, durationMs: true },
+  });
+}
+
+/** Which of these pieces already have a row: one question for the whole folder. */
+async function shippedNames(recordingId: string, names: string[]): Promise<Set<string>> {
+  if (names.length === 0) return new Set();
+  const rows = await db.streamRecordingSegment.findMany({
+    where: { recordingId, sourceName: { in: names } },
+    select: { sourceName: true },
+  });
+  return new Set(rows.map((r) => r.sourceName));
+}
+
+type ShipOutcome = "shipped" | "failed" | "discard";
+
+/** Upload one piece and write its row. */
+async function shipPiece(at: At, row: Row, folder: string, piece: PieceFile, next: PieceFile | null, now: Date): Promise<ShipOutcome> {
   const start = pieceStart(piece.name);
-  if (!start) return false;
+  if (!start) return "failed";
   if (piece.bytes > PIECE_MAX_BYTES) {
-    apiLogger.error({ eventId: at.eventId, sessionId: at.sessionId, bytes: piece.bytes }, "stream-recording-ship:piece-too-large");
-    return false;
+    // Eight seconds at over 100 Mbps is not a piece of a webinar: it is dropped, not left to hold up the rest.
+    sayOnce("too-large", row.id, now, () =>
+      apiLogger.error({ eventId: at.eventId, sessionId: at.sessionId, bytes: piece.bytes }, "stream-recording-ship:piece-too-large"),
+    );
+    return "discard";
   }
   const buffer = await readFile(path.join(folder, piece.name));
-  const durationMs = mpegtsDurationMs(buffer);
-  if (durationMs === null) {
-    // Kept all the same: a damaged piece is still part of the programme, and the MP4 step passes over it.
-    apiLogger.warn({ eventId: at.eventId, sessionId: at.sessionId, bytes: buffer.length }, "stream-recording-ship:piece-length-unreadable");
+  let durationMs = mpegtsDurationMs(buffer) ?? 0;
+  if (durationMs === 0) {
+    const nextStart = next ? (pieceStart(next.name)?.at ?? null) : null;
+    durationMs = fallbackPieceMs(start.at, nextStart);
+    // Kept all the same: a damaged piece is still part of the programme.
+    apiLogger.warn({ eventId: at.eventId, sessionId: at.sessionId, bytes: buffer.length, durationMs }, "stream-recording-ship:piece-length-unreadable");
   }
 
   const subdirectory = row.storagePrefix.replace(/^\/uploads\//, "");
@@ -177,7 +223,7 @@ async function shipPiece(at: At, row: Row, folder: string, piece: PieceFile): Pr
           seq: last ? last.seq + 1 : 0,
           sourceName: piece.name,
           startedAt: start.at,
-          durationMs: durationMs ?? 0,
+          durationMs,
           bytes: buffer.length,
           storedPath,
           afterBreak: startsBreak(last, start.at),
@@ -188,55 +234,121 @@ async function shipPiece(at: At, row: Row, folder: string, piece: PieceFile): Pr
         data: {
           segmentCount: { increment: 1 },
           totalBytes: { increment: BigInt(buffer.length) },
-          durationMs: { increment: durationMs ?? 0 },
+          durationMs: { increment: durationMs },
         },
       });
     });
   } catch (err) {
-    // Already recorded by an earlier run that stopped before the delete: the outcome wanted.
     if ((err as { code?: string }).code !== "P2002") throw err;
+    // A unique row already there. Only THIS piece's row means it is recorded (review of 9592d2151): a
+    // clash on the number would mean it is not, and deleting it then would lose it.
+    const mine = await shippedNames(row.id, [piece.name]);
+    if (!mine.has(piece.name)) throw err;
   }
-  return true;
+  return "shipped";
 }
 
-/** Has this piece already been shipped? */
-async function alreadyShipped(recordingId: string, name: string): Promise<boolean> {
-  const found = await db.streamRecordingSegment.findFirst({ where: { recordingId, sourceName: name }, select: { id: true } });
-  return found !== null;
+/** Pass 1: ship the wanted pieces not yet shipped, in order; collect what the stream server may delete. */
+async function shipPass(
+  at: At,
+  row: Row,
+  folder: string,
+  finished: PieceFile[],
+  opts: { now: Date; deadline: number; clock: () => number },
+): Promise<{ shipped: number; unshipped: PieceFile[]; toDelete: { piece: PieceFile; discard: boolean }[] }> {
+  const done = await shippedNames(
+    row.id,
+    finished.map((p) => p.name),
+  );
+  let previous = await lastShipped(row.id);
+  const toDelete: { piece: PieceFile; discard: boolean }[] = [];
+  const unshipped: PieceFile[] = [];
+  let shipped = 0;
+  let stopped = false;
+  for (let i = 0; i < finished.length; i++) {
+    const piece = finished[i];
+    const start = pieceStart(piece.name);
+    if (!start) continue;
+    if (done.has(piece.name)) {
+      toDelete.push({ piece, discard: false });
+      continue;
+    }
+    if (!pieceWanted(row, start.at)) {
+      toDelete.push({ piece, discard: true });
+      continue;
+    }
+    if (previous && start.at.getTime() < previous.startedAt.getTime()) {
+      // Never number a piece behind one already shipped (review of 9592d2151). It cannot be put in its place.
+      sayOnce("out-of-order", row.id, opts.now, () =>
+        apiLogger.error({ eventId: at.eventId, sessionId: at.sessionId }, "stream-recording-ship:piece-out-of-order"),
+      );
+      toDelete.push({ piece, discard: true });
+      continue;
+    }
+    if (stopped || opts.clock() >= opts.deadline) {
+      stopped = true;
+      unshipped.push(piece);
+      continue;
+    }
+    let outcome: ShipOutcome;
+    try {
+      outcome = await shipPiece(at, row, folder, piece, finished[i + 1] ?? null, opts.now);
+    } catch (err) {
+      sayOnce("ship-failed", row.id, opts.now, () =>
+        apiLogger.error({ err: logSafe(err), eventId: at.eventId, sessionId: at.sessionId }, "stream-recording-ship:piece-failed"),
+      );
+      outcome = "failed";
+    }
+    if (outcome === "discard") {
+      toDelete.push({ piece, discard: true });
+      continue;
+    }
+    if (outcome === "failed") {
+      // Stop shipping so nothing is numbered ahead of this piece; the rest wait for the next run.
+      stopped = true;
+      unshipped.push(piece);
+      continue;
+    }
+    shipped += 1;
+    previous = { seq: (previous?.seq ?? -1) + 1, startedAt: start.at, durationMs: 0 };
+    toDelete.push({ piece, discard: false });
+  }
+  return { shipped, unshipped, toDelete };
 }
 
-/**
- * Ship one finished piece (or delete it, if it is unwanted). False only when it
- * could not be shipped, which stops this recording's run.
- */
-async function handlePiece(
+/** Pass 2: have the stream server delete, with the time left; stop at the first failure. Returns how many unwanted went. */
+async function deletePass(
   at: At,
   row: Row,
   streamKey: string,
-  folder: string,
-  piece: PieceFile,
-  report: ShipReport,
-  now: Date,
-): Promise<boolean> {
-  const start = pieceStart(piece.name);
-  if (!start) return true;
-  if (!pieceWanted(row, start.at)) {
-    if (await dropPiece(at, row.id, streamKey, piece, now)) report.discarded += 1;
-    return true;
+  toDelete: { piece: PieceFile; discard: boolean }[],
+  opts: { now: Date; deadline: number; clock: () => number },
+): Promise<number> {
+  let discarded = 0;
+  for (const { piece, discard } of toDelete) {
+    if (opts.clock() >= opts.deadline) return discarded;
+    const start = pieceStart(piece.name);
+    if (!start) continue;
+    const result = await deleteRecordingPiece(streamKey, start.iso);
+    if (!result.ok) {
+      // Tried again next run. Said once in ten minutes, not once per piece.
+      sayOnce("not-deleted", row.id, opts.now, () =>
+        apiLogger.warn(
+          { eventId: at.eventId, sessionId: at.sessionId, code: result.code, pending: toDelete.length },
+          "stream-recording-ship:piece-not-deleted",
+        ),
+      );
+      return discarded;
+    }
+    if (discard) discarded += 1;
   }
-  if (!(await alreadyShipped(row.id, piece.name))) {
-    if (!(await shipPiece(at, row, folder, piece))) return false;
-    report.shipped += 1;
-  }
-  // Not deleted: the next run sees its row and only tries the delete again.
-  await dropPiece(at, row.id, streamKey, piece, now);
-  return true;
+  return discarded;
 }
 
 /**
- * Ship every finished piece of this session's recording, until `deadline` (by
- * `clock`). Nothing to do when it has no recording that is shipping, or no
- * partner stream.
+ * Ship every finished piece of this session's recording, then delete what may
+ * go, until `deadline` (by `clock`). Nothing to do when it has no recording
+ * that is shipping, or no partner stream.
  */
 export async function shipRecordingPieces(
   at: At,
@@ -249,30 +361,23 @@ export async function shipRecordingPieces(
   // No partner stream: the minute sweep already says so about the recording.
   if (!stream || stream.source !== "external") return report;
 
+  // Asked once: whether the newest piece may still be open, and whether nothing is being recorded.
+  const live = row.status === "RECORDING" ? await isStreamArriving(stream.streamKey) : false;
   const folder = path.join(recordingsDir(), "live", stream.streamKey);
   const files = await listPieces(at, folder);
-  const finished = finishedPieces(files, opts.now);
-  let done = 0;
-  for (const piece of finished) {
-    if (opts.clock() >= opts.deadline) break;
-    try {
-      if (!(await handlePiece(at, row, stream.streamKey, folder, piece, report, opts.now))) break;
-    } catch (err) {
-      // Stop at the first failure so no piece is ever numbered ahead of an earlier one.
-      apiLogger.error({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording-ship:piece-failed");
-      break;
-    }
-    done += 1;
-  }
+  const finished = finishedPieces(files, opts.now, { newestMayBeOpen: live });
 
-  const left = finished.slice(done);
-  report.waiting = left.length;
-  warnIfPiling(at, row, left, opts.now);
-  await warnIfNotRecording(at, row, stream.streamKey, files, opts.now);
+  const shipped = await shipPass(at, row, folder, finished, opts);
+  report.shipped = shipped.shipped;
+  report.waiting = shipped.unshipped.length;
+  report.discarded = await deletePass(at, row, stream.streamKey, shipped.toDelete, opts);
+
+  warnIfPiling(at, row, shipped.unshipped, opts.now);
+  warnIfNotRecording(at, row, live, files, opts.now);
   return report;
 }
 
-/** Finished pieces left over two minutes: shipping is failing or not keeping up. */
+/** Wanted pieces left unshipped over two minutes: shipping is failing or not keeping up. */
 function warnIfPiling(at: At, row: Row, left: readonly PieceFile[], now: Date): void {
   if (left.length === 0) return;
   const oldest = Math.min(...left.map((p) => p.modifiedAt.getTime()));
@@ -292,12 +397,11 @@ function warnIfPiling(at: At, row: Row, left: readonly PieceFile[], now: Date): 
  * (it restarted and the sweep has not yet put the setting back, or a call
  * failed). The newest piece's last change, or the last Start, is the evidence.
  */
-async function warnIfNotRecording(at: At, row: Row, streamKey: string, files: readonly PieceFile[], now: Date): Promise<void> {
-  if (row.status !== "RECORDING") return;
+function warnIfNotRecording(at: At, row: Row, live: boolean, files: readonly PieceFile[], now: Date): void {
+  if (row.status !== "RECORDING" || !live) return;
   const newest = files.length ? Math.max(...files.map((f) => f.modifiedAt.getTime())) : 0;
   const lastSign = Math.max(newest, row.lastStartedAt.getTime());
   if (now.getTime() - lastSign < PIECE_WAITING_ALERT_MS) return;
-  if (!(await isStreamArriving(streamKey))) return;
   sayOnce("not-recording", row.id, now, () =>
     apiLogger.warn({ eventId: at.eventId, sessionId: at.sessionId }, "stream-recording-ship:live-but-not-recording"),
   );

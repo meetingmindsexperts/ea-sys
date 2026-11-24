@@ -726,6 +726,9 @@ model StreamRecording {
   // When recording was last switched on or off, and when it was closed for good.
   lastStartedAt         DateTime              @default(now())
   stoppedAt             DateTime?
+  // Every pause, [{from, to}] with the open one last (to null): the shipping
+  // job deletes unshipped what was recorded inside any of them.
+  pauses                Json                  @default("[]")
   finishedAt            DateTime?
   // When the stream server was confirmed to hold no setting for this closed
   // recording. Null on a closed recording means the sweep still owes a clear.
