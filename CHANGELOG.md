@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Analytics: an Attendee portal card (November 24, 2026)
+
+Owner: "add these stats in analytics and separate card for it".
+
+- A card of its own on the Analytics page: how many registrants, abstract authors and reviewers of your events have
+  an account, how many were active today, in 7 days and in 30 days, by kind of account, and the people signing in
+  each week for the last eight weeks. It keeps its own windows; the page's range picker does not change it.
+- An account counts when it is linked to an event the viewer may read analytics for (a registration, a speaker
+  record, the reviewer pool or an assignment): these accounts belong to no organisation. Staff are never counted.
+  "Active" is the account's last-seen time (any signed-in page, not only My account); sign-ins are recorded from
+  July 28, 2026. Counts only, nothing personal.
+- `GET /api/analytics/portal-usage` (same door and event scoping as the traffic figures, `analytics.read`, 120 an
+  hour per user), `src/lib/portal-usage.ts`, `src/components/analytics/portal-usage-card.tsx`.
+
 ### Presentation types, step 5: the assistant knows the organisation's list (November 24, 2026)
 
 Plan: `docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md` (all five steps now built).

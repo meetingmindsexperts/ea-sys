@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangle, BarChart3, Globe, Loader2 } from "lucide-react";
+import { PortalUsageCard } from "@/components/analytics/portal-usage-card";
 import { DailyBars, FunnelBars, Kpi, PrivacyNote, RangePicker, Sparkline, TopList, measuredFromText, pct, type FunnelStepView } from "@/components/analytics/traffic-parts";
 
 interface OrgTrafficResponse {
@@ -226,6 +227,9 @@ export default function AnalyticsPage() {
           />
         </>
       )}
+
+      {/* Who uses the attendee portal: its own card and windows, shown whatever the traffic. */}
+      <PortalUsageCard />
     </div>
   );
 }
