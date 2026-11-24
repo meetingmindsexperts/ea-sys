@@ -188,11 +188,15 @@ function createPrismaClient(datasourceUrl: string | undefined = process.env.DATA
     // by a database trigger for the PREVIOUS image only. Left out of every read
     // so a full-row read (the speakers API the website sync reads, a contact's
     // detail, audit diffs) never shows it. Never select it in app code.
+    // The presentation type's old enum columns (docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md
+    // step 2) are the same: kept in step by a trigger for the previous image, never read.
     omit: {
       attendee: { roleLegacy: true },
       speaker: { roleLegacy: true },
       contact: { roleLegacy: true },
       accountProfile: { roleLegacy: true },
+      abstract: { presentationTypeLegacy: true, requestedPresentationTypeLegacy: true },
+      abstractReviewSubmission: { recommendedFormatLegacy: true },
     },
   });
 

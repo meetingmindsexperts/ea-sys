@@ -73,7 +73,9 @@ describe("POST abstracts/bulk-update", () => {
       { abstractIds: [], status: "ACCEPTED" },
       { abstractIds: ["a1"], status: "SUBMITTED" },
       { abstractIds: ["a1"], status: "DRAFT" },
-      { abstractIds: ["a1"], presentationType: "HOLOGRAM" },
+      // Not a key's shape (step 2 of the presentation types plan: a well-formed key the event does
+      // not offer reaches the service, which refuses it with TYPE_NOT_OFFERED, 400).
+      { abstractIds: ["a1"], presentationType: "not a key!" },
       { abstractIds: ["a1"], status: "ACCEPTED", everything: true },
       { abstractIds: Array.from({ length: 501 }, (_, i) => `a${i}`), status: "ACCEPTED" },
       "not json",

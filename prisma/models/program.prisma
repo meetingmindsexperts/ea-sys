@@ -171,11 +171,19 @@ model Abstract {
   /// The DECISION: what the organiser has the author present. Starts as the
   /// author's choice and is changed by Bulk set type, Set status with a type
   /// and staff edits.
-  presentationType PresentationType?
+  /// A KEY of the organisation's presentation types (abstract-presentation-types.ts),
+  /// text since Nov 24, 2026: the physical column "presentationTypeKey".
+  presentationType String? @map("presentationTypeKey")
   /// What the AUTHOR asked for (Nov 19, 2026, for the record): written at
   /// submission and by the author's own edits, never by an organiser's.
-  /// Write both through src/lib/abstract-requested-type.ts.
-  requestedPresentationType PresentationType?
+  /// Write both through src/lib/abstract-requested-type.ts. Physical column
+  /// "requestedPresentationTypeKey".
+  requestedPresentationType String? @map("requestedPresentationTypeKey")
+  /// The old enum columns, kept in step by the trigger
+  /// abstract_presentation_type_key_sync for the PREVIOUS image only
+  /// (migration 20261124140000). Never read or written: the client omits them.
+  presentationTypeLegacy          PresentationType? @map("presentationType")
+  requestedPresentationTypeLegacy PresentationType? @map("requestedPresentationType")
   // Co-authors entered by the submitter — array of
   // { name, email, phone, jobTitle, organization, country }. Stored as JSON
   // (contact info only, not accounts). See src/lib/abstract-coauthors.ts.
@@ -257,7 +265,12 @@ model AbstractReviewSubmission {
   criteriaScores     Json?
   overallScore       Int?
   reviewNotes        String?            @db.Text
-  recommendedFormat  RecommendedFormat?
+  /// A presentation type's KEY or NEITHER (recommended-formats.ts), text since
+  /// Nov 24, 2026: the physical column "recommendedFormatKey".
+  recommendedFormat  String?            @map("recommendedFormatKey")
+  /// The old enum column, kept in step by the trigger review_recommended_format_key_sync
+  /// for the PREVIOUS image only. Never read or written: the client omits it.
+  recommendedFormatLegacy RecommendedFormat? @map("recommendedFormat")
   confidence         Int?
   submittedAt        DateTime           @default(now())
   updatedAt          DateTime           @updatedAt

@@ -36,7 +36,8 @@ import {
 import { DEFAULT_REVIEW_SCORE_SCALE, readReviewScoreScale } from "@/lib/abstract-score";
 import { isPresentationTypeOffered, offeredPresentationTypeNames, type PresentationTypeDef } from "@/lib/abstract-presentation-types";
 import { loadPresentationTypesStrict } from "@/lib/abstract-presentation-types-server";
-import type { PresentationType } from "@prisma/client";
+/** A key of the organisation's presentation types (abstract-presentation-types.ts); text since Nov 24, 2026. */
+type PresentationType = string;
 import { organiserTypeWrite } from "@/lib/abstract-requested-type";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOwnAbstract, mustConfirmEmailToReview, reviewerPoolIds } from "@/lib/abstract-reviewer-access";

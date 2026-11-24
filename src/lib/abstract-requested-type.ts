@@ -12,7 +12,8 @@
  * below. Until Nov 19, 2026 there was one column and an organiser's choice
  * overwrote the author's.
  */
-import type { PresentationType } from "@prisma/client";
+/** A key of the organisation's presentation types (abstract-presentation-types.ts); text since Nov 24, 2026. */
+type PresentationType = string;
 
 type TypeColumns = {
   presentationType: PresentationType | null;

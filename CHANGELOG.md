@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Presentation types, step 2: stored as text (November 24, 2026)
+
+Plan: `docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md`. Nothing a user sees changes; this is what lets an
+organisation's own type be stored in step 3.
+
+- **Migration `20261124140000_presentation_type_key_text_columns`**: three text columns beside the enum
+  columns (`Abstract."presentationTypeKey"`, `"requestedPresentationTypeKey"`,
+  `AbstractReviewSubmission."recommendedFormatKey"`), backfilled, and triggers that keep each pair in step
+  for the previous image during a deploy and a rollback, as Role was done on Nov 16. Additive and
+  idempotent; nothing dropped or renamed.
+- The Prisma fields keep their names and now read the text columns; the enum columns are the `...Legacy`
+  fields, which the client omits and a test keeps out of the code.
+- The create, edit and bulk doors take a key's shape and ask the rule whether the event offers it, instead
+  of the fixed enum. A key that is no key is refused by the route (400), a well-formed one the event does
+  not offer by the rule (400, as before).
+- `docs/ROLLBACK.md` says what to check before rolling back once an organisation has its own types.
+
+Rehearsed on the local copy of production: the same counts by type before and after (182 abstracts), no row
+where a key and its enum differ, and a second run that changed nothing; the triggers were tried in every
+direction inside a rolled-back transaction. Then in a visible browser on the migrated database: an abstract
+created as Poster, changed to Oral by staff (the author's request stays Poster), set to Video in bulk, and
+reviewed with Workshop, each stored in both columns alike, while "SYMPOSIUM" and "not a key" were refused.
+The list and the edit page name it. The test rows were deleted by id and the abstract counter restored.
+**Production has 37 recommended formats and the local copy none**: the review trigger was proven by hand only.
+
 ### Saving the organisation or an event is one write, and the organisation save no longer returns credentials (November 24, 2026)
 
 Two older defects the review of the help assistant's phone and hours found; owner: "proceed with fixes".

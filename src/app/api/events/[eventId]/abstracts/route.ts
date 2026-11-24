@@ -35,7 +35,7 @@ import {
   readAbstractLimits,
 } from "@/lib/abstract-limits";
 import { authorTypeWrite } from "@/lib/abstract-requested-type";
-import { BUILT_IN_PRESENTATION_TYPE_KEYS, isPresentationTypeOffered, offeredPresentationTypeNames } from "@/lib/abstract-presentation-types";
+import { presentationTypeKeySchema, isPresentationTypeOffered, offeredPresentationTypeNames } from "@/lib/abstract-presentation-types";
 import { loadPresentationTypes, loadPresentationTypesStrict } from "@/lib/abstract-presentation-types-server";
 import { linkedRoleAbstractFilter } from "@/lib/abstract-reviewer-access";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
@@ -47,9 +47,9 @@ import {
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
-// The stored column is still the five-value enum until step 2 of
-// docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md; the rule module owns the list.
-const presentationTypeSchema = z.enum(BUILT_IN_PRESENTATION_TYPE_KEYS);
+// A key of the organisation's list; whether this event offers it is checked
+// below, by the rule (abstract-presentation-types.ts).
+const presentationTypeSchema = presentationTypeKeySchema;
 
 const createAbstractSchema = z.object({
   speakerId: z.string().min(1).max(100),

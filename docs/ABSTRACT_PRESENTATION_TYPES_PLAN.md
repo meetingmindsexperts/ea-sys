@@ -1,6 +1,6 @@
 # Presentation types the organiser owns
 
-**Status:** IN BUILD (November 24, 2026). Section 6 has the steps; step 1 is built. Sections 2 and 8 hold
+**Status:** IN BUILD (November 24, 2026). Section 6 has the steps; steps 1 and 2 are built. Sections 2 and 8 hold
 the owner's decisions.
 
 **Owner's request:** "give the complete control to organizer on what the list should be and if they want
@@ -173,10 +173,12 @@ changes nothing a user can see; step 1 changed only the wording of the names (se
    The list cannot be edited yet, so every event offers what it did. One visible change: the names were
    made one (the short form), so forms say "Oral" where they said "Oral Presentation". A test
    (`presentation-type-names.test.ts`) refuses a name or a list of keys outside the rule module.
-2. **Text columns.** The migration (three columns, the trigger, the backfill), the Prisma mapping, and the
-   doors validating by the rule in place of the enum. Still only five keys can exist. Rehearsed on the
-   local copy of production: the count of abstracts by type must be the same before and after, and the
-   trigger is tried in both directions.
+2. **Text columns.** BUILT Nov 24, 2026 (migration `20261124140000_presentation_type_key_text_columns`).
+   The migration (three columns, the triggers, the backfill), the Prisma mapping, and the doors validating
+   a key's shape and then the rule, in place of the enum. Still only five keys can exist. Rehearsed on the
+   local copy of production: the same counts by type before and after (182 abstracts, no row where a key
+   and its enum differ), a second run changed nothing, and the triggers were tried in every direction.
+   The recommended format still accepts only what the enum can hold (step 4).
 3. **The editor.** The route and its permission key, and the card on the Content page: add, rename, retire,
    restore, delete, tick. From here an organiser's own type can be chosen by an author and set by staff.
 4. **The reviewer's recommendation** takes the organiser's own types.

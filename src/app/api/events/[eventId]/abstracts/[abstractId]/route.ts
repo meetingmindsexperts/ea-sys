@@ -28,7 +28,7 @@ import { optimisticLockField } from "@/lib/optimistic-lock";
 import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { editTypeWrite } from "@/lib/abstract-requested-type";
-import { BUILT_IN_PRESENTATION_TYPE_KEYS, isPresentationTypeOffered, offeredPresentationTypeNames } from "@/lib/abstract-presentation-types";
+import { presentationTypeKeySchema, isPresentationTypeOffered, offeredPresentationTypeNames } from "@/lib/abstract-presentation-types";
 import { loadPresentationTypesStrict } from "@/lib/abstract-presentation-types-server";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 import { loadEventPersonFieldRules } from "@/lib/person-field-rules";
@@ -62,7 +62,7 @@ const updateAbstractSchema = z.object({
   themeId: z.string().max(100).nullable().optional(),
   subThemeId: z.string().max(100).nullable().optional(),
   specialty: z.string().max(255).optional(),
-  presentationType: z.enum(BUILT_IN_PRESENTATION_TYPE_KEYS).nullable().optional(),
+  presentationType: presentationTypeKeySchema.nullable().optional(),
   coAuthors: coAuthorsSchema.optional(),
   status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]).optional(),
   /** Organizer/chair override: bypass the requiredReviewCount gate. Logged. */

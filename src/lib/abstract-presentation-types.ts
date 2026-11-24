@@ -28,6 +28,7 @@
  *
  * Client-safe: pure, no Prisma import.
  */
+import { z } from "zod";
 
 /** The five built-in types, in display order. Their keys are the old enum's values. */
 export const BUILT_IN_PRESENTATION_TYPE_KEYS = ["ORAL_POSTER", "ORAL", "POSTER", "VIDEO", "WORKSHOP"] as const;
@@ -58,6 +59,13 @@ export const MAX_PRESENTATION_TYPE_LABEL = 60;
 export const PRESENTATION_TYPE_KEY_PATTERN = /^[A-Z0-9][A-Z0-9_]{0,39}$/;
 /** Never a type: the reviewer's "Neither" (`recommended-formats.ts`). */
 export const RESERVED_PRESENTATION_TYPE_KEYS: readonly string[] = ["NEITHER"];
+
+/**
+ * What a door's schema accepts for a type: a key's shape. Whether THIS event
+ * offers it is the rule's question (`isPresentationTypeOffered`), asked by the
+ * door after parsing, so an organisation's own type needs no schema change.
+ */
+export const presentationTypeKeySchema = z.string().trim().regex(PRESENTATION_TYPE_KEY_PATTERN, "Not a presentation type");
 
 export interface PresentationTypeDef {
   key: string;

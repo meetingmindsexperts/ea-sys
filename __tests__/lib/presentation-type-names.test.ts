@@ -121,4 +121,16 @@ describe("presentation types: one list, one name each", () => {
     expect(shape("<SelectItem>Oral Presentation</SelectItem>")).toEqual(["a name written as JSX text"]);
     expect(shape("presentationType: POSTER_TYPE_KEY")).toEqual([]);
   });
+
+  // Step 2 (Nov 24, 2026): the type is text; the enum columns beside it are
+  // kept in step by a trigger for the PREVIOUS image only. Read by nothing.
+  it("no source file reads or writes the old enum columns; only the client's omit list names them", () => {
+    const LEGACY = /\b(?:presentationTypeLegacy|requestedPresentationTypeLegacy|recommendedFormatLegacy)\b/;
+    const all = [...sourceFiles("src"), ...sourceFiles("worker")];
+    expect(all.filter((f) => f !== "src/lib/db.ts" && LEGACY.test(code(f)))).toEqual([]);
+    const db = code("src/lib/db.ts");
+    expect(db).toContain("abstract: { presentationTypeLegacy: true, requestedPresentationTypeLegacy: true }");
+    expect(db).toContain("abstractReviewSubmission: { recommendedFormatLegacy: true }");
+  });
 });
+
