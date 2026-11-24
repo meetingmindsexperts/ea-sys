@@ -9,9 +9,26 @@ import { requirePermission } from "./require-permission";
  * lists nothing, as before. Reviewers, submitters and registrants keep their
  * own scoping (`linkedRoles`), which permissions do not model.
  */
-function pageWhere(session: Session, key: "events.read" | "analytics.read", route: string, eventId?: string): Prisma.EventWhereInput {
-  const gate = requirePermission(session, key, { route, eventId, onMissing: "hide", linkedRoles: "linked" });
+function pageWhere(
+  session: Session,
+  key: "events.read" | "analytics.read",
+  route: string,
+  eventId?: string,
+  linked: "linked" | "none" = "linked",
+): Prisma.EventWhereInput {
+  const gate = requirePermission(session, key, { route, eventId, onMissing: "hide", ...(linked === "linked" ? { linkedRoles: "linked" as const } : {}) });
   return gate.ok ? gate.eventWhere : { id: { in: [] } };
+}
+
+/**
+ * `analytics.read` for STAFF only, without the linked roles' own scoping: the
+ * Attendee portal card (Nov 24, 2026) counts the people of an event, and an
+ * internal-domain registrant, who has an organisation, must never read that
+ * for the events it is registered at (review of 85a9b8ce3). Such a person gets
+ * no events.
+ */
+export function staffAnalyticsEventWhere(session: Session, route: string): Prisma.EventWhereInput {
+  return pageWhere(session, "analytics.read", route, undefined, "none");
 }
 
 /**

@@ -43,6 +43,7 @@ const PRIMITIVES = [
   "requirePermission",
   "eventWhereFor",
   "hubEventWhere",
+  "staffAnalyticsEventWhere",
   "eventListWhere",
   "isEventOrgStaff",
   "buildEventAccessWhere",

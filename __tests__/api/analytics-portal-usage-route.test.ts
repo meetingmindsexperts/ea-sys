@@ -43,6 +43,12 @@ describe("GET /api/analytics/portal-usage", () => {
     expect(mockDb.event.findMany.mock.calls[0][0].where).toEqual(analyticsWhere(onsite.user));
   });
 
+  it("an attendee account with an organisation (internal domain) counts no one (review of 85a9b8ce3)", async () => {
+    mockAuth.mockResolvedValueOnce({ user: { id: "reg1", role: "REGISTRANT", organizationId: "org1" } });
+    expect((await GET()).status).toBe(200);
+    expect(mockDb.event.findMany.mock.calls[0][0].where).toEqual({ id: { in: [] } });
+  });
+
   it("refuses no session, a session with no organisation, and a caller over the limit", async () => {
     mockAuth.mockResolvedValueOnce(null);
     expect((await GET()).status).toBe(401);

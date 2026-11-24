@@ -10,15 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Owner: "add these stats in analytics and separate card for it".
 
-- A card of its own on the Analytics page: how many registrants, abstract authors and reviewers of your events have
-  an account, how many were active today, in 7 days and in 30 days, by kind of account, and the people signing in
-  each week for the last eight weeks. It keeps its own windows; the page's range picker does not change it.
-- An account counts when it is linked to an event the viewer may read analytics for (a registration, a speaker
-  record, the reviewer pool or an assignment): these accounts belong to no organisation. Staff are never counted.
-  "Active" is the account's last-seen time (any signed-in page, not only My account); sign-ins are recorded from
-  July 28, 2026. Counts only, nothing personal.
-- `GET /api/analytics/portal-usage` (same door and event scoping as the traffic figures, `analytics.read`, 120 an
-  hour per user), `src/lib/portal-usage.ts`, `src/components/analytics/portal-usage-card.tsx`.
+- A card of its own on the Analytics page: how many people registered at, submitting to or reviewing for your
+  events have an account, how many were active today, in 7 days and in 30 days, and the people signing in each
+  week for the last eight weeks. It keeps its own windows; the page's range picker does not change it.
+- A row is how the person is linked to the events the viewer may read analytics for (a registration; a speaker
+  record with an abstract; the reviewer pool or an assignment), not the account's role, so one person can be in two
+  rows and the totals count each once. Deactivated accounts and staff are never counted. "Active" is the account's
+  last-seen time (any signed-in page, not only My account); the sign-in after an abstract sign-up counts. Counts
+  only, nothing personal.
+- `GET /api/analytics/portal-usage` (`analytics.read`, without the linked-role allowance, so an attendee account
+  never reads it; 120 an hour per user), `src/lib/portal-usage.ts`, `src/components/analytics/portal-usage-card.tsx`.
 
 ### Presentation types, step 5: the assistant knows the organisation's list (November 24, 2026)
 

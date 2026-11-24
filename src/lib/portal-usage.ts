@@ -1,35 +1,44 @@
 /**
  * Who uses the attendee portal (Nov 24, 2026; owner: "add these stats in
  * analytics and separate card for it"). Counts of the accounts that are not
- * staff (registrants, abstract authors, reviewers) linked to the events a
- * person may read analytics for: a registrant by a registration on one of
- * them, an author by a speaker record, a reviewer by the event's pool or an
- * assignment. These accounts belong to no organisation, so an event is the
- * only thing that makes one ours.
+ * staff (registrant, author and reviewer accounts) linked to the events a
+ * person may read analytics for. These accounts belong to no organisation, so
+ * an event is the only thing that makes one ours.
+ *
+ * The rows are by how the person is linked to THOSE events, not by the
+ * account's role (review of 85a9b8ce3: most reviewers are speakers with an
+ * author account, and a role upgraded on another event says nothing about
+ * this one). One person can be in several rows; the totals count each once.
+ *   - Registered: a registration on one of the events.
+ *   - Abstract authors: a speaker record on one of the events with an abstract.
+ *   - Reviewers: on an event's reviewer pool, or assigned an abstract on one.
  *
  * "Active" is `User.lastSeenAt`, stamped about every five minutes while
  * someone is signed in (any page: My account, an event's own pages, My
- * Reviews). Sign-ins are `LoginEvent` rows, recorded since July 28, 2026.
- * Visits to a page are not recorded for signed-in pages, so neither figure
- * is "opened My account" exactly.
+ * Reviews). Sign-ins are `LoginEvent` rows, kept 180 days, so the card's eight
+ * weeks are always covered; the sign-in an abstract sign-up makes counts too.
+ * Neither is tied to an event or an organisation: with a second organisation
+ * on the instance, a person's activity on its events would count here as well
+ * (fine while accounts are shared and there is one organisation).
  *
  * Counts only: no names, addresses or other personal data leave this file.
- * Call inside the organisation's tenant lane (Registration, Speaker and
- * AbstractReviewer have row policies; User and LoginEvent have none).
+ * Call inside the organisation's tenant lane (Registration, Speaker, Abstract
+ * and AbstractReviewer have row policies; User and LoginEvent have none).
  */
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { reviewerPoolIds } from "@/lib/abstract-reviewer-access";
 
 export const PORTAL_ROLES = ["REGISTRANT", "SUBMITTER", "REVIEWER"] as const;
-export type PortalRole = (typeof PORTAL_ROLES)[number];
+export const PORTAL_LINKS = ["REGISTERED", "AUTHOR", "REVIEWER"] as const;
+export type PortalLink = (typeof PORTAL_LINKS)[number];
 
 /** How many weeks of sign-ins the card shows. */
 export const PORTAL_WEEKS = 8;
 
 const DAY_MS = 24 * 3600_000;
 
-export interface PortalRoleUsage {
-  role: PortalRole;
+export interface PortalUsageFigures {
   accounts: number;
   activeToday: number;
   active7d: number;
@@ -38,11 +47,10 @@ export interface PortalRoleUsage {
 }
 
 export interface PortalUsage {
-  roles: PortalRoleUsage[];
-  totals: Omit<PortalRoleUsage, "role">;
+  links: (PortalUsageFigures & { link: PortalLink })[];
+  totals: PortalUsageFigures;
   /** Monday-start UTC weeks, oldest first; the last is the week in progress. */
   weekly: { weekStart: string; people: number; signIns: number }[];
-  signInsRecordedFrom: string | null;
 }
 
 /** The Monday (UTC) that starts the week holding `date`. */
@@ -52,7 +60,7 @@ export function weekStartUtc(date: Date): Date {
   return new Date(d.getTime() - fromMonday * DAY_MS);
 }
 
-function usageOf(users: { lastSeenAt: Date | null }[], now: Date): Omit<PortalRoleUsage, "role"> {
+function figuresOf(users: { lastSeenAt: Date | null }[], now: Date): PortalUsageFigures {
   const since = (days: number) => users.filter((u) => u.lastSeenAt && now.getTime() - u.lastSeenAt.getTime() <= days * DAY_MS).length;
   return {
     accounts: users.length,
@@ -74,34 +82,48 @@ export async function getPortalUsage(events: { id: string; settings: unknown }[]
     signIns: 0,
   }));
   const empty: PortalUsage = {
-    roles: PORTAL_ROLES.map((role) => ({ role, ...usageOf([], now) })),
-    totals: usageOf([], now),
+    links: PORTAL_LINKS.map((link) => ({ link, ...figuresOf([], now) })),
+    totals: figuresOf([], now),
     weekly,
-    signInsRecordedFrom: null,
   };
   if (eventIds.length === 0) return empty;
 
-  const users = await db.user.findMany({
-    where: {
-      role: { in: [...PORTAL_ROLES] },
-      OR: [
-        { registrations: { some: { eventId: { in: eventIds } } } },
-        { speakers: { some: { eventId: { in: eventIds } } } },
-        { abstractReviewerOf: { some: { abstract: { eventId: { in: eventIds } } } } },
-        ...(poolIds.length ? [{ id: { in: poolIds } }] : []),
-      ],
-    },
-    select: { id: true, role: true, lastSeenAt: true },
-  });
-  if (users.length === 0) return empty;
+  const inScope = { in: eventIds };
+  const registered: Prisma.UserWhereInput = { registrations: { some: { eventId: inScope } } };
+  const author: Prisma.UserWhereInput = { speakers: { some: { eventId: inScope, abstracts: { some: {} } } } };
+  const assigned: Prisma.UserWhereInput = { abstractReviewerOf: { some: { abstract: { eventId: inScope } } } };
+  // Deactivated accounts cannot sign in, so they are not portal accounts.
+  const portalWhere: Prisma.UserWhereInput = {
+    role: { in: [...PORTAL_ROLES] },
+    deactivatedAt: null,
+    OR: [registered, author, assigned, ...(poolIds.length ? [{ id: { in: poolIds } }] : [])],
+  };
 
-  const [signIns, firstSignIn] = await Promise.all([
+  const [users, signIns] = await Promise.all([
+    db.user.findMany({
+      where: portalWhere,
+      select: {
+        id: true,
+        lastSeenAt: true,
+        registrations: { where: { eventId: inScope }, select: { id: true }, take: 1 },
+        speakers: { where: { eventId: inScope, abstracts: { some: {} } }, select: { id: true }, take: 1 },
+        abstractReviewerOf: { where: { abstract: { eventId: inScope } }, select: { id: true }, take: 1 },
+      },
+    }),
+    // Through the same filter, never a list of ids (review of 85a9b8ce3: one bind per account does not scale).
     db.loginEvent.findMany({
-      where: { userId: { in: users.map((u) => u.id) }, outcome: "SUCCESS", createdAt: { gte: firstWeek } },
+      where: { outcome: "SUCCESS", createdAt: { gte: firstWeek }, user: portalWhere },
       select: { userId: true, createdAt: true },
     }),
-    db.loginEvent.findFirst({ orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
   ]);
+  if (users.length === 0) return empty;
+
+  const pool = new Set(poolIds);
+  const linked: Record<PortalLink, typeof users> = {
+    REGISTERED: users.filter((u) => u.registrations.length > 0),
+    AUTHOR: users.filter((u) => u.speakers.length > 0),
+    REVIEWER: users.filter((u) => pool.has(u.id) || u.abstractReviewerOf.length > 0),
+  };
 
   const peoplePerWeek = weekly.map(() => new Set<string>());
   for (const s of signIns) {
@@ -113,9 +135,8 @@ export async function getPortalUsage(events: { id: string; settings: unknown }[]
   weekly.forEach((w, i) => (w.people = peoplePerWeek[i].size));
 
   return {
-    roles: PORTAL_ROLES.map((role) => ({ role, ...usageOf(users.filter((u) => u.role === role), now) })),
-    totals: usageOf(users, now),
+    links: PORTAL_LINKS.map((link) => ({ link, ...figuresOf(linked[link], now) })),
+    totals: figuresOf(users, now),
     weekly,
-    signInsRecordedFrom: firstSignIn?.createdAt.toISOString() ?? null,
   };
 }
