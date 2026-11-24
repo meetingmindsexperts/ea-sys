@@ -22,6 +22,24 @@ my place when you dont hear anything from me". His own push had just been refuse
 - The agent command guard is unchanged: every push by an agent is still put to the owner, and an agent may
   not set `GATE_OVERRIDE`.
 
+Review of c70097544 (0 BLOCKER, 0 HIGH, 1 MED, 6 LOW), all fixed but one LOW left on purpose:
+
+- **MED**: a push refused for a running deploy was still written down as an ungated push, so the log could
+  name a tip that was later gated and pushed properly. The note and the record now come only for a push the
+  hook lets through.
+- LOW: the gate's sweep of logs older than 30 days deleted the hook's two records with the rest; it now
+  leaves `overrides.log` and `ungated-pushes.log` alone.
+- LOW: "Recorded." was printed whether or not the line was written; a log that cannot be written still never
+  fails the push, and the note now says it was not recorded.
+- LOW: five lines elsewhere still said the hook refuses an ungated tip (the installer's summary, two script
+  headers, two of the command guard's refusals); reworded.
+- LOW: tests added for the everyday path (ungated tip, GitHub asked and idle), the refusal's own words, the
+  override's note, and an unwritable log.
+- LOW, left: the note goes to standard output, like the hook's refusals; nothing reads a push's output.
+- Older, fixed here because this check is now the hook's only refusal: when GitHub could not be asked (no
+  `gh`, not signed in, no answer in 10 seconds) the push went through without a word. It still goes
+  through, and the hook now says the check did not happen.
+
 ### The gate runs its steps in two lanes (November 24, 2026)
 
 Owner: "how do reduce the gate time? I wanna reduce it". `npm run gate` took about 4 min 20 s (242 to 329 s

@@ -13,31 +13,50 @@
 #
 # OWNER OVERRIDE of the running-deploy check, recorded in <git dir>/gate/overrides.log:
 #   GATE_OVERRIDE=1 git push origin <sha>:main
-# Agents may not set it: scripts/agent-command-guard.mjs refuses the command.
+# GATE_NO_CI_CHECK=1 skips asking GitHub at all and records nothing: it is for
+# the hook's own tests. Agents may set neither: scripts/agent-command-guard.mjs
+# refuses the command.
 #
 # Git feeds one line per ref on stdin: <local ref> <local sha> <remote ref> <remote sha>.
 set -u
 
 REPO=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 # shellcheck source=scripts/gate-stamp.sh
-. "$REPO/scripts/gate-stamp.sh" 2>/dev/null || { echo "pre-push: scripts/gate-stamp.sh is missing; the gate check is skipped"; exit 0; }
+. "$REPO/scripts/gate-stamp.sh" 2>/dev/null || { echo "pre-push: scripts/gate-stamp.sh is missing; the running-deploy check is skipped"; exit 0; }
 
 ZERO=0000000000000000000000000000000000000000
 DIR=$(gate_stamp_dir)
 REFUSED=0
 
+# A line in one of the two logs. A log that cannot be written never fails the
+# push: the caller says "Recorded" only when this returns 0.
+record() {
+  { mkdir -p "$DIR" && printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" >> "$DIR/$1"; } 2>/dev/null
+}
+
 override() {
-  mkdir -p "$DIR"
-  printf '%s override %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >> "$DIR/overrides.log"
-  echo "pre-push: GATE_OVERRIDE is set: $2 skipped for $(printf '%s' "$1" | cut -c1-8). Recorded."
+  local written="NOT recorded: $DIR/overrides.log could not be written."
+  if record overrides.log "override $1 $2"; then written="Recorded."; fi
+  echo "pre-push: GATE_OVERRIDE is set: $2 skipped for $(printf '%s' "$1" | cut -c1-8). $written"
+}
+
+# Said and written down, never refused (see the header). Called only for a push
+# this hook lets through: a refused push went nowhere and must not be in the log.
+note_ungated() {
+  local written="NOT recorded: $DIR/ungated-pushes.log could not be written."
+  if record ungated-pushes.log "ungated $1"; then written="Recorded."; fi
+  echo "pre-push: $2 has not passed the gate (npm run gate -- $2, about 3 minutes). Pushing anyway: CI is the only check. $written"
 }
 
 # A deploy already running, queued or waiting for main? Fails OPEN when gh
-# cannot answer: this check only avoids overlapping deploys. gh is given 10 seconds and then killed (it is a
+# cannot answer, and says so (DEPLOY_UNKNOWN): this is the hook's one refusal,
+# so a push that was not checked must not look like one that was. gh is given 10 seconds and then killed (it is a
 # Go program and ignores the alarm signal a `perl -e alarm` wrapper would send).
+DEPLOY_UNKNOWN=0
 deploy_running() {
+  DEPLOY_UNKNOWN=0
   [ "${GATE_NO_CI_CHECK:-}" = "1" ] && return 1
-  command -v gh >/dev/null 2>&1 || return 1
+  if ! command -v gh >/dev/null 2>&1; then DEPLOY_UNKNOWN=1; return 1; fi
   local out pid killer rc active base
   base="${TMPDIR:-/tmp}"
   out=$(mktemp "${base%/}/ea-sys-prepush.XXXXXX") || return 1
@@ -53,7 +72,8 @@ deploy_running() {
   wait "$killer" 2>/dev/null # reaped here, quietly: otherwise bash prints "Terminated: 15" into the push output
   active=$(cat "$out" 2>/dev/null)
   rm -f "$out"
-  [ "$rc" = "0" ] && [ -n "$active" ] && [ "$active" != "0" ]
+  if [ "$rc" != "0" ] || [ -z "$active" ]; then DEPLOY_UNKNOWN=1; return 1; fi
+  [ "$active" != "0" ]
 }
 
 while read -r local_ref local_sha remote_ref _remote_sha; do
@@ -61,25 +81,22 @@ while read -r local_ref local_sha remote_ref _remote_sha; do
   [ "$local_sha" = "$ZERO" ] && continue
   short=$(printf '%s' "$local_sha" | cut -c1-8)
 
-  # Said and written down, never refused (see the header).
-  if [ ! -f "$(gate_stamp_file "$local_sha")" ]; then
-    mkdir -p "$DIR"
-    printf '%s ungated %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$local_sha" >> "$DIR/ungated-pushes.log"
-    echo "pre-push: $short has not passed the gate (npm run gate -- $short, about 3 minutes). Pushing anyway: CI is the only check. Recorded."
-  fi
-
   if deploy_running; then
-    if [ "${GATE_OVERRIDE:-}" = "1" ]; then
-      override "$local_sha" "the running-deploy check"
-    else
+    if [ "${GATE_OVERRIDE:-}" != "1" ]; then
       echo ""
       echo "PUSH REFUSED: a deploy of main is running or queued on GitHub."
       echo "  Wait for it (gh run list --workflow deploy.yml), then push again."
       echo "  Owner:  GATE_OVERRIDE=1 git push ...   pushes anyway."
       echo ""
       REFUSED=1
+      continue
     fi
+    override "$local_sha" "the running-deploy check"
+  elif [ "$DEPLOY_UNKNOWN" = "1" ]; then
+    echo "pre-push: GitHub did not say whether a deploy is running (gh missing, not signed in, or no answer in 10 seconds). Not checked."
   fi
+
+  if [ ! -f "$(gate_stamp_file "$local_sha")" ]; then note_ungated "$local_sha" "$short"; fi
 done
 
 exit $REFUSED

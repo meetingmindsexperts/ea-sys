@@ -393,7 +393,7 @@ function judgeGit(args, cwd) {
   if (sub === "push") {
     const { flags, positionals } = parseArgs(rest, "o", ["--repo", "--push-option", "--receive-pack", "--exec", "--recurse-submodules"]);
     if (flags.has("--no-verify")) {
-      return deny("An agent may not skip the push gate. Run `npm run gate` on the commit; only the owner may bypass it.");
+      return deny("An agent may not skip the push hook: it refuses a push into a running deploy and records a tip nobody gated. Only the owner may bypass it.");
     }
     const forced = ["--force", "-f", "--force-with-lease", "--force-if-includes", "--mirror"].some((f) => flags.has(f));
     if (forced || positionals.some((p) => p.startsWith("+"))) {
@@ -513,7 +513,7 @@ function judgeCommand(words, depth, cwd) {
 
   const override = assignments.find((a) => /^GATE_(OVERRIDE|NO_CI_CHECK)=/.test(a));
   if (override) {
-    return deny(`An agent may not set ${override.split("=")[0]}: it switches the push gate off. Only the owner may.`);
+    return deny(`An agent may not set ${override.split("=")[0]}: it switches the push hook's running-deploy check off. Only the owner may.`);
   }
   let verdict = null;
   if (assignments.some((a) => /^LOCAL_DATA_LOSS_OK=/.test(a))) {

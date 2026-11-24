@@ -1,6 +1,6 @@
 #!/bin/bash
 # What is being committed must lint and pass the guard scripts (about 10
-# seconds). The full gate runs before a push; this is the quick half, at the
+# seconds). The full gate runs when the owner asks, before a push; this is the quick half, at the
 # moment a mistake is cheapest to fix.
 #
 # WHY: several sessions commit to this checkout. On Nov 17, 2026 one committed

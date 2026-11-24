@@ -8,4 +8,4 @@ chmod +x .githooks/pre-commit .githooks/pre-push scripts/gate.sh
 git config core.hooksPath .githooks
 echo "git hooks installed: core.hooksPath = $(git config core.hooksPath)"
 echo "  pre-commit  lint and the guard scripts, on what is staged (about 10 seconds)"
-echo "  pre-push    refuses a push to main whose tip has not passed: npm run gate"
+echo "  pre-push    refuses a push to main while a deploy is running; notes a tip that has not passed: npm run gate"

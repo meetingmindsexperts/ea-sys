@@ -16,7 +16,8 @@
 # This checks out the commit alone, beside the checkout, and gates that.
 #
 # ON GREEN it records the commit in <git dir>/gate/ (scripts/gate-stamp.sh).
-# `.githooks/pre-push` refuses a push to main whose tip has no such record.
+# `.githooks/pre-push` notes a push to main whose tip has no such record (until
+# Nov 24, 2026 it refused one).
 #
 # HOW IT RUNS (Nov 24, 2026). Two lanes side by side, then the browser suite:
 #   route types -> type check -> build   |   unit tests -> lint -> guards
@@ -212,6 +213,7 @@ if [ -n "$FAILED" ]; then
 fi
 
 printf 'commit %s\npassed %s\nseconds %s\n' "$SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$ELAPSED" > "$STAMP"
-# Old logs only; the stamps are a few bytes each and are kept.
-find "$DIR" -name '*.log' -mtime +30 -delete 2>/dev/null
+# Old per-commit logs only. The stamps are a few bytes each and are kept, and so
+# are the two records the push hook keeps here (they were swept with the rest).
+find "$DIR" -name '*.log' ! -name 'overrides.log' ! -name 'ungated-pushes.log' -mtime +30 -delete 2>/dev/null
 echo "GATE GREEN for $SHORT in ${ELAPSED}s"
