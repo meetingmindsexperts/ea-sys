@@ -28,6 +28,8 @@ const row = {
   timezone: "Asia/Dubai",
   supportEmail: " heart@example.com ",
   settings: { abstractDeadline: "2099-12-01T19:59:00Z", abstractPresentationTypes: ["POSTER", "ORAL"] },
+  organizationId: "org-host",
+  organization: { settings: { supportContact: { phone: "+971 4 123 4567", hours: "Monday to Friday, 9:00 to 18:00" } } },
 };
 
 beforeEach(() => {
@@ -36,6 +38,14 @@ beforeEach(() => {
 });
 
 describe("loadExternalHelpEvents", () => {
+  it("an event's own phone wins over the organisation's, and an empty field falls back to it", async () => {
+    mockFindMany.mockResolvedValue([{ ...row, settings: { ...row.settings, supportContact: { phone: "+971 50 999 0000", hours: "" } } }]);
+    const [e] = await loadExternalHelpEvents({ id: "u1", role: "REGISTRANT" }, REQ);
+    expect(e.supportPhone).toBe("+971 50 999 0000");
+    expect(e.supportHours).toBe("Monday to Friday, 9:00 to 18:00");
+    expect(mockFindMany.mock.calls[0][0].select.organization).toEqual({ select: { settings: true } });
+  });
+
   it("reads the events inside the lane the request's host names", async () => {
     lanes.length = 0;
     await loadExternalHelpEvents({ id: "u1", role: "REGISTRANT" }, REQ);
@@ -48,6 +58,8 @@ describe("loadExternalHelpEvents", () => {
       name: "Gulf Heart Summit 2027",
       dates: "12 March 2027 to 14 March 2027",
       supportEmail: "heart@example.com",
+      supportPhone: "+971 4 123 4567",
+      supportHours: "Monday to Friday, 9:00 to 18:00",
       abstractDeadline: "1 December 2099 at 23:59 (Asia/Dubai)",
       presentationTypes: ["Oral", "Poster"],
     });

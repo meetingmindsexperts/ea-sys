@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_SUPPORT_HOURS, MAX_SUPPORT_PHONE } from "@/lib/support-contact";
 import { PublicBrandFields } from "@/components/settings/public-brand-fields";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
@@ -131,6 +132,7 @@ interface Organization {
     currency?: string;
     emailNotifications?: boolean;
     website?: string;
+    supportContact?: { phone?: string; hours?: string };
   };
   _count: {
     events: number;
@@ -231,6 +233,8 @@ export default function SettingsPage() {
     currency: "USD",
     emailNotifications: true,
     website: "",
+    supportPhone: "",
+    supportHours: "",
     publicName: "",
     publicLogo: null as string | null,
   });
@@ -303,6 +307,8 @@ export default function SettingsPage() {
           currency: data.settings?.currency || "USD",
           emailNotifications: data.settings?.emailNotifications ?? true,
           website: data.settings?.website || "",
+          supportPhone: data.settings?.supportContact?.phone || "",
+          supportHours: data.settings?.supportContact?.hours || "",
           publicName: data.settings?.publicBrand?.name || "",
           publicLogo: data.settings?.publicBrand?.logo || null,
         });
@@ -382,6 +388,7 @@ export default function SettingsPage() {
             currency: orgFormData.currency,
             emailNotifications: orgFormData.emailNotifications,
             website,
+            supportContact: { phone: orgFormData.supportPhone, hours: orgFormData.supportHours },
             publicBrand: { name: orgFormData.publicName.trim(), logo: orgFormData.publicLogo },
           },
         }),
@@ -992,6 +999,37 @@ export default function SettingsPage() {
                   its console. Leave empty for no button.
                 </p>
               </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="org-support-phone">Support phone</Label>
+                  <Input
+                    id="org-support-phone"
+                    type="tel"
+                    inputMode="tel"
+                    value={orgFormData.supportPhone}
+                    onChange={(e) => setOrgFormData({ ...orgFormData, supportPhone: e.target.value })}
+                    disabled={!canEditOrg}
+                    maxLength={MAX_SUPPORT_PHONE}
+                    placeholder="+971 4 000 0000"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="org-support-hours">Office hours</Label>
+                  <Input
+                    id="org-support-hours"
+                    value={orgFormData.supportHours}
+                    onChange={(e) => setOrgFormData({ ...orgFormData, supportHours: e.target.value })}
+                    disabled={!canEditOrg}
+                    maxLength={MAX_SUPPORT_HOURS}
+                    placeholder="Monday to Friday, 9:00 to 18:00, Dubai time"
+                  />
+                </div>
+              </div>
+              <p className="-mt-2 text-xs text-muted-foreground">
+                The help assistant gives these, with the event&apos;s support email, when an attendee, author or reviewer needs
+                the event team. An event can set its own in its Settings, Support.
+              </p>
 
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">

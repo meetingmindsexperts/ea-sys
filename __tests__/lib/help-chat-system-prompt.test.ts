@@ -233,6 +233,8 @@ describe("external audience: abstract authors, reviewers, attendees", () => {
     name: "Gulf Heart Summit 2027",
     dates: "12 March 2027 to 14 March 2027",
     supportEmail: "heart@example.com",
+    supportPhone: "+971 4 123 4567",
+    supportHours: "Monday to Friday, 9:00 to 18:00, Dubai time",
     abstractDeadline: "1 December 2026, 23:59 (Asia/Dubai)",
     presentationTypes: ["Oral Presentation", "Poster Presentation"],
   };
@@ -275,6 +277,8 @@ describe("external audience: abstract authors, reviewers, attendees", () => {
     expect(tail).toContain("abstract author");
     expect(tail).toContain('"Gulf Heart Summit 2027", 12 March 2027 to 14 March 2027.');
     expect(tail).toContain("Event team email: heart@example.com.");
+    expect(tail).toContain("Event team phone: +971 4 123 4567.");
+    expect(tail).toContain("Office hours: Monday to Friday, 9:00 to 18:00, Dubai time.");
     expect(tail).toContain("Abstract deadline: 1 December 2026, 23:59 (Asia/Dubai).");
     expect(tail).toContain("Presentation types accepted: Oral Presentation, Poster Presentation.");
   });
@@ -287,8 +291,10 @@ describe("external audience: abstract authors, reviewers, attendees", () => {
   });
 
   it("an event without a team email says so, and the bot is told what to do instead", () => {
-    const tail = buildExternalTail({ role: "REGISTRANT", events: [{ ...event, supportEmail: null, abstractDeadline: null, presentationTypes: [] }] });
+    const tail = buildExternalTail({ role: "REGISTRANT", events: [{ ...event, supportEmail: null, supportPhone: null, supportHours: null, abstractDeadline: null, presentationTypes: [] }] });
     expect(tail).toContain("No event team email listed.");
+    expect(tail).not.toContain("Event team phone");
+    expect(tail).not.toContain("Office hours:");
     expect(tail).toContain("reply to the latest email");
     expect(tail).not.toContain("Abstract deadline");
     expect(tail).not.toContain("Presentation types");

@@ -20,6 +20,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { isDeadlinePassed, readAbstractDeadline } from "@/lib/submission-deadline";
 import { offeredPresentationTypes, type PresentationTypeDef } from "@/lib/abstract-presentation-types";
 import { loadPresentationTypes } from "@/lib/abstract-presentation-types-server";
+import { effectiveSupportContact } from "@/lib/support-contact";
 import type { Prisma } from "@prisma/client";
 import type { HelpChatEventFacts } from "./system-prompt";
 
@@ -42,7 +43,11 @@ export async function loadExternalHelpEvents(user: ExternalAsker, req: Request):
         where: { AND: [eventsOf(user), { status: { not: "CANCELLED" } }] },
         orderBy: { startDate: "desc" },
         take: MAX_EVENTS,
-        select: { name: true, startDate: true, endDate: true, timezone: true, supportEmail: true, settings: true, organizationId: true },
+        select: {
+          name: true, startDate: true, endDate: true, timezone: true, supportEmail: true, settings: true, organizationId: true,
+          // The organisation's phone and office hours, which an event may override (support-contact.ts).
+          organization: { select: { settings: true } },
+        },
       }),
     );
     // Each event's organisation's list (an author can be on two organisations' events).
@@ -50,13 +55,18 @@ export async function loadExternalHelpEvents(user: ExternalAsker, req: Request):
     if (withAbstracts) {
       for (const orgId of new Set(events.map((e) => e.organizationId))) typesByOrg.set(orgId, await loadPresentationTypes(orgId));
     }
-    return events.map((e) => ({
-      name: oneLine(e.name).slice(0, MAX_NAME_LENGTH),
-      dates: formatDateRange(e.startDate, e.endDate, e.timezone),
-      supportEmail: e.supportEmail?.trim() || null,
-      abstractDeadline: withAbstracts ? formatDeadline(readAbstractDeadline(e.settings), e.timezone) : null,
-      presentationTypes: withAbstracts ? offeredPresentationTypes(e.settings, typesByOrg.get(e.organizationId) ?? []).map((t) => t.label) : [],
-    }));
+    return events.map((e) => {
+      const contact = effectiveSupportContact(e.organization?.settings, e.settings);
+      return {
+        name: oneLine(e.name).slice(0, MAX_NAME_LENGTH),
+        dates: formatDateRange(e.startDate, e.endDate, e.timezone),
+        supportEmail: e.supportEmail?.trim() || null,
+        supportPhone: contact.phone,
+        supportHours: contact.hours,
+        abstractDeadline: withAbstracts ? formatDeadline(readAbstractDeadline(e.settings), e.timezone) : null,
+        presentationTypes: withAbstracts ? offeredPresentationTypes(e.settings, typesByOrg.get(e.organizationId) ?? []).map((t) => t.label) : [],
+      };
+    });
   } catch (err) {
     // The facts improve answers; they never gate them.
     apiLogger.warn({ msg: "help-chat:event-facts-failed", userId: user.id, role: user.role, err });

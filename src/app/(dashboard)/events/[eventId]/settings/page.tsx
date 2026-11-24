@@ -126,6 +126,7 @@ import { EVENT_HIDDEN_SESSION_ROLES_SETTING, readEventHiddenSessionRoles } from 
 import { isAllowedSenderAddress } from "@/lib/sender-domain";
 import { toast } from "sonner";
 import { Loader2, Pencil, Plus, X } from "lucide-react";
+import { MAX_SUPPORT_HOURS, MAX_SUPPORT_PHONE, readSupportContact, SUPPORT_CONTACT_SETTING } from "@/lib/support-contact";
 import dynamic from "next/dynamic";
 
 const TiptapEditor = dynamic(
@@ -353,6 +354,9 @@ export default function EventSettingsPage() {
   // change would put the old choice back when saving something unrelated.
   const loadedPersonFieldChoices = useRef<EventPersonFieldChoices>({});
 
+  // The event's own phone and office hours; empty means the organisation's (src/lib/support-contact.ts).
+  const [supportContact, setSupportContact] = useState({ phone: "", hours: "" });
+
   const [agendaSettings, setAgendaSettings] = useState({
     agendaPublished: false,
     [AGENDA_TRACK_BORDER_SETTING]: true,
@@ -532,6 +536,8 @@ export default function EventSettingsPage() {
         loadedPersonFieldChoices.current = readEventPersonFieldChoices(settings);
         setPersonFieldChoices(loadedPersonFieldChoices.current);
 
+        const ownContact = readSupportContact(settings);
+        setSupportContact({ phone: ownContact.phone ?? "", hours: ownContact.hours ?? "" });
         loadedAgendaTrackBorder.current = readAgendaTrackBorder(settings);
         loadedHiddenSessionRoles.current = readEventHiddenSessionRoles(settings);
         setHiddenSessionRoles(loadedHiddenSessionRoles.current);
@@ -928,6 +934,7 @@ export default function EventSettingsPage() {
               fontSizes: badgeFontSizesPt(),
             },
             presenterRegistration: { payNowEnabled: presenterPayNow },
+            [SUPPORT_CONTACT_SETTING]: supportContact,
             travelGrant: {
               enabled: travelGrantEnabled,
               homeCountries: travelGrantHomeCountries,
@@ -1405,6 +1412,34 @@ export default function EventSettingsPage() {
                   />
                   <p className="text-xs text-muted-foreground">Shown on public registration forms for attendee inquiries</p>
                 </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="supportPhone">Support phone</Label>
+                    <Input
+                      id="supportPhone"
+                      type="tel"
+                      inputMode="tel"
+                      maxLength={MAX_SUPPORT_PHONE}
+                      placeholder="+971 4 000 0000"
+                      value={supportContact.phone}
+                      onChange={(e) => setSupportContact({ ...supportContact, phone: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="supportHours">Office hours</Label>
+                    <Input
+                      id="supportHours"
+                      maxLength={MAX_SUPPORT_HOURS}
+                      placeholder="Monday to Friday, 9:00 to 18:00, Dubai time"
+                      value={supportContact.hours}
+                      onChange={(e) => setSupportContact({ ...supportContact, hours: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The help assistant gives these, with the email, when an attendee, author or reviewer needs the event team.
+                  Leave them empty to use the organisation&apos;s (Settings, Organization).
+                </p>
               </FormSection>
             </CardContent>
           </Card>

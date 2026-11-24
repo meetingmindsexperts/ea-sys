@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The help assistant gives the event team's phone and office hours (November 24, 2026)
+
+Owner: "when someone not staff asks a question and the model is not sure, it is suggesting to reach out to the
+event team and giving the email, which is great, but better we add phone number and office timings".
+
+- **Settings, Organization** has a Support phone and Office hours, which every event uses. **An event's
+  Settings, Support** can give its own; a field left empty there falls back to the organisation's, field by
+  field (owner: organisation default, event can override). Office hours are one line of text, repeated as
+  written, so holidays and Ramadan hours are an edit of that line (owner: free text).
+- The help assistant, for authors, reviewers and attendees, now lists the phone and hours beside the event
+  team's email and is told to give them whenever it sends someone to the event team, and never to invent a
+  number or hours an event does not list.
+- One rule, `src/lib/support-contact.ts`. A phone is digits with the usual separators and an optional +;
+  anything else is refused on both saves (400), since the assistant repeats it to the public.
+- Nothing is set yet: until someone fills in Settings, the assistant answers as before.
+
+Checked locally in a visible browser: both screens save and reload the values, a phone like "call us" is
+refused, and the details the assistant is given for a real attendee on Big Sky 2027 read "Event team phone:
++971 4 123 4567. Office hours: Monday to Friday, 9:00 to 18:00, Dubai time." (test values, removed after).
+
 ### Presentation types, step 1: one list and one name for each (November 24, 2026)
 
 Owner: "give the complete control to organizer on what the list should be and if they want to add new at one

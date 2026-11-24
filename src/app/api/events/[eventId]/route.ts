@@ -27,6 +27,7 @@ import {
 import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { RESTRICTED_EVENT_DETAIL_SELECT, pickRestrictedSettings } from "@/lib/event-visibility";
 import { updateEventSettings } from "@/lib/event-settings";
+import { SUPPORT_CONTACT_SETTING, storedSupportContact, supportContactSchema } from "@/lib/support-contact";
 import { keepStoredHandouts, readHandouts } from "@/lib/webinar/handouts";
 import { removeHandoutFiles } from "@/lib/webinar/handout-download";
 import { readSessionProposalDeadline } from "@/lib/submission-deadline";
@@ -386,6 +387,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
       settings,
       shiftSchedule,
     } = validated.data;
+
+    // The event's own phone and office hours (src/lib/support-contact.ts): the
+    // help chat repeats them to the public, so they are checked and cleaned here.
+    // Checked before anything is written, so a refused value never leaves half a save.
+    if (settings && SUPPORT_CONTACT_SETTING in settings) {
+      const contact = supportContactSchema.safeParse(settings[SUPPORT_CONTACT_SETTING]);
+      if (!contact.success) {
+        apiLogger.warn({ msg: "events/[eventId]:PUT invalid-support-contact", eventId, userId: session.user.id, issues: contact.error.flatten().fieldErrors });
+        return NextResponse.json({ error: "Invalid support phone or office hours", details: contact.error.flatten().fieldErrors }, { status: 400 });
+      }
+      settings[SUPPORT_CONTACT_SETTING] = storedSupportContact(contact.data);
+    }
 
     // A changed slug is cleaned to letters, digits and hyphens (event-slug.ts; Nov 16, 2026: a pasted
     // name with spaces and a Greek letter broke every link to a webinar). An unchanged one is left as it

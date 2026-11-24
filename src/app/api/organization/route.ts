@@ -1,5 +1,6 @@
 import { forgetBrand } from "@/lib/public-brand-server";
 import { PUBLIC_BRAND_SETTINGS_KEY, publicBrandSettingsSchema } from "@/lib/public-brand";
+import { SUPPORT_CONTACT_SETTING, storedSupportContact, supportContactSchema } from "@/lib/support-contact";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
@@ -31,6 +32,9 @@ const updateOrganizationSchema = z.object({
     website: exitLinkField.optional(),
     // The name and logo HCPs see (src/lib/public-brand.ts); empty halves fall back to the organisation's.
     publicBrand: publicBrandSettingsSchema.optional(),
+    // The phone and office hours every event's team answers on, unless an event
+    // gives its own (src/lib/support-contact.ts). "" clears a field.
+    supportContact: supportContactSchema.optional(),
   }).optional(),
   // Billing / Invoice fields
   companyName: z.string().max(255).nullable().optional(),
@@ -46,7 +50,7 @@ const updateOrganizationSchema = z.object({
 });
 
 /** The organisation preferences the Settings screen reads and any staff member may see. */
-const ORG_GENERAL_SETTINGS = [PUBLIC_BRAND_SETTINGS_KEY, "timezone", "dateFormat", "currency", "emailNotifications", DEFAULT_REG_TYPES_SETTING, "website"] as const;
+const ORG_GENERAL_SETTINGS = [PUBLIC_BRAND_SETTINGS_KEY, "timezone", "dateFormat", "currency", "emailNotifications", DEFAULT_REG_TYPES_SETTING, "website", SUPPORT_CONTACT_SETTING] as const;
 
 export async function GET(req: Request) {
   try {
@@ -186,6 +190,7 @@ export async function PUT(req: Request) {
     // clobbered. Scalar columns stay on the organization.update below.
     if (settings) {
       const cleanSettings = JSON.parse(JSON.stringify(settings));
+      if (settings.supportContact) cleanSettings[SUPPORT_CONTACT_SETTING] = storedSupportContact(settings.supportContact);
       await updateOrganizationSettings(orgId, cleanSettings);
     }
 
