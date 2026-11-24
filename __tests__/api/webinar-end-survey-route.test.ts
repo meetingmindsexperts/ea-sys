@@ -11,6 +11,8 @@ const { mockAuth, mockDb } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn(), update: vi.fn() },
+    // The account's address, read by the watch rule (viewer-entitlement.ts).
+    user: { findUnique: vi.fn() },
     attendee: { update: vi.fn() },
     survey: { findFirst: vi.fn(), create: vi.fn() },
     surveyResponse: { count: vi.fn(), create: vi.fn() },
@@ -33,6 +35,7 @@ vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true, retry
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, fn: () => unknown) => fn() }));
 
 import { GET, POST } from "@/app/api/public/events/[slug]/sessions/[sessionId]/end-survey/route";
+import { resetViewerAddressCache } from "@/lib/webinar/viewer-entitlement";
 
 const CONFIG = [{ id: "f1", type: "rating_1_to_5", label: "Useful?", required: true }];
 const EVENT = (endSurveyId: string | null, extra: Record<string, unknown> = {}) => ({
@@ -55,6 +58,8 @@ const getReq = () => new Request("http://x/end-survey");
 const postReq = (body: unknown) => ({ json: async () => body, headers: new Headers(), url: "http://x/end-survey" }) as unknown as Request;
 
 beforeEach(() => {
+  resetViewerAddressCache();
+  mockDb.user.findUnique.mockResolvedValue({ email: "viewer@x.com" });
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "REGISTRANT" } });
   mockDb.event.findFirst.mockResolvedValue(EVENT("svy-fb"));
@@ -136,10 +141,13 @@ describe("POST end-survey", () => {
 
   it("looks up the viewer's own registration that may watch (never pending approval, W-01), oldest first", async () => {
     await POST(postReq({ answers: { f1: "4" } }), params);
-    expect(mockDb.registration.findFirst.mock.calls[0][0]).toMatchObject({
-      where: { eventId: "ev1", userId: "u1", status: { in: ["CONFIRMED", "CHECKED_IN"] } },
-      orderBy: { createdAt: "asc" },
-    });
+    const lookup = mockDb.registration.findFirst.mock.calls[0][0];
+    expect(lookup.orderBy).toEqual({ createdAt: "asc" });
+    expect(lookup.where.eventId).toBe("ev1");
+    expect(lookup.where.AND[0].status).toEqual({ in: ["CONFIRMED", "CHECKED_IN"] });
+    // Whose: the account's own, or the free-webinar allowance on its own address.
+    expect(lookup.where.AND[1].OR[0]).toEqual({ userId: "u1" });
+    expect(JSON.stringify(lookup.where.AND[1].OR[1])).toContain("viewer@x.com");
   });
 
   it("refuses someone not registered (403)", async () => {

@@ -18,6 +18,8 @@ const { mockAuth, mockDb, mockApiLogger } = vi.hoisted(() => ({
     externalStream: { findFirst: vi.fn(), updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn(), updateMany: vi.fn() },
     registration: { findFirst: vi.fn() },
     eventSession: { findFirst: vi.fn() },
+    // The account's address, read by the watch rule (viewer-entitlement.ts).
+    user: { findUnique: vi.fn() },
   },
 }));
 
@@ -38,6 +40,7 @@ vi.mock("@/lib/security", () => ({
 }));
 
 import { GET } from "@/app/api/public/events/[slug]/sessions/[sessionId]/stream-status/route";
+import { resetViewerAddressCache } from "@/lib/webinar/viewer-entitlement";
 import { resetRoomOpenCache } from "@/lib/webinar/viewer-entitlement";
 import { resetSessionStreamCache } from "@/lib/webinar/session-stream";
 
@@ -59,6 +62,8 @@ function call() {
 }
 
 beforeEach(() => {
+  resetViewerAddressCache();
+  mockDb.user.findUnique.mockResolvedValue({ email: "viewer@x.com" });
   vi.clearAllMocks();
   // No partner's stream unless a test adds one (clearAllMocks keeps a mocked value).
   mockDb.externalStream.findFirst.mockResolvedValue(null);
@@ -118,15 +123,12 @@ describe("stream-status — M3 credential gating", () => {
     expect(body).not.toHaveProperty("streamKey");
     // The registration lookup is scoped to this event and to a registration that may watch
     // (security review W-01: confirmed or checked in, never pending approval).
-    expect(mockDb.registration.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          eventId: "ev1",
-          userId: "u-reg-1",
-          status: { in: ["CONFIRMED", "CHECKED_IN"] },
-        }),
-      }),
-    );
+    const where = mockDb.registration.findFirst.mock.calls[0][0].where;
+    expect(where.eventId).toBe("ev1");
+    expect(where.AND[0].status).toEqual({ in: ["CONFIRMED", "CHECKED_IN"] });
+    // Whose: the account's own, or the free-webinar allowance on its own address.
+    expect(where.AND[1].OR[0]).toEqual({ userId: "u-reg-1" });
+    expect(JSON.stringify(where.AND[1].OR[1])).toContain("viewer@x.com");
   });
 
   it("a partner's stream is served the same way, and its status is written on its own row", async () => {

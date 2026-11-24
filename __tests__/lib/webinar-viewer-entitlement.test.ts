@@ -17,6 +17,7 @@ import {
   isViewerRoomOpen,
   resetRoomOpenCache,
   resetViewerAddressCache,
+  unheldOnOwnAddressWhere,
   viewerAccessWhere,
   viewerRefusal,
   viewerRegistrationWhere,
@@ -43,6 +44,10 @@ describe("viewerAccessWhere: a free webinar is also watched through an unheld re
     ],
   };
 
+  // Review of e024d7b0c: "they could have registered themselves" is false where a person
+  // must be approved, so a type that needs approval keeps the account-only rule.
+  const OPEN = { OR: [{ ticketTypeId: null }, { ticketType: { requiresApproval: false } }] };
+
   it("on a webinar: the account's own registration, or one on its address that no account holds and that owes nothing", async () => {
     expect(await viewerAccessWhere("ev1", "u1", "WEBINAR")).toEqual({
       eventId: "ev1",
@@ -52,7 +57,7 @@ describe("viewerAccessWhere: a free webinar is also watched through an unheld re
           OR: [
             { userId: "u1" },
             // The escaped, case-blind match (like-escape.ts), on the address as the database holds it.
-            { AND: [{ userId: null }, { attendee: { email: { equals: "jane.doe@hospital.org", mode: "insensitive" } } }, FREE] },
+            { AND: [{ userId: null }, { attendee: { email: { equals: "jane.doe@hospital.org", mode: "insensitive" } } }, FREE, OPEN] },
           ],
         },
       ],
@@ -72,6 +77,18 @@ describe("viewerAccessWhere: a free webinar is also watched through an unheld re
     expect(branch[2]).toEqual(FREE);
     // And the standing rule (confirmed, never pending) holds for both branches.
     expect((where.AND as unknown[])[0]).toEqual(viewerStandingWhere("WEBINAR"));
+  });
+
+  it("the address branch never reaches a registration type that needs approval", async () => {
+    const where = await viewerAccessWhere("ev1", "u1", "WEBINAR");
+    const branch = ((where.AND as unknown[])[1] as { OR: { AND?: unknown[] }[] }).OR[1].AND!;
+    expect(branch).toHaveLength(4);
+    expect(branch[3]).toEqual(OPEN);
+  });
+
+  it("the allowance is one piece, shared with the portal's replay page", async () => {
+    const where = await viewerAccessWhere("ev1", "u1", "WEBINAR");
+    expect(((where.AND as unknown[])[1] as { OR: unknown[] }).OR[1]).toEqual(unheldOnOwnAddressWhere("jane.doe@hospital.org"));
   });
 
   it("an underscore in the address matches only itself", async () => {
@@ -127,6 +144,8 @@ describe("viewerAccessWhere: a free webinar is also watched through an unheld re
         .sort();
 
     expect(naming("viewerRegistrationWhere")).toEqual(["lib/webinar/viewer-entitlement.ts"]);
+    // The allowance by itself is used by the rule and the portal's replay page only.
+    expect(naming("unheldOnOwnAddressWhere")).toEqual(["lib/registrant-replays.ts", "lib/webinar/viewer-entitlement.ts"]);
     expect(naming("viewerAccessWhere(")).toEqual([
       "app/api/public/events/[slug]/sessions/[sessionId]/end-survey/route.ts",
       "app/api/public/events/[slug]/sessions/[sessionId]/presence/route.ts",

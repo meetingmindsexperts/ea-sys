@@ -26,6 +26,8 @@ const { mockAuth, mockDb, mockApiLogger, mockSignature } = vi.hoisted(() => ({
     event: { findFirst: vi.fn() },
     eventSession: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn(), findMany: vi.fn() },
+    // The account's address, read by the watch rule (viewer-entitlement.ts).
+    user: { findUnique: vi.fn() },
   },
 }));
 
@@ -53,6 +55,7 @@ vi.mock("@/lib/zoom", () => ({
 }));
 
 import { GET } from "@/app/api/public/events/[slug]/sessions/[sessionId]/zoom-join/route";
+import { resetViewerAddressCache } from "@/lib/webinar/viewer-entitlement";
 import { resetRoomOpenCache } from "@/lib/webinar/viewer-entitlement";
 
 const ORG = "org1";
@@ -86,6 +89,8 @@ function sessionStartingTomorrow() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetViewerAddressCache();
+  mockDb.user.findUnique.mockResolvedValue({ email: "a@x.com" });
   mockSignature.mockResolvedValue(null); // → "url" mode, keeps the assertions simple
   mockDb.event.findFirst.mockResolvedValue({
     id: "ev1",
@@ -204,8 +209,33 @@ describe("zoom-join on a webinar: entitlement and the waiting room", () => {
     mockDb.registration.findFirst.mockResolvedValue({ id: "r1", attendee: { firstName: "A", lastName: "B", email: "a@x.com" } });
     await call();
     const where = mockDb.registration.findFirst.mock.calls[0][0].where;
-    expect(where.status).toEqual({ in: ["CONFIRMED", "CHECKED_IN"] });
-    expect(where.OR[0]).toEqual({ paymentStatus: { in: ["PAID", "COMPLIMENTARY", "INCLUSIVE"] } });
+    // The shape production builds on a webinar: the standing rule, then whose registration.
+    const [standing, whose] = where.AND;
+    expect(standing.status).toEqual({ in: ["CONFIRMED", "CHECKED_IN"] });
+    expect(standing.OR[0]).toEqual({ paymentStatus: { in: ["PAID", "COMPLIMENTARY", "INCLUSIVE"] } });
+    expect(whose.OR[0]).toEqual({ userId: attendee.id });
+  });
+
+  // Owner, Nov 24, 2026: an older account that registered for a free webinar without signing
+  // in is let in. The route's part is to ask the whole rule and join as the registration found.
+  it("asks for a registration in the account OR, free and on a type open to anyone, on the account's own address in no account", async () => {
+    sessions("LIVE");
+    mockDb.user.findUnique.mockResolvedValue({ email: "old@x.com" });
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r-unheld", attendee: { firstName: "Old", lastName: "Account", email: "old@x.com" } });
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect(mockDb.user.findUnique).toHaveBeenCalledWith({ where: { id: attendee.id }, select: { email: true } });
+    const [, whose] = mockDb.registration.findFirst.mock.calls[0][0].where.AND;
+    expect(whose.OR[1]).toEqual({
+      AND: [
+        { userId: null },
+        { attendee: { email: { equals: "old@x.com", mode: "insensitive" } } },
+        { OR: [{ pricingTier: { price: 0 } }, { pricingTierId: null, OR: [{ ticketTypeId: null }, { ticketType: { price: 0 } }] }] },
+        { OR: [{ ticketTypeId: null }, { ticketType: { requiresApproval: false } }] },
+      ],
+    });
+    // Joined under the registration's own name, as any attendee is.
+    expect((await res.json()).userName).toBe("Old Account");
   });
 
   it.each([

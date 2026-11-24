@@ -21,6 +21,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 
 import { buildJourney } from "@/lib/registrant-journey";
 import { loadPortalReplay, loadReplayFacts } from "@/lib/registrant-replays";
+import { unheldOnOwnAddressWhere } from "@/lib/webinar/viewer-entitlement";
 
 const NOW = new Date("2026-11-10T12:00:00Z");
 const ENDED = new Date("2026-11-10T08:30:00Z");
@@ -62,19 +63,28 @@ describe("who may watch in the portal: own registration, in good standing, on a 
     const where = await whereOf(confirmed);
     expect(where.eventId).toEqual({ in: ["w1", "w2"] });
     expect(where.event).toEqual({ eventType: "WEBINAR" });
-    const [own, standing] = where.AND;
-    expect(own).toEqual({
+    const [whose, standing] = where.AND;
+    // Theirs by the My events rule, or the registration a free webinar lets them watch live
+    // without a confirmed address (viewer-entitlement.ts, Nov 24, 2026).
+    expect(whose.OR[0]).toEqual({
       OR: [{ userId: "u1" }, { userId: null, attendee: { email: { equals: "dr@hospital.com", mode: "insensitive" } } }],
     });
+    expect(whose.OR[1]).toEqual(unheldOnOwnAddressWhere("dr@hospital.com"));
     // Confirmed or checked in, and paid or nothing owed: the rule for watching live.
     expect(standing.status).toEqual({ in: ["CONFIRMED", "CHECKED_IN"] });
     expect(standing.OR[0]).toEqual({ paymentStatus: { in: ["PAID", "COMPLIMENTARY", "INCLUSIVE"] } });
   });
 
-  it("an account that has not proven its address: linked registrations only, never by address", async () => {
+  // Until Nov 24, 2026 this was "linked registrations only, never by address". The owner opened
+  // free webinars to an unconfirmed account, and the replay is the same room after the event:
+  // without this the replay email led someone who had watched to "not registered".
+  it("an account that has not proven its address: its linked registrations, or the free-webinar allowance, and nothing wider", async () => {
     const where = await whereOf(unconfirmed);
-    expect(where.AND[0]).toEqual({ userId: "u1" });
-    expect(JSON.stringify(where)).not.toContain("dr@hospital.com");
+    expect(where.AND[0]).toEqual({ OR: [{ userId: "u1" }, unheldOnOwnAddressWhere("dr@hospital.com")] });
+    // The My events half stays account-only: no bare match on the address.
+    expect(where.AND[0].OR[0]).toEqual({ userId: "u1" });
+    // And the standing rule still applies to whatever matched.
+    expect(where.AND[1].status).toEqual({ in: ["CONFIRMED", "CHECKED_IN"] });
   });
 });
 
@@ -193,7 +203,10 @@ describe("loadPortalReplay: what /my-account/replay/{eventId} shows", () => {
     const where = mockDb.registration.findFirst.mock.calls[0][0].where;
     expect(where.eventId).toBe("w1");
     expect(where.event).toEqual({ eventType: "WEBINAR" });
-    expect(where.AND[0].OR[0]).toEqual({ userId: "u1" });
+    // Theirs by the My events rule (a confirmed account: linked, or unlinked on its address) ...
+    expect(where.AND[0].OR[0].OR[0]).toEqual({ userId: "u1" });
+    // ... or the free-webinar allowance.
+    expect(where.AND[0].OR[1]).toEqual(unheldOnOwnAddressWhere("dr@hospital.com"));
     expect(where.AND[1].status).toEqual({ in: ["CONFIRMED", "CHECKED_IN"] });
     // The anchor is read bound to the event.
     expect(mockDb.eventSession.findFirst.mock.calls[0][0].where).toEqual({ id: "s-w1", eventId: "w1" });

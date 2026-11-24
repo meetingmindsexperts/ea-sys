@@ -41,7 +41,7 @@ const NOTHING_OWED: Prisma.RegistrationWhereInput = {
 /**
  * The standing half of the rule: the status and payment a registration needs, whoever holds it.
  * For a caller that decides WHOSE registration it is by another rule (the portal's replay page,
- * registrant-replays.ts); everything else uses viewerRegistrationWhere below.
+ * registrant-replays.ts); every attendee route uses viewerAccessWhere below.
  */
 export function viewerStandingWhere(eventType: string | null | undefined): Prisma.RegistrationWhereInput {
   if (eventType !== "WEBINAR") return { status: { not: "CANCELLED" } };
@@ -82,7 +82,10 @@ export function viewerRegistrationWhere(
  *
  * What it gives up, knowingly: an account made on a registered person's address can watch a free
  * webinar as them, their name on a question they ask and the attendance credited to them. On a
- * free webinar that person could have registered themselves, so nothing is gained by it.
+ * free webinar open to anyone that person could have registered themselves, so nothing is gained
+ * by it. That reasoning fails where a person must be APPROVED to attend (review of e024d7b0c:
+ * someone declined could watch as someone approved), so a registration type that needs approval
+ * is left out and keeps the account-only rule.
  *
  * The address is the ACCOUNT's, read from the database (a session carries the address it signed
  * in with, which a later change of email leaves stale). If it cannot be read the old rule stands.
@@ -98,15 +101,24 @@ export async function viewerAccessWhere(
   if (!email) return own;
   return {
     eventId,
-    AND: [
-      viewerStandingWhere(eventType),
-      {
-        OR: [
-          { userId },
-          { AND: [{ userId: null }, { attendee: { email: equalsIgnoringCase(email) } }, NOTHING_OWED] },
-        ],
-      },
-    ],
+    AND: [viewerStandingWhere(eventType), { OR: [{ userId }, unheldOnOwnAddressWhere(email)] }],
+  };
+}
+
+/** No registration type, or one that anyone may register on without being approved. */
+const OPEN_TO_ANYONE: Prisma.RegistrationWhereInput = {
+  OR: [{ ticketTypeId: null }, { ticketType: { requiresApproval: false } }],
+};
+
+/**
+ * The allowance itself: a registration in no account, on this address, that owes nothing and is
+ * on a type open to anyone. For a WEBINAR only, and always beside the standing rule: the two
+ * callers are `viewerAccessWhere` above and the portal's replay page (registrant-replays.ts),
+ * which is the same room after the event.
+ */
+export function unheldOnOwnAddressWhere(email: string): Prisma.RegistrationWhereInput {
+  return {
+    AND: [{ userId: null }, { attendee: { email: equalsIgnoringCase(email) } }, NOTHING_OWED, OPEN_TO_ANYONE],
   };
 }
 

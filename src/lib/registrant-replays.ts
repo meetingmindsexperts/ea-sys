@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { ownRegistrationWhere, type RegistrantScope } from "@/lib/registrant-access";
 import { readWebinarSettings, webinarRecordingShown } from "@/lib/webinar";
 import { sessionlessReplay, sessionReplayKind, uploadedReplay } from "@/lib/webinar/replay";
-import { viewerStandingWhere } from "@/lib/webinar/viewer-entitlement";
+import { unheldOnOwnAddressWhere, viewerStandingWhere } from "@/lib/webinar/viewer-entitlement";
 
 /**
  * A webinar's replay in a person's own portal (Nov 10, 2026): the Watch replay button on My events
@@ -26,9 +26,17 @@ import { viewerStandingWhere } from "@/lib/webinar/viewer-entitlement";
  * directly and always runs inside the portal's tenant lane (registrant-portal.ts).
  */
 
-/** This person's registrations that may watch a webinar. */
+/**
+ * This person's registrations that may watch a webinar: theirs by the My events rule, or the one
+ * a free webinar lets them watch live without a confirmed address (`unheldOnOwnAddressWhere`,
+ * owner, Nov 24, 2026). Without the second half the replay email sent someone who had watched
+ * the webinar to a page that said they were not registered (review of e024d7b0c).
+ */
 function portalViewerWhere(scope: RegistrantScope): Prisma.RegistrationWhereInput {
-  return { event: { eventType: "WEBINAR" }, AND: [ownRegistrationWhere(scope), viewerStandingWhere("WEBINAR")] };
+  const whose = scope.email
+    ? { OR: [ownRegistrationWhere(scope), unheldOnOwnAddressWhere(scope.email)] }
+    : ownRegistrationWhere(scope);
+  return { event: { eventType: "WEBINAR" }, AND: [whose, viewerStandingWhere("WEBINAR")] };
 }
 
 const ANCHOR_FIELDS = {
