@@ -1152,8 +1152,32 @@ function OverviewCard({
             </div>
           </div>
         ) : null}
+
+        <TroubleshootingLink />
       </CardContent>
     </Card>
+  );
+}
+
+// The webinar team's guide to what can go wrong (docs/WEBINAR_TROUBLESHOOTING.html), served by the
+// shared doc route. Who can open it is that route's rule: the operator, and anyone once the operator
+// switches the doc to public in Admin > Docs.
+const TROUBLESHOOTING_GUIDE_URL = "/admin/docs/docs/WEBINAR_TROUBLESHOOTING.html";
+
+function TroubleshootingLink() {
+  return (
+    <div className="pt-4 border-t text-sm text-muted-foreground">
+      Something not working?{" "}
+      <a
+        href={TROUBLESHOOTING_GUIDE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+      >
+        Open the troubleshooting guide
+        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+      </a>
+    </div>
   );
 }
 
