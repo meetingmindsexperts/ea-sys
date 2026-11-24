@@ -35,6 +35,7 @@ Owner: "also put logo on verify-email".
 - **The page a confirmation link opens now looks like the sign-in pages:** the attendee-facing brand's logo above the card (Meeting Minds Experts on our address) and the brand panel beside it on a wide screen. It stood alone on a pale background with no logo, so someone arriving from an email could not tell whose page it was
 - The browser tab reads "Confirm your email"
 - The logo is the one set in Settings for the attendee-facing brand, read by the address the page is opened on, as on every sign-in page. One shared frame (`PortalAuthShell`) now serves both, so they cannot drift apart
+- Review of `671e728e6` (0 BLOCKER, 0 HIGH, 0 MED, 4 LOW): the sign-in pages are unchanged line for line. Fixed: the "no brand of its own" test read only the wrapper, not the file that draws the logo; a stale comment. Left: the first person a minute to open a link may see the page spinner for a moment before the frame, as the sign-in pages always have
 
 ### The confirmation page says so when the password is wrong (November 24, 2026)
 

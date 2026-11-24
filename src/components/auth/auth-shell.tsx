@@ -2,8 +2,10 @@ import type { LucideIcon } from "lucide-react";
 import type { PublicBrand } from "@/lib/public-brand";
 
 /**
- * The frame around every sign-in page: the form on the left, the brand panel on
- * the right, under the brand the layout passes (public-brand.ts).
+ * The frame around every signed-out account page (the sign-in pages and the
+ * confirmation page): the form on the left, the brand panel on the right, under
+ * the brand PortalAuthShell passes (public-brand.ts). It draws that brand's own
+ * name and logo and never one of its own.
  */
 function BrandMark({ brand, className }: { brand: PublicBrand; className: string }) {
   if (!brand.logo) return <span className="text-xl font-semibold text-primary">{brand.name}</span>;

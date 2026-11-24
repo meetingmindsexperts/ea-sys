@@ -30,7 +30,14 @@ describe("the frame around the signed-out account pages", () => {
   it("shows the attendee-facing brand of the address it is opened on, never a name or logo of its own", () => {
     expect(shell).toContain('loadPublicBrandForHost((await headers()).get("host"))');
     expect(shell).toContain("brand={brand}");
-    expect(shell).not.toMatch(/Meeting Minds|MM Group|\.png|\.svg/);
+    // Review of 671e728e6: the logo is DRAWN in auth-shell.tsx, so that file and the page are
+    // read too, with comments taken out (one names the brand to explain a past incident).
+    const code = (path: string) => read(path).replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+    for (const path of ["src/components/auth/portal-auth-shell.tsx", "src/components/auth/auth-shell.tsx", "src/app/verify-email/page.tsx", "src/app/verify-email/layout.tsx"]) {
+      expect(code(path), path).not.toMatch(/Meeting Minds|MM Group|mmg|\.(png|svg|jpe?g|webp)\b/i);
+    }
+    // The one image in the frame is the brand's own.
+    expect(read("src/components/auth/auth-shell.tsx")).toContain("<img src={brand.logo} alt={brand.name}");
   });
 
   it("the confirmation page says what it is in the tab", () => {
