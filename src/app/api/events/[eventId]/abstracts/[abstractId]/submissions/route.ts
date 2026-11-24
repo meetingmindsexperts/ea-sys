@@ -16,7 +16,7 @@ import {
 } from "@/services/abstract-service";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
-import { RECOMMENDED_FORMAT_VALUES } from "@/lib/recommended-formats";
+import { recommendedFormatSchema } from "@/lib/recommended-formats";
 
 /**
  * Per-reviewer abstract review submissions.
@@ -48,7 +48,8 @@ const submissionSchema = z.object({
   scoreScale: z.number().int().min(1).max(MAX_REVIEW_SCORE_SCALE).optional(),
   overallScore: z.number().int().min(0).max(100).optional(),
   reviewNotes: z.string().max(5000).optional(),
-  recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
+  // A key's shape; whether this event allows it is the review service's question.
+  recommendedFormat: recommendedFormatSchema.optional(),
   confidence: z.number().int().min(1).max(5).optional(),
 });
 

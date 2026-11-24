@@ -34,14 +34,6 @@ import { z } from "zod";
 export const BUILT_IN_PRESENTATION_TYPE_KEYS = ["ORAL_POSTER", "ORAL", "POSTER", "VIDEO", "WORKSHOP"] as const;
 export type BuiltInPresentationTypeKey = (typeof BUILT_IN_PRESENTATION_TYPE_KEYS)[number];
 
-/**
- * The built-ins a reviewer can recommend: all but the either-way choice. The
- * recommendation is text since step 2, but until step 4 these and Neither are
- * all a door accepts, by choice: the review screens and the MCP tools offer
- * only them (`recommended-formats.ts`).
- */
-export const RECOMMENDABLE_BUILT_IN_KEYS = ["ORAL", "POSTER", "VIDEO", "WORKSHOP"] as const;
-
 /** The author's either-way choice: the organiser settles it as Oral or Poster. */
 export const EITHER_WAY_TYPE_KEY: BuiltInPresentationTypeKey = "ORAL_POSTER";
 /** What the either-way choice stands for when a reviewer recommends a format. */

@@ -27,11 +27,13 @@ const { mockDb } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 // The organisation's presentation types: the five built-ins, as for an organisation that never edited them.
+const { strictTypes } = vi.hoisted(() => ({ strictTypes: vi.fn() }));
 vi.mock("@/lib/abstract-presentation-types-server", async () => {
   const { defaultPresentationTypes } = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
+  strictTypes.mockImplementation(async () => defaultPresentationTypes());
   return {
     loadPresentationTypes: async () => defaultPresentationTypes(),
-    loadPresentationTypesStrict: async () => defaultPresentationTypes(),
+    loadPresentationTypesStrict: strictTypes,
     loadPresentationTypesForEvent: async () => defaultPresentationTypes(),
   };
 });
@@ -381,6 +383,20 @@ describe("submitAbstractReview: the recommended format follows the event's prese
     mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, abstractPresentationTypes: ["WORKSHOP"] } });
     const r = await submitAbstractReview({ ...input, recommendedFormat: "WORKSHOP" });
     expect(r.ok).toBe(true);
+  });
+
+  // Step 4 (Nov 24, 2026): the organisation's own type is a recommendation like a built-in.
+  it("accepts an organisation's own type the event offers, and refuses one it does not", async () => {
+    const { readPresentationTypes } = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
+    const own = readPresentationTypes({ presentationTypes: [{ key: "SYMPOSIUM", label: "Symposium" }, { key: "CASE_REPORT", label: "Case report" }] });
+    strictTypes.mockResolvedValue(own);
+    mockDb.event.findFirst.mockResolvedValue({ ...EVENT, settings: { ...EVENT.settings, abstractPresentationTypes: ["SYMPOSIUM", "ORAL"] } });
+    expect((await submitAbstractReview({ ...input, recommendedFormat: "SYMPOSIUM" })).ok).toBe(true);
+    const refused = await submitAbstractReview({ ...input, recommendedFormat: "CASE_REPORT" });
+    expect(refused).toMatchObject({ ok: false, code: "INVALID_RECOMMENDED_FORMAT" });
+    expect(refused.ok ? "" : refused.message).toContain("Symposium (SYMPOSIUM)");
+    const defaults = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
+    strictTypes.mockImplementation(async () => defaults.defaultPresentationTypes());
   });
 
   it("keeps a format already on the review after the organiser stops offering it", async () => {

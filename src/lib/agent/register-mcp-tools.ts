@@ -24,7 +24,7 @@ import { systemPrincipal, type Principal } from "@/lib/permissions/can";
 import { principalFromApiKey } from "@/lib/permissions/require-permission";
 import { dashboardPathForTool, dashboardUrl } from "@/lib/agent/dashboard-links";
 import { MANUAL_PAYMENT_STATUSES } from "@/lib/registration-payment-policy";
-import { RECOMMENDED_FORMAT_VALUES } from "@/lib/recommended-formats";
+import { recommendedFormatSchema } from "@/lib/recommended-formats";
 import { CONTACT_IMPORT_MAX } from "@/lib/contact-page-sizes";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -457,7 +457,7 @@ export function registerAllMcpTools(
       scoreScale: z.number().int().optional().describe("The scale the criteriaScores are given on: 5, 10 or 100. Send the event's scoreScale (from list_review_criteria) whenever criteriaScores is sent. Omitted, the scores are taken as out of 10 and refused on an event that uses another scale"),
       overallScore: z.number().int().min(0).max(100).optional(),
       reviewNotes: z.string().optional(),
-      recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
+      recommendedFormat: recommendedFormatSchema.optional().describe("The presentation type the reviewer recommends: the key of a type this event offers (list_abstracts shows the keys in use), or NEITHER. ORAL_POSTER is the author's either-way choice, never a recommendation: recommend ORAL or POSTER. Refused with INVALID_RECOMMENDED_FORMAT, which lists the choices, when the event does not offer it"),
       confidence: z.number().int().min(1).max(5).optional(),
     }},
     { name: "admin_submit_review_on_behalf", description: "Org-admin: record a review on behalf of a specific human reviewer. Takes explicit reviewerUserId (the person whose scores these are). Available via API-key MCP because the attribution is explicit in the payload. Upserts on (abstractId, reviewerUserId) — same underlying row as submit_abstract_review. Audit trail flags the submission as source=mcp-on-behalf-of with actorUserId so 'X recorded by admin on behalf of Y' is traceable. The target reviewer must already be assigned to this abstract (assign_reviewer_to_abstract); being on the event's reviewer pool is not enough.", params: {
@@ -467,7 +467,7 @@ export function registerAllMcpTools(
       scoreScale: z.number().int().optional().describe("The scale the criteriaScores are given on: 5, 10 or 100. Send the event's scoreScale (from list_review_criteria) whenever criteriaScores is sent. Omitted, the scores are taken as out of 10 and refused on an event that uses another scale"),
       overallScore: z.number().int().min(0).max(100).optional(),
       reviewNotes: z.string().optional(),
-      recommendedFormat: z.enum(RECOMMENDED_FORMAT_VALUES).optional(),
+      recommendedFormat: recommendedFormatSchema.optional().describe("The presentation type the reviewer recommends: the key of a type this event offers (list_abstracts shows the keys in use), or NEITHER. ORAL_POSTER is the author's either-way choice, never a recommendation: recommend ORAL or POSTER. Refused with INVALID_RECOMMENDED_FORMAT, which lists the choices, when the event does not offer it"),
       confidence: z.number().int().min(1).max(5).optional(),
     }},
     { name: "get_abstract_scores", description: "Return all reviewer submissions on an abstract plus per-criterion + overall aggregates (mean/min/max, count). Criterion scores and the perCriterion figures are out of the returned scoreScale (5, 10 or 100); overallScore and the overall figures are always out of 100.", params: {

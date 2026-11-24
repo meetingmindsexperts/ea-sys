@@ -4,7 +4,7 @@
  * types and their names are the organisation's.
  */
 import { describe, it, expect } from "vitest";
-import { recommendableFormats, recommendedFormatLabel } from "@/lib/recommended-formats";
+import { recommendableFormats, recommendedFormatLabel, recommendedFormatSchema } from "@/lib/recommended-formats";
 import { defaultPresentationTypes, readPresentationTypes } from "@/lib/abstract-presentation-types";
 
 const DEFAULTS = defaultPresentationTypes();
@@ -36,8 +36,21 @@ describe("recommendableFormats", () => {
     expect(recommendedFormatLabel(renamed, null)).toBe("");
   });
 
-  it("offers only what can be stored until step 4: an organisation's own type is not offered to a reviewer yet", () => {
+  // Step 4 (Nov 24, 2026): an organisation's own type is recommended like a built-in.
+  it("offers an organisation's own type where the event offers it", () => {
     const own = readPresentationTypes({ presentationTypes: [{ key: "SYMPOSIUM", label: "Symposium" }] });
-    expect(recommendableFormats({ abstractPresentationTypes: ["SYMPOSIUM", "ORAL"] }, own)).toEqual(["ORAL", "NEITHER"]);
+    expect(recommendableFormats({ abstractPresentationTypes: ["SYMPOSIUM", "ORAL"] }, own)).toEqual(["ORAL", "SYMPOSIUM", "NEITHER"]);
+    expect(recommendedFormatLabel(own, "SYMPOSIUM")).toBe("Symposium");
+  });
+
+  it("the either-way choice never stands for a type the organisation retired", () => {
+    const oralRetired = readPresentationTypes({ presentationTypes: [{ key: "ORAL", label: "Oral", retired: true }] });
+    expect(recommendableFormats({ abstractPresentationTypes: ["ORAL_POSTER"] }, oralRetired)).toEqual(["POSTER", "NEITHER"]);
+  });
+
+  it("a door takes a key's shape; NEITHER is one, a sentence is not", () => {
+    expect(recommendedFormatSchema.safeParse("SYMPOSIUM").success).toBe(true);
+    expect(recommendedFormatSchema.safeParse("NEITHER").success).toBe(true);
+    expect(recommendedFormatSchema.safeParse("a symposium").success).toBe(false);
   });
 });

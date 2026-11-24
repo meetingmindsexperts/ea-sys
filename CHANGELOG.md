@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Presentation types, step 4: a reviewer recommends the organisation's own types (November 24, 2026)
+
+Plan: `docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md`.
+
+- A reviewer's "Recommended format" now offers every type the event offers, an organisation's own included,
+  plus Neither. The either-way choice still stands for Oral and Poster, unless the organisation retired one of
+  them, and is never itself a recommendation.
+- The review route and the assistant's `submit_abstract_review` and `admin_submit_review_on_behalf` take a key's
+  shape (`recommendedFormatSchema`) instead of a fixed list of five; the review service decides, and its
+  refusal lists the event's choices by name. A recommendation already made is kept on a re-save even if the
+  event stopped offering it.
+- Version 0.4.69: the two tools' description changed. **A connected assistant (claude.ai, Claude Desktop) must
+  disconnect and reconnect to see it.**
+
 ### Presentation types, step 3: the organiser's own list (November 24, 2026)
 
 Owner: "give the complete control to organizer on what the list should be and if they want to add new at one

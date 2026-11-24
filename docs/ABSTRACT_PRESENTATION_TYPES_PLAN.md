@@ -1,6 +1,6 @@
 # Presentation types the organiser owns
 
-**Status:** IN BUILD (November 24, 2026). Section 6 has the steps; steps 1, 2 and 3 are built. Sections 2 and 8 hold
+**Status:** IN BUILD (November 24, 2026). Section 6 has the steps; steps 1 to 4 are built. Sections 2 and 8 hold
 the owner's decisions.
 
 **Owner's request:** "give the complete control to organizer on what the list should be and if they want
@@ -186,7 +186,11 @@ changes nothing a user can see; step 1 changed only the wording of the names (se
    add (ticked on that event at once, its ticks saved alone), rename, retire, restore, delete (an own type
    nothing holds), tick. From here an organiser's own type can be chosen by an author and set by staff;
    a reviewer still recommends only the built-ins (step 4).
-4. **The reviewer's recommendation** takes the organiser's own types.
+4. **The reviewer's recommendation** takes the organiser's own types. BUILT Nov 24, 2026: `recommendableFormats`
+   offers every type the event offers (the either-way choice standing for Oral and Poster unless they are
+   retired), and the review route and the assistant's two review tools take a key's shape
+   (`recommendedFormatSchema`) and leave the choice to the review service. Package version 0.4.69 (the tools'
+   description changed).
 5. **The edges.** The CSV import part was done with step 3's review: it reads a written name or key through
    `resolveWrittenPresentationType`, only among the event's offered types, and reports a row it refuses. Left:
    the assistant reads a written name; the assistant's tool descriptions and
