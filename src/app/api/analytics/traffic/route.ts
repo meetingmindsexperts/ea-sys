@@ -17,7 +17,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { requireOrgId } from "@/lib/require-org";
-import { hubEventWhere } from "@/lib/permissions/page-event-where";
+import { staffAnalyticsEventWhere } from "@/lib/permissions/page-event-where";
 import { getOrgTraffic } from "@/analytics/store/org-traffic";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -60,12 +60,17 @@ export async function GET(req: Request) {
     });
     if (!allowed) {
       apiLogger.warn({ userId: session.user.id }, "analytics:org-traffic-rate-limited");
-      return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } });
+      return NextResponse.json(
+        { error: "Too many requests", retryAfterSeconds, limit: 120, windowSeconds: 3600 },
+        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+      );
     }
 
     // The events whose analytics this person may read (was the manage scoping),
-    // read inside the organisation's lane.
-    const where = hubEventWhere(session, undefined, "analytics:traffic");
+    // read inside the organisation's lane. Staff only: an internal-domain
+    // registrant has an organisation too, and gets no events here rather than
+    // the traffic of the events it is registered at (review of 85a9b8ce3).
+    const where = staffAnalyticsEventWhere(session, "analytics:traffic");
     const events = await runWithTenant(orgGuard.orgId, () =>
       db.event.findMany({ where, select: { id: true, name: true, slug: true, startDate: true, timezone: true } }),
     );

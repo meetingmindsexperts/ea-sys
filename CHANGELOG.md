@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Analytics: the traffic figures follow the same rules (November 24, 2026)
+
+- `GET /api/analytics/traffic`: an attendee account with an organisation (an internal-domain registrant) now reads
+  no events, as on the Attendee portal card (`staffAnalyticsEventWhere`); before, it could read the traffic of the
+  events it was registered at through the API. Its "too many requests" answer now carries `retryAfterSeconds`,
+  `limit` and `windowSeconds`, as every other limited route does. Review of 85a9b8ce3.
+
 ### Analytics: an Attendee portal card (November 24, 2026)
 
 Owner: "add these stats in analytics and separate card for it".

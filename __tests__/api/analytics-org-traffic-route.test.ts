@@ -54,6 +54,12 @@ describe("GET /api/analytics/traffic", () => {
     expect(where).not.toEqual({ organizationId: "org1" });
   });
 
+  it("an attendee account with an organisation (internal domain) reads no events", async () => {
+    mockAuth.mockResolvedValueOnce({ user: { id: "reg1", role: "REGISTRANT", organizationId: "org1" } });
+    await GET(req());
+    expect(mockDb.event.findMany.mock.calls[0][0].where).toEqual({ id: { in: [] } });
+  });
+
   it("defaults to 30 days and refuses any other window", async () => {
     await GET(req());
     expect(mockGet.mock.calls[0][0].to.getTime() - mockGet.mock.calls[0][0].from.getTime()).toBe(30 * 24 * 3600_000);
@@ -66,6 +72,9 @@ describe("GET /api/analytics/traffic", () => {
     mockAuth.mockResolvedValueOnce({ user: { id: "r1", role: "REVIEWER", organizationId: null } });
     expect((await GET(req())).status).toBe(403);
     mockLimit.mockReturnValueOnce({ allowed: false, retryAfterSeconds: 60 });
-    expect((await GET(req())).status).toBe(429);
+    const limited = await GET(req());
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("60");
+    expect(await limited.json()).toMatchObject({ retryAfterSeconds: 60, limit: 120, windowSeconds: 3600 });
   });
 });
