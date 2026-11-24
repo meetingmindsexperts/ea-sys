@@ -35,9 +35,10 @@ export const BUILT_IN_PRESENTATION_TYPE_KEYS = ["ORAL_POSTER", "ORAL", "POSTER",
 export type BuiltInPresentationTypeKey = (typeof BUILT_IN_PRESENTATION_TYPE_KEYS)[number];
 
 /**
- * The built-ins a reviewer can recommend: all but the either-way choice. Until
- * step 2 of the plan the recommendation is stored in the Postgres enum
- * `RecommendedFormat`, so these and Neither are all a door can accept.
+ * The built-ins a reviewer can recommend: all but the either-way choice. The
+ * recommendation is text since step 2, but until step 4 these and Neither are
+ * all a door accepts, by choice: the review screens and the MCP tools offer
+ * only them (`recommended-formats.ts`).
  */
 export const RECOMMENDABLE_BUILT_IN_KEYS = ["ORAL", "POSTER", "VIDEO", "WORKSHOP"] as const;
 

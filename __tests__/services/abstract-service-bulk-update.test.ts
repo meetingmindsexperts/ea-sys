@@ -250,3 +250,15 @@ describe("bulkUpdateAbstracts: the organisation's list cannot be read", () => {
     expect(txUpdateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("bulkUpdateAbstracts: a well-formed key the event does not offer (review of 2729e1de3)", () => {
+  it("is refused with TYPE_NOT_OFFERED, logged, nothing written", async () => {
+    mockDb.event.findFirst.mockResolvedValue(EVENT);
+    const result = await bulkUpdateAbstracts(input({ presentationType: "HOLOGRAM" }));
+    expect(result).toMatchObject({ ok: false, code: "TYPE_NOT_OFFERED" });
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "abstract-bulk-update:rejected", code: "TYPE_NOT_OFFERED" }));
+    expect(mockDb.abstract.updateMany).not.toHaveBeenCalled();
+    expect(txUpdateMany).not.toHaveBeenCalled();
+  });
+});
+

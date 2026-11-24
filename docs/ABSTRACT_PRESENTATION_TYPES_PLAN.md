@@ -195,7 +195,9 @@ day each.
 - **MEHF2027 is mid-review** with 171 abstracts. Steps 1 and 2 must change nothing it shows. The step 2
   rehearsal on the local copy is not optional.
 - **Rollback.** An older image reads only the enum column. After step 3, an abstract on an organiser's own
-  type shows no type to an older image, and a save from that image's edit form would write none back.
+  type shows no type to an older image. A save there that sets a built-in replaces the organisation's
+  type; one that clears the type changes nothing (its enum was already empty, so the trigger sees no
+  change and the key stays): the older image cannot tell "clear" from "unchanged".
   `docs/ROLLBACK.md` gets the note, as it has for Role.
 - **A database built by `prisma db push`** (the tenancy and integration harnesses) has the columns and not
   the trigger. Nothing in the new image may rely on the trigger.

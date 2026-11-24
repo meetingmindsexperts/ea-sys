@@ -8,9 +8,9 @@
  * an author's choice, not a format a reviewer can recommend, so it stands for
  * Oral and Poster here, even where those two are not offered on their own.
  *
- * Until step 2 of the plan the stored value is the Postgres enum
- * `RecommendedFormat`, so only the built-in keys and Neither can be stored:
- * `RECOMMENDED_FORMAT_VALUES` is what a door's schema accepts.
+ * The stored value is text since step 2 of the plan; until step 4 a door's
+ * schema still accepts only `RECOMMENDED_FORMAT_VALUES` (the built-in keys and
+ * Neither), by choice, so the reviewer's screens and the tools agree.
  *
  * Client-safe: the review form builds its list from this and the review
  * service checks against it.
@@ -33,9 +33,9 @@ export type RecommendedFormatValue = (typeof RECOMMENDED_FORMAT_VALUES)[number];
 
 /**
  * The formats a reviewer may pick on this event, in the list's order, Neither
- * last. Until step 4 of the plan only what the enum column can store is
- * offered: an organisation's own type, once it can be ticked (step 3), would
- * otherwise be offered and then refused by every door (review of 89d803698).
+ * last. Until step 4 of the plan only `RECOMMENDED_FORMAT_VALUES` is offered:
+ * an organisation's own type, once it can be ticked (step 3), would otherwise
+ * be offered and then refused by every door (review of 89d803698).
  */
 export function recommendableFormats(eventSettings: unknown, types: readonly PresentationTypeDef[]): string[] {
   const offered = new Set<string>();

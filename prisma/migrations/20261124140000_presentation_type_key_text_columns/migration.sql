@@ -32,6 +32,10 @@
 -- the triggers (Postgres 17). Nothing is dropped or renamed, so the migration
 -- gate passes without an acknowledgement.
 --
+-- search_path is pg_catalog FIRST (review of 2729e1de3): the functions run as
+-- the writing user, and with public first an object created there could stand
+-- in for a built-in operator or enum_range. Role's migration has public first.
+--
 -- KNOWN LIMIT. A database built by `prisma db push` (the tenancy and DB
 -- integration harnesses) has the columns and NOT the triggers. Nothing in this
 -- image may rely on the triggers: it reads and writes the key columns only.
@@ -63,7 +67,7 @@ CREATE OR REPLACE FUNCTION public.enum_key_pair_sync(
 ) RETURNS text[]
 LANGUAGE plpgsql
 IMMUTABLE
-SET search_path = public, pg_catalog
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   key_changed  boolean;
@@ -96,7 +100,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.abstract_presentation_type_key_sync() RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = public, pg_catalog
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   is_insert boolean := TG_OP = 'INSERT';
@@ -131,7 +135,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.review_recommended_format_key_sync() RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = public, pg_catalog
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   is_insert boolean := TG_OP = 'INSERT';
@@ -167,3 +171,13 @@ UPDATE "Abstract" SET "requestedPresentationTypeKey" = "requestedPresentationTyp
   WHERE "requestedPresentationType" IS NOT NULL AND "requestedPresentationTypeKey" IS NULL;
 UPDATE "AbstractReviewSubmission" SET "recommendedFormatKey" = "recommendedFormat"::text
   WHERE "recommendedFormat" IS NOT NULL AND "recommendedFormatKey" IS NULL;
+
+-- The other direction: a built-in key with its enum empty (a database where
+-- this image wrote before the triggers existed, such as one built by db push
+-- and patched with this file afterwards). Never true on production.
+UPDATE "Abstract" SET "presentationType" = "presentationTypeKey"::public."PresentationType"
+  WHERE "presentationType" IS NULL AND "presentationTypeKey" = ANY (enum_range(NULL::public."PresentationType")::text[]);
+UPDATE "Abstract" SET "requestedPresentationType" = "requestedPresentationTypeKey"::public."PresentationType"
+  WHERE "requestedPresentationType" IS NULL AND "requestedPresentationTypeKey" = ANY (enum_range(NULL::public."PresentationType")::text[]);
+UPDATE "AbstractReviewSubmission" SET "recommendedFormat" = "recommendedFormatKey"::public."RecommendedFormat"
+  WHERE "recommendedFormat" IS NULL AND "recommendedFormatKey" = ANY (enum_range(NULL::public."RecommendedFormat")::text[]);

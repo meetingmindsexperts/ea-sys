@@ -57,7 +57,8 @@ vi.mock("@/lib/abstract-presentation-types-server", async () => {
     loadPresentationTypesForEvent: async () => defaultPresentationTypes(),
   };
 });
-vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+const { mockWarn } = vi.hoisted(() => ({ mockWarn: vi.fn() }));
+vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: mockWarn, error: vi.fn() } }));
 vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4" }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/event-access", () => ({
@@ -396,3 +397,29 @@ describe("update - abstracts per submitter on submit", () => {
     expect(mockDb.abstract.count).not.toHaveBeenCalled();
   });
 });
+
+// Review of 2729e1de3: since the columns are text, the offered list is the only
+// thing between a well-formed key and the database. Each door is pinned here.
+describe("a type the event does not offer", () => {
+  it("create refuses a well-formed key the event does not offer: 400, its code, logged, nothing written", async () => {
+    const res = await CREATE(req("POST", { ...VALID_CREATE, presentationType: "HOLOGRAM" }), createParams);
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("PRESENTATION_TYPE_NOT_OFFERED");
+    expect(mockWarn).toHaveBeenCalledWith(expect.objectContaining({ msg: "abstract-create:presentation-type-not-offered", presentationType: "HOLOGRAM" }));
+    expect(mockDb.abstract.create).not.toHaveBeenCalled();
+  });
+
+  it("an edit refuses changing to it the same way, and a key's shape is refused before that", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({
+      id: "ab1", eventId: "ev1", status: "SUBMITTED", speakerId: "spk1", title: "T", content: "C", coAuthors: [],
+      presentationType: "ORAL", themeId: null, subThemeId: null, speaker: { ...COMPLETE_SPEAKER, userId: "u1" },
+    });
+    const res = await PUT(req("PUT", { presentationType: "HOLOGRAM" }), putParams);
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("PRESENTATION_TYPE_NOT_OFFERED");
+    expect(mockWarn).toHaveBeenCalledWith(expect.objectContaining({ msg: "abstract-update:presentation-type-not-offered", presentationType: "HOLOGRAM" }));
+    expect(mockDb.abstract.updateMany).not.toHaveBeenCalled();
+    expect((await PUT(req("PUT", { presentationType: "hologram!" }), putParams)).status).toBe(400);
+  });
+});
+

@@ -280,9 +280,12 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   columns and the triggers copy its writes into the keys. Once an organisation has its own types,
   check first: `SELECT count(*) FROM "Abstract" WHERE "presentationTypeKey" IS NOT NULL AND
   "presentationType" IS NULL;` (and the same for the requested type and the recommendation). Those
-  abstracts show NO type to the older image, and an edit there that sets a built-in replaces the
-  organisation's type. Never drop the triggers or the enum columns while an older image may run,
-  and drop the triggers and the two functions BEFORE the columns when that day comes.
+  abstracts show NO type to the older image; an edit there that sets a built-in replaces the
+  organisation's type, and one that clears it changes nothing (the enum was already empty, so the
+  trigger sees no change and the key stays). Never drop the triggers or the enum columns while an
+  older image may run, and drop the two triggers and all three functions (`enum_key_pair_sync`,
+  `abstract_presentation_type_key_sync`, `review_recommended_format_key_sync`) BEFORE the columns
+  when that day comes.
 
 - **CRM corporate projects (Nov 12, 2026; migration `20261112150000_add_crm_project`).** The
   migration is additive, so an image older than it runs against the new table and column

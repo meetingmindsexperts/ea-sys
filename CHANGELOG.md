@@ -31,6 +31,22 @@ reviewed with Workshop, each stored in both columns alike, while "SYMPOSIUM" and
 The list and the edit page name it. The test rows were deleted by id and the abstract counter restored.
 **Production has 37 recommended formats and the local copy none**: the review trigger was proven by hand only.
 
+Review of 2729e1de3 (0 BLOCKER, 0 HIGH, 1 MED, 7 LOW), fixed in its own commit:
+
+- **MED**: since the columns are text, the offered list is the only thing between a well-formed key and the
+  database, and no test pinned that at the doors (the one that did was changed to a non-key). The create and
+  edit routes and the bulk service are each tested now with "HOLOGRAM": 400 with its code, logged, nothing
+  written; switching the create check off fails the test.
+- LOW, fixed: the triggers have a test on the real Postgres harness (`presentation-type-key-sync.db.test.ts`,
+  run locally: every direction, both tables, the review service's upsert, a second run of the migration); the
+  functions put `pg_catalog` first on their search path; the migration also fills an empty enum from a
+  built-in key (a database patched after `db push`; never true on production); the legacy check also reads
+  `scripts/`, `prisma/*.ts` and raw SQL naming the old columns; stale comments; the rollback note names all
+  three functions and says that an older image cannot clear an organisation's own type (its enum is already
+  empty, so the key stays), and the plan says the same.
+- Older, recorded for step 5: the CSV import takes any built-in whatever the event offers, and a misspelt
+  type becomes none without a warning.
+
 ### Saving the organisation or an event is one write, and the organisation save no longer returns credentials (November 24, 2026)
 
 Two older defects the review of the help assistant's phone and hours found; owner: "proceed with fixes".

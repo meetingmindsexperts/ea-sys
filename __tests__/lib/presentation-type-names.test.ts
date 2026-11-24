@@ -126,8 +126,13 @@ describe("presentation types: one list, one name each", () => {
   // kept in step by a trigger for the PREVIOUS image only. Read by nothing.
   it("no source file reads or writes the old enum columns; only the client's omit list names them", () => {
     const LEGACY = /\b(?:presentationTypeLegacy|requestedPresentationTypeLegacy|recommendedFormatLegacy)\b/;
-    const all = [...sourceFiles("src"), ...sourceFiles("worker")];
+    // scripts/ and prisma/ too (review of 2729e1de3): a tsx script or a seed reads the same client.
+    const prismaTs = fs.readdirSync(path.join(ROOT, "prisma")).filter((f) => /\.ts$/.test(f)).map((f) => `prisma/${f}`);
+    const all = [...sourceFiles("src"), ...sourceFiles("worker"), ...sourceFiles("scripts"), ...prismaTs];
     expect(all.filter((f) => f !== "src/lib/db.ts" && LEGACY.test(code(f)))).toEqual([]);
+    // Raw SQL naming the OLD physical columns reads the enum, which a db push database leaves empty.
+    const RAW_OLD = /\$(?:queryRaw|executeRaw)(?:Unsafe)?[^;]*"(?:presentationType|requestedPresentationType|recommendedFormat)"/;
+    expect(all.filter((f) => RAW_OLD.test(code(f)))).toEqual([]);
     const db = code("src/lib/db.ts");
     expect(db).toContain("abstract: { presentationTypeLegacy: true, requestedPresentationTypeLegacy: true }");
     expect(db).toContain("abstractReviewSubmission: { recommendedFormatLegacy: true }");
