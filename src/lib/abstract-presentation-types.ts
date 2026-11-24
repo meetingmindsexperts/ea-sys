@@ -51,6 +51,13 @@ export const POSTER_TYPE_KEY: BuiltInPresentationTypeKey = "POSTER";
 
 /** Where the organisation's list is kept (`Organization.settings`). */
 export const PRESENTATION_TYPES_SETTING = "presentationTypes";
+/**
+ * The keys of types the organisation DELETED (`Organization.settings`), never
+ * given to a new type (review of 6e04916ec): an event's saved ticks, a row
+ * written while the delete ran, or an export may still name a deleted key,
+ * and a new type taking it would inherit them.
+ */
+export const DELETED_PRESENTATION_TYPE_KEYS_SETTING = "presentationTypesDeleted";
 /** Where an event's ticks are kept (`Event.settings`). */
 export const EVENT_PRESENTATION_TYPES_SETTING = "abstractPresentationTypes";
 
@@ -94,6 +101,13 @@ export function isBuiltInPresentationType(key: string): key is BuiltInPresentati
 /** The list of an organisation that has never edited it: the five, by their usual names. */
 export function defaultPresentationTypes(): PresentationTypeDef[] {
   return BUILT_IN_PRESENTATION_TYPE_KEYS.map((key) => ({ key, label: BUILT_IN_LABELS[key], retired: false, builtIn: true }));
+}
+
+/** The deleted keys an organisation keeps (`DELETED_PRESENTATION_TYPE_KEYS_SETTING`); anything malformed is dropped. */
+export function readDeletedPresentationTypeKeys(orgSettings: unknown): string[] {
+  const raw = orgSettings && typeof orgSettings === "object" ? (orgSettings as Record<string, unknown>)[DELETED_PRESENTATION_TYPE_KEYS_SETTING] : null;
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((k): k is string => typeof k === "string" && PRESENTATION_TYPE_KEY_PATTERN.test(k)))];
 }
 
 /** A name as stored: trimmed, inner whitespace collapsed. Empty or too long is no name. */
@@ -248,6 +262,25 @@ export function inDecisionOrder(types: readonly PresentationTypeDef[]): Presenta
   return rest;
 }
 
+/**
+ * The type a written cell names (a CSV import), among the types an event
+ * offers: by key (what the CSV export writes) or by name, whatever the case.
+ * An empty cell is no type; a cell naming a type the event does not offer is
+ * refused, never dropped (review of 6e04916ec: the import dropped an
+ * organisation's own type without a word, and took a retired one).
+ */
+export function resolveWrittenPresentationType(
+  cell: string | null | undefined,
+  offered: readonly PresentationTypeDef[],
+): { key: string | null } | { refused: string } {
+  const written = cell?.replace(/\s+/g, " ").trim();
+  if (!written) return { key: null };
+  const upper = written.toUpperCase();
+  const lower = written.toLowerCase();
+  const match = offered.find((t) => t.key === upper || t.label.toLowerCase() === lower);
+  return match ? { key: match.key } : { refused: written };
+}
+
 /** What `GET /api/events/{id}/presentation-types` sends a page: the whole list, each type marked offered or not. */
 export interface EventPresentationType extends PresentationTypeDef {
   offered: boolean;
@@ -295,9 +328,9 @@ function sameName(a: string, b: string): boolean {
 /**
  * The key a new type gets, made once from its name and never changed: capitals,
  * digits and underscores, no longer than 40, never a built-in's, never NEITHER,
- * never one the list holds (a deleted type's key may come back: nothing holds it).
+ * never one the list holds, and never a deleted type's (`deletedKeys`).
  */
-export function newPresentationTypeKey(label: string, types: readonly PresentationTypeDef[]): string {
+export function newPresentationTypeKey(label: string, types: readonly PresentationTypeDef[], deletedKeys: readonly string[] = []): string {
   const base =
     label
       .normalize("NFKD")
@@ -307,7 +340,7 @@ export function newPresentationTypeKey(label: string, types: readonly Presentati
       .replace(/^_+|_+$/g, "")
       .slice(0, 36) || "TYPE";
   const start = /^[A-Z0-9]/.test(base) ? base : `T_${base}`.slice(0, 36);
-  const taken = new Set<string>([...types.map((t) => t.key), ...BUILT_IN_PRESENTATION_TYPE_KEYS, ...RESERVED_PRESENTATION_TYPE_KEYS]);
+  const taken = new Set<string>([...types.map((t) => t.key), ...deletedKeys, ...BUILT_IN_PRESENTATION_TYPE_KEYS, ...RESERVED_PRESENTATION_TYPE_KEYS]);
   if (!taken.has(start)) return start;
   for (let n = 2; ; n += 1) {
     const candidate = `${start}_${n}`;
@@ -324,6 +357,7 @@ export function applyPresentationTypeChange(
   types: readonly PresentationTypeDef[],
   change: PresentationTypeChange,
   inUse = 0,
+  deletedKeys: readonly string[] = [],
 ): PresentationTypeChangeResult {
   const refuse = (code: PresentationTypeChangeRefusal, message: string): PresentationTypeChangeResult => ({ ok: false, code, message });
   if (change.action === "add" || change.action === "rename") {
@@ -333,7 +367,7 @@ export function applyPresentationTypeChange(
     if (clash) return refuse("LABEL_TAKEN", `"${clash.label}" is already a presentation type${clash.retired ? " (retired: restore it instead)" : ""}.`);
     if (change.action === "add") {
       if (types.length >= MAX_PRESENTATION_TYPES) return refuse("TOO_MANY", `An organisation has at most ${MAX_PRESENTATION_TYPES} presentation types.`);
-      const key = newPresentationTypeKey(label, types);
+      const key = newPresentationTypeKey(label, types, deletedKeys);
       return { ok: true, key, types: [...types, { key, label, retired: false, builtIn: false }] };
     }
     const target = types.find((t) => t.key === change.key);

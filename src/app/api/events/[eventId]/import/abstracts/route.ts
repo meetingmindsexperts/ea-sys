@@ -11,15 +11,12 @@ import { recordImport } from "@/lib/audit-data-transfer";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
-import { BUILT_IN_PRESENTATION_TYPE_KEYS, type BuiltInPresentationTypeKey } from "@/lib/abstract-presentation-types";
+import { offeredPresentationTypes, resolveWrittenPresentationType } from "@/lib/abstract-presentation-types";
+import { loadPresentationTypesStrict } from "@/lib/abstract-presentation-types-server";
 import { authorTypeWrite, organiserTypeWrite } from "@/lib/abstract-requested-type";
 
 /** Statuses that mean a decision was already made when the row was exported elsewhere. */
 const DECIDED_IMPORT_STATUSES = new Set(["ACCEPTED", "REJECTED", "REVISION_REQUESTED"]);
-
-/** Every type an abstract can have; a cell naming none of them imports with no type. */
-// Keys only until step 5 of docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md reads a written name too.
-const PRESENTATION_TYPES: readonly string[] = BUILT_IN_PRESENTATION_TYPE_KEYS;
 
 const ABSTRACT_STATUS_VALUES = new Set([
   "DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED",
@@ -88,11 +85,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Verify event
     const event = await findGatedEvent(gate, {
-      select: { id: true },
+      select: { id: true, settings: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+    // The types this event offers, from the organisation's list: a strict read, since it decides what is stored.
+    const offeredTypes = offeredPresentationTypes(event.settings, await loadPresentationTypesStrict(orgGuard.orgId));
 
     // Load speakers and tracks
     const [existingSpeakers, existingTracks] = await Promise.all([
@@ -160,9 +159,15 @@ export async function POST(req: Request, { params }: RouteParams) {
         if (theme) themeId = theme.id;
       }
 
-      // Resolve presentation type
-      const ptRaw = getField(fields, idx.presentationType)?.toUpperCase();
-      const presentationType = (PRESENTATION_TYPES.find((t) => t === ptRaw) ?? null) as BuiltInPresentationTypeKey | null;
+      // Resolve presentation type: one the event offers, or the row is not imported.
+      const resolved = resolveWrittenPresentationType(getField(fields, idx.presentationType), offeredTypes);
+      if ("refused" in resolved) {
+        apiLogger.warn({ msg: "import-abstracts:type-not-offered", eventId, rowNum, written: resolved.refused });
+        errors.push(`Row ${rowNum}: presentation type "${resolved.refused}" is not one this event offers (${offeredTypes.map((t) => t.label).join(", ")})`);
+        skipped++;
+        continue;
+      }
+      const presentationType = resolved.key;
 
       try {
         // Serial + create in one tx so a failed row rolls the counter back

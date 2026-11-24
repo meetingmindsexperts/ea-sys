@@ -13,7 +13,9 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
   applyPresentationTypeChange,
+  DELETED_PRESENTATION_TYPE_KEYS_SETTING,
   PRESENTATION_TYPES_SETTING,
+  readDeletedPresentationTypeKeys,
   readPresentationTypes,
   storedPresentationTypes,
   type PresentationTypeChange,
@@ -31,34 +33,27 @@ export type ChangePresentationTypeResult =
 type Tx = Prisma.TransactionClient | typeof db;
 
 /**
- * How many abstracts and reviews of the organisation hold each key. An
- * abstract counts once even when both its type and its request hold it.
+ * How many abstracts and reviews of the organisation hold each key: an
+ * abstract whose decision OR whose author's request is the key (once, even
+ * when both are), plus reviews recommending it. One count per key (at most
+ * MAX_PRESENTATION_TYPES): the first version summed group counts and
+ * subtracted "both columns set", which also subtracted every abstract whose
+ * two columns held DIFFERENT keys, so a type staff had moved abstracts to
+ * read as unused and could be deleted (review of 6e04916ec).
  * Through the abstract's EVENT, not the row's own organisation stamp, which
  * older rows may lack. Inside the caller's lane: under a row policy, a read
  * outside it would see nothing, and a type in use would look free to delete.
  */
 async function countUse(tx: Tx, organizationId: string, keys: string[]): Promise<Map<string, number>> {
   const use = new Map<string, number>();
-  if (keys.length === 0) return use;
-  const [decided, requested, both, reviews] = await Promise.all([
-    tx.abstract.groupBy({ by: ["presentationType"], where: { event: { organizationId }, presentationType: { in: keys } }, _count: { _all: true } }),
-    tx.abstract.groupBy({ by: ["requestedPresentationType"], where: { event: { organizationId }, requestedPresentationType: { in: keys } }, _count: { _all: true } }),
-    // Abstracts whose type and request are the same key: counted once.
-    tx.abstract.groupBy({
-      by: ["presentationType"],
-      where: { event: { organizationId }, presentationType: { in: keys }, requestedPresentationType: { in: keys } },
-      _count: { _all: true },
-    }),
-    tx.abstractReviewSubmission.groupBy({ by: ["recommendedFormat"], where: { abstract: { event: { organizationId } }, recommendedFormat: { in: keys } }, _count: { _all: true } }),
-  ]);
-  const add = (key: string | null, n: number) => {
-    if (key) use.set(key, (use.get(key) ?? 0) + n);
-  };
-  decided.forEach((r) => add(r.presentationType, r._count._all));
-  requested.forEach((r) => add(r.requestedPresentationType, r._count._all));
-  // Subtract the abstracts counted twice (same key in both columns).
-  both.forEach((r) => add(r.presentationType, -r._count._all));
-  reviews.forEach((r) => add(r.recommendedFormat, r._count._all));
+  // One after another: an interactive transaction runs its queries in turn anyway.
+  for (const key of keys) {
+    const abstracts = await tx.abstract.count({
+      where: { event: { organizationId }, OR: [{ presentationType: key }, { requestedPresentationType: key }] },
+    });
+    const reviews = await tx.abstractReviewSubmission.count({ where: { abstract: { event: { organizationId } }, recommendedFormat: key } });
+    use.set(key, abstracts + reviews);
+  }
   return use;
 }
 
@@ -88,13 +83,22 @@ export async function changePresentationType(input: {
       if (rows.length === 0) return { saved: false, result: { ok: false, code: "ORGANIZATION_NOT_FOUND", message: "Organisation not found" } };
       const settings = (rows[0].settings ?? {}) as Record<string, unknown>;
       const before = readPresentationTypes(settings);
+      const deleted = readDeletedPresentationTypeKeys(settings);
       const use = await countUse(tx, organizationId, before.map((t) => t.key));
       const inUse = change.action === "delete" ? (use.get(change.key) ?? 0) : 0;
-      const applied = applyPresentationTypeChange(before, change, inUse);
+      const applied = applyPresentationTypeChange(before, change, inUse, deleted);
       if (!applied.ok) return { saved: false, result: applied };
+      // A deleted type's key is kept, so no new type ever takes it.
+      const nextDeleted = change.action === "delete" ? [...new Set([...deleted, change.key])] : deleted;
       await tx.organization.update({
         where: { id: organizationId },
-        data: { settings: { ...settings, [PRESENTATION_TYPES_SETTING]: storedPresentationTypes(applied.types) } as unknown as Prisma.InputJsonValue },
+        data: {
+          settings: {
+            ...settings,
+            [PRESENTATION_TYPES_SETTING]: storedPresentationTypes(applied.types),
+            ...(nextDeleted.length > 0 && { [DELETED_PRESENTATION_TYPE_KEYS_SETTING]: nextDeleted }),
+          } as unknown as Prisma.InputJsonValue,
+        },
       });
       return { saved: true, key: applied.key, before, after: applied.types, use };
     });

@@ -187,8 +187,9 @@ changes nothing a user can see; step 1 changed only the wording of the names (se
    nothing holds), tick. From here an organiser's own type can be chosen by an author and set by staff;
    a reviewer still recommends only the built-ins (step 4).
 4. **The reviewer's recommendation** takes the organiser's own types.
-5. **The edges.** CSV import and the assistant read a written name, and the import respects what the event
-   offers (it accepts any type today, found by the review of step 1); the assistant's tool descriptions and
+5. **The edges.** The CSV import part was done with step 3's review: it reads a written name or key through
+   `resolveWrittenPresentationType`, only among the event's offered types, and reports a row it refuses. Left:
+   the assistant reads a written name; the assistant's tool descriptions and
    the help chat describe the list as the event's, not five fixed values; the user guide, `docs/ROLLBACK.md`
    and `CLAUDE.md`; a browser spec that adds a type, submits with it, reviews it and decides it.
 

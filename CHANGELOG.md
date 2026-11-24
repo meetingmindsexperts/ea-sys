@@ -23,8 +23,8 @@ place". Plan: `docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md`.
   runs it under the organisation's row lock, counts what holds a type through each abstract's event, and writes
   the audit row. A name another type has (whatever its case), the last live type, a built-in's deletion and a
   type in use are refused in words. Readers see a change at once in the same process, within 30 seconds elsewhere.
-- An organisation's own type, once ticked, can be chosen by authors and set by staff on every door; a reviewer
-  still recommends only the built-ins (step 4).
+- An organisation's own type, once ticked, can be chosen by authors and set by staff (create, edit, bulk; the CSV
+  import since the review fix below); a reviewer still recommends only the built-ins (step 4).
 
 Checked locally in a visible browser on Author Test Event: Symposium added (stored, ticked on that event only),
 "oral" refused ("\"Oral\" is already a presentation type."), Poster renamed E-poster (the new-abstract form then
@@ -32,6 +32,33 @@ offered Oral or Poster, Oral, E-poster, Workshop, Symposium), Video retired (a n
 an abstract created with Symposium (stored as the key, the old enum column empty, as designed), and Symposium then
 offering Retire instead of Delete. The organisation and the event were restored byte for byte and the test rows
 deleted by id.
+
+Review of 6e04916ec (1 BLOCKER, 0 HIGH, 3 MED, 8 LOW), fixed in its own commit:
+
+- **BLOCKER**: the "held by" count missed every abstract whose type and author's request differ (it summed
+  group counts and subtracted all abstracts with both columns set), so a type staff had moved abstracts to read
+  "Not used yet" and could be deleted, leaving those abstracts on a dead key. It is now one count per type: an
+  abstract whose type OR request is that type, plus reviews. The test's fake, which had hidden it, now answers
+  the real query; the mismatched pair is pinned.
+- **MED**: a deleted type's key could be reused by a new type of the same name, which would then be offered
+  wherever the old ticks still named it and take over any abstract left on it. The organisation keeps deleted
+  keys (`presentationTypesDeleted`) and a new type never takes one.
+- **MED**: Add could run while this event's own list was still loading, and its immediate save then left the
+  event offering the new type alone. Add and the ticks now wait for the event's list, and the immediate save
+  refuses without it. (This also fixes an older case: ticking before the list loaded saved only that tick.)
+- **MED**: the CSV import dropped an organisation's own type without a word and accepted a retired one. It now
+  reads a type by key or name among the event's offered types and reports a row it refuses (`import-abstracts:type-not-offered`).
+- LOW, fixed: Add shows only for someone who may also tick the event (a type nobody can tick is offered
+  nowhere); its success toast comes after the tick save, and a network failure is caught and said; a rename to
+  the same name just closes, and a second Enter while saving sends nothing; Delete appears only once the counts
+  are known; retiring says that an event offering only that type falls back to the built-ins; the card's
+  editing tools are hidden from a platform operator with no organisation of its own; the user guide says how a
+  rename reaches pages already open, that the CSV export keeps codes, and what the import refuses.
+- The card lays the types out in two columns on a wide screen, one on a phone (owner: "make it 2 col instead
+  of 1 col").
+- LOW, left: a create that read the list before a delete committed can still store the deleted key (the delete
+  counts under the organisation's lock, the doors read without it); the key is then never reused, so the
+  abstract shows the code, not another type.
 
 ### Presentation types, step 2: stored as text (November 24, 2026)
 

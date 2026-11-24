@@ -51,8 +51,8 @@ export function PresentationTypesCard({
   /** The keys this event offers, as the page holds them (saved with the page's Save). */
   ticked: string[];
   onTickedChange: (next: string[]) => void;
-  /** Saves the ticks with a newly added type among them, at once. */
-  onAdded: (ticks: string[]) => Promise<void>;
+  /** Saves the ticks with a newly added type among them, at once; false when it could not. */
+  onAdded: (ticks: string[]) => Promise<boolean>;
   /** May edit this event's settings. */
   canTick: boolean;
   /** Holds `abstracts.types.manage`: may change the organisation's list. */
@@ -69,12 +69,20 @@ export function PresentationTypesCard({
   const types = (orgTypes ?? eventTypes ?? []).map((t) => ({ ...t, inUse: "inUse" in t ? (t.inUse as number) : 0 }));
   const live = types.filter((t) => !t.retired);
   const retired = types.filter((t) => t.retired);
-  const busy = change.isPending;
+  const [saving, setSaving] = useState(false);
+  const busy = change.isPending || saving;
+  // Ticks and Add wait for THIS event's list (review of 6e04916ec): until it is
+  // there the ticks read as none, and saving them would drop what the event offers.
+  const ticksReady = eventTypes !== undefined;
+  // Delete is offered only once the counts are known: until then every type reads as unused.
+  const countsKnown = orgTypes !== undefined;
+  // Adding offers the type on this event, so it needs both keys (a type nobody can tick is offered nowhere).
+  const canAdd = canManage && canTick;
 
-  const run = async (next: PresentationTypeChange, done: string) => {
+  const run = async (next: PresentationTypeChange, done: string | null) => {
     try {
       const result = await change.mutateAsync(next);
-      toast.success(done);
+      if (done) toast.success(done);
       return result;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save the presentation types");
@@ -94,19 +102,30 @@ export function PresentationTypesCard({
 
   const add = async () => {
     const label = newName.trim();
-    if (!label) return;
-    const result = await run({ action: "add", label }, `"${label}" added and offered on this event`);
-    if (!result) return;
-    setNewName("");
-    // Offered on this event at once, and on no other.
-    const ticks = [...ticked, result.key];
-    onTickedChange(ticks);
-    await onAdded(ticks);
+    if (!label || busy || !ticksReady) return;
+    setSaving(true);
+    try {
+      const result = await run({ action: "add", label }, null);
+      if (!result) return;
+      setNewName("");
+      // Offered on this event at once, and on no other. Said only once both saves are done.
+      const ticks = [...ticked, result.key];
+      onTickedChange(ticks);
+      if (await onAdded(ticks)) toast.success(`"${label}" added and offered on this event`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveRename = async () => {
-    if (!renaming) return;
+    if (!renaming || busy) return;
     const label = renaming.label.trim();
+    const current = types.find((t) => t.key === renaming.key)?.label;
+    // Nothing to send for the same name: just close the editor.
+    if (!label || label === current) {
+      setRenaming(null);
+      return;
+    }
     const done = await run({ action: "rename", key: renaming.key, label }, `Renamed to "${label}" on every event`);
     if (done) setRenaming(null);
   };
@@ -125,18 +144,18 @@ export function PresentationTypesCard({
         {eventFailed && !eventTypes && (
           <p className="text-sm text-destructive">The presentation types could not be loaded. Reload the page to change them.</p>
         )}
-        <ul className="divide-y rounded-md border">
+        <ul className="grid gap-3 md:grid-cols-2">
           {live.map((t) => {
             const behaviour = behaviourOf(t.key);
             const isRenaming = renaming?.key === t.key;
             return (
-              <li key={t.key} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <li key={t.key} className="flex flex-col justify-between gap-3 rounded-md border p-3">
                 <div className="flex min-w-0 items-start gap-3">
                   <Checkbox
                     id={`ptype-${t.key}`}
                     className="mt-0.5"
                     checked={ticked.includes(t.key)}
-                    disabled={!canTick}
+                    disabled={!canTick || !ticksReady}
                     onCheckedChange={(next) => toggle(t.key, next === true)}
                     aria-label={`Offer ${t.label} on this event`}
                   />
@@ -145,6 +164,7 @@ export function PresentationTypesCard({
                       <Input
                         value={renaming.label}
                         maxLength={MAX_PRESENTATION_TYPE_LABEL}
+                        disabled={busy}
                         autoFocus
                         className="h-8"
                         aria-label={`New name for ${t.label}`}
@@ -165,7 +185,7 @@ export function PresentationTypesCard({
                   </div>
                 </div>
                 {canManage && (
-                  <div className="flex shrink-0 gap-2 pl-7 sm:pl-0">
+                  <div className="flex flex-wrap gap-2 pl-7">
                     {isRenaming ? (
                       <>
                         <Button size="sm" onClick={() => void saveRename()} disabled={busy || !renaming.label.trim()}>Save name</Button>
@@ -174,10 +194,22 @@ export function PresentationTypesCard({
                     ) : (
                       <>
                         <Button size="sm" variant="outline" onClick={() => setRenaming({ key: t.key, label: t.label })} disabled={busy}>Rename</Button>
-                        {!t.builtIn && t.inUse === 0 ? (
+                        {!t.builtIn && countsKnown && t.inUse === 0 ? (
                           <Button size="sm" variant="outline" onClick={() => void run({ action: "delete", key: t.key }, `"${t.label}" deleted`)} disabled={busy}>Delete</Button>
                         ) : (
-                          <Button size="sm" variant="outline" onClick={() => void run({ action: "retire", key: t.key }, `"${t.label}" retired: no event offers it now`)} disabled={busy}>Retire</Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              void run(
+                                { action: "retire", key: t.key },
+                                `"${t.label}" retired: no event offers it now. An event that offered only it now offers the built-in types.`,
+                              )
+                            }
+                            disabled={busy}
+                          >
+                            Retire
+                          </Button>
                         )}
                       </>
                     )}
@@ -188,7 +220,7 @@ export function PresentationTypesCard({
           })}
         </ul>
 
-        {canManage && (
+        {canAdd && (
           <div className="space-y-2">
             <Label htmlFor="new-presentation-type">Add a type</Label>
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -201,9 +233,9 @@ export function PresentationTypesCard({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void add();
                 }}
-                disabled={busy || types.length >= MAX_PRESENTATION_TYPES}
+                disabled={busy || !ticksReady || types.length >= MAX_PRESENTATION_TYPES}
               />
-              <Button onClick={() => void add()} disabled={busy || !newName.trim() || types.length >= MAX_PRESENTATION_TYPES}>
+              <Button onClick={() => void add()} disabled={busy || !ticksReady || !newName.trim() || types.length >= MAX_PRESENTATION_TYPES}>
                 Add
               </Button>
             </div>
@@ -220,16 +252,16 @@ export function PresentationTypesCard({
               {showRetired ? "Hide" : "Show"} retired types ({retired.length})
             </Button>
             {showRetired && (
-              <ul className="divide-y rounded-md border bg-muted/30">
+              <ul className="grid gap-3 md:grid-cols-2">
                 {retired.map((t) => (
-                  <li key={t.key} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <li key={t.key} className="flex flex-col justify-between gap-3 rounded-md border bg-muted/30 p-3">
                     <div className="space-y-1">
                       <p className="text-sm text-muted-foreground">{t.label}</p>
                       <p className="text-xs text-muted-foreground">{heldText(t.inUse)}. Offered on no event.</p>
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => void run({ action: "restore", key: t.key }, `"${t.label}" restored`)} disabled={busy}>Restore</Button>
-                      {!t.builtIn && t.inUse === 0 && (
+                      {!t.builtIn && countsKnown && t.inUse === 0 && (
                         <Button size="sm" variant="outline" onClick={() => void run({ action: "delete", key: t.key }, `"${t.label}" deleted`)} disabled={busy}>Delete</Button>
                       )}
                     </div>

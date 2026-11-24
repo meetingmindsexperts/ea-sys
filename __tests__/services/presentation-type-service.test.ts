@@ -9,8 +9,8 @@ const { tx, mockDb, logger, resetCache } = vi.hoisted(() => {
   const tx = {
     $queryRaw: vi.fn(),
     organization: { update: vi.fn() },
-    abstract: { groupBy: vi.fn() },
-    abstractReviewSubmission: { groupBy: vi.fn() },
+    abstract: { count: vi.fn() },
+    abstractReviewSubmission: { count: vi.fn() },
   };
   return {
     tx,
@@ -33,25 +33,20 @@ import { changePresentationType, listPresentationTypesWithUse } from "@/services
 const ORG_SETTINGS = { website: "https://x.example", presentationTypes: [{ key: "SYMPOSIUM", label: "Symposium", retired: false }] };
 const input = (change: Parameters<typeof changePresentationType>[0]["change"]) => ({ organizationId: "org1", actorUserId: "u1", source: "rest" as const, change });
 
-/** Abstract rows by (type, request), and reviews by format. */
+/**
+ * Abstract rows as (type, request) and reviews by format. The fakes answer the
+ * queries the service really sends: per key, an abstract whose type OR request
+ * is the key (review of 6e04916ec: the first fake matched only rows whose two
+ * columns were equal, which hid a count that missed every other abstract).
+ */
 function holding(abstracts: Array<[string | null, string | null]>, reviews: string[] = []) {
-  const count = (pick: (a: [string | null, string | null]) => string | null, keep: (a: [string | null, string | null]) => boolean = () => true) => {
-    const m = new Map<string, number>();
-    abstracts.filter(keep).forEach((a) => {
-      const k = pick(a);
-      if (k) m.set(k, (m.get(k) ?? 0) + 1);
-    });
-    return [...m];
-  };
-  tx.abstract.groupBy.mockImplementation(async ({ by, where }: { by: string[]; where: Record<string, unknown> }) => {
-    const both = "presentationType" in where && "requestedPresentationType" in where;
-    if (both) return count((a) => (a[0] === a[1] ? a[0] : null)).map(([k, n]) => ({ presentationType: k, _count: { _all: n } }));
-    if (by[0] === "presentationType") return count((a) => a[0]).map(([k, n]) => ({ presentationType: k, _count: { _all: n } }));
-    return count((a) => a[1]).map(([k, n]) => ({ requestedPresentationType: k, _count: { _all: n } }));
+  tx.abstract.count.mockImplementation(async ({ where }: { where: { OR: Array<Record<string, string>> } }) => {
+    const key = where.OR[0].presentationType;
+    return abstracts.filter(([type, request]) => type === key || request === key).length;
   });
-  const m = new Map<string, number>();
-  reviews.forEach((r) => m.set(r, (m.get(r) ?? 0) + 1));
-  tx.abstractReviewSubmission.groupBy.mockResolvedValue([...m].map(([k, n]) => ({ recommendedFormat: k, _count: { _all: n } })));
+  tx.abstractReviewSubmission.count.mockImplementation(async ({ where }: { where: { recommendedFormat: string } }) =>
+    reviews.filter((r) => r === where.recommendedFormat).length,
+  );
 }
 
 beforeEach(() => {
@@ -82,10 +77,31 @@ describe("changePresentationType", () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "presentation-types:change-refused", code: "IN_USE" }));
   });
 
+  it("an abstract staff moved to a type, with its author's request on another, holds BOTH (the review's BLOCKER)", async () => {
+    holding([["SYMPOSIUM", "ORAL"], ["ORAL", "ORAL_POSTER"]]);
+    const result = await changePresentationType(input({ action: "delete", key: "SYMPOSIUM" }));
+    expect(result).toMatchObject({ ok: false, code: "IN_USE" });
+    mockDb.organization.findUnique.mockResolvedValue({ settings: ORG_SETTINGS });
+    const list = await listPresentationTypesWithUse("org1");
+    expect(list?.find((t) => t.key === "SYMPOSIUM")?.inUse).toBe(1);
+    expect(list?.find((t) => t.key === "ORAL")?.inUse).toBe(2);
+    expect(list?.find((t) => t.key === "ORAL_POSTER")?.inUse).toBe(1);
+  });
+
   it("counts through the abstract's event, never the row's own organisation stamp", async () => {
     await changePresentationType(input({ action: "delete", key: "SYMPOSIUM" }));
-    for (const call of tx.abstract.groupBy.mock.calls) expect(call[0].where.event).toEqual({ organizationId: "org1" });
-    expect(tx.abstractReviewSubmission.groupBy.mock.calls[0][0].where.abstract).toEqual({ event: { organizationId: "org1" } });
+    for (const call of tx.abstract.count.mock.calls) expect(call[0].where.event).toEqual({ organizationId: "org1" });
+    expect(tx.abstractReviewSubmission.count.mock.calls[0][0].where.abstract).toEqual({ event: { organizationId: "org1" } });
+  });
+
+  it("keeps a deleted type's key, and a new type with the same name never takes it", async () => {
+    await changePresentationType(input({ action: "delete", key: "SYMPOSIUM" }));
+    const afterDelete = tx.organization.update.mock.calls[0][0].data.settings;
+    expect(afterDelete.presentationTypesDeleted).toEqual(["SYMPOSIUM"]);
+    tx.$queryRaw.mockResolvedValueOnce([{ settings: afterDelete }]);
+    const added = await changePresentationType(input({ action: "add", label: "Symposium" }));
+    expect(added).toMatchObject({ ok: true, key: "SYMPOSIUM_2" });
+    expect(tx.organization.update.mock.calls[1][0].data.settings.presentationTypesDeleted).toEqual(["SYMPOSIUM"]);
   });
 
   it("deletes a type nothing holds", async () => {

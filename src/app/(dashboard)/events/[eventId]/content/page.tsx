@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import dynamic from "next/dynamic";
 import { useCan } from "@/hooks/use-can";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,8 +28,10 @@ export default function ContentPage() {
   const eventId = params.eventId as string;
   // Every Save on this page is the event PUT.
   const canSave = useCan("events.settings", eventId) === "allowed";
-  // The organisation's presentation types themselves (add, rename, retire): a key of its own.
-  const canManageTypes = useCan("abstracts.types.manage") === "allowed";
+  // The organisation's presentation types themselves (add, rename, retire): a key of its own,
+  // and an organisation of one's own (the route edits the session's; a platform operator has none).
+  const { data: session } = useSession();
+  const canManageTypes = useCan("abstracts.types.manage") === "allowed" && !!session?.user?.organizationId;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -60,17 +63,26 @@ export default function ContentPage() {
   // A type just added to the organisation's list is offered on this event at
   // once: its ticks are saved straight away, alone (the rest of the page keeps
   // its own Save).
-  const saveTicksNow = async (ticks: string[]) => {
-    const res = await fetch(`/api/events/${eventId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ settings: { abstractPresentationTypes: ticks } }),
-    });
-    if (!res.ok) {
+  // Never without this event's own list (review of 6e04916ec): its ticks would
+  // read as none and the event would end up offering the new type alone.
+  const saveTicksNow = async (ticks: string[]): Promise<boolean> => {
+    const failed = () => {
       toast.error("The new type was added, but it could not be offered on this event. Tick it and save.");
-      return;
+      return false;
+    };
+    if (!typeList) return failed();
+    try {
+      const res = await fetch(`/api/events/${eventId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { abstractPresentationTypes: ticks } }),
+      });
+      if (!res.ok) return failed();
+      queryClient.invalidateQueries({ queryKey: queryKeys.presentationTypes(eventId) });
+      return true;
+    } catch {
+      return failed();
     }
-    queryClient.invalidateQueries({ queryKey: queryKeys.presentationTypes(eventId) });
   };
   // Agreement-PDF letterhead images (July 17, 2026) — the speaker and
   // presenter agreements each have their own pair. Managed by their own

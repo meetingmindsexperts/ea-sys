@@ -13,6 +13,7 @@ import {
   applyPresentationTypeChange,
   newPresentationTypeKey,
   storedPresentationTypes,
+  resolveWrittenPresentationType,
   isPresentationTypeOffered,
   offeredPresentationTypeNames,
   offeredPresentationTypes,
@@ -249,3 +250,24 @@ describe("applyPresentationTypeChange: one change to the list", () => {
     expect(readPresentationTypes({ presentationTypes: storedPresentationTypes(r.types) })).toEqual(r.types);
   });
 });
+
+// Review of 6e04916ec.
+describe("a deleted type's key, and a written type", () => {
+  it("a new type never takes a deleted type's key", () => {
+    expect(newPresentationTypeKey("Symposium", defaultPresentationTypes(), ["SYMPOSIUM"])).toBe("SYMPOSIUM_2");
+    const r = applyPresentationTypeChange(defaultPresentationTypes(), { action: "add", label: "Symposium" }, 0, ["SYMPOSIUM"]);
+    expect(r).toMatchObject({ ok: true, key: "SYMPOSIUM_2" });
+  });
+
+  it("a written cell is read by key or by name, refused when the event does not offer it, empty when blank", () => {
+    const list = readPresentationTypes({ presentationTypes: [{ key: "POSTER", label: "E-poster" }, { key: "SYMPOSIUM", label: "Symposium" }, { key: "VIDEO", label: "Video", retired: true }] });
+    const offered = offeredPresentationTypes({ abstractPresentationTypes: ["POSTER", "SYMPOSIUM", "VIDEO"] }, list);
+    expect(resolveWrittenPresentationType("symposium", offered)).toEqual({ key: "SYMPOSIUM" });
+    expect(resolveWrittenPresentationType(" e-poster ", offered)).toEqual({ key: "POSTER" });
+    expect(resolveWrittenPresentationType("POSTER", offered)).toEqual({ key: "POSTER" });
+    expect(resolveWrittenPresentationType("VIDEO", offered)).toEqual({ refused: "VIDEO" });
+    expect(resolveWrittenPresentationType("Oral", offered)).toEqual({ refused: "Oral" });
+    expect(resolveWrittenPresentationType("  ", offered)).toEqual({ key: null });
+  });
+});
+
