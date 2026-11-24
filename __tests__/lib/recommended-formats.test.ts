@@ -35,4 +35,9 @@ describe("recommendableFormats", () => {
     expect(recommendedFormatLabel(renamed, "NEITHER")).toBe("Neither");
     expect(recommendedFormatLabel(renamed, null)).toBe("");
   });
+
+  it("offers only what can be stored until step 4: an organisation's own type is not offered to a reviewer yet", () => {
+    const own = readPresentationTypes({ presentationTypes: [{ key: "SYMPOSIUM", label: "Symposium" }] });
+    expect(recommendableFormats({ abstractPresentationTypes: ["SYMPOSIUM", "ORAL"] }, own)).toEqual(["ORAL", "NEITHER"]);
+  });
 });

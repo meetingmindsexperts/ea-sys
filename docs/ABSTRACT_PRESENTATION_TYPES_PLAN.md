@@ -116,9 +116,12 @@ assistant) back to a key. Today the labels live in at least four places
 (`abstract-enums.ts`, `submission-share.ts`, `recommended-formats.ts`, the help chat) and three routes each
 carry their own list of five. All of them go through the module.
 
-- The server loads the list by the event's organisation, inside the caller's tenant lane.
-- A page is sent the list by its API and never keeps one of its own. An author's screens get it from
-  `GET abstracts/my-profile`; the public shared view's route puts the label in each row.
+- The server loads the list by the event's organisation, inside the caller's tenant lane. A reader is
+  served from a 30-second cache (a bulk decision emails up to 500 authors); a writer always reads, and
+  throws when it cannot. The step 3 editor resets the cache on save (`resetPresentationTypeCache`).
+- A page is sent the list by `GET /api/events/{id}/presentation-types` (built in step 1 in place of
+  `abstracts/my-profile`, so staff, authors and reviewers read one route) and never keeps one of its own;
+  the public shared view's route puts the label in each row.
 - A door that takes a type (author create and edit, staff edit, bulk set type, set status with a type, CSV
   import, the assistant's tools) asks the module. An abstract may always keep the type it has.
 
@@ -150,6 +153,9 @@ editing the event, as today.
 | Assistant and help | `help-chat/event-facts.ts`, `help-chat/system-prompt.ts` |
 | Seeds | `prisma/seed-e2e-docs.ts`, `prisma/seed-e2e-golden.ts` |
 
+**Left on keys on purpose:** the CSV export and the review-scores report (the CSV goes back in through the
+import, which reads keys), and the assistant's `list_abstracts`.
+
 **Not readers, same words:** `speaker-presentations.ts`, `speaker-presentation-service.ts` and
 `presentation-uploads.tsx` are about the file types of a speaker's uploaded slides.
 
@@ -160,7 +166,7 @@ anything outside the app that reads an abstract's type (the n8n workflows, saved
 ## 6. Steps
 
 Each step is one change with its own tests, local browser check and one adversarial review. Step 2
-changes nothing a user can see; step 1 changed only the wording of the names (section 6).
+changes nothing a user can see; step 1 changed only the wording of the names (see step 1 below).
 
 1. **The list and one label source.** BUILT Nov 24, 2026. The organisation's list (reader, defaults,
    repair), the rule module, and every reader in section 5 taking its label and its offered list from it.
@@ -174,7 +180,8 @@ changes nothing a user can see; step 1 changed only the wording of the names (se
 3. **The editor.** The route and its permission key, and the card on the Content page: add, rename, retire,
    restore, delete, tick. From here an organiser's own type can be chosen by an author and set by staff.
 4. **The reviewer's recommendation** takes the organiser's own types.
-5. **The edges.** CSV import and the assistant read a written name; the assistant's tool descriptions and
+5. **The edges.** CSV import and the assistant read a written name, and the import respects what the event
+   offers (it accepts any type today, found by the review of step 1); the assistant's tool descriptions and
    the help chat describe the list as the event's, not five fixed values; the user guide, `docs/ROLLBACK.md`
    and `CLAUDE.md`; a browser spec that adds a type, submits with it, reviews it and decides it.
 
@@ -196,8 +203,12 @@ day each.
   what later emails and exports call it.
 - **The assistant's tool list is cached by connected clients.** A deploy that changes a tool's description
   needs the usual reconnect note.
-- **Three routes carry their own list of five today.** Any one left behind refuses an organiser's own type
-  with a validation error. The step 1 test is what catches it.
+- **Three routes carried their own list of five.** Step 1 moved them; one left behind would refuse an
+  organiser's own type with a validation error. `presentation-type-names.test.ts` catches a list written
+  as an array, a union, a record of names, the enum read directly or JSX text; it cannot see a name built
+  at run time.
+- **The step 3 editor must keep one type live**: with every type retired an event has nothing to offer and
+  nobody can submit. `offeredPresentationTypes` falls back to any live type; with none, it is empty.
 
 ## 8. Questions answered (owner, November 24, 2026)
 

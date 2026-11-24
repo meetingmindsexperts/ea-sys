@@ -17,6 +17,16 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/db", async () => (await import("./harness")).dbModule);
 vi.mock("@/lib/logger", async () => (await import("./harness")).loggerModule);
+// A door's strict read of the organisation's presentation types: the built-ins (the harness has no organisations).
+vi.mock("@/lib/abstract-presentation-types-server", async () => {
+  const { defaultPresentationTypes } = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
+  return {
+    loadPresentationTypes: async () => defaultPresentationTypes(),
+    loadPresentationTypesStrict: async () => defaultPresentationTypes(),
+    loadPresentationTypesForEvent: async () => defaultPresentationTypes(),
+    resetPresentationTypeCache: () => {},
+  };
+});
 vi.mock("@/lib/auth", async () => ({ auth: (await import("./harness")).mockAuth }));
 vi.mock("@/lib/api-key", async () => ({
   validateApiKey: (await import("./harness")).mockValidateApiKey,

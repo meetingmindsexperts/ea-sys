@@ -31,14 +31,20 @@ export const NEITHER_FORMAT_LABEL = "Neither";
 export const RECOMMENDED_FORMAT_VALUES = [...RECOMMENDABLE_BUILT_IN_KEYS, NEITHER_FORMAT] as const;
 export type RecommendedFormatValue = (typeof RECOMMENDED_FORMAT_VALUES)[number];
 
-/** The formats a reviewer may pick on this event, in the list's order, Neither last. */
+/**
+ * The formats a reviewer may pick on this event, in the list's order, Neither
+ * last. Until step 4 of the plan only what the enum column can store is
+ * offered: an organisation's own type, once it can be ticked (step 3), would
+ * otherwise be offered and then refused by every door (review of 89d803698).
+ */
 export function recommendableFormats(eventSettings: unknown, types: readonly PresentationTypeDef[]): string[] {
   const offered = new Set<string>();
   for (const type of offeredPresentationTypes(eventSettings, types)) {
     if (type.key === EITHER_WAY_TYPE_KEY) EITHER_WAY_STANDS_FOR.forEach((k) => offered.add(k));
     else offered.add(type.key);
   }
-  const inOrder = types.map((t) => t.key).filter((k) => offered.has(k));
+  const storable = new Set<string>(RECOMMENDED_FORMAT_VALUES);
+  const inOrder = types.map((t) => t.key).filter((k) => offered.has(k) && storable.has(k));
   return [...inOrder, NEITHER_FORMAT];
 }
 

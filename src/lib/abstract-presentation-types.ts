@@ -142,13 +142,16 @@ export function readPresentationTypes(orgSettings: unknown): PresentationTypeDef
 }
 
 /**
- * The name to show for a stored key. A key the list does not know (a type that
- * was deleted, a value written by hand) shows as itself: a screen never hides
- * what an abstract holds.
+ * The name to show for a stored key. A built-in the list does not hold (a page
+ * whose list is still loading) shows by its usual name; any other unknown key
+ * (a deleted type, a value written by hand) shows as itself: a screen never
+ * hides what an abstract holds, and never flashes a raw key while it loads.
  */
 export function presentationTypeLabel(types: readonly PresentationTypeDef[], key: string | null | undefined): string {
   if (!key) return "";
-  return types.find((t) => t.key === key)?.label ?? key;
+  const known = types.find((t) => t.key === key)?.label;
+  if (known) return known;
+  return isBuiltInPresentationType(key) ? BUILT_IN_LABELS[key] : key;
 }
 
 /** Every type's name by its key, retired ones included: for a screen that only shows what is stored. */
@@ -168,7 +171,8 @@ function tickedKeys(eventSettings: unknown): string[] | null {
  *  2. with nothing ticked (or nothing ticked that still exists): the built-in
  *     five that are not retired. A type the organisation added is never
  *     offered by default;
- *  3. never empty while one built-in is live, because the type is required to submit.
+ *  3. never empty while any type is live, because the type is required to submit:
+ *     with every built-in retired, the live types the organisation added.
  */
 export function offeredPresentationTypes(eventSettings: unknown, types: readonly PresentationTypeDef[]): PresentationTypeDef[] {
   const live = types.filter((t) => !t.retired);
@@ -178,7 +182,8 @@ export function offeredPresentationTypes(eventSettings: unknown, types: readonly
     const offered = live.filter((t) => chosen.has(t.key));
     if (offered.length > 0) return offered;
   }
-  return live.filter((t) => t.builtIn);
+  const liveBuiltIns = live.filter((t) => t.builtIn);
+  return liveBuiltIns.length > 0 ? liveBuiltIns : live;
 }
 
 /** May `key` be newly chosen on this event? (An abstract may always keep the type it has.) */
@@ -208,6 +213,9 @@ export function presentationTypeChoices(
   types: readonly PresentationTypeDef[],
   current?: string | null,
 ): PresentationTypeChoice[] {
+  // A list still loading (or that failed) offers nothing, rather than marking
+  // the abstract's own type "no longer offered".
+  if (types.length === 0) return [];
   const choices = offered.map((t) => ({ value: t.key, label: t.label }));
   if (current && !offered.some((t) => t.key === current)) {
     choices.push({ value: current, label: `${presentationTypeLabel(types, current)} (no longer offered)` });

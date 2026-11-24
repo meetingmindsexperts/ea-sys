@@ -44,12 +44,35 @@ cannot edit the list yet**, and every event offers exactly what it offered befor
 - **One name each, the short one.** The names had drifted across four files. Forms and the Content page said
   "Oral Presentation", "Oral or Poster Presentation" and so on; they now say "Oral", "Oral or Poster", as the
   badges, emails and exports already did. The reviewer's page said "oral poster" and the shared page "Oral or
-  poster"; both now say "Oral or Poster". These are the only visible changes.
+  poster"; both now say "Oral or Poster". The reviewer's formats read "Oral" and "Video" where they read "Oral
+  presentation" and "Video presentation", the help chat names types the same way, and a refused type now names
+  what is offered as "Oral (ORAL)" rather than "ORAL". Those are the visible changes.
+- **Left on keys on purpose:** the CSV export and the review-scores report write `ORAL_POSTER`, `NEITHER`
+  (the CSV goes back in through the import, which reads keys), and so does the assistant's `list_abstracts`.
 - The Accepted card and the type filter keep Oral and Poster before Oral or Poster (`inDecisionOrder`).
 - A new test (`presentation-type-names.test.ts`) refuses a type's name written as a string, or a list of
   the type keys, anywhere but the rule module. The three routes that carried their own list of five now
   take it from the module.
 - The stored columns are still the five-value enum: that is step 2.
+
+Review of 89d803698 (0 BLOCKER, 0 HIGH, 2 MED, 9 LOW), fixed in its own commit:
+
+- **MED**: no test read the server loader itself; the suite passed through its fallback. It now has its own
+  tests (a stored list, the built-ins, a missing organisation, a failed read, strict throwing), and the bulk
+  service is tested with the list unreadable: it answers `UNKNOWN`, logged, and writes nothing.
+- **MED**: the name guard missed the enum read directly (how the import route kept its own list), a union of
+  the keys, a record of names keyed by type, and a name in JSX text. It now catches all four.
+- LOW, fixed: a page's list still loading showed raw keys and marked an abstract's own type "no longer
+  offered" (built-ins now show their usual name; a form offers nothing until the list is there, and says so
+  if it failed); the Content page could leave a tick change out of a save after a failed background refresh,
+  and turned "nothing ticked" into an explicit list on every save (it now sends the ticks only when the
+  organiser changed one); the strict loader treated a missing organisation as the built-ins (it now throws);
+  a reviewer would have been offered an organisation's own type that no door can store yet (held back until
+  step 4); an event with every built-in retired would have offered nothing (it offers the live types); a bulk
+  decision read the list once per email (readers now share a 30-second cache); the browser could serve the
+  list from its cache for 30 seconds after a change (`no-store`); the statements above.
+- Older, not fixed here: the CSV import accepts any of the five types whatever the event offers. Recorded
+  as part of step 5.
 
 Checked on a local copy of production, MEHF2027 (169 listed abstracts): the type filter reads Oral 24,
 Poster 54, Oral or Poster 91, the same as the database; the edit form offers the event's three types; the

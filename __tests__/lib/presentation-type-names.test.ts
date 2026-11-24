@@ -11,6 +11,8 @@
  * file may spell a type's name as a string or list the type keys.
  *
  * Comments are not code: the check reads each file with its comments removed.
+ * What it cannot see: a name built at run time (`${key} Presentation`) or read
+ * from somewhere else; the module's own functions are the only sanctioned way.
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
@@ -38,6 +40,15 @@ function code(file: string): string {
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 }
 
+/**
+ * Files about a DIFFERENT list that shares words with this one: a session's
+ * own type (`SessionType`: Workshop, Symposium...) is not an abstract's
+ * presentation type. Each entry carries its reason.
+ */
+const OTHER_LISTS: Record<string, string> = {
+  "src/lib/session-enums.ts": "the agenda's session types (SessionType), whose WORKSHOP is a kind of session",
+};
+
 const FILES = [...sourceFiles("src"), ...sourceFiles("worker")].filter((f) => f !== RULE);
 
 /** A type's name written as a string: what a screen, email or export would show after a rename. */
@@ -46,6 +57,17 @@ const NAME_LITERAL = /["'`](Oral or [Pp]oster(?: [Pp]resentation)?|(?:Oral|Poste
 const EITHER_WAY_KEY = /["'`]ORAL_POSTER["'`]/;
 /** A list of the type keys (two or more of them in one array). */
 const KEY_LIST = /\[[^\]]*["'`](?:ORAL|POSTER|VIDEO|WORKSHOP)["'`][^\]]*["'`](?:ORAL|POSTER|VIDEO|WORKSHOP)["'`][^\]]*\]/;
+/**
+ * The other shapes a second list takes (review of 89d803698): the enum read
+ * directly (how the import route kept its own list), a union of the keys, a
+ * name keyed by type (`{ ORAL: "Oral" }`), and a name written as JSX text.
+ */
+const OTHER_SHAPES: Array<[string, RegExp]> = [
+  ["the Prisma enum read directly", /(?:nativeEnum|Object\.(?:values|keys|entries))\(\s*PresentationType\s*\)/],
+  ["a union of the keys", /["'`](?:ORAL|POSTER|VIDEO|WORKSHOP|ORAL_POSTER)["'`]\s*\|(?!\|)/],
+  ["a name keyed by type", /\b(?:ORAL|POSTER|VIDEO|WORKSHOP|ORAL_POSTER)\s*:\s*["'`]/],
+  ["a name written as JSX text", />\s*(?:Oral|Poster|Video|Workshop)(?: [Pp]resentation| or [Pp]oster)\s*</],
+];
 
 describe("presentation types: one list, one name each", () => {
   it("the rule module exists and holds the list", () => {
@@ -58,6 +80,22 @@ describe("presentation types: one list, one name each", () => {
   it("no other source file writes a type's name as a string", () => {
     const hits = FILES.filter((f) => NAME_LITERAL.test(code(f)));
     expect(hits).toEqual([]);
+  });
+
+  it("no other source file keeps the list in another shape: the enum, a union, a record of names, JSX text", () => {
+    const hits = FILES.filter((f) => !(f in OTHER_LISTS)).flatMap((f) => {
+      const text = code(f);
+      return OTHER_SHAPES.filter(([, re]) => re.test(text)).map(([what]) => `${f}: ${what}`);
+    });
+    expect(hits).toEqual([]);
+  });
+
+  it("every file excused as another list still exists and still needs it", () => {
+    for (const [file, reason] of Object.entries(OTHER_LISTS)) {
+      expect(reason.length, file).toBeGreaterThan(20);
+      expect(fs.existsSync(path.join(ROOT, file)), file).toBe(true);
+      expect(OTHER_SHAPES.some(([, re]) => re.test(code(file))), `${file} no longer needs its entry`).toBe(true);
+    }
   });
 
   it("no other source file spells the either-way key or lists the type keys", () => {
@@ -74,5 +112,13 @@ describe("presentation types: one list, one name each", () => {
     expect(EITHER_WAY_KEY.test('{ value: "ORAL_POSTER" }')).toBe(true);
     expect(KEY_LIST.test('z.enum(["ORAL", "POSTER", "VIDEO"])')).toBe(true);
     expect(KEY_LIST.test('presentationType: "POSTER"')).toBe(false);
+    const shape = (text: string) => OTHER_SHAPES.filter(([, re]) => re.test(text)).map(([what]) => what);
+    expect(shape("z.nativeEnum(PresentationType)")).toEqual(["the Prisma enum read directly"]);
+    expect(shape("Object.values(PresentationType)")).toEqual(["the Prisma enum read directly"]);
+    expect(shape('type T = "ORAL" | "POSTER";')).toEqual(["a union of the keys"]);
+    expect(shape('if (a === "ORAL" || b) {}')).toEqual([]);
+    expect(shape('const L = { ORAL: "Oral", POSTER: "Poster" };')).toEqual(["a name keyed by type"]);
+    expect(shape("<SelectItem>Oral Presentation</SelectItem>")).toEqual(["a name written as JSX text"]);
+    expect(shape("presentationType: POSTER_TYPE_KEY")).toEqual([]);
   });
 });

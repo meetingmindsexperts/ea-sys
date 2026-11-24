@@ -52,7 +52,7 @@ export default function ContentPage() {
   // Event.settings.abstractPresentationTypes. Null until the organiser ticks
   // something: until then the ticks are what the event offers now.
   const queryClient = useQueryClient();
-  const { data: typeList, isSuccess: typesLoaded } = usePresentationTypes(eventId);
+  const { data: typeList, isError: typesFailed } = usePresentationTypes(eventId);
   const [tickedTypes, setTickedTypes] = useState<string[] | null>(null);
   const presentationTypes = tickedTypes ?? (typeList ?? []).filter((t) => t.offered).map((t) => t.key);
   const setPresentationTypes = (next: (prev: string[]) => string[]) => setTickedTypes(next(presentationTypes));
@@ -131,8 +131,11 @@ export default function ContentPage() {
           abstractConfirmationHtml: content.abstractConfirmationHtml || null,
           speakerAgreementHtml: content.speakerAgreementHtml || null,
           // Partial settings merge — the PUT preserves other settings keys. Sent
-          // only once the list has loaded: an empty list would undo the ticks.
-          ...(typesLoaded ? { settings: { abstractPresentationTypes: presentationTypes } } : {}),
+          // only when the organiser changed a tick on a list that is on screen
+          // (review of 89d803698): a save of other content never rewrites the
+          // ticks, so a background refetch that failed cannot drop them, and
+          // "nothing ticked" stays nothing ticked rather than becoming a list.
+          ...(tickedTypes !== null && typeList ? { settings: { abstractPresentationTypes: presentationTypes } } : {}),
         }),
       });
       if (res.ok) {
@@ -251,6 +254,11 @@ export default function ContentPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {typesFailed && !typeList && (
+                  <p className="mb-3 text-sm text-destructive">
+                    The presentation types could not be loaded. Reload the page to change them.
+                  </p>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {shownTypes.map((o) => {
                     const checked = presentationTypes.includes(o.key);

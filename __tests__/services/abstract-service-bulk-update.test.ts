@@ -28,11 +28,13 @@ vi.mock("@/lib/db", () => ({
   tenantTransaction: (cb: (tx: unknown) => unknown) => (mockDb.$transaction as (cb: (tx: unknown) => unknown) => unknown)(cb),
 }));
 // The organisation's presentation types: the five built-ins, as for an organisation that never edited them.
+const { strictLoader } = vi.hoisted(() => ({ strictLoader: vi.fn() }));
 vi.mock("@/lib/abstract-presentation-types-server", async () => {
   const { defaultPresentationTypes } = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
+  strictLoader.mockImplementation(async () => defaultPresentationTypes());
   return {
     loadPresentationTypes: async () => defaultPresentationTypes(),
-    loadPresentationTypesStrict: async () => defaultPresentationTypes(),
+    loadPresentationTypesStrict: strictLoader,
     loadPresentationTypesForEvent: async () => defaultPresentationTypes(),
   };
 });
@@ -232,5 +234,19 @@ describe("bulkUpdateAbstracts: limits", () => {
     mockDb.abstract.findMany.mockRejectedValueOnce(new Error("db down"));
     expect(await bulkUpdateAbstracts(input({ status: "ACCEPTED" }))).toMatchObject({ ok: false, code: "UNKNOWN" });
     expect(logger.error).toHaveBeenCalled();
+  });
+});
+
+// Review of 89d803698: the strict list read is the one a door decides by, so
+// its failure must be a logged refusal that changes nothing, never a guess.
+describe("bulkUpdateAbstracts: the organisation's list cannot be read", () => {
+  it("answers UNKNOWN, logs it, and writes nothing", async () => {
+    mockDb.event.findFirst.mockResolvedValue(EVENT);
+    strictLoader.mockRejectedValueOnce(new Error("database is down"));
+    const result = await bulkUpdateAbstracts(input({ presentationType: "POSTER" }));
+    expect(result).toMatchObject({ ok: false, code: "UNKNOWN" });
+    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "abstract-bulk-update:failed");
+    expect(mockDb.abstract.updateMany).not.toHaveBeenCalled();
+    expect(txUpdateMany).not.toHaveBeenCalled();
   });
 });

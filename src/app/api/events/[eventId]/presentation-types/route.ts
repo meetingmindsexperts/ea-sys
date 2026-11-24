@@ -46,7 +46,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const types = await runWithTenant(event.organizationId, () => loadPresentationTypes(event.organizationId));
     const response = NextResponse.json({ types: eventPresentationTypes(event.settings, types) });
-    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    // no-store: a form opened right after the ticks change must not be served
+    // the old list from the browser's cache, then refused by the door (review of 89d803698).
+    response.headers.set("Cache-Control", "private, no-store");
     return response;
   } catch (err) {
     apiLogger.error({ err, msg: "presentation-types:GET failed" });

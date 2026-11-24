@@ -154,3 +154,25 @@ describe("inDecisionOrder: where decisions are counted", () => {
     expect(keys(inDecisionOrder(list))).toEqual(["ORAL", "POSTER", "ORAL_POSTER", "VIDEO", "WORKSHOP", "SYMPOSIUM"]);
   });
 });
+
+// Review of 89d803698.
+describe("edges the review found", () => {
+  it("a built-in shows by its usual name while a page's list is still loading", () => {
+    expect(presentationTypeLabel([], "ORAL_POSTER")).toBe("Oral or Poster");
+    expect(presentationTypeLabel([], "SYMPOSIUM")).toBe("SYMPOSIUM");
+  });
+
+  it("a form offers nothing while its list loads, rather than marking the abstract's type no longer offered", () => {
+    expect(presentationTypeChoices([], [], "ORAL")).toEqual([]);
+  });
+
+  it("an event is never left with nothing to offer while any type is live", () => {
+    const allBuiltInsRetired = readPresentationTypes({
+      presentationTypes: [
+        ...BUILT_IN_PRESENTATION_TYPE_KEYS.map((key) => ({ key, label: key, retired: true })),
+        { key: "SYMPOSIUM", label: "Symposium" },
+      ],
+    });
+    expect(keys(offeredPresentationTypes({}, allBuiltInsRetired))).toEqual(["SYMPOSIUM"]);
+  });
+});

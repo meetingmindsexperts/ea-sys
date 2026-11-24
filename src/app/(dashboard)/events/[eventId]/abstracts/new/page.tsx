@@ -79,7 +79,7 @@ export default function NewAbstractPage() {
   // required (it is, when the event has any).
   const { data: themes = [] } = useAbstractThemes(eventId) as { data: Array<{ id: string }> };
   const { data: event } = useEvent(eventId);
-  const { data: presentationTypes = [] } = usePresentationTypes(eventId);
+  const { data: presentationTypes = [], isError: presentationTypesFailed } = usePresentationTypes(eventId);
   // Null while the event takes abstracts from this author; otherwise why not.
   const intakeClosed = isSubmitter && event ? abstractIntakeClosed(event) : null;
   // Whether the event was ALREADY closed when the author arrived, decided once
@@ -403,6 +403,9 @@ export default function NewAbstractPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {presentationTypesFailed && (
+                  <p className="text-xs text-destructive">The presentation types could not be loaded. Reload the page to choose one.</p>
+                )}
               </div>
 
               {/* Track */}
