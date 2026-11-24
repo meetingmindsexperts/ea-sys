@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { lockDocumentScroll, resolveFullscreenApi } from "@/lib/fullscreen";
+import {
+  lockDocumentScroll,
+  lockLandscape,
+  resolveFullscreenApi,
+  resolveVideoFullscreen,
+  unlockOrientation,
+} from "@/lib/fullscreen";
 
 export interface UseFullscreen {
   /** Native fullscreen OR the in-page fallback is active. */
@@ -12,6 +18,11 @@ export interface UseFullscreen {
    * the element to the viewport itself, typically `fixed inset-0 z-50`.
    */
   isFallback: boolean;
+  /**
+   * The video is in Apple's own full screen player (iPhone; only with the
+   * `video` option). The page's own controls are not on screen meanwhile.
+   */
+  isVideoFullscreen: boolean;
   toggle: () => Promise<void>;
   exit: () => Promise<void>;
 }
@@ -29,10 +40,25 @@ export interface UseFullscreen {
  * Unmounting while fullscreen leaves fullscreen: Zoom's own Leave button
  * unmounts the embed, and the attendee must not be left staring at a black
  * screen with no way back.
+ *
+ * Two options for a player of a 16:9 video (the HLS player; Nov 24, 2026,
+ * owner: "mobile full screen can be improved"), left off for the Zoom embed,
+ * whose panel is not a video:
+ * - `video`: where the element cannot go fullscreen (iPhone), hand the video
+ *   to Apple's own full screen player before falling back to the in-page box.
+ * - `landscape`: once fullscreen, turn a phone sideways (Android), so the
+ *   picture fills the screen instead of a third of it.
  */
-export function useFullscreen(ref: RefObject<HTMLElement | null>): UseFullscreen {
+export function useFullscreen(
+  ref: RefObject<HTMLElement | null>,
+  options: { video?: RefObject<HTMLVideoElement | null>; landscape?: boolean } = {},
+): UseFullscreen {
+  const { video: videoRef, landscape = false } = options;
   const [isNative, setIsNative] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
+  const [isVideoFullscreen, setIsVideoFullscreen] = useState(false);
+  // We turned the phone sideways and owe it an unlock on the way out.
+  const lockedRef = useRef(false);
   // The element we put into native fullscreen. Kept separately because React
   // clears `ref.current` before the unmount cleanup runs.
   const enteredRef = useRef<HTMLElement | null>(null);
@@ -43,7 +69,12 @@ export function useFullscreen(ref: RefObject<HTMLElement | null>): UseFullscreen
       const api = el ? resolveFullscreenApi(el) : null;
       const active = Boolean(el && api && api.current() === el);
       setIsNative(active);
-      if (!active) enteredRef.current = null;
+      if (active) return;
+      enteredRef.current = null;
+      if (lockedRef.current) {
+        lockedRef.current = false;
+        unlockOrientation(window);
+      }
     };
     document.addEventListener("fullscreenchange", onChange);
     document.addEventListener("webkitfullscreenchange", onChange);
@@ -52,6 +83,26 @@ export function useFullscreen(ref: RefObject<HTMLElement | null>): UseFullscreen
       document.removeEventListener("webkitfullscreenchange", onChange);
     };
   }, [ref]);
+
+  // Apple's player says when it opens and closes; Done, a swipe down or the
+  // phone's own controls all close it without asking us.
+  useEffect(() => {
+    const video = videoRef?.current;
+    if (!video) return;
+    const onBegin = () => setIsVideoFullscreen(true);
+    const onEnd = () => {
+      setIsVideoFullscreen(false);
+      // Some iPhones pause the video on Done. A live broadcast has nothing to
+      // pause for (the player has no Pause button), so it carries on inline.
+      if (video.paused) video.play().catch((err) => console.warn("fullscreen:resume-after-video-fullscreen-failed", err));
+    };
+    video.addEventListener("webkitbeginfullscreen", onBegin);
+    video.addEventListener("webkitendfullscreen", onEnd);
+    return () => {
+      video.removeEventListener("webkitbeginfullscreen", onBegin);
+      video.removeEventListener("webkitendfullscreen", onEnd);
+    };
+  }, [videoRef]);
 
   useEffect(() => {
     if (!isFallback) return;
@@ -82,6 +133,12 @@ export function useFullscreen(ref: RefObject<HTMLElement | null>): UseFullscreen
 
   const exit = useCallback(async () => {
     setIsFallback(false);
+    const videoApi = resolveVideoFullscreen(videoRef?.current ?? null);
+    if (videoApi?.active()) videoApi.exit();
+    if (lockedRef.current) {
+      lockedRef.current = false;
+      unlockOrientation(window);
+    }
     const el = enteredRef.current ?? ref.current;
     const api = el ? resolveFullscreenApi(el) : null;
     enteredRef.current = null;
@@ -91,10 +148,10 @@ export function useFullscreen(ref: RefObject<HTMLElement | null>): UseFullscreen
     } catch (err) {
       console.warn("fullscreen:exit-failed", err);
     }
-  }, [ref]);
+  }, [ref, videoRef]);
 
   const toggle = useCallback(async () => {
-    if (isNative || isFallback) {
+    if (isNative || isFallback || isVideoFullscreen) {
       await exit();
       return;
     }
@@ -105,6 +162,7 @@ export function useFullscreen(ref: RefObject<HTMLElement | null>): UseFullscreen
       try {
         await api.request();
         enteredRef.current = el;
+        if (landscape) lockedRef.current = await lockLandscape(window);
         return;
       } catch (err) {
         // Refused (policy, user gesture lost, unsupported after all): the
@@ -112,8 +170,17 @@ export function useFullscreen(ref: RefObject<HTMLElement | null>): UseFullscreen
         console.warn("fullscreen:native-refused", err);
       }
     }
+    const videoApi = resolveVideoFullscreen(videoRef?.current ?? null);
+    if (videoApi) {
+      try {
+        videoApi.enter();
+        return;
+      } catch (err) {
+        console.warn("fullscreen:video-fullscreen-refused", err);
+      }
+    }
     setIsFallback(true);
-  }, [exit, isFallback, isNative, ref]);
+  }, [exit, isFallback, isNative, isVideoFullscreen, landscape, ref, videoRef]);
 
-  return { isFullscreen: isNative || isFallback, isFallback, toggle, exit };
+  return { isFullscreen: isNative || isFallback || isVideoFullscreen, isFallback, isVideoFullscreen, toggle, exit };
 }

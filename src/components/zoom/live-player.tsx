@@ -15,6 +15,14 @@ import {
 import { cn } from "@/lib/utils";
 import { useFullscreen } from "@/hooks/use-fullscreen";
 
+/** The floating bar's padding in full screen: clear of a notch and rounded corners where the browser reports them. */
+const FULLSCREEN_BAR_INSETS = {
+  height: "calc(2.75rem + env(safe-area-inset-top, 0px))",
+  paddingTop: "env(safe-area-inset-top, 0px)",
+  paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
+  paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
+} as const;
+
 /** Normal playback sits ~12 s behind the newest chunk (3 x 4 s segments, mediamtx.yml
  *  hlsSegmentDuration; 2 s until Nov 5, 2026). Further behind than this means a pause or a long buffer. */
 const BEHIND_LIVE_THRESHOLD_S = 24;
@@ -28,6 +36,8 @@ const LIVE_EDGE_OFFSET_S = 8;
  * seconds of jitter per viewer so a crowd does not reconnect in lockstep.
  */
 const STALL_RECONNECT_MS = 15_000;
+/** In full screen the bar floats over the picture and fades after this long without a touch, a click or a move. */
+const FULLSCREEN_BAR_HIDE_MS = 3_000;
 const STALL_JITTER_MS = 5_000;
 /** Each stall reconnect in a row doubles the wait, up to 2 minutes, so a
  *  stream that keeps freezing is not reloaded by every viewer every few
@@ -161,8 +171,35 @@ export function LivePlayer({
   const [inPip, setInPip] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   // Shared with the Zoom embed: browser fullscreen with Esc tracked, and the
-  // in-page fallback where the browser has no element fullscreen (iPhone).
-  const { isFullscreen, isFallback, toggle: toggleFullscreen } = useFullscreen(containerRef);
+  // in-page fallback. On a phone (Nov 24, 2026): an iPhone gets Apple's own
+  // full screen video player, and Android turns sideways for the 16:9 picture.
+  const { isFullscreen, isFallback, isVideoFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef, {
+    video: videoRef,
+    landscape: true,
+  });
+  // Our own box fills the screen (browser fullscreen or the in-page one). Not
+  // while Apple's player has the video: the page behind keeps its layout, so
+  // the viewer comes back to the page as they left it.
+  const fillsScreen = isFullscreen && !isVideoFullscreen;
+  // In full screen the bar floats over the picture and fades, so the picture
+  // gets the whole height (a phone held sideways lost 13% of it to the bar).
+  // A touch, a click, a mouse move or a key brings it back. It stays while
+  // there is something to act on: no picture yet, or behind the live moment.
+  const [barShown, setBarShown] = useState(true);
+  const barTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The tap in progress found the bar faded: it shows the bar and presses nothing.
+  const tapShowedBarRef = useRef(false);
+  const revealBar = useCallback(() => {
+    setBarShown(true);
+    if (barTimerRef.current) clearTimeout(barTimerRef.current);
+    barTimerRef.current = setTimeout(() => setBarShown(false), FULLSCREEN_BAR_HIDE_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (barTimerRef.current) clearTimeout(barTimerRef.current);
+    },
+    [],
+  );
 
   // Latest-value ref for the status callback so the init effect below does NOT
   // list it as a dependency. A caller passing a non-memoized onStreamStatusChange
@@ -446,6 +483,20 @@ export function LivePlayer({
     return () => clearInterval(id);
   }, [wantsTiming, status]);
 
+  // Sound changed outside our buttons: in Apple's full screen player, or the
+  // phone's own controls. The page follows, so a viewer who turned the sound
+  // on there is not asked again to "Tap to turn on sound" on the way back.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onVolumeChange = () => {
+      setIsMuted(video.muted);
+      if (!video.muted) setSoundChosen(true);
+    };
+    video.addEventListener("volumechange", onVolumeChange);
+    return () => video.removeEventListener("volumechange", onVolumeChange);
+  }, []);
+
   const toggleMute = () => {
     if (videoRef.current) {
       videoRef.current.muted = !videoRef.current.muted;
@@ -601,23 +652,61 @@ export function LivePlayer({
     setRetryNonce((n) => n + 1);
   };
 
+  const barVisible = !fillsScreen || barShown || status !== "playing" || isBehind || isPaused;
+  const onFullscreenClick = () => {
+    revealBar();
+    void toggleFullscreen();
+  };
+  // A tap while the bar is faded only shows it. The bar takes taps again as
+  // soon as it is shown, which is before the finger lifts, so without this the
+  // same tap pressed a button the viewer could not see and left full screen.
+  // A mouse shows the bar by moving, so its click is never one of these.
+  const onStagePointerDown = () => {
+    tapShowedBarRef.current = !barVisible;
+    revealBar();
+  };
+  const onStageClick = (e: React.MouseEvent) => {
+    if (!tapShowedBarRef.current) return;
+    tapShowedBarRef.current = false;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   return (
     <div
       ref={containerRef}
       className={cn(
         "relative flex w-full flex-col overflow-hidden bg-black",
-        !isFullscreen && "rounded-lg",
+        !fillsScreen && "rounded-lg",
         isFallback && "fixed inset-0 z-50",
+        !barVisible && "cursor-none",
       )}
       // Same as the Zoom embed: a pinned box keeps the parent's `space-y-*`
       // sibling margin, which would leave a strip of page showing below it.
       style={isFallback ? { margin: 0 } : undefined}
+      onPointerDownCapture={fillsScreen ? onStagePointerDown : undefined}
+      onClickCapture={fillsScreen ? onStageClick : undefined}
+      onPointerMove={fillsScreen ? revealBar : undefined}
+      onFocusCapture={fillsScreen ? revealBar : undefined}
     >
       {/* Always-visible bar, matching the Zoom embed's (owner, Oct 2, 2026).
           The controls used to appear only on mouse hover, so on a phone the
           viewer could neither unmute (the stream starts muted) nor go full
           screen. Inside the fullscreen box, so the way out is always there. */}
-      <div className="flex h-11 shrink-0 items-center justify-between gap-3 bg-zinc-900 px-3 text-white">
+      {/* In full screen it floats over the picture, on a shade that keeps it
+          readable, and clear of a phone's notch and rounded corners. While
+          faded it takes no taps, and the tap that shows it presses nothing
+          (onStageClick). */}
+      <div
+        className={cn(
+          "flex h-11 shrink-0 items-center justify-between gap-3 px-3 text-white",
+          fillsScreen
+            ? "absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300"
+            : "bg-zinc-900",
+          !barVisible && "pointer-events-none opacity-0",
+        )}
+        style={fillsScreen ? FULLSCREEN_BAR_INSETS : undefined}
+      >
         <div className="flex min-w-0 items-center gap-2">
           {status === "playing" && !isBehind && !isPaused && (
             <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-red-400">
@@ -680,7 +769,7 @@ export function LivePlayer({
           <Button
             type="button"
             size="sm"
-            onClick={() => void toggleFullscreen()}
+            onClick={onFullscreenClick}
             className="h-8 gap-1.5 bg-white/10 text-white hover:bg-white/20"
             aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
             title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
@@ -696,7 +785,7 @@ export function LivePlayer({
         ref={videoRef}
         className={cn(
           "w-full object-contain",
-          isFullscreen ? "min-h-0 flex-1" : "aspect-video",
+          fillsScreen ? "min-h-0 flex-1" : "aspect-video",
           status === "playing" ? "" : "hidden",
         )}
         // The box takes the stream's 16:9 shape. It had a 400px minimum
@@ -704,7 +793,7 @@ export function LivePlayer({
         // black above and below (Nov 5, 2026). On the full-width page a 16:9
         // picture would be taller than a laptop screen; cap it to the window
         // so the whole picture stays in view.
-        style={isFullscreen ? undefined : { maxHeight: "calc(100vh - 8rem)" }}
+        style={fillsScreen ? undefined : { maxHeight: "calc(100vh - 8rem)" }}
         muted={isMuted}
         playsInline
         autoPlay
@@ -729,7 +818,7 @@ export function LivePlayer({
 
       {/* Loading state */}
       {status === "loading" && (
-        <div className={cn("flex min-h-[240px] flex-col items-center justify-center gap-3 text-white", isFullscreen ? "flex-1" : "aspect-video")}>
+        <div className={cn("flex min-h-[240px] flex-col items-center justify-center gap-3 text-white", fillsScreen ? "flex-1" : "aspect-video")}>
           <div className="w-12 h-12 rounded-full border-4 border-white/20 border-t-white animate-spin" />
           <p className="text-sm text-white/70">Connecting to stream...</p>
         </div>
@@ -737,7 +826,7 @@ export function LivePlayer({
 
       {/* Offline / waiting state */}
       {status === "offline" && (
-        <div className={cn("flex min-h-[240px] flex-col items-center justify-center gap-4 px-4 text-white", isFullscreen ? "flex-1" : "aspect-video")}>
+        <div className={cn("flex min-h-[240px] flex-col items-center justify-center gap-4 px-4 text-white", fillsScreen ? "flex-1" : "aspect-video")}>
           <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
             <Video className="h-8 w-8 text-white/60" />
           </div>
@@ -758,7 +847,7 @@ export function LivePlayer({
 
       {/* Error state */}
       {status === "error" && (
-        <div className={cn("flex min-h-[240px] flex-col items-center justify-center gap-4 text-white", isFullscreen ? "flex-1" : "aspect-video")}>
+        <div className={cn("flex min-h-[240px] flex-col items-center justify-center gap-4 text-white", fillsScreen ? "flex-1" : "aspect-video")}>
           <Video className="h-10 w-10 text-white/50" />
           <p className="text-sm text-white/70">Unable to play the stream</p>
           <Button variant="secondary" size="sm" onClick={handleRetry} className="gap-1.5">

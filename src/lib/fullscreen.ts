@@ -74,6 +74,69 @@ export function resolveFullscreenApi(
   };
 }
 
+type WebkitVideo = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+  webkitExitFullscreen?: () => void;
+  webkitSupportsFullscreen?: boolean;
+  webkitDisplayingFullscreen?: boolean;
+};
+
+export interface VideoFullscreenApi {
+  enter: () => void;
+  exit: () => void;
+  /** The video is in Apple's own full screen player now. */
+  active: () => boolean;
+}
+
+/**
+ * Apple's own full screen video player, for a browser that cannot make an
+ * element fullscreen (iPhone Safari; Nov 24, 2026, owner: "mobile full screen
+ * can be improved"). It is the only true full screen an iPhone offers a web
+ * page: it hides Safari's bars and turns sideways with the phone, where the
+ * in-page fallback is a black box under the address bar. Null until the video
+ * has a picture (`webkitSupportsFullscreen` is false before its metadata), so
+ * a player that is still waiting falls back to the in-page box.
+ */
+export function resolveVideoFullscreen(video: HTMLVideoElement | null): VideoFullscreenApi | null {
+  const v = video as WebkitVideo | null;
+  if (!v || typeof v.webkitEnterFullscreen !== "function" || v.webkitSupportsFullscreen !== true) return null;
+  return {
+    enter: () => v.webkitEnterFullscreen?.(),
+    exit: () => v.webkitExitFullscreen?.(),
+    active: () => v.webkitDisplayingFullscreen === true,
+  };
+}
+
+/**
+ * Turn a phone sideways for a 16:9 picture, once the player is fullscreen
+ * (browsers allow the lock only then). Touch screens only: a desktop refuses
+ * the lock, and asking there would only log a refusal on every click. Answers
+ * whether the lock took; a refusal (Safari on iPad, a policy) is not an error,
+ * the picture is simply shown the way the device is held.
+ */
+export async function lockLandscape(win: Window): Promise<boolean> {
+  const orientation = win.screen?.orientation as (ScreenOrientation & { lock?: (o: string) => Promise<void> }) | undefined;
+  if (!orientation || typeof orientation.lock !== "function") return false;
+  if (!win.matchMedia?.("(pointer: coarse)").matches) return false;
+  try {
+    await orientation.lock("landscape");
+    return true;
+  } catch (err) {
+    console.info("fullscreen:orientation-lock-refused", err instanceof Error ? err.name : err);
+    return false;
+  }
+}
+
+/** Undo `lockLandscape`. Leaving fullscreen releases the lock anyway; this covers a browser that does not. */
+export function unlockOrientation(win: Window): void {
+  const orientation = win.screen?.orientation as (ScreenOrientation & { unlock?: () => void }) | undefined;
+  try {
+    orientation?.unlock?.();
+  } catch (err) {
+    console.info("fullscreen:orientation-unlock-failed", err instanceof Error ? err.name : err);
+  }
+}
+
 /**
  * Stop the page behind an in-page fullscreen fallback from scrolling, and
  * return the function that undoes it.

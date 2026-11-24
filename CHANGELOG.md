@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### The webinar player's full screen on a phone (November 24, 2026)
+
+Owner: "mobile full screen can be improved". On a phone the Full screen button barely helped: held upright
+the picture filled about a third of the screen, on an iPhone it was a black box inside Safari with the
+address bar still showing, and held sideways the player's own bar took 13% of the height.
+
+- **iPhone**: Full screen hands the video to Apple's own player, the only true full screen an iPhone gives a
+  web page. It hides Safari and turns with the phone. Apple's controls replace ours while it is open; sound
+  turned on there stays on when the viewer comes back, and a video that Done paused carries on. Before the
+  picture has started, the button still opens the in-page box.
+- **Android**: once full screen, the phone is turned sideways for the 16:9 picture, and released on the way
+  out. A browser that refuses the lock shows the picture the way the device is held.
+- **The bar floats and fades**, in full screen only (desktop too): it sits over the picture and fades after
+  3 seconds without a touch, a click or a mouse move, so the picture has the whole height. It stays while
+  there is something to act on (no picture yet, or behind the live moment). A tap that finds it faded shows
+  it and presses nothing. It keeps clear of a notch where the browser reports one.
+- The Zoom embed is unchanged: both additions are options of the shared hook (`useFullscreen`'s `video` and
+  `landscape`) and only the HLS player passes them.
+
+Checked in a headed browser against a local test stream at phone and desktop sizes. Apple's player and the
+turn sideways need a real iPhone and a real Android phone: a desktop browser has neither.
+
 ### The confirmation page carries the logo and the sign-in pages' frame (November 24, 2026)
 
 Owner: "also put logo on verify-email".

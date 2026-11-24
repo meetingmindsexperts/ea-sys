@@ -103,7 +103,7 @@ No `Webinar` parent table — `eventType` is the switch. This keeps webinars ins
 | [src/app/(dashboard)/events/[eventId]/webinar/page.tsx](../src/app/(dashboard)/events/%5BeventId%5D/webinar/page.tsx) | **Webinar Console** — sticky status bar + Setup/Recording/Settings tabs (the reports moved to the event's Analytics page, Nov 23, 2026); components: `WebinarStatusBar`, `OverviewCard`, `GlobalRefreshButton`, `PanelistsCard` (with Import from Speakers + optimistic UI), `CardLoading`, `CardEmpty` |
 | [src/app/(dashboard)/events/[eventId]/sponsors/page.tsx](../src/app/(dashboard)/events/%5BeventId%5D/sponsors/page.tsx) | Sponsors admin editor — draft-based editing with add/edit dialog (logo upload via `PhotoUpload`), up/down reorder arrows, grouped-by-tier list view |
 | [src/components/zoom/zoom-web-embed.tsx](../src/components/zoom/zoom-web-embed.tsx) | `ZoomWebEmbed` — dynamic-imported Zoom SDK v6 Component View wrapper. Handles lifecycle (createClient → init → join → leaveMeeting → destroyClient), StrictMode re-mount races via module-level `pendingDestroy` promise, and `connection-change` events for in-meeting Leave. Since Oct 1, 2026 also the bar with the Full screen button, the panel fit (speaker view, sized to the area) and the attendee limits (no drag/resize, meeting info = topic + host) |
-| [src/hooks/use-fullscreen.ts](../src/hooks/use-fullscreen.ts) + [src/lib/fullscreen.ts](../src/lib/fullscreen.ts) | Fullscreen shared by the Zoom embed and the HLS player: browser API with Esc tracked, in-page fallback for iPhone, exit on unmount; the pure helpers (`resolveFullscreenApi`, `fitZoomPanel`, `lockDocumentScroll`) are pinned by `__tests__/lib/fullscreen.test.ts` |
+| [src/hooks/use-fullscreen.ts](../src/hooks/use-fullscreen.ts) + [src/lib/fullscreen.ts](../src/lib/fullscreen.ts) | Fullscreen shared by the Zoom embed and the HLS player: browser API with Esc tracked, in-page fallback for iPhone, exit on unmount; the pure helpers (`resolveFullscreenApi`, `resolveVideoFullscreen`, `lockLandscape`, `fitZoomPanel`, `lockDocumentScroll`) are pinned by `__tests__/lib/fullscreen.test.ts` |
 | [src/components/zoom/zoom-embed.tsx](../src/components/zoom/zoom-embed.tsx) | Iframe fallback (not imported by default) — kept as belt-and-braces if Component View ever regresses |
 | [src/app/e/[slug]/session/[sessionId]/page.tsx](../src/app/e/%5Bslug%5D/session/%5BsessionId%5D/page.tsx) | **Public session page** — sticky CTA + Live Video / Session Details / Sponsors tabs. Dynamically imports `ZoomWebEmbed` and `LivePlayer` so the ~3 MB SDK bundle never hits first paint |
 | [src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts](../src/app/api/public/events/%5Bslug%5D/sessions/%5BsessionId%5D/detail/route.ts) | Public detail route — returns session metadata + topics (with per-topic speakers) + speakers with bios + sponsors |
@@ -498,6 +498,11 @@ The embed now owns the box:
   browser has no element fullscreen (iPhone Safari) the hook falls back to
   pinning the stage to the viewport, with Esc and page-scroll lock handled.
   Unmounting while fullscreen (Zoom's own Leave) leaves fullscreen.
+  The HLS `LivePlayer` alone passes two options (Nov 24, 2026): `video`, so an
+  iPhone gets Apple's own full screen video player before the in-page
+  fallback, and `landscape`, so an Android phone turns sideways once
+  fullscreen. In full screen its bar floats over the picture and fades after
+  3 seconds; a tap that finds it faded shows it and presses nothing.
 - **Attendee limits** (owner, Oct 1, 2026: "limit controls for attendees"):
   no drag, no resize, and Zoom's meeting-info dropdown shows topic and host
   only. The meeting number, passcode and invite link are left out because the

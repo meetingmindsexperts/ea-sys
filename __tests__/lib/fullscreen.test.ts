@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { fitZoomPanel, lockDocumentScroll, resolveFullscreenApi } from "@/lib/fullscreen";
+import {
+  fitZoomPanel,
+  lockDocumentScroll,
+  lockLandscape,
+  resolveFullscreenApi,
+  resolveVideoFullscreen,
+  unlockOrientation,
+} from "@/lib/fullscreen";
 
 /**
  * The fullscreen helpers behind both webinar players (Oct 1, 2026). The hook
@@ -126,5 +133,86 @@ describe("fitZoomPanel", () => {
 
   it("is null for an unmeasured area", () => {
     expect(fitZoomPanel({ width: 0, height: 500 }, false)).toBeNull();
+  });
+});
+
+describe("resolveVideoFullscreen (iPhone, Nov 24, 2026)", () => {
+  it("hands the video to Apple's player once it has a picture", () => {
+    const enter = vi.fn();
+    const exit = vi.fn();
+    const video = { webkitEnterFullscreen: enter, webkitExitFullscreen: exit, webkitSupportsFullscreen: true, webkitDisplayingFullscreen: false };
+    const api = resolveVideoFullscreen(video as unknown as HTMLVideoElement);
+    expect(api).not.toBeNull();
+    api!.enter();
+    expect(enter).toHaveBeenCalledTimes(1);
+    expect(api!.active()).toBe(false);
+    video.webkitDisplayingFullscreen = true;
+    expect(api!.active()).toBe(true);
+    api!.exit();
+    expect(exit).toHaveBeenCalledTimes(1);
+  });
+
+  it("is null before the video has a picture, so the in-page box is used", () => {
+    const video = { webkitEnterFullscreen: vi.fn(), webkitSupportsFullscreen: false };
+    expect(resolveVideoFullscreen(video as unknown as HTMLVideoElement)).toBeNull();
+  });
+
+  it("is null on a browser without Apple's player, and with no video", () => {
+    expect(resolveVideoFullscreen({} as HTMLVideoElement)).toBeNull();
+    expect(resolveVideoFullscreen(null)).toBeNull();
+  });
+});
+
+describe("lockLandscape (Android, Nov 24, 2026)", () => {
+  function fakeWin(opts: { coarse: boolean; lock?: (o: string) => Promise<void>; unlock?: () => void }) {
+    return {
+      matchMedia: (q: string) => ({ matches: q === "(pointer: coarse)" && opts.coarse }),
+      screen: { orientation: { lock: opts.lock, unlock: opts.unlock } },
+    } as unknown as Window;
+  }
+
+  it("turns a touch screen sideways", async () => {
+    const lock = vi.fn(async () => {});
+    expect(await lockLandscape(fakeWin({ coarse: true, lock }))).toBe(true);
+    expect(lock).toHaveBeenCalledWith("landscape");
+  });
+
+  it("never asks a desktop, which would refuse on every click", async () => {
+    const lock = vi.fn(async () => {});
+    expect(await lockLandscape(fakeWin({ coarse: false, lock }))).toBe(false);
+    expect(lock).not.toHaveBeenCalled();
+  });
+
+  it("answers false when the browser refuses (Safari on iPad), without throwing", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const lock = vi.fn(async () => {
+      throw Object.assign(new Error("no"), { name: "NotSupportedError" });
+    });
+    expect(await lockLandscape(fakeWin({ coarse: true, lock }))).toBe(false);
+    expect(info).toHaveBeenCalledWith("fullscreen:orientation-lock-refused", "NotSupportedError");
+    info.mockRestore();
+  });
+
+  it("answers false where there is no orientation lock at all", async () => {
+    expect(await lockLandscape(fakeWin({ coarse: true }))).toBe(false);
+  });
+
+  it("unlocks, and a throwing unlock is logged, not raised", () => {
+    const unlock = vi.fn();
+    unlockOrientation(fakeWin({ coarse: true, unlock }));
+    expect(unlock).toHaveBeenCalledTimes(1);
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    expect(() =>
+      unlockOrientation(
+        fakeWin({
+          coarse: true,
+          unlock: () => {
+            throw new Error("x");
+          },
+        }),
+      ),
+    ).not.toThrow();
+    expect(info).toHaveBeenCalled();
+    info.mockRestore();
   });
 });
