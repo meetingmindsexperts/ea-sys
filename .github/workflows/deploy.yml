@@ -1,25 +1,12 @@
-# FAST DEPLOY: no lint, no type check job, no tests, no gating build, no tenancy,
-# no migration replay. It builds the two images and deploys them, nothing else.
-#
-# This file sits OUTSIDE .github/workflows/ on purpose, so GitHub ignores it.
-# To use it, swap it in for the normal pipeline:
-#
-#   mv .github/workflows/deploy.yml .github/deploy-full.yml
-#   cp .github/deploy-fast.yml .github/workflows/deploy.yml
-#
-# and swap back afterwards:
-#
-#   mv .github/deploy-full.yml .github/workflows/deploy.yml
-#
-# Same workflow name and concurrency group as the full pipeline, so two deploys
-# never run on the box at once.
-
 name: Deploy to EC2
 
 on:
   push:
     branches:
       - main
+    # Docs-only pushes must NOT trigger a deploy — the deploy builds the image
+    # ON the box, and an on-box build can starve/freeze the host (see INC-001).
+    # A commit that touches any code still deploys; pure docs/markdown don't.
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -32,12 +19,552 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── CI phase: THREE PARALLEL JOBS (split July 22, 2026, owner decision) ─────
+  # The old single `ci` job ran lint → tests → guards → build serially on one
+  # runner (~5-6 min). checks/tests/build are independent, so they run
+  # concurrently — the CI phase's wall clock becomes max(build ≈ 3-4 min),
+  # saving ~2-2.5 min per deploy. Every gate that blocked build-push before
+  # still blocks it (needs: [checks, tests, build]). Trade-off accepted:
+  # each job pays its own ~40s checkout+node+cache setup (a few extra billed
+  # runner-minutes, no wall-clock cost) and a broken commit burns minutes in
+  # all three jobs instead of failing fast in one. All jobs run on
+  # GitHub-hosted runners — the EC2 box is only touched by `deploy`.
+
+  checks:
+    name: Lint · types · guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      # Cache the full node_modules dir keyed on lockfile.
+      # On hit, npm ci is skipped entirely (~30-40s saved).
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      # Catch the drift CASE we hit twice already: a contributor on a different
+      # Node/npm version commits a lockfile that npm 10 cannot consume. Re-resolve
+      # under THIS runner's npm and fail loudly if the result differs.
+      - name: Verify lockfile is in sync
+        run: |
+          npm install --package-lock-only --no-audit --no-fund
+          if ! git diff --exit-code package-lock.json; then
+            echo "::error::package-lock.json is out of sync with package.json. Run 'npm install' under Node $(node --version) and commit the result."
+            exit 1
+          fi
+
+      # Always run prisma generate — on cache miss it ran via postinstall,
+      # but on cache hit postinstall was skipped. This is fast (~3s).
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # Run type-check in background, lint in foreground, then collect both.
+      # The route types (Nov 24, 2026): `next typegen` writes next-env.d.ts and
+      # .next/types, both gitignored. The gate (scripts/gate.sh) runs it before
+      # ITS type check, so without this step the two read different files: a
+      # commit using PageProps<...>, RouteContext<...> or an imported image
+      # passed the gate's type check and failed this job's. About 3 seconds.
+      - name: Route types
+        run: npx next typegen
+
+      # Both are independent — saves ~15-20s vs running sequentially.
+      #
+      # `wait` must name the type check's PID. A bare `wait` returns 0 whatever
+      # the background job found, so until Nov 10, 2026 this step could never
+      # fail on the type check, and what it hid was worse than a type error: tsc
+      # was dying of "JavaScript heap out of memory" on every run, so nothing
+      # here was type-checked at all (the build job's own check covers the app,
+      # not the tests).
+      #
+      # The heap limit is for that: the whole repo, tests included (7,221 files,
+      # 595k lines on Nov 10, 2026), needs 4.8 GB, over Node's 4 GB default. Same
+      # value as the build job. When the repo outgrows it this step now FAILS,
+      # loudly: raise it then (the runner has 16 GB; lint runs beside it).
+      - name: Type check & Lint
+        run: |
+          NODE_OPTIONS=--max-old-space-size=6144 npm run type-check &
+          TYPECHECK_PID=$!
+          npm run lint
+          wait "$TYPECHECK_PID"
+
+      # Blue-green migrates BEFORE the nginx swap, so a DROP/RENAME/SET NOT NULL
+      # breaks the old slot while it is still serving real users — and a code
+      # rollback re-runs `migrate deploy` and cannot undo it. See the script's
+      # header for the expand/contract escape hatch.
+      - name: Migration safety (blue-green)
+        run: bash scripts/check-migration-safety.sh
+
+      # Event.slug is only unique PER ORG — a public route that hand-rolls a
+      # slug lookup instead of publicEventWhere reopens the cross-tenant hole
+      # the Phase-0 sweep closed. Gating: only fires on new code in the
+      # public surface, so it can't block an unrelated hotfix.
+      - name: Tenant scoping (public event lookups)
+        run: bash scripts/check-tenant-scoping.sh
+
+      # A domain that finished its Phase-2 isolation sweep wraps every handler
+      # in runWithTenant. That wrap is inert on master but load-bearing on the
+      # platform — dropping it is SILENT here and only surfaces as data-loss/
+      # leak once RLS turns on. This gate pins the swept domains' wraps.
+      - name: Tenant ALS (swept-domain runWithTenant wraps)
+        run: bash scripts/check-tenant-als.sh
+
+      # Cross-tenant authorisation. `canActAsPlatformOperator` was written in
+      # August 2026 and then only eight files adopted it; the Aug 21 sweep found
+      # ten more still deciding the same question with a bare SUPER_ADMIN check,
+      # six of which let a caller swap the acting org via an x-org-id header.
+      # Writing the predicate is half the job; adopting it is the other half,
+      # and this gate is what keeps it adopted.
+      - name: Platform-operator boundary (x-org-id + operator gates)
+        run: bash scripts/check-platform-operator.sh
+
+      # User.email is globally unique on master and per-tenant on the platform,
+      # and Prisma's client still believes the old @unique — so a bare
+      # findUnique({ where: { email } }) keeps compiling and silently returns
+      # whichever tenant's row the planner reaches first. Dropping an index
+      # cannot make code fail loudly, so the only thing that can catch it is a
+      # rule about the shape of the query.
+      - name: User-by-email lookups are tenant-scoped
+        run: bash scripts/check-user-email-scope.sh
+
+      # A datetime-local input has no timezone, so slicing an ISO string into
+      # one shifts the stored instant on every re-save, compounding. Shipped
+      # and fixed three times (dinner console, submission deadlines, promo
+      # windows); unit tests can't see it because the helpers are individually
+      # correct and the bug is in which one a form calls.
+      - name: datetime-local round-trip guard
+        run: bash scripts/check-datetime-local.sh
+
+      # A refusal that does not say WHICH route refused is close to useless,
+      # and that is the log line you read when someone says "it doesn't work
+      # for me". `route` was optional and 3 of 226 call sites passed it; this
+      # pins that it stays required and that the labels stay real.
+      - name: Guard refusals name their route
+        run: bash scripts/check-guard-route.sh
+
+      # `.catch(() => {})` is the shape that hides an incident: the call fails,
+      # the request still returns 200, and nothing reaches /logs. Nine of these
+      # were best-effort token cleanups, so a database incident could silently
+      # leave live public tokens behind with no trace.
+      - name: No silent server-side catches
+        run: bash scripts/check-no-silent-server-catches.sh
+
+      # next/font/google downloads .woff2 at BUILD time, so a Google CDN
+      # rotation can block a hotfix (run 1309). Fonts are vendored; this keeps
+      # it that way, because reintroducing one builds fine every day until the
+      # day it doesn't.
+      - name: Hermetic build (no fetched fonts)
+        run: bash scripts/check-hermetic-build.sh
+
+      # A null-org user (REVIEWER/SUBMITTER/REGISTRANT) hitting a route that
+      # asserts session.user.organizationId! sends organizationId: null to
+      # Prisma → a 500 (JAVASCRIPT-NEXTJS-1N). Keeps the event API swept.
+      - name: Org guard (organizationId! footgun)
+        run: bash scripts/check-org-guard.sh
+
+      # Custom roles Phase 2: a route file moved onto requirePermission() must
+      # not regain a role check (denyReviewer, *_ALLOW, role ===). The list
+      # of swept files only grows (docs/CUSTOM_ROLES_PLAN.md §6).
+      - name: Permission guards (swept routes stay swept)
+        run: bash scripts/check-permission-guards.sh
+
+      # A live org API key sat in a tracked Claude Code settings file in this
+      # PUBLIC repo for five months (INC-005, 2026-09-04). GitHub's secret
+      # scanning does not know our `mmg_` shape. This does; it masks what it
+      # reports because these logs are public too.
+      - name: No credential-shaped strings in tracked files
+        run: bash scripts/check-no-secrets.sh
+
+      # Every gate above polices the SHAPE of a check that is present. None
+      # asks whether one is there at all, so a forgotten guard FAILS OPEN — it
+      # ships, returns 200, and nothing goes red. Both of the worst findings in
+      # this repo were exactly that (the contacts export reachable by a desk
+      # temp; the speakers roster reachable across events), and both were found
+      # by a person reading, not by CI. Per HANDLER, not per file: a guarded
+      # GET does not vouch for a newly-added DELETE beside it.
+      - name: Every API route handler establishes identity
+        run: node scripts/check-route-auth.mjs
+
+      # One layer further (Phase 6 review, Oct 7, 2026): knowing WHO is calling
+      # is not deciding WHAT they may do. A handler that signs the caller in
+      # and asks no permission lets every account in the org through; two did.
+      - name: Every API route handler asks a permission
+        run: node scripts/check-route-permission.mjs
+
+      # Same class of absence, one layer in: a handler that reads req.json()
+      # and destructures it is holding attacker-shaped data typed `any`, which
+      # surfaces as an unhelpful 500 rather than a 400 naming the field. The
+      # April 2026 sweep that fixed 44 silent-400 sites could not see these,
+      # because it grepped for "Invalid input" — the symptom of validation
+      # ALREADY existing — so routes with none at all matched nothing and
+      # survived until a review read them by hand (Sep 21, 2026).
+      - name: Every API route handler validates its JSON body
+        run: node scripts/check-request-validation.mjs
+
+      # Dependency auditing is done manually, locally, before a push — not in CI.
+      # (`npm audit` on demand.) Deliberate: CI gates what a commit BREAKS, not
+      # what the ecosystem happens to have disclosed today, which is not something
+      # a deploy should be blocked on.
+
+  tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # The unit suite (3600+ tests) runs in seconds and covers the invariants
+      # we most need protected on a live system — RBAC, finance visibility,
+      # barcode visibility, seat accounting, the worker-job drift guard.
+      - name: Unit tests
+        run: npm test
+
+  build:
+    name: Build (gating)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # Gating build (restored by owner request, July 16, 2026): fail fast on
+      # any build error before images are built or anything deploys. No Sentry
+      # token here — the source-map upload lives in the PARALLEL, non-gating
+      # `sourcemaps` job below.
+      # Next's TypeScript step outgrew Node's default ~4 GB heap (OOM on
+      # 055680a9 and 3584e46f, Oct 29, 2026). The runner has 16 GB.
+      - name: Build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: npx next build
+
+  # ── Tenant-isolation harness (parallel, GATING since July 23, 2026) ──────────
+  # Real Postgres + pgbouncer (transaction mode) service containers running the
+  # tests/tenancy suite: two seeded tenants + the Event pilot + the Contacts
+  # domain policies (prisma/rls/*) prove host→org resolution, the SET LOCAL
+  # transport, and cross-tenant isolation (docs/MULTI_TENANCY.md §0/§13).
+  # Ran non-gating first per the house rule; PROMOTED to build-push's `needs`
+  # after 8 consecutive green runs (threshold was ≥5) — a broken isolation
+  # property now blocks the deploy.
+  tenancy:
+    name: DB integration (tenancy + integration harness)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tenancy
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      pgbouncer:
+        image: edoburu/pgbouncer:latest
+        env:
+          DB_HOST: postgres
+          DB_NAME: tenancy
+          DB_USER: app_user
+          DB_PASSWORD: app_user_pw
+          POOL_MODE: transaction
+          AUTH_TYPE: plain
+          MAX_CLIENT_CONN: "100"
+        ports:
+          - 56432:5432
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: tenancy-deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.tenancy-deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Tenant-isolation suite
+        env:
+          TENANCY_DIRECT_URL: postgresql://postgres:postgres@localhost:55432/tenancy
+          TENANCY_DATABASE_URL: postgresql://app_user:app_user_pw@localhost:56432/tenancy?pgbouncer=true&connection_limit=3
+        run: npm run test:tenancy
+
+      # Reuses the SAME postgres service — the harness's global-setup creates a
+      # separate `crm_test` database on it (owner-direct, no pgbouncer/RLS). One
+      # DB container, two databases, isolated.
+      - name: Integration suite (real Postgres)
+        env:
+          INTEGRATION_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:55432/crm_test
+        run: npm run test:integration-db
+
+  # ── Fresh-DB migration replay (parallel, GATING since July 23, 2026) ─────────
+  # Replays the ENTIRE prisma/migrations chain against an empty Postgres, then
+  # asserts the result matches schema.prisma exactly. Prod only ever migrates
+  # incrementally, so a chain that is broken from scratch (ordering bugs,
+  # backfills that assume data, db-push drift never captured in a migration
+  # file) stays invisible until the first fresh database needs it — which is
+  # exactly how the future platform instance (docs/MULTI_TENANCY.md §0) gets
+  # born. First local run of this check found 2 broken migrations + ~250 lines
+  # of uncaptured drift, repaired in 20260722140000_sync_chain_to_prod_schema.
+  # Ran non-gating first per the house rule; PROMOTED to build-push's `needs`
+  # July 23, 2026 after 5 consecutive green runs — a broken chain now blocks
+  # the deploy. (It stays in notify-failure's needs too, so a red run both
+  # blocks AND pages with the replay-specific message.)
+  migration-replay:
+    name: Migration replay (fresh DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        # PG 17 to match prod Supabase (and therefore the future platform
+        # DB's first real `migrate deploy`) — fidelity, per review.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: replay
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: replay-deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.replay-deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Replay full migration chain from empty
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:55433/replay
+          DIRECT_URL: postgresql://postgres:postgres@localhost:55433/replay
+        run: npx prisma migrate deploy
+
+      # The replayed database must be indistinguishable from the Prisma schema
+      # (the prisma/ folder: schema.prisma + prisma/models/*.prisma since Sep 25,
+      # 2026; pointing this at schema.prisma alone would compare against no models) —
+      # a chain that *completes* but produces a different schema is still a
+      # broken chain (that is the db-push-drift failure class).
+      - name: Assert replayed schema matches schema.prisma
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:55433/replay
+          DIRECT_URL: postgresql://postgres:postgres@localhost:55433/replay
+        run: >
+          npx prisma migrate diff
+          --from-url "$DATABASE_URL"
+          --to-schema-datamodel prisma
+          --exit-code
+
+  # ── Sentry source maps (parallel, non-gating) ────────────────────────────────
+  # Runs `next build` with the Sentry auth token purely to upload source maps
+  # for this commit — the Docker image build deliberately has NO Sentry token,
+  # so without this job client stack traces in Sentry are minified. It runs in
+  # parallel with build-push and NOTHING depends on it, so it adds zero deploy
+  # latency; a failure here shows red in the Actions tab but neither blocks the
+  # deploy nor fires the deploy-failed page (that alert says "the box may be
+  # half-deployed", which would be false for a map-upload hiccup).
+  venue:
+    name: Online venue (bundle + walking checks)
+    # Venue hardening step 1 (Oct 26, 2026). The 3D venue is plain JS under
+    # vendor/ehc-venue/src, joined into one page that the app serves from a
+    # committed file. Until now nothing in CI built or walked it: the vendor's
+    # checks were Python and were run by hand. This job (1) rebuilds the page
+    # with the Node builder and fails when the committed copy is stale, and
+    # (2) walks every layout fixture in a real browser: doorways, every route
+    # on each floor, stairs and lifts, every hotspot, the camera.
+    # NON-GATING for now, per the standing >=5-consecutive-green rule; it is not
+    # in needs: of build-push nor in notify-failure (whose wording assumes a
+    # deploy problem). Promote it to build-push's needs after five greens.
+    # Pinned to 24.04 (Oct 27, 2026): ubuntu-latest moved to 26.04, which
+    # Playwright's Chromium install refuses. Unpin once Playwright supports it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: The committed venue page matches its sources
+        run: |
+          node scripts/venue-build.mjs --node
+          git diff --exit-code -- vendor/ehc-venue/dist/index.html src/lib/venue/page-html.generated.json src/lib/venue/persona-vocab.generated.json \
+            || { echo "::error::The venue page is out of date with vendor/ehc-venue/src. Run npm run venue:build and commit the result."; exit 1; }
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Walk every layout
+        run: npm run venue:walk
+
+  sourcemaps:
+    name: Sentry source maps
+    # Gated on the cheap checks job only (was: the whole serial ci) — starts
+    # ~3 min earlier while still not wasting a Sentry build on a broken commit.
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build + upload source maps
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: npx next build
+
+  # ── Build + push images to ECR ───────────────────────────────────────────────
+  # Builds the web (Dockerfile) + worker (Dockerfile.worker) images on GitHub's
+  # fast runners and pushes them to ECR (ap-south-1). Auth is via GitHub OIDC —
+  # NO stored AWS keys. The deploy job depends on this (Step 2): the box pulls
+  # these images instead of building on-box (~8 min → ~1-2 min).
+  #
+  # PARALLEL MATRIX (July 22, 2026, owner decision): the two images used to
+  # build serially in one job (~247s web + ~119s worker = ~6.6 min); they are
+  # independent, so each matrix leg builds one image and the phase's wall
+  # clock is max(web) ≈ 4 min — ~2.5 min saved per deploy. Cache scopes
+  # (web/worker) are unchanged, so existing GHA layer caches carry over.
+  # `needs: build-push` on deploy waits for BOTH legs, exactly as before.
   build-push:
     name: Build & push ${{ matrix.image }} image → ECR
+    # Every gate the old serial `ci` job enforced still blocks image builds.
+    # tenancy + migration-replay PROMOTED TO GATING July 23, 2026 per the
+    # standing ≥5-consecutive-green rule (tenancy 8/8, replay 5/5 at
+    # promotion): a broken tenant-isolation property or a from-scratch-broken
+    # migration chain now BLOCKS the deploy instead of only paging.
+    needs: [checks, tests, build, tenancy, migration-replay]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
-      fail-fast: true
+      # Let the other image finish (its push is harmless — deploy won't run on
+      # any failure) so a red run shows exactly which image broke.
+      fail-fast: false
       matrix:
         include:
           - image: web
@@ -47,13 +574,13 @@ jobs:
             dockerfile: Dockerfile.worker
             tag_prefix: "worker-"
     permissions:
-      id-token: write
+      id-token: write   # required for GitHub OIDC → AWS role assumption
       contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials (OIDC — no stored keys)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::803726282629:role/ea-sys-gha-ecr-push
@@ -65,6 +592,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Stamp the ACTUAL build time. `github.event.repository.updated_at` looks
+      # like a build timestamp and isn't — it's when the repo record was last
+      # touched, so it reports "today" for an image built last week (i.e. it lies
+      # in exactly the situation this field exists for: a rollback), and it can be
+      # empty on workflow_dispatch. Compute it here instead.
       - name: Compute build metadata
         id: meta
         run: echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
@@ -78,16 +610,25 @@ jobs:
           tags: |
             803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:${{ matrix.tag_prefix }}${{ github.sha }}
             803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:${{ matrix.tag_prefix }}latest
+          # Bake the commit into the image so /api/health, /admin/infra and every
+          # alert email can answer "what SHA is running?" — previously unanswerable.
           build-args: |
             GIT_SHA=${{ github.sha }}
             BUILT_AT=${{ steps.meta.outputs.built_at }}
             NEXT_PUBLIC_SENTRY_DSN=${{ secrets.NEXT_PUBLIC_SENTRY_DSN || vars.NEXT_PUBLIC_SENTRY_DSN }}
-          # Read the layer cache the full pipeline writes, but do not write it
-          # back: exporting it costs about 80 s.
           cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          # Don't push provenance/SBOM attestation manifests — buildx defaults to
+          # provenance:true, which adds an extra untagged manifest per build that
+          # nothing here pulls and just clutters ECR.
           provenance: false
           sbom: false
 
+  # ── Deploy to Mumbai (ap-south-1) ──────────────────────────────────────────
+  # Depends on build-push so the ECR images for THIS commit exist before we
+  # deploy. The box pulls those images (scripts/deploy.sh, keyed on IMAGE_TAG =
+  # the git SHA) instead of building on-box. If the pull ever fails, deploy.sh
+  # falls back to an on-box build, so a deploy never hard-fails on ECR.
   deploy:
     name: Deploy → Mumbai (ap-south-1)
     needs: build-push
@@ -103,24 +644,59 @@ jobs:
           port: 22
           script_stop: true
           command_timeout: 25m
+          # IMAGE_TAG pins the exact images CI just pushed for this commit.
           envs: IMAGE_TAG
           script: |
             set -e
             cd /home/ubuntu/ea-sys
+
+            echo "==> Fixing upload dir ownership for git reset"
             sudo chown -R ubuntu:ubuntu /home/ubuntu/ea-sys/public/uploads /home/ubuntu/ea-sys/logs
+
+            # Check out the EXACT commit whose images we're about to deploy —
+            # not whatever origin/main happens to be right now.
+            #
+            # This used to be `git reset --hard origin/main` while IMAGE_TAG is
+            # pinned to github.sha. Those are the same thing on a normal push,
+            # but they diverge on the one action you take under pressure:
+            # re-running an older workflow run. That gave the box CURRENT main's
+            # docker-compose.prod.yml, deploy.sh and prisma/migrations/, and then
+            # deployed an OLD image against them — and ran the NEW migrations from
+            # the OLD worker image. Code and image must always be the same commit.
+            echo "==> Checking out deploy commit ($IMAGE_TAG)"
             git fetch origin
             if ! git cat-file -e "${IMAGE_TAG}^{commit}" 2>/dev/null; then
               echo "✗ Commit $IMAGE_TAG not found on the box after fetch. Aborting."
               exit 1
             fi
             git reset --hard "$IMAGE_TAG"
+
+            echo "==> Running blue-green deploy (IMAGE_TAG=$IMAGE_TAG)"
             bash scripts/deploy.sh
         env:
           IMAGE_TAG: ${{ github.sha }}
 
+  # ── Page a human when the pipeline fails ────────────────────────────────────
+  # Until now a failed deploy notified NOBODY. appleboy/ssh-action runs with
+  # script_stop: true, so deploy.sh can halt part-way through — after migrations
+  # have run, possibly after the new slot is up but before nginx switched — and
+  # the only signal was a red ✗ in the Actions tab that nobody is watching at 3am.
+  #
+  # The email is sent FROM THE BOX (scripts/ops-alert.sh) because the EC2 instance
+  # role already has ses:SendEmail — doing it from the runner would need new IAM.
+  # The trade-off: if the box itself is unreachable (the fail2ban-bans-the-runner
+  # case, see docs/INCIDENTS.md), this job can't send either. That's a known and
+  # accepted hole; the durable fix is OIDC + an ses:SendEmail policy on the
+  # ea-sys-gha role, which is an AWS change to make deliberately.
   notify-failure:
     name: Alert on failure
-    needs: [build-push, deploy]
+    # migration-replay is in this list so a red replay PAGES (it is the sole
+    # detector for a from-scratch-broken migration chain — see the job's
+    # comment) while still gating nothing. The alert script branches on
+    # REPLAY_RESULT/DEPLOY_RESULT so a replay-only failure sends a truthful
+    # "chain broken, deploy itself fine" message instead of the scary
+    # half-deployed one. sourcemaps stays deliberately excluded.
+    needs: [checks, tests, build, build-push, deploy, migration-replay]
     if: failure()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -133,19 +709,75 @@ jobs:
           key: ${{ secrets.MUMBAI_EC2_SSH_KEY }}
           port: 22
           command_timeout: 3m
-          envs: RUN_URL,SHA,ACTOR
+          envs: RUN_URL,SHA,ACTOR,BRANCH,REPLAY_RESULT,DEPLOY_RESULT
           script: |
             cd /home/ubuntu/ea-sys
-            bash scripts/ops-alert.sh "EA-SYS FAST DEPLOY FAILED: ${SHA:0:7}" "A fast deploy (no checks) failed.
+
+            # First failure after this change ships, the script may not be on the
+            # box yet (the deploy that would have delivered it is the one that
+            # failed). Pull just that file.
+            if [ ! -f scripts/ops-alert.sh ]; then
+              git fetch origin main --quiet || true
+              git checkout origin/main -- scripts/ops-alert.sh || true
+            fi
+
+            # Replay-only failure (deploy path fine) gets its own truthful
+            # message — the half-deployed warning below would be false for it.
+            if [ "$REPLAY_RESULT" = "failure" ] && [ "$DEPLOY_RESULT" != "failure" ]; then
+              SUBJECT="EA-SYS MIGRATION REPLAY RED — ${SHA:0:7} (${BRANCH})"
+              BODY="The fresh-DB migration-replay CI job FAILED. The deploy itself
+            did NOT fail — prod is fine — but the migration chain no longer
+            builds a correct database from scratch (a broken/out-of-order
+            migration, or schema changed outside a migration file).
+
+            This is the ONLY check for that failure class. Left red, the
+            future platform instance's database bootstrap will fail the same
+            way (docs/MULTI_TENANCY.md §0).
 
             Commit : ${SHA}
+            Branch : ${BRANCH}
             By     : ${ACTOR}
             Run    : ${RUN_URL}
 
-            The box may be half-deployed. Roll back with:
+            Reproduce locally: empty postgres + 'npx prisma migrate deploy',
+            then 'npx prisma migrate diff --from-url <db> --to-schema-datamodel
+            prisma --exit-code'."
+              bash scripts/ops-alert.sh "$SUBJECT" "$BODY" || exit 1
+              exit 0
+            fi
+
+            SUBJECT="EA-SYS DEPLOY FAILED — ${SHA:0:7} (${BRANCH})"
+            BODY="A deploy to production FAILED.
+
+            Commit : ${SHA}
+            Branch : ${BRANCH}
+            By     : ${ACTOR}
+            Run    : ${RUN_URL}
+
+            The box may be HALF-DEPLOYED. deploy.sh can stop part-way, and
+            migrations run BEFORE the nginx swap — so the new schema may already
+            be live while the old code still serves traffic.
+
+            Check what is actually running (the newest commit in git log is NOT
+            necessarily what is serving):
+              ssh the box, then:  docker ps
+              active slot:        cat /home/ubuntu/.active-slot
+              health:             curl -s localhost/api/health
+
+            To roll back to a known-good image:
               IMAGE_TAG=<previous-full-40-char-sha> bash scripts/deploy.sh
-            Runbook: docs/ROLLBACK.md"
+            Full runbook: docs/ROLLBACK.md"
+
+            if [ -f scripts/ops-alert.sh ]; then
+              bash scripts/ops-alert.sh "$SUBJECT" "$BODY"
+            else
+              echo "✗ ops-alert.sh missing on the box — could not send alert" >&2
+              exit 1
+            fi
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SHA: ${{ github.sha }}
           ACTOR: ${{ github.actor }}
+          BRANCH: ${{ github.ref_name }}
+          REPLAY_RESULT: ${{ needs.migration-replay.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
