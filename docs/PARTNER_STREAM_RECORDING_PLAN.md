@@ -174,11 +174,40 @@ Only if D1 says our page plays the recording.
 | The MP4 as well (kept beside the pieces) | double the above | double the above |
 | Uploading the pieces (requests) | under 1 cent | under 1 cent |
 | Copy to Singapore, if kept in the DR copy (D3) | about 10 cents, once | about 17 cents, once |
-| One attendee watching one hour (phase 2) | about 12 cents | about 22 cents |
+| One attendee watching one hour (phase 2), data | 1.1 GB | 2 GB |
 
-Storage is never the cost. **Watching is**: 200 attendees watching a one hour replay at 720p is
-about 25 dollars, each time. Vimeo carries that today inside its flat fee. If phase 2 is not
-built, the pieces can be deleted once the MP4 is `READY`, which halves the storage.
+Storage is never the cost. If phase 2 is not built, the pieces can be deleted once the MP4 is
+`READY`, which halves the storage.
+
+### 5.1 What watching costs (researched Nov 24, 2026)
+
+The first version of this plan said 200 attendees watching a one hour replay cost about 25
+dollars. That was the price per GB with the free allowance left out. Read on AWS's own pricing
+pages on Nov 24, 2026:
+
+| Route to the viewer | Free every month | After that, per GB |
+|---|---|---|
+| **S3 behind CloudFront** (pay as you go) | 1 TB of data and 10 million requests, "Always Free" | $0.109 India, $0.110 Middle East, $0.085 Europe and North America |
+| S3's own signed links | 100 GB, shared by everything we run on AWS | about $0.11 from Mumbai (not shown on the page read; our earlier figure) |
+| Through our app, the way photos and banners are served today | the same 100 GB | the same, and it uses the box's memory and network |
+
+- S3 to CloudFront is free ("free for origin fetches from any AWS origin").
+- 1 TB is about **885 viewer-hours a month at 720p**, or 500 at 1080p. Requests are not the
+  limit: 600 an hour per replay viewer, so 10 million is over 16,000 viewer-hours.
+- **The free TB is shared with live viewing**, which uses the same account. A month with one
+  300 viewer live hour (about 340 GB) and 200 replay hours (about 225 GB) is still free.
+- What we use today: the live distribution has served 2.76 GB in total since it went live on
+  Nov 9, 2026 (CloudWatch), which is 0.3% of one month's allowance.
+- If a month ever passes 1 TB: CloudFront's flat Pro plan is 15 dollars a month for one
+  distribution with 50 TB and 10 million requests and no overage bill (past the allowance AWS
+  may serve from fewer or farther locations). An extra TB at pay as you go is about 110 dollars.
+- Looked at and not needed at this size: Cloudflare R2 (no charge for data out, $0.015 per GB
+  stored, a second vendor to run), Bunny CDN ($0.06 per GB in the Middle East, no free TB).
+
+So watching is free at our size **only through CloudFront**. Our own photos and banners are in
+the same S3 bucket but are served through the app (`src/app/uploads/[...path]/route.ts`, which
+reads the whole file into memory and sends it from the box). That is right for a 200 KB image
+and wrong for video: a viewer-hour is the size of about five thousand images.
 
 CPU: recording and shipping copy bytes that are already arriving. Expect a few percent of one CPU
 per recording and almost no memory. Disk writes are under 1 MB a second against a volume rated
@@ -189,7 +218,7 @@ for 125.
 | | Decision | Proposed |
 |---|---|---|
 | D1 | How attendees watch: staff upload the MP4 to Vimeo (works on phase 1 alone), or our page plays the recording (phase 2). | Phase 1 first, with Vimeo. Phase 2 once a real recording has been seen. |
-| D2 | If phase 2: links through CloudFront with its own signing key, or S3's signed links. | CloudFront. S3 links signed by the box stop working when the box's credentials rotate, which can be mid-viewing; CloudFront is also closer to viewers. More AWS steps. |
+| D2 | If phase 2: links through CloudFront with its own signing key, or S3's signed links. | CloudFront. It is the route with 1 TB free a month, against 100 GB (5.1); S3 links signed by the box also stop working when the box's credentials rotate, which can be mid-viewing; and CloudFront is closer to viewers. More AWS steps. |
 | D3 | Where: the uploads bucket under `recordings/` (as presentations), or a bucket of its own. And whether recordings are in the hourly copy to Singapore. | The uploads bucket, with a rule that clears old versions; in the Singapore copy, since a client's archive is not replaceable. |
 | D4 | How long a recording is kept. | 12 months, then deleted, changeable per recording. Staff can delete sooner. |
 | D5 | The partner's agreement: a tick that must be made before recording can start, stored with who and when. | Yes. Many sponsored webinars are deliberately not kept. |

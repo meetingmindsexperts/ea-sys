@@ -39,6 +39,11 @@ Prices to check against the
 [CloudFront pricing page](https://aws.amazon.com/cloudfront/pricing/) before switching on; most
 of the figures below were confirmed only by third-party pricing guides.
 
+**Confirmed at the source on Nov 24, 2026** (aws.amazon.com/cloudfront/pricing/pay-as-you-go):
+1 TB of data out and 10 million requests a month under "Always Free", then $0.109 per GB for
+India and $0.110 for the Middle East, and no charge for origin fetches from S3 or EC2. Used so
+far: 2.76 GB in total since Nov 9 (CloudWatch).
+
 - **Always-free tier (pay as you go):** 1 TB of data out, 10 million requests and 2 million
   CloudFront Function calls every month, with no end date.
 - **After the free TB:** about $0.109/GB for viewers in India and about $0.11/GB for the Middle
