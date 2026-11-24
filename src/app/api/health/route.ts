@@ -10,6 +10,7 @@ export async function GET() {
   // could never answer the first question of any incident. gitSha + slot can:
   // this is also what deploy.sh's health gate hits, so a bad promote is now
   // attributable to a specific commit AND a specific slot.
+  // The fast deploy (.github/deploy-fast.yml) was first timed with this line (Nov 24, 2026).
   const build = getBuildInfo();
 
   try {
