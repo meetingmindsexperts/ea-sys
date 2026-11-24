@@ -24,6 +24,8 @@ import { ABSTRACT_OWN_TOKENS } from "@/lib/bulk-email-audience";
 import { findUnresolvedTokens } from "@/lib/template-tokens";
 import { buildSpeakerEmailContext } from "@/lib/speaker-agreement";
 import { buildAbstractConfirmationVars } from "@/lib/abstract-notifications";
+import { presentationTypeLabel } from "@/lib/abstract-presentation-types";
+import { loadPresentationTypesForEvent } from "@/lib/abstract-presentation-types-server";
 import { buildTravelGrantBlock, type TravelGrantBlockStatus } from "@/lib/travel-grant/block";
 import { buildTravelGrantLink } from "@/lib/travel-grant/server";
 import { formatTravelGrantDeadline, readTravelGrantSettings } from "@/lib/travel-grant/settings";
@@ -353,7 +355,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         ...buildAbstractConfirmationVars({
           abstractTitle: abstract.title,
           serialId: abstract.serialId,
-          presentationType: abstract.presentationType,
+          presentationTypeName: presentationTypeLabel(await loadPresentationTypesForEvent(eventId), abstract.presentationType),
           themeName: abstract.theme?.name ?? null,
           coAuthors: abstract.coAuthors,
           speaker: abstract.speaker,

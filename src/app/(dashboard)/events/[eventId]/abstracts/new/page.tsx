@@ -25,7 +25,8 @@ import {
   Loader2,
   Sparkles,
 } from "lucide-react";
-import { useSpeakers, useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
+import { useSpeakers, useTracks, useEvent, useAbstractThemes, usePresentationTypes, queryKeys } from "@/hooks/use-api";
+import { presentationTypeChoices } from "@/lib/abstract-presentation-types";
 import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abstract-sub-theme-select";
@@ -38,7 +39,6 @@ import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-selec
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Link from "next/link";
-import { enabledPresentationTypeOptions } from "../abstract-enums";
 import { useCan } from "@/hooks/use-can";
 
 interface Speaker {
@@ -79,6 +79,7 @@ export default function NewAbstractPage() {
   // required (it is, when the event has any).
   const { data: themes = [] } = useAbstractThemes(eventId) as { data: Array<{ id: string }> };
   const { data: event } = useEvent(eventId);
+  const { data: presentationTypes = [] } = usePresentationTypes(eventId);
   // Null while the event takes abstracts from this author; otherwise why not.
   const intakeClosed = isSubmitter && event ? abstractIntakeClosed(event) : null;
   // Whether the event was ALREADY closed when the author arrived, decided once
@@ -397,7 +398,7 @@ export default function NewAbstractPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {/* Only the types this event offers (Content → Abstracts). */}
-                    {enabledPresentationTypeOptions(event?.settings).map((o) => (
+                    {presentationTypeChoices(presentationTypes.filter((t) => t.offered), presentationTypes).map((o) => (
                       <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                     ))}
                   </SelectContent>

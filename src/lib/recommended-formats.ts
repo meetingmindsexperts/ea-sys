@@ -1,38 +1,50 @@
 /**
  * What a reviewer may recommend an abstract be presented as (Nov 10, 2026):
- * the presentation types this event offers (Content, Abstracts), plus Neither.
- * The list used to be fixed at Oral, Poster and Neither, so an oral-only event
- * still offered Poster and a Video or Workshop event offered neither of those.
+ * the presentation types this event offers, plus Neither. Since Nov 24, 2026
+ * the types and their names are the organisation's
+ * (`abstract-presentation-types.ts`).
  *
- * "Oral or Poster" is an author's either-way choice, not a format a reviewer
- * can recommend, so it stands for both Oral and Poster here.
+ * The either-way type (key `ORAL_POSTER`, "Oral or Poster" unless renamed) is
+ * an author's choice, not a format a reviewer can recommend, so it stands for
+ * Oral and Poster here, even where those two are not offered on their own.
+ *
+ * Until step 2 of the plan the stored value is the Postgres enum
+ * `RecommendedFormat`, so only the built-in keys and Neither can be stored:
+ * `RECOMMENDED_FORMAT_VALUES` is what a door's schema accepts.
  *
  * Client-safe: the review form builds its list from this and the review
  * service checks against it.
  */
-import { readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
+import {
+  EITHER_WAY_STANDS_FOR,
+  EITHER_WAY_TYPE_KEY,
+  offeredPresentationTypes,
+  presentationTypeLabel,
+  RECOMMENDABLE_BUILT_IN_KEYS,
+  type PresentationTypeDef,
+} from "@/lib/abstract-presentation-types";
 
-export const RECOMMENDED_FORMAT_VALUES = ["ORAL", "POSTER", "VIDEO", "WORKSHOP", "NEITHER"] as const;
+export const NEITHER_FORMAT = "NEITHER" as const;
+export const NEITHER_FORMAT_LABEL = "Neither";
+
+/** What may be stored today: every built-in a reviewer can recommend, and Neither. */
+export const RECOMMENDED_FORMAT_VALUES = [...RECOMMENDABLE_BUILT_IN_KEYS, NEITHER_FORMAT] as const;
 export type RecommendedFormatValue = (typeof RECOMMENDED_FORMAT_VALUES)[number];
 
-export const RECOMMENDED_FORMAT_LABELS: Record<RecommendedFormatValue, string> = {
-  ORAL: "Oral presentation",
-  POSTER: "Poster",
-  VIDEO: "Video presentation",
-  WORKSHOP: "Workshop",
-  NEITHER: "Neither",
-};
-
-/** The formats a reviewer may pick on this event, in display order, Neither last. */
-export function recommendableFormats(eventSettings: unknown): RecommendedFormatValue[] {
+/** The formats a reviewer may pick on this event, in the list's order, Neither last. */
+export function recommendableFormats(eventSettings: unknown, types: readonly PresentationTypeDef[]): string[] {
   const offered = new Set<string>();
-  for (const type of readEnabledPresentationTypes(eventSettings)) {
-    if (type === "ORAL_POSTER") {
-      offered.add("ORAL");
-      offered.add("POSTER");
-    } else {
-      offered.add(type);
-    }
+  for (const type of offeredPresentationTypes(eventSettings, types)) {
+    if (type.key === EITHER_WAY_TYPE_KEY) EITHER_WAY_STANDS_FOR.forEach((k) => offered.add(k));
+    else offered.add(type.key);
   }
-  return RECOMMENDED_FORMAT_VALUES.filter((f) => f === "NEITHER" || offered.has(f));
+  const inOrder = types.map((t) => t.key).filter((k) => offered.has(k));
+  return [...inOrder, NEITHER_FORMAT];
+}
+
+/** A recommendation's name: the type's, or Neither. A value the list does not know shows as itself. */
+export function recommendedFormatLabel(types: readonly PresentationTypeDef[], value: string | null | undefined): string {
+  if (!value) return "";
+  if (value === NEITHER_FORMAT) return NEITHER_FORMAT_LABEL;
+  return presentationTypeLabel(types, value);
 }

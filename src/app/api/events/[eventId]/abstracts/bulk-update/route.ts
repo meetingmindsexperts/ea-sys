@@ -7,7 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { ALL_PRESENTATION_TYPE_VALUES } from "@/lib/abstract-presentation-types";
+import { BUILT_IN_PRESENTATION_TYPE_KEYS } from "@/lib/abstract-presentation-types";
 import {
   ABSTRACT_TRANSITION_STATUSES,
   bulkUpdateAbstracts,
@@ -47,7 +47,7 @@ const bodySchema = z
   .object({
     abstractIds: z.array(z.string().min(1).max(100)).min(1).max(MAX_BULK_ABSTRACT_UPDATES),
     status: z.enum(ABSTRACT_TRANSITION_STATUSES).optional(),
-    presentationType: z.enum(ALL_PRESENTATION_TYPE_VALUES as [string, ...string[]]).optional(),
+    presentationType: z.enum(BUILT_IN_PRESENTATION_TYPE_KEYS).optional(),
     notifyAuthors: z.boolean().optional(),
     forceStatus: z.boolean().optional(),
   })
@@ -106,7 +106,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         userId: session.user.id,
         abstractIds,
         status,
-        presentationType: presentationType as (typeof ALL_PRESENTATION_TYPE_VALUES)[number] | undefined,
+        presentationType,
         notifyAuthors: notifyAuthors === true,
         forceStatus: forceStatus === true,
         source: "rest",

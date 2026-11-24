@@ -13,7 +13,7 @@
  *
  * Client-safe: pure functions over the rows the page already holds.
  */
-import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
+import { inDecisionOrder, presentationTypeLabel, type PresentationTypeDef } from "@/lib/abstract-presentation-types";
 import { abstractStatusWords } from "@/lib/abstract-status-label";
 
 export const ALL = "all";
@@ -51,17 +51,17 @@ function ordered(counts: Map<string, number>, known: string[], labelOf: (value: 
     .map((value) => ({ value, label: labelOf(value), count: counts.get(value) ?? 0 }));
 }
 
-export function abstractFilterOptions(abstracts: ReadonlyArray<FilterableAbstract>): {
+/** `types` is the event's organisation's list: the type choices follow its order and its names. */
+export function abstractFilterOptions(abstracts: ReadonlyArray<FilterableAbstract>, types: readonly PresentationTypeDef[]): {
   statuses: ListFilterOption[];
   types: ListFilterOption[];
 } {
   const statusCounts = tally(abstracts.map((a) => a.status));
   const typeCounts = tally(abstracts.map((a) => a.presentationType));
-  const typeLabels: Record<string, string> = PRESENTATION_TYPE_LABELS;
-  const types = ordered(typeCounts, Object.keys(PRESENTATION_TYPE_LABELS), (v) => typeLabels[v] ?? v);
+  const typeOptions = ordered(typeCounts, inDecisionOrder(types).map((t) => t.key), (v) => presentationTypeLabel(types, v));
   const untyped = typeCounts.get(NO_TYPE);
-  if (untyped) types.push({ value: NO_TYPE, label: "No type", count: untyped });
-  return { statuses: ordered(statusCounts, STATUS_ORDER, abstractStatusWords), types };
+  if (untyped) typeOptions.push({ value: NO_TYPE, label: "No type", count: untyped });
+  return { statuses: ordered(statusCounts, STATUS_ORDER, abstractStatusWords), types: typeOptions };
 }
 
 /** The chosen value, or "all" when no listed abstract has it any more. */

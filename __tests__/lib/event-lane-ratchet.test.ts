@@ -106,6 +106,7 @@ const CALLER_LANED: Record<string, [count: number, why: string]> = {
   "src/app/api/organization/catalogue/route.ts": [1, "The settings merge is handed the organisation, and enters that lane itself (event-settings.ts)."],
   "src/app/e/[slug]/page.tsx": [1, "`loadEvent`, called only inside runWithTenant(scope.organizationId) once findPublicEvent has found the event."],
   "src/crm/integrations/events.ts": [5, "The CRM's Events port: every CRM route, tool and service calls it inside the organisation's lane."],
+  "src/lib/abstract-presentation-types-server.ts": [1, "loadPresentationTypesForEvent: called by the abstract emails (abstract-notifications.ts, bulk-email.ts) and the email preview, whose routes, services and tools all run inside the event's lane."],
   "src/lib/agenda-data.ts": [1, "Two callers, the public agenda route and the staff preview, both inside runWithTenant."],
   "src/lib/agent/register-mcp-tools.ts": [5, "An agent / MCP tool: every tool and resource runs inside safeTool / safeResource's lane (register-mcp-tools.ts)."],
   "src/lib/agent/tools/certificates.ts": [6, "An agent / MCP tool: every tool and resource runs inside safeTool / safeResource's lane (register-mcp-tools.ts)."],

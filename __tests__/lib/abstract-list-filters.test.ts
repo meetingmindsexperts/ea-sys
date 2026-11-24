@@ -9,6 +9,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { ALL, NO_TYPE, abstractFilterOptions, effectiveListFilter, matchesListFilters } from "@/lib/abstract-list-filters";
+import { defaultPresentationTypes } from "@/lib/abstract-presentation-types";
+
+const DEFAULTS = defaultPresentationTypes();
 
 const a = (status: string, presentationType: string | null) => ({ status, presentationType });
 const ROWS = [
@@ -18,7 +21,7 @@ const ROWS = [
 
 describe("abstractFilterOptions", () => {
   it("offers only what the listed abstracts have, with counts, in the order an abstract moves through the statuses", () => {
-    const { statuses, types } = abstractFilterOptions(ROWS);
+    const { statuses, types } = abstractFilterOptions(ROWS, DEFAULTS);
     expect(statuses.map((o) => `${o.label} (${o.count})`)).toEqual(["Submitted (2)", "Under review (1)", "Accepted (3)", "Not accepted (1)"]);
     // Oral and Poster first; abstracts with no type are their own choice, last.
     expect(types.map((o) => `${o.label} (${o.count})`)).toEqual(["Oral (2)", "Poster (2)", "Oral or Poster (1)", "No type (2)"]);
@@ -26,11 +29,11 @@ describe("abstractFilterOptions", () => {
   });
 
   it("offers nothing when there are no abstracts", () => {
-    expect(abstractFilterOptions([])).toEqual({ statuses: [], types: [] });
+    expect(abstractFilterOptions([], DEFAULTS)).toEqual({ statuses: [], types: [] });
   });
 
   it("keeps a value this build does not know, under its own name", () => {
-    const { statuses, types } = abstractFilterOptions([a("PARKED", "LIGHTNING")]);
+    const { statuses, types } = abstractFilterOptions([a("PARKED", "LIGHTNING")], DEFAULTS);
     expect(statuses).toEqual([{ value: "PARKED", label: "Parked", count: 1 }]);
     expect(types).toEqual([{ value: "LIGHTNING", label: "LIGHTNING", count: 1 }]);
   });
@@ -55,7 +58,7 @@ describe("matchesListFilters", () => {
 
 describe("effectiveListFilter", () => {
   it("a choice nothing has any more reads as all, so the list is never hidden by a filter that is not offered", () => {
-    const { statuses } = abstractFilterOptions(ROWS);
+    const { statuses } = abstractFilterOptions(ROWS, DEFAULTS);
     expect(effectiveListFilter("ACCEPTED", statuses)).toBe("ACCEPTED");
     expect(effectiveListFilter("WITHDRAWN", statuses)).toBe(ALL);
     expect(effectiveListFilter(ALL, statuses)).toBe(ALL);

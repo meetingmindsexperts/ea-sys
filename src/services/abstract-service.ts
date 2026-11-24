@@ -34,12 +34,13 @@ import {
   readRequiredReviewCount,
 } from "@/lib/abstract-review";
 import { DEFAULT_REVIEW_SCORE_SCALE, readReviewScoreScale } from "@/lib/abstract-score";
-import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
+import { isPresentationTypeOffered, offeredPresentationTypeNames, type PresentationTypeDef } from "@/lib/abstract-presentation-types";
+import { loadPresentationTypesStrict } from "@/lib/abstract-presentation-types-server";
 import type { PresentationType } from "@prisma/client";
 import { organiserTypeWrite } from "@/lib/abstract-requested-type";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import { REVIEWABLE_ABSTRACT_STATUSES as REVIEWABLE_STATUS_LIST, isOwnAbstract, mustConfirmEmailToReview, reviewerPoolIds } from "@/lib/abstract-reviewer-access";
-import { recommendableFormats, type RecommendedFormatValue } from "@/lib/recommended-formats";
+import { recommendableFormats, recommendedFormatLabel, type RecommendedFormatValue } from "@/lib/recommended-formats";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -490,8 +491,11 @@ export async function bulkUpdateAbstracts(input: BulkUpdateAbstractsInput): Prom
 
     const event = await db.event.findFirst({ where: { id: eventId, organizationId }, select: { id: true, settings: true } });
     if (!event) return refuse("EVENT_NOT_FOUND", "Event not found");
-    if (presentationType !== undefined && !isPresentationTypeEnabled(event.settings, presentationType)) {
-      return refuse("TYPE_NOT_OFFERED", `This event does not offer ${presentationType} presentations. Offered: ${readEnabledPresentationTypes(event.settings).join(", ")}.`);
+    if (presentationType !== undefined) {
+      const types = await loadPresentationTypesStrict(organizationId);
+      if (!isPresentationTypeOffered(event.settings, types, presentationType)) {
+        return refuse("TYPE_NOT_OFFERED", `This event does not offer ${presentationType} presentations. Offered: ${offeredPresentationTypeNames(event.settings, types)}.`);
+      }
     }
 
     const rows = await db.abstract.findMany({
@@ -678,11 +682,12 @@ function submissionLogMessage(wasCreate: boolean, onBehalf: boolean): string {
  */
 async function isFormatAccepted(
   settings: unknown,
+  types: readonly PresentationTypeDef[],
   format: string,
   abstractId: string,
   reviewerUserId: string,
 ): Promise<boolean> {
-  const offered: string[] = recommendableFormats(settings);
+  const offered = recommendableFormats(settings, types);
   if (offered.includes(format)) return true;
   const existing = await db.abstractReviewSubmission.findUnique({
     where: { abstractId_reviewerUserId: { abstractId, reviewerUserId } },
@@ -843,12 +848,14 @@ export async function submitAbstractReview(
     if (confidence !== undefined && (!Number.isInteger(confidence) || confidence < 1 || confidence > 5)) {
       return { ok: false, code: "INVALID_CONFIDENCE", message: "confidence must be an integer between 1 and 5" };
     }
-    if (recommendedFormat !== undefined && !(await isFormatAccepted(event.settings, recommendedFormat, abstractId, reviewerUserId))) {
+    const formatTypes = recommendedFormat === undefined ? [] : await loadPresentationTypesStrict(event.organizationId);
+    if (recommendedFormat !== undefined && !(await isFormatAccepted(event.settings, formatTypes, recommendedFormat, abstractId, reviewerUserId))) {
       apiLogger.warn({ msg: "abstract-submission:format-not-offered", eventId, abstractId, recommendedFormat, source });
+      const choices = recommendableFormats(event.settings, formatTypes).map((f) => `${recommendedFormatLabel(formatTypes, f)} (${f})`);
       return {
         ok: false,
         code: "INVALID_RECOMMENDED_FORMAT",
-        message: `This event does not offer that format. Choose one of: ${recommendableFormats(event.settings).join(", ")}`,
+        message: `This event does not offer that format. Choose one of: ${choices.join(", ")}`,
       };
     }
     if (reviewNotes !== undefined && reviewNotes.length > 5000) {

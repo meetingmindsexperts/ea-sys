@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Presentation types, step 1: one list and one name for each (November 24, 2026)
+
+Owner: "give the complete control to organizer on what the list should be and if they want to add new at one
+place". Plan: `docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md`. This step builds the ground for it; **an organiser
+cannot edit the list yet**, and every event offers exactly what it offered before.
+
+- **One rule module**, `src/lib/abstract-presentation-types.ts`: the organisation's list
+  (`Organization.settings.presentationTypes`, unset everywhere today, so the five built-ins), what an event
+  offers, a type's name, a form's choices. The server loads it with `abstract-presentation-types-server.ts`;
+  pages get it from `GET /api/events/{id}/presentation-types` (`usePresentationTypes`), readable by the same
+  people as the event's themes.
+- **Every reader moved onto it**: the Abstracts page (badges, the type filter, the Accepted card, the add
+  form), the edit page, the new-abstract form, Set status or type, My details, the reviewer's page, the
+  Content page's ticks, the abstract emails and their preview, bulk email, the presenter agreement, the Word
+  export, the shared abstracts page, the help chat's event facts, and the create, edit, bulk and import doors.
+- **One name each, the short one.** The names had drifted across four files. Forms and the Content page said
+  "Oral Presentation", "Oral or Poster Presentation" and so on; they now say "Oral", "Oral or Poster", as the
+  badges, emails and exports already did. The reviewer's page said "oral poster" and the shared page "Oral or
+  poster"; both now say "Oral or Poster". These are the only visible changes.
+- The Accepted card and the type filter keep Oral and Poster before Oral or Poster (`inDecisionOrder`).
+- A new test (`presentation-type-names.test.ts`) refuses a type's name written as a string, or a list of
+  the type keys, anywhere but the rule module. The three routes that carried their own list of five now
+  take it from the module.
+- The stored columns are still the five-value enum: that is step 2.
+
+Checked on a local copy of production, MEHF2027 (169 listed abstracts): the type filter reads Oral 24,
+Poster 54, Oral or Poster 91, the same as the database; the edit form offers the event's three types; the
+Content page's ticks saved and restored with the rest of the page unchanged; the reviewer's page names the
+type and offers Oral, Poster and Neither. No console warning or failed request.
+
 ### Recording a partner's stream, step 1: the record and the switch (November 24, 2026)
 
 Owner: "plan it please, partner side for now, we will use S3 for storage and not disk", then "ok fine,

@@ -19,6 +19,9 @@ import {
   type ProposalShareRow,
   type SharedItem,
 } from "@/lib/submission-share";
+import { defaultPresentationTypes } from "@/lib/abstract-presentation-types";
+
+const DEFAULTS = defaultPresentationTypes();
 
 const speaker = {
   title: "DR",
@@ -82,7 +85,7 @@ const FIELD_TO_KEYS: Record<string, (keyof SharedItem)[]> = {
 };
 
 function project(kind: (typeof SHARE_KINDS)[number], on: Set<string>): SharedItem {
-  return kind === "ABSTRACTS" ? projectAbstract(abstractRow, on) : projectProposal(proposalRow, on);
+  return kind === "ABSTRACTS" ? projectAbstract(abstractRow, on, DEFAULTS) : projectProposal(proposalRow, on);
 }
 
 describe("projection", () => {
@@ -111,7 +114,7 @@ describe("projection", () => {
   });
 
   it("formats what it shows", () => {
-    const a = projectAbstract(abstractRow, new Set(["theme", "authorName", "authorAffiliation", "coAuthors", "presentationType"]));
+    const a = projectAbstract(abstractRow, new Set(["theme", "authorName", "authorAffiliation", "coAuthors", "presentationType"]), DEFAULTS);
     expect(a.number).toBe("A-007");
     expect(a.theme).toBe("Cardiology › Heart failure");
     expect(a.authorAffiliation).toBe("Consultant, Tawam Hospital");

@@ -21,6 +21,25 @@ GET abstract-themes
   API_KEY     401         401         401         401
   NONE        401         401         401         401
 
+GET presentation-types
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 200 r       200 r       200 r       404
+  OPERATOR    200 r       200 r       200 r       200 r
+  ADMIN       200 r       200 r       200 r       404
+  ORGANIZER   200 r       200 r       200 r       404
+  MEMBER      200 r       200 r       200 r       404
+  ONSITE      404         200 r       404         404
+  WEBINARS    404         404         200 r       404
+  CRM_USER    404         404         404         404
+  HR_USER     404         404         404         404
+  BASE        404         404         404         404
+  BASE_MKT    404         404         404         404
+  REVIEWER    404         200 r       404         200 r
+  SUBMITTER   404         200 r       404         200 r
+  REGISTRANT  404         200 r       404         200 r
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
 POST abstract-themes
   caller      conf        assigned    webinar     foreign
   SUPER_ADMIN 500 r w     500 r w     500 r w     404

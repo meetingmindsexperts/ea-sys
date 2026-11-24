@@ -17,7 +17,6 @@ import { useMyReview, useSubmitMyReview, type MyReview, type RecommendedFormat }
 import { ApiError } from "@/lib/api-fetch";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { formatDate } from "@/lib/utils";
-import { RECOMMENDED_FORMAT_LABELS } from "@/lib/recommended-formats";
 
 type OpenReview = Extract<MyReview, { conflict: false }>;
 
@@ -133,7 +132,7 @@ function ReviewForm({ review, eventId, abstractId }: { review: OpenReview; event
           </SelectTrigger>
           <SelectContent>
             {formatChoices.map((f) => (
-              <SelectItem key={f} value={f}>{RECOMMENDED_FORMAT_LABELS[f]}</SelectItem>
+              <SelectItem key={f} value={f}>{review.typeNames[f] ?? f}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -168,7 +167,7 @@ function AbstractBody({ review }: { review: OpenReview }) {
     ["Theme", joinParts(abstract.theme?.name, abstract.subTheme?.name)],
     ["Track", abstract.track?.name],
     ["Specialty", abstract.specialty],
-    ["Presentation type", abstract.presentationType?.replace(/_/g, " ").toLowerCase()],
+    ["Presentation type", abstract.presentationType ? review.typeNames[abstract.presentationType] ?? abstract.presentationType : null],
     ["Submitted", formatDate(abstract.submittedAt)],
   ];
   return (

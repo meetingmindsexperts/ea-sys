@@ -27,6 +27,15 @@ vi.mock("@/lib/db", () => ({
   db: mockDb,
   tenantTransaction: (cb: (tx: unknown) => unknown) => (mockDb.$transaction as (cb: (tx: unknown) => unknown) => unknown)(cb),
 }));
+// The organisation's presentation types: the five built-ins, as for an organisation that never edited them.
+vi.mock("@/lib/abstract-presentation-types-server", async () => {
+  const { defaultPresentationTypes } = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
+  return {
+    loadPresentationTypes: async () => defaultPresentationTypes(),
+    loadPresentationTypesStrict: async () => defaultPresentationTypes(),
+    loadPresentationTypesForEvent: async () => defaultPresentationTypes(),
+  };
+});
 vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
 vi.mock("@/lib/abstract-review", () => ({
   computeSubmissionAggregates: aggregates,

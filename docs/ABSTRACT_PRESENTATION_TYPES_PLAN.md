@@ -1,6 +1,6 @@
 # Presentation types the organiser owns
 
-**Status:** IN BUILD (November 24, 2026). Section 6 has the steps; none is built yet. Sections 2 and 8 hold
+**Status:** IN BUILD (November 24, 2026). Section 6 has the steps; step 1 is built. Sections 2 and 8 hold
 the owner's decisions.
 
 **Owner's request:** "give the complete control to organizer on what the list should be and if they want
@@ -159,12 +159,14 @@ anything outside the app that reads an abstract's type (the n8n workflows, saved
 
 ## 6. Steps
 
-Each step is one change with its own tests, local browser check and one adversarial review. Steps 1 and 2
-change nothing a user can see.
+Each step is one change with its own tests, local browser check and one adversarial review. Step 2
+changes nothing a user can see; step 1 changed only the wording of the names (section 6).
 
-1. **The list and one label source.** The organisation's list (reader, defaults, repair), the rule module,
-   and every reader in section 5 taking its label and its offered list from it. The list cannot be edited
-   yet, so every answer is what it is today. A test lists the files that may name a type's label.
+1. **The list and one label source.** BUILT Nov 24, 2026. The organisation's list (reader, defaults,
+   repair), the rule module, and every reader in section 5 taking its label and its offered list from it.
+   The list cannot be edited yet, so every event offers what it did. One visible change: the names were
+   made one (the short form), so forms say "Oral" where they said "Oral Presentation". A test
+   (`presentation-type-names.test.ts`) refuses a name or a list of keys outside the rule module.
 2. **Text columns.** The migration (three columns, the trigger, the backfill), the Prisma mapping, and the
    doors validating by the rule in place of the enum. Still only five keys can exist. Rehearsed on the
    local copy of production: the count of abstracts by type must be the same before and after, and the

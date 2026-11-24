@@ -33,13 +33,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { useBulkUpdateAbstracts, useMakePresenters, type BulkAbstractUpdateInput } from "@/hooks/use-api";
+import { useBulkUpdateAbstracts, useMakePresenters, type BulkAbstractUpdateInput, usePresentationTypes } from "@/hooks/use-api";
 import { abstractStatusWords } from "@/lib/abstract-status-label";
 import { describeMakePresenters, makePresentersNeedsAttention } from "@/lib/make-presenters-outcome";
 import { describeBulkUpdate, unfinishedIds, type BulkUpdateReport } from "@/lib/abstract-bulk-update-outcome";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
-import { readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
-import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 
 /** What the dialog needs to know about a ticked abstract. */
 export interface BulkStatusAbstract {
@@ -111,7 +109,6 @@ function Report({ report }: { report: BulkUpdateReport }) {
 
 function BulkStatusBody({
   eventId,
-  eventSettings,
   abstracts,
   canMakePresenters,
   onFinished,
@@ -119,7 +116,6 @@ function BulkStatusBody({
   onBusy,
 }: {
   eventId: string;
-  eventSettings: unknown;
   abstracts: BulkStatusAbstract[];
   /** May this person make the accepted authors' registrations Complimentary (registrations.bulk)? */
   canMakePresenters: boolean;
@@ -140,7 +136,9 @@ function BulkStatusBody({
   const [withdrawConfirmed, setWithdrawConfirmed] = useState(false);
   const [report, setReport] = useState<BulkUpdateReport | null>(null);
 
-  const typeChoices = readEnabledPresentationTypes(eventSettings);
+  // The types this event offers, by the organisation's names (abstract-presentation-types.ts).
+  const { data: presentationTypes = [] } = usePresentationTypes(eventId);
+  const typeChoices = presentationTypes.filter((t) => t.offered);
   const affected = countAffected(abstracts, status, type);
   const withdrawn = abstracts.filter((a) => a.status === "WITHDRAWN").length;
   // The ones a Withdrawn would really withdraw: not those already withdrawn
@@ -243,8 +241,8 @@ function BulkStatusBody({
               <SelectContent>
                 <SelectItem value={KEEP}>Keep each one&apos;s type</SelectItem>
                 {typeChoices.map((choice) => (
-                  <SelectItem key={choice} value={choice}>
-                    {PRESENTATION_TYPE_LABELS[choice]}
+                  <SelectItem key={choice.key} value={choice.key}>
+                    {choice.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -336,7 +334,6 @@ function BulkStatusBody({
 
 export function BulkStatusDialog({
   eventId,
-  eventSettings,
   abstracts,
   canMakePresenters,
   open,
@@ -344,8 +341,6 @@ export function BulkStatusDialog({
   onFinished,
 }: {
   eventId: string;
-  /** The event's settings JSON: which presentation types it offers. */
-  eventSettings: unknown;
   abstracts: BulkStatusAbstract[];
   canMakePresenters: boolean;
   open: boolean;
@@ -375,7 +370,6 @@ export function BulkStatusDialog({
         {open && (
           <BulkStatusBody
             eventId={eventId}
-            eventSettings={eventSettings}
             abstracts={snapshot}
             canMakePresenters={canMakePresenters}
             onFinished={onFinished}

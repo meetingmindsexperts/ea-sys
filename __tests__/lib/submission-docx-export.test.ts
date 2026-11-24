@@ -7,6 +7,9 @@ import {
   type AbstractDocxRow,
   type ProposalDocxRow,
 } from "@/lib/submission-docx-export";
+import { defaultPresentationTypes } from "@/lib/abstract-presentation-types";
+
+const DEFAULTS = defaultPresentationTypes();
 
 /** Field lookup by label — the mappers always emit the full set, empty or not. */
 function field(entry: { fields: { label: string; value: string }[] }, label: string): string {
@@ -47,44 +50,44 @@ const proposal: ProposalDocxRow = {
 
 describe("abstractToDocxEntry", () => {
   it("puts the number and title in the heading", () => {
-    expect(abstractToDocxEntry(abstract).heading).toBe("A-007  Effect of X on Y");
+    expect(abstractToDocxEntry(abstract, DEFAULTS).heading).toBe("A-007  Effect of X on Y");
   });
 
   it("shows the sub-theme under its theme when one is set", () => {
-    expect(field(abstractToDocxEntry(abstract), "Theme")).toBe("Cardiology › Heart failure");
+    expect(field(abstractToDocxEntry(abstract, DEFAULTS), "Theme")).toBe("Cardiology › Heart failure");
   });
 
   it("shows the theme alone when there is no sub-theme", () => {
-    expect(field(abstractToDocxEntry({ ...abstract, subTheme: null }), "Theme")).toBe("Cardiology");
+    expect(field(abstractToDocxEntry({ ...abstract, subTheme: null }, DEFAULTS), "Theme")).toBe("Cardiology");
   });
 
   it("names the presenting author with organisation and country", () => {
-    expect(field(abstractToDocxEntry(abstract), "Presenting Author")).toBe(
+    expect(field(abstractToDocxEntry(abstract, DEFAULTS), "Presenting Author")).toBe(
       "Dr. Amal Haddad, Tawam Hospital, United Arab Emirates",
     );
   });
 
   it("keeps the author line readable when affiliation is missing", () => {
     const bare = { ...abstract, speaker: { ...speaker, organization: null, country: null } };
-    expect(field(abstractToDocxEntry(bare), "Presenting Author")).toBe("Dr. Amal Haddad");
+    expect(field(abstractToDocxEntry(bare, DEFAULTS), "Presenting Author")).toBe("Dr. Amal Haddad");
   });
 
   it("lists co-authors with their affiliation, skipping the parts that are blank", () => {
-    expect(field(abstractToDocxEntry(abstract), "Co-authors")).toBe(
+    expect(field(abstractToDocxEntry(abstract, DEFAULTS), "Co-authors")).toBe(
       "Sara Khan, Cleveland Clinic, UAE; Omar Ali, Saudi Arabia",
     );
   });
 
   // Nov 19, 2026: the author's own choice, printed only when the organiser set something else.
   it("prints what the author asked for only when it differs from the type now set", () => {
-    expect(field(abstractToDocxEntry({ ...abstract, requestedPresentationType: "POSTER" }), "Requested by the author")).toBe("Poster");
-    expect(field(abstractToDocxEntry({ ...abstract, requestedPresentationType: "ORAL_POSTER" }), "Requested by the author")).toBe("");
-    expect(field(abstractToDocxEntry(abstract), "Requested by the author")).toBe("");
+    expect(field(abstractToDocxEntry({ ...abstract, requestedPresentationType: "POSTER" }, DEFAULTS), "Requested by the author")).toBe("Poster");
+    expect(field(abstractToDocxEntry({ ...abstract, requestedPresentationType: "ORAL_POSTER" }, DEFAULTS), "Requested by the author")).toBe("");
+    expect(field(abstractToDocxEntry(abstract, DEFAULTS), "Requested by the author")).toBe("");
   });
 
   it("renders the presentation type as its label, never the raw enum", () => {
     // "ORAL_POSTER" on a page an organiser hands to a committee reads as a bug.
-    expect(field(abstractToDocxEntry(abstract), "Presentation Type")).toBe("Oral or Poster");
+    expect(field(abstractToDocxEntry(abstract, DEFAULTS), "Presentation Type")).toBe("Oral or Poster");
   });
 
   it("leaves every optional line empty rather than inventing a value", () => {
@@ -98,7 +101,7 @@ describe("abstractToDocxEntry", () => {
       subTheme: null,
       speaker: null,
     };
-    const entry = abstractToDocxEntry(bare);
+    const entry = abstractToDocxEntry(bare, DEFAULTS);
     expect(entry.heading).toBe("—  Untitled");
     expect(field(entry, "Theme")).toBe("");
     expect(field(entry, "Presenting Author")).toBe("");
@@ -107,7 +110,7 @@ describe("abstractToDocxEntry", () => {
   });
 
   it("carries the abstract body through untouched", () => {
-    expect(abstractToDocxEntry(abstract).body).toBe("Background.\nMethods.");
+    expect(abstractToDocxEntry(abstract, DEFAULTS).body).toBe("Background.\nMethods.");
   });
 });
 

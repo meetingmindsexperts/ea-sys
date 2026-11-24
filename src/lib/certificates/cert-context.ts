@@ -8,6 +8,7 @@
  * No behavior change from the original worker definitions.
  */
 
+import { POSTER_TYPE_KEY } from "@/lib/abstract-presentation-types";
 import { Prisma, type CertificateType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { formatPersonName } from "@/lib/utils";
@@ -181,7 +182,7 @@ export async function allocateSerial(
 
 export async function loadPosterAbstractTitle(speakerId: string, eventId: string): Promise<string | null> {
   const abstract = await db.abstract.findFirst({
-    where: { eventId, presentationType: "POSTER", status: "ACCEPTED", speakerId },
+    where: { eventId, presentationType: POSTER_TYPE_KEY, status: "ACCEPTED", speakerId },
     select: { title: true },
     orderBy: { createdAt: "asc" },
   });

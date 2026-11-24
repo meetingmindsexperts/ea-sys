@@ -315,7 +315,7 @@ describe("ABSTRACT_OWN_TOKENS is what the builders fill", () => {
   it("names every token of the two builders except the person's own", () => {
     const person = new Set(["title", "firstName", "lastName", "authorName"]);
     const built = [
-      ...Object.keys(buildAbstractConfirmationVars({ abstractTitle: "t", serialId: 1, presentationType: "ORAL", themeName: "x", coAuthors: null, speaker: SPEAKER })),
+      ...Object.keys(buildAbstractConfirmationVars({ abstractTitle: "t", serialId: 1, presentationTypeName: "Oral", themeName: "x", coAuthors: null, speaker: SPEAKER })),
       ...Object.keys(buildAbstractDecisionVars({ status: "ACCEPTED", reviewNotes: null, reviewScore: null })),
     ].filter((k) => !person.has(k));
     expect([...ABSTRACT_OWN_TOKENS].sort()).toEqual([...new Set(built)].sort());

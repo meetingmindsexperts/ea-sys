@@ -37,12 +37,13 @@ import {
 } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
 import { usePersonFieldLabel } from "@/hooks/use-person-fields";
-import { useEvent, useSubmitterContext } from "@/hooks/use-api";
+import { useEvent, usePresentationTypes, useSubmitterContext } from "@/hooks/use-api";
+import { presentationTypeLabel } from "@/lib/abstract-presentation-types";
 import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-surfaces";
 import { isProfileIncomplete, missingProfileFields, rulesSentWith } from "@/lib/submitter-profile-completeness";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
-import { abstractStatusColor, abstractStatusLabel, PRESENTATION_TYPE_LABELS } from "../abstracts/abstract-enums";
+import { abstractStatusColor, abstractStatusLabel } from "../abstracts/abstract-enums";
 import { isSafeInternalPath } from "@/lib/safe-redirect";
 
 interface AbstractRow {
@@ -185,6 +186,7 @@ export default function SubmitterProfilePage() {
   const seesProposals = surfaceCtx ? submitterSeesProposals(surfaceCtx) : false;
 
   const { data: event } = useEvent(eventId);
+  const { data: presentationTypes = [] } = usePresentationTypes(eventId);
   // An author on an event that no longer takes abstracts is not offered Submit
   // (abstract-intake.ts): the button would only lead to the closed notice.
   const intakeClosed = isSubmitter && event ? abstractIntakeClosed(event) : null;
@@ -625,9 +627,7 @@ export default function SubmitterProfilePage() {
                   <div className="min-w-0">
                     <div className="text-sm font-medium line-clamp-1">{a.title}</div>
                     <div className="text-xs text-muted-foreground">
-                      {a.presentationType
-                        ? PRESENTATION_TYPE_LABELS[a.presentationType as keyof typeof PRESENTATION_TYPE_LABELS] ?? a.presentationType
-                        : "—"}
+                      {a.presentationType ? presentationTypeLabel(presentationTypes, a.presentationType) : "—"}
                       {a.submittedAt && ` · Submitted ${new Date(a.submittedAt).toLocaleDateString()}`}
                     </div>
                   </div>

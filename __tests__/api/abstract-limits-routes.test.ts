@@ -48,6 +48,15 @@ vi.mock("@/lib/abstract-serial", () => ({
   getNextAbstractSerialId: vi.fn().mockResolvedValue(7),
   formatAbstractSerial: (n: number | null | undefined) => (n == null ? "-" : `A-${n}`),
 }));
+// The organisation's presentation types: the five built-ins, as for an organisation that never edited them.
+vi.mock("@/lib/abstract-presentation-types-server", async () => {
+  const { defaultPresentationTypes } = await vi.importActual<typeof import("@/lib/abstract-presentation-types")>("@/lib/abstract-presentation-types");
+  return {
+    loadPresentationTypes: async () => defaultPresentationTypes(),
+    loadPresentationTypesStrict: async () => defaultPresentationTypes(),
+    loadPresentationTypesForEvent: async () => defaultPresentationTypes(),
+  };
+});
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4" }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));

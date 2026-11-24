@@ -6,13 +6,16 @@
  */
 import { describe, it, expect } from "vitest";
 import { acceptedByPresentationType, NO_PRESENTATION_TYPE_LABEL } from "@/lib/abstract-accepted-breakdown";
+import { defaultPresentationTypes, readPresentationTypes } from "@/lib/abstract-presentation-types";
+
+const DEFAULTS = defaultPresentationTypes();
 
 const a = (status: string, presentationType: string | null) => ({ status, presentationType });
 
 describe("acceptedByPresentationType", () => {
   it("counts only accepted abstracts, oral and poster apart", () => {
     const rows = [a("ACCEPTED", "ORAL"), a("ACCEPTED", "ORAL"), a("ACCEPTED", "POSTER"), a("REJECTED", "ORAL"), a("SUBMITTED", "POSTER")];
-    expect(acceptedByPresentationType(rows)).toEqual([
+    expect(acceptedByPresentationType(rows, DEFAULTS)).toEqual([
       { type: "ORAL", label: "Oral", count: 2 },
       { type: "POSTER", label: "Poster", count: 1 },
     ]);
@@ -20,14 +23,19 @@ describe("acceptedByPresentationType", () => {
 
   it("the parts add up to the accepted total: other types and abstracts with no type are listed too", () => {
     const rows = [a("ACCEPTED", "POSTER"), a("ACCEPTED", "ORAL_POSTER"), a("ACCEPTED", null), a("ACCEPTED", ""), a("ACCEPTED", "VIDEO"), a("ACCEPTED", "ORAL")];
-    const out = acceptedByPresentationType(rows);
-    // Oral and Poster first (the labels' own order), then the untyped last.
+    const out = acceptedByPresentationType(rows, DEFAULTS);
+    // Oral and Poster first (decision order), then the untyped last.
     expect(out.map((t) => `${t.label} ${t.count}`)).toEqual(["Oral 1", "Poster 1", "Oral or Poster 1", "Video 1", `${NO_PRESENTATION_TYPE_LABEL} 2`]);
     expect(out.reduce((n, t) => n + t.count, 0)).toBe(rows.length);
   });
 
   it("lists nothing when nothing is accepted, and keeps a type it does not know under its own name", () => {
-    expect(acceptedByPresentationType([a("SUBMITTED", "ORAL")])).toEqual([]);
-    expect(acceptedByPresentationType([a("ACCEPTED", "LIGHTNING")])).toEqual([{ type: "LIGHTNING", label: "LIGHTNING", count: 1 }]);
+    expect(acceptedByPresentationType([a("SUBMITTED", "ORAL")], DEFAULTS)).toEqual([]);
+    expect(acceptedByPresentationType([a("ACCEPTED", "LIGHTNING")], DEFAULTS)).toEqual([{ type: "LIGHTNING", label: "LIGHTNING", count: 1 }]);
+  });
+
+  it("names each type as the organisation calls it", () => {
+    const renamed = readPresentationTypes({ presentationTypes: [{ key: "POSTER", label: "E-poster" }] });
+    expect(acceptedByPresentationType([a("ACCEPTED", "POSTER")], renamed)).toEqual([{ type: "POSTER", label: "E-poster", count: 1 }]);
   });
 });

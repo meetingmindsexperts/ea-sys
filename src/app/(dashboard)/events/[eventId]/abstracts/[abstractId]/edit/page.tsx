@@ -25,7 +25,8 @@ import {
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useSubmitterProfileGate } from "@/hooks/use-submitter-profile-gate";
-import { useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
+import { useTracks, useEvent, useAbstractThemes, usePresentationTypes, queryKeys } from "@/hooks/use-api";
+import { presentationTypeChoices, presentationTypeLabel } from "@/lib/abstract-presentation-types";
 import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { ApiError } from "@/lib/api-fetch";
 import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
@@ -37,12 +38,7 @@ import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { formatDate } from "@/lib/utils";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import Link from "next/link";
-import {
-  enabledPresentationTypeOptions,
-  PRESENTATION_TYPE_LABELS,
-  abstractStatusColor,
-  abstractStatusLabel,
-} from "../../abstract-enums";
+import { abstractStatusColor, abstractStatusLabel } from "../../abstract-enums";
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
 import { PresenterAgreementCard } from "@/components/abstracts/presenter-agreement-card";
 import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
@@ -104,6 +100,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   const { data: session } = useSession();
   const isSubmitter = session?.user?.role === "SUBMITTER";
   const { data: eventData } = useEvent(eventId);
+  const { data: presentationTypes = [] } = usePresentationTypes(eventId);
   const contactEmail = (eventData as { emailFromAddress?: string | null } | undefined)?.emailFromAddress;
   // An author's draft can no longer be sent in once the event has stopped
   // taking abstracts (abstract-intake.ts); the route refuses it. Saving the
@@ -285,7 +282,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
             </Badge>
             {(abstract.presentationType as string) && (
               <Badge variant="secondary" className="text-xs">
-                {PRESENTATION_TYPE_LABELS[abstract.presentationType as keyof typeof PRESENTATION_TYPE_LABELS] ?? (abstract.presentationType as string)}
+                {presentationTypeLabel(presentationTypes, abstract.presentationType as string)}
               </Badge>
             )}
             <span className="text-xs text-muted-foreground">
@@ -491,7 +488,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                     {/* Only the types this event offers — but an abstract's
                         existing type stays selectable even if the organizer
                         later disabled it (annotated in the label). */}
-                    {enabledPresentationTypeOptions((eventData as { settings?: unknown } | undefined)?.settings, (abstract.presentationType as string | null) ?? null).map((o) => (
+                    {presentationTypeChoices(presentationTypes.filter((t) => t.offered), presentationTypes, (abstract.presentationType as string | null) ?? null).map((o) => (
                       <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                     ))}
                   </SelectContent>
@@ -499,7 +496,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 {/* The author's own choice stays on record whatever the organiser sets; shown to staff only. */}
                 {!isSubmitter && (abstract.requestedPresentationType as string | null) && abstract.requestedPresentationType !== abstract.presentationType && (
                   <p className="text-xs text-muted-foreground">
-                    The author asked for {PRESENTATION_TYPE_LABELS[abstract.requestedPresentationType as keyof typeof PRESENTATION_TYPE_LABELS] ?? (abstract.requestedPresentationType as string)}.
+                    The author asked for {presentationTypeLabel(presentationTypes, abstract.requestedPresentationType as string)}.
                   </p>
                 )}
               </div>

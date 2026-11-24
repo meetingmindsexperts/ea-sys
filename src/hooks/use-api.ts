@@ -3,6 +3,7 @@
 
 import type { MakePresentersOutcome } from "@/lib/make-presenters-outcome";
 import type { ReviewScoreScale } from "@/lib/abstract-score";
+import type { EventPresentationType } from "@/lib/abstract-presentation-types";
 import type { EventListRow } from "@/lib/event-visibility";
 import { useIsMutating, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -95,6 +96,7 @@ export const queryKeys = {
   tracks: (eventId: string) => ["events", eventId, "tracks"] as const,
   abstracts: (eventId: string) => ["events", eventId, "abstracts"] as const,
   abstractThemes: (eventId: string) => ["events", eventId, "abstract-themes"] as const,
+  presentationTypes: (eventId: string) => ["events", eventId, "presentation-types"] as const,
   sessionProposals: (eventId: string) => ["events", eventId, "session-proposals"] as const,
   sessionProposalThemes: (eventId: string) => ["events", eventId, "session-proposal-themes"] as const,
   submissionShares: (eventId: string) => ["events", eventId, "submission-shares"] as const,
@@ -399,6 +401,8 @@ export type MyReview =
       canSubmit: boolean;
       /** What this event lets a reviewer recommend (recommended-formats.ts). */
       formats: RecommendedFormat[];
+      /** The name of every type and recommendation by its key, as the organisation calls it. */
+      typeNames: Record<string, string>;
       criteria: MyReviewCriterion[];
       /** What each criterion is scored out of on this event: 5, 10 or 100 (abstract-score.ts). */
       scoreScale: ReviewScoreScale;
@@ -2241,6 +2245,21 @@ export function useMarkNotificationsRead() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
     },
+  });
+}
+
+// ============ PRESENTATION TYPES ============
+
+/**
+ * The organisation's presentation types for this event, each marked `offered`
+ * (src/lib/abstract-presentation-types.ts). The ONE place a page gets a type's
+ * name or the event's offered list from; never a list of its own.
+ */
+export function usePresentationTypes(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.presentationTypes(eventId),
+    queryFn: () => fetchApi<{ types: EventPresentationType[] }>(`/api/events/${eventId}/presentation-types`).then((r) => r.types),
+    enabled: !!eventId,
   });
 }
 

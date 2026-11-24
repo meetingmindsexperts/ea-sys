@@ -63,7 +63,8 @@ import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { abstractMatchesSearch, type AbstractSearchOptions } from "@/lib/abstract-search";
 import { usePersonFieldLabel } from "@/hooks/use-person-fields";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
-import { useAbstracts, useSpeakers, useTracks, useEvent, useAbstractThemes, useMakePresenters, queryKeys } from "@/hooks/use-api";
+import { useAbstracts, useSpeakers, useTracks, useEvent, useAbstractThemes, useMakePresenters, usePresentationTypes, queryKeys } from "@/hooks/use-api";
+import { presentationTypeChoices, presentationTypeLabel } from "@/lib/abstract-presentation-types";
 import { describeMakePresenters, makePresentersNeedsAttention } from "@/lib/make-presenters-outcome";
 import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abstract-sub-theme-select";
@@ -74,12 +75,7 @@ import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
-import {
-  enabledPresentationTypeOptions,
-  abstractStatusColor,
-  abstractStatusLabel,
-  PRESENTATION_TYPE_LABELS,
-} from "./abstract-enums";
+import { abstractStatusColor, abstractStatusLabel } from "./abstract-enums";
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AbstractReviewerToolbar, ALL_THEMES, NO_THEME } from "@/components/abstracts/abstract-reviewer-toolbar";
@@ -90,11 +86,6 @@ import { SelectAbstractsByIdsDialog } from "@/components/abstracts/select-abstra
 import { acceptedByPresentationType } from "@/lib/abstract-accepted-breakdown";
 import { abstractIntakeClosed } from "@/lib/abstract-intake";
 import { ALL as ALL_VALUES, abstractFilterOptions, effectiveListFilter, matchesListFilters } from "@/lib/abstract-list-filters";
-
-/** The shared labels; this page's own list once called every Oral or Poster abstract "Workshop". */
-function presentationTypeLabel(type: string): string {
-  return PRESENTATION_TYPE_LABELS[type as keyof typeof PRESENTATION_TYPE_LABELS] ?? type;
-}
 
 /**
  * What the delete confirmation says. It names the abstract (the button is an
@@ -282,6 +273,10 @@ export default function AbstractsPage() {
   // the event offers themes, because that is what makes one required.
   const { data: themes = [] } = useAbstractThemes(eventId) as { data: Array<{ id: string; name: string }> };
   const { data: event } = useEvent(eventId);
+  // The organisation's types: every name on this page and the offered list
+  // (this page's own list once called every Oral or Poster abstract "Workshop").
+  const { data: presentationTypes = [] } = usePresentationTypes(eventId);
+  const typeName = (key: string | null | undefined) => presentationTypeLabel(presentationTypes, key);
 
   const abstracts = abstractsData as Abstract[];
   const speakers = speakersData as Speaker[];
@@ -545,7 +540,7 @@ export default function AbstractsPage() {
     withdrawn: abstracts.filter((a) => a.status === "WITHDRAWN").length,
   };
 
-  const acceptedTypes = acceptedByPresentationType(abstracts);
+  const acceptedTypes = acceptedByPresentationType(abstracts, presentationTypes);
   // An author's Submit button goes once the event has stopped taking abstracts
   // (the server refuses the same, abstract-intake.ts). Unknown until the event
   // has loaded: never "closed" by default.
@@ -556,7 +551,7 @@ export default function AbstractsPage() {
 
   // The status and type filters offer only what the listed abstracts have, and
   // a choice nothing has any more reads as "all" (abstract-list-filters.ts).
-  const filterOptions = abstractFilterOptions(abstracts);
+  const filterOptions = abstractFilterOptions(abstracts, presentationTypes);
   const statusFilter = effectiveListFilter(statusChoice, filterOptions.statuses);
   const typeFilter = effectiveListFilter(typeChoice, filterOptions.types);
   // A choice that reads as "all" IS "all": forgotten here, during render (the
@@ -583,7 +578,7 @@ export default function AbstractsPage() {
   const searchOptionsFor = (a: Abstract): AbstractSearchOptions => ({
     email: !isSubmitter && !isReviewer,
     status: a.status,
-    extra: [a.presentationType ? presentationTypeLabel(a.presentationType) : null],
+    extra: [a.presentationType ? typeName(a.presentationType) : null],
   });
   const shownAbstracts = searching
     ? filteredAbstracts.filter((a) => abstractMatchesSearch(a, searchQuery, searchOptionsFor(a)))
@@ -860,7 +855,7 @@ export default function AbstractsPage() {
                         </SelectTrigger>
                         <SelectContent>
                           {/* Only the types this event offers (Content → Abstracts). */}
-                          {enabledPresentationTypeOptions((event as { settings?: unknown } | undefined)?.settings).map((o) => (
+                          {presentationTypeChoices(presentationTypes.filter((t) => t.offered), presentationTypes).map((o) => (
                             <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                           ))}
                         </SelectContent>
@@ -1347,7 +1342,6 @@ export default function AbstractsPage() {
             {canManage && (
               <BulkStatusDialog
                 eventId={eventId}
-                eventSettings={event?.settings}
                 abstracts={selectedAbstracts}
                 canMakePresenters={canMakePresenters}
                 open={bulkStatusOpen}
@@ -1442,13 +1436,13 @@ export default function AbstractsPage() {
                         </Badge>
                         {abstract.presentationType && (
                           <Badge variant="secondary" className="text-xs">
-                            {presentationTypeLabel(abstract.presentationType)}
+                            {typeName(abstract.presentationType)}
                           </Badge>
                         )}
                         {/* Staff only: an author is not told of a type change before decisions are announced. */}
                         {!isSubmitter && abstract.requestedPresentationType && abstract.requestedPresentationType !== abstract.presentationType && (
                           <Badge variant="outline" className="text-xs text-muted-foreground" title="The presentation type the author chose when submitting">
-                            Author asked for {presentationTypeLabel(abstract.requestedPresentationType)}
+                            Author asked for {typeName(abstract.requestedPresentationType)}
                           </Badge>
                         )}
                         {abstract.theme && (

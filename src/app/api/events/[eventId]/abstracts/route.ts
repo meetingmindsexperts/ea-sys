@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { AbstractStatus, PresentationType, type Prisma } from "@prisma/client";
+import { AbstractStatus, type Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
@@ -35,7 +35,8 @@ import {
   readAbstractLimits,
 } from "@/lib/abstract-limits";
 import { authorTypeWrite } from "@/lib/abstract-requested-type";
-import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
+import { BUILT_IN_PRESENTATION_TYPE_KEYS, isPresentationTypeOffered, offeredPresentationTypeNames } from "@/lib/abstract-presentation-types";
+import { loadPresentationTypes, loadPresentationTypesStrict } from "@/lib/abstract-presentation-types-server";
 import { linkedRoleAbstractFilter } from "@/lib/abstract-reviewer-access";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 import { loadEventPersonFieldRules } from "@/lib/person-field-rules";
@@ -46,7 +47,9 @@ import {
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
-const presentationTypeSchema = z.nativeEnum(PresentationType);
+// The stored column is still the five-value enum until step 2 of
+// docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md; the rule module owns the list.
+const presentationTypeSchema = z.enum(BUILT_IN_PRESENTATION_TYPE_KEYS);
 
 const createAbstractSchema = z.object({
   speakerId: z.string().min(1).max(100),
@@ -140,10 +143,11 @@ interface ExportArgs {
  * one layout.
  */
 async function exportAbstractsDocx(req: Request, args: ExportArgs): Promise<NextResponse> {
+  const types = await loadPresentationTypes(args.organizationId);
   const buffer = await buildEntriesDocx({
     title: `${args.eventName} — Abstracts`,
     subtitle: exportSubtitle(args.abstracts.length, "abstract", new Date()),
-    entries: args.abstracts.map(abstractToDocxEntry),
+    entries: args.abstracts.map((row) => abstractToDocxEntry(row, types)),
   });
   recordExport(req, {
     entityType: "Abstract",
@@ -716,15 +720,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
-    // The event only offers the presentation types its organizer enabled
-    // (Content → Abstracts; settings.abstractPresentationTypes — absent =
-    // all). The forms filter their dropdowns, but a form can be bypassed, so
-    // enforce here too.
-    if (presentationType && !isPresentationTypeEnabled(event.settings, presentationType)) {
+    // The event only offers the presentation types it ticked from its
+    // organisation's list (abstract-presentation-types.ts). The forms filter
+    // their dropdowns, but a form can be bypassed, so enforce here too.
+    const presentationTypes = presentationType ? await loadPresentationTypesStrict(event.organizationId) : [];
+    if (presentationType && !isPresentationTypeOffered(event.settings, presentationTypes, presentationType)) {
       apiLogger.warn({ msg: "abstract-create:presentation-type-not-offered", eventId, presentationType, userId: session.user.id });
       return NextResponse.json(
         {
-          error: `This event does not offer ${presentationType} presentations. Offered: ${readEnabledPresentationTypes(event.settings).join(", ")}.`,
+          error: `This event does not offer ${presentationType} presentations. Offered: ${offeredPresentationTypeNames(event.settings, presentationTypes)}.`,
           code: "PRESENTATION_TYPE_NOT_OFFERED",
         },
         { status: 400 },

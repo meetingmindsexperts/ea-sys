@@ -44,7 +44,7 @@ describe("buildAbstractConfirmationVars.coAuthorNames", () => {
   const base = {
     abstractTitle: "Iron in HF",
     serialId: 7,
-    presentationType: "ORAL",
+    presentationTypeName: "Oral",
     themeName: null,
     speaker: { title: "DR", firstName: "Ana", lastName: "Silva" },
   };

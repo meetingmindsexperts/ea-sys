@@ -17,6 +17,7 @@ import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { formatSessionProposalSerial } from "@/lib/session-proposal-serial";
 import { formatSessionType } from "@/lib/session-enums";
 import { formatPersonName } from "@/lib/utils";
+import { presentationTypeLabel, type PresentationTypeDef } from "@/lib/abstract-presentation-types";
 
 export type ShareKind = "ABSTRACTS" | "SESSION_PROPOSALS";
 export const SHARE_KINDS: ShareKind[] = ["ABSTRACTS", "SESSION_PROPOSALS"];
@@ -204,14 +205,6 @@ export interface SharedItem {
   authorPhone?: string | null;
 }
 
-const PRESENTATION_LABEL: Record<string, string> = {
-  ORAL: "Oral",
-  POSTER: "Poster",
-  ORAL_POSTER: "Oral or poster",
-  VIDEO: "Video",
-  WORKSHOP: "Workshop",
-};
-
 function affiliation(p: PersonRow): string | null {
   const parts = [p.jobTitle, p.organization].filter(Boolean);
   return parts.length ? parts.join(", ") : null;
@@ -232,12 +225,13 @@ function themeLabel(row: AbstractShareRow): string | null {
   return row.subTheme ? `${row.theme.name} › ${row.subTheme.name}` : row.theme.name;
 }
 
-export function projectAbstract(row: AbstractShareRow, on: Set<string>): SharedItem {
+/** One abstract as the shared page shows it. `types` is the event's organisation's list, for the type's name. */
+export function projectAbstract(row: AbstractShareRow, on: Set<string>, types: readonly PresentationTypeDef[]): SharedItem {
   const out: SharedItem = { number: formatAbstractSerial(row.serialId), title: row.title };
   if (on.has("content")) out.body = row.content;
   if (on.has("theme")) out.theme = themeLabel(row);
   if (on.has("track")) out.track = row.track?.name ?? null;
-  if (on.has("presentationType")) out.presentationType = row.presentationType ? (PRESENTATION_LABEL[row.presentationType] ?? row.presentationType) : null;
+  if (on.has("presentationType")) out.presentationType = row.presentationType ? presentationTypeLabel(types, row.presentationType) : null;
   if (on.has("specialty")) out.specialty = row.specialty;
   if (on.has("status")) out.status = row.status;
   if (on.has("submittedAt")) out.submittedAt = row.submittedAt.toISOString();

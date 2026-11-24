@@ -28,7 +28,8 @@ import { optimisticLockField } from "@/lib/optimistic-lock";
 import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { editTypeWrite } from "@/lib/abstract-requested-type";
-import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
+import { BUILT_IN_PRESENTATION_TYPE_KEYS, isPresentationTypeOffered, offeredPresentationTypeNames } from "@/lib/abstract-presentation-types";
+import { loadPresentationTypesStrict } from "@/lib/abstract-presentation-types-server";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 import { loadEventPersonFieldRules } from "@/lib/person-field-rules";
 import {
@@ -61,7 +62,7 @@ const updateAbstractSchema = z.object({
   themeId: z.string().max(100).nullable().optional(),
   subThemeId: z.string().max(100).nullable().optional(),
   specialty: z.string().max(255).optional(),
-  presentationType: z.enum(["ORAL", "POSTER", "ORAL_POSTER", "VIDEO", "WORKSHOP"]).nullable().optional(),
+  presentationType: z.enum(BUILT_IN_PRESENTATION_TYPE_KEYS).nullable().optional(),
   coAuthors: coAuthorsSchema.optional(),
   status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]).optional(),
   /** Organizer/chair override: bypass the requiredReviewCount gate. Logged. */
@@ -489,19 +490,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
         }
       }
     }
-    // The event only offers the presentation types its organizer enabled
-    // (Content → Abstracts). Enforced on a CHANGE only — an abstract may
-    // always KEEP its existing type after the organizer narrows the offering,
-    // so an unrelated edit is never forced to change it.
-    if (
-      data.presentationType &&
-      data.presentationType !== existingAbstract.presentationType &&
-      !isPresentationTypeEnabled(event.settings, data.presentationType)
-    ) {
+    // The event only offers the presentation types it ticked from its
+    // organisation's list. Enforced on a CHANGE only: an abstract may always
+    // KEEP its existing type after the organizer narrows the offering, so an
+    // unrelated edit is never forced to change it.
+    const choosesNewType = !!data.presentationType && data.presentationType !== existingAbstract.presentationType;
+    const presentationTypes = choosesNewType ? await loadPresentationTypesStrict(event.organizationId) : [];
+    if (choosesNewType && !isPresentationTypeOffered(event.settings, presentationTypes, data.presentationType!)) {
       apiLogger.warn({ msg: "abstract-update:presentation-type-not-offered", eventId, abstractId, presentationType: data.presentationType, userId: session.user.id });
       return NextResponse.json(
         {
-          error: `This event does not offer ${data.presentationType} presentations. Offered: ${readEnabledPresentationTypes(event.settings).join(", ")}.`,
+          error: `This event does not offer ${data.presentationType} presentations. Offered: ${offeredPresentationTypeNames(event.settings, presentationTypes)}.`,
           code: "PRESENTATION_TYPE_NOT_OFFERED",
         },
         { status: 400 },

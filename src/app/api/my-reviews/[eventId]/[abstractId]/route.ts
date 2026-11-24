@@ -7,7 +7,9 @@ import { resolveEventTenant } from "@/lib/tenant/event-tenant";
 import { apiLogger } from "@/lib/logger";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { REVIEWABLE_ABSTRACT_STATUSES, isOwnAbstract, mustConfirmEmailToReview } from "@/lib/abstract-reviewer-access";
-import { recommendableFormats } from "@/lib/recommended-formats";
+import { NEITHER_FORMAT, NEITHER_FORMAT_LABEL, recommendableFormats } from "@/lib/recommended-formats";
+import { presentationTypeLabels } from "@/lib/abstract-presentation-types";
+import { loadPresentationTypes } from "@/lib/abstract-presentation-types-server";
 
 /**
  * One abstract, for the person reviewing it: what the review page reads.
@@ -54,7 +56,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(tenant.organizationId, async () => {
-      const [event, abstract, assignment, submission, criteria] = await Promise.all([
+      const [event, abstract, assignment, submission, criteria, presentationTypes] = await Promise.all([
         db.event.findFirst({
           where: { id: eventId },
           select: { id: true, name: true, startDate: true, endDate: true, settings: true },
@@ -92,6 +94,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
           select: { id: true, name: true, weight: true },
           orderBy: { sortOrder: "asc" },
         }),
+        loadPresentationTypes(tenant.organizationId),
       ]);
 
       // Assigned only: the event's reviewer pool grants no abstract by itself.
@@ -132,7 +135,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
         },
         assignmentRole: assignment?.role ?? null,
         canSubmit: (REVIEWABLE_ABSTRACT_STATUSES as readonly string[]).includes(abstract.status),
-        formats: recommendableFormats(event.settings),
+        formats: recommendableFormats(event.settings, presentationTypes),
+        // Every name the page shows for a type or a recommendation, as the organisation calls it.
+        typeNames: { ...presentationTypeLabels(presentationTypes), [NEITHER_FORMAT]: NEITHER_FORMAT_LABEL },
         criteria,
         // What each criterion is scored out of on this event (abstract-score.ts).
         scoreScale: readReviewScoreScale(event.settings),

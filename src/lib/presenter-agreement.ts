@@ -20,7 +20,8 @@ import { renderAgreementHtmlToPdf, loadAgreementPdfImage } from "@/lib/speaker-a
 import { DEFAULT_PRESENTER_AGREEMENT_HTML } from "@/lib/default-terms";
 import { formatPersonName, getTitleLabel } from "@/lib/utils";
 import { resolveTimezone, formatDateInTz } from "@/lib/event-time";
-import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
+import { presentationTypeLabel } from "@/lib/abstract-presentation-types";
+import { loadPresentationTypes } from "@/lib/abstract-presentation-types-server";
 
 export const PRESENTER_AGREEMENT_PDF_MIME = "application/pdf";
 
@@ -197,6 +198,7 @@ export async function buildPresenterAgreementContext(
         address: true,
         city: true,
         timezone: true,
+        organizationId: true,
         organization: { select: { name: true } },
       },
     }),
@@ -219,13 +221,8 @@ export async function buildPresenterAgreementContext(
   const eventDateRange = formatEventDateRange(start, end);
 
   const titles = abstracts.map((a) => a.title).filter(Boolean);
-  const types = Array.from(
-    new Set(
-      abstracts
-        .map((a) => (a.presentationType ? PRESENTATION_TYPE_LABELS[a.presentationType] ?? a.presentationType : ""))
-        .filter(Boolean),
-    ),
-  );
+  const typeList = await loadPresentationTypes(event.organizationId);
+  const types = Array.from(new Set(abstracts.map((a) => presentationTypeLabel(typeList, a.presentationType)).filter(Boolean)));
   const themes = Array.from(new Set(abstracts.map((a) => a.theme?.name).filter((n): n is string => !!n)));
 
   return {

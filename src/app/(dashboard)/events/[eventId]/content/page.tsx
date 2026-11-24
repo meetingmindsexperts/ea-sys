@@ -14,8 +14,8 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { DEFAULT_ABSTRACT_GUIDELINES_HTML } from "@/lib/default-terms";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { readEnabledPresentationTypes, ALL_PRESENTATION_TYPE_VALUES } from "@/lib/abstract-presentation-types";
-import { PRESENTATION_TYPE_OPTIONS } from "../abstracts/abstract-enums";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys, usePresentationTypes } from "@/hooks/use-api";
 import { AgreementPdfImagesCard } from "@/components/events/agreement-pdf-images-card";
 
 const TiptapEditor = dynamic(
@@ -46,11 +46,18 @@ export default function ContentPage() {
     abstractConfirmationHtml: "",
     speakerAgreementHtml: "",
   });
-  // Which presentation types this event's abstract form offers (July 13,
-  // 2026). Stored in Event.settings.abstractPresentationTypes; absent = all.
-  const [presentationTypes, setPresentationTypes] = useState<string[]>([
-    ...ALL_PRESENTATION_TYPE_VALUES,
-  ]);
+  // Which of the organisation's presentation types this event's abstract form
+  // offers (July 13, 2026; the list is the organisation's since Nov 24, 2026,
+  // abstract-presentation-types.ts). Stored in
+  // Event.settings.abstractPresentationTypes. Null until the organiser ticks
+  // something: until then the ticks are what the event offers now.
+  const queryClient = useQueryClient();
+  const { data: typeList, isSuccess: typesLoaded } = usePresentationTypes(eventId);
+  const [tickedTypes, setTickedTypes] = useState<string[] | null>(null);
+  const presentationTypes = tickedTypes ?? (typeList ?? []).filter((t) => t.offered).map((t) => t.key);
+  const setPresentationTypes = (next: (prev: string[]) => string[]) => setTickedTypes(next(presentationTypes));
+  // A retired type is offered nowhere, so it has no tick here (the editor that retires it is step 3).
+  const shownTypes = (typeList ?? []).filter((t) => !t.retired);
   // Agreement-PDF letterhead images (July 17, 2026) — the speaker and
   // presenter agreements each have their own pair. Managed by their own
   // cards via a dedicated upload route — NOT part of the handleSave PUT.
@@ -83,7 +90,6 @@ export default function ContentPage() {
             abstractConfirmationHtml: data.abstractConfirmationHtml || "",
             speakerAgreementHtml: data.speakerAgreementHtml || "",
           });
-          setPresentationTypes([...readEnabledPresentationTypes(data.settings)]);
           setAgreementPdfImages({
             speakerHeader: data.speakerAgreementPdfHeaderImage || null,
             speakerFooter: data.speakerAgreementPdfFooterImage || null,
@@ -124,11 +130,15 @@ export default function ContentPage() {
           travelGrantTermsHtml: content.travelGrantTermsHtml || null,
           abstractConfirmationHtml: content.abstractConfirmationHtml || null,
           speakerAgreementHtml: content.speakerAgreementHtml || null,
-          // Partial settings merge — the PUT preserves other settings keys.
-          settings: { abstractPresentationTypes: presentationTypes },
+          // Partial settings merge — the PUT preserves other settings keys. Sent
+          // only once the list has loaded: an empty list would undo the ticks.
+          ...(typesLoaded ? { settings: { abstractPresentationTypes: presentationTypes } } : {}),
         }),
       });
-      if (res.ok) toast.success("Content saved");
+      if (res.ok) {
+        toast.success("Content saved");
+        queryClient.invalidateQueries({ queryKey: queryKeys.presentationTypes(eventId) });
+      }
       else toast.error("Failed to save");
     } catch {
       toast.error("Failed to save");
@@ -242,18 +252,18 @@ export default function ContentPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {PRESENTATION_TYPE_OPTIONS.map((o) => {
-                    const checked = presentationTypes.includes(o.value);
+                  {shownTypes.map((o) => {
+                    const checked = presentationTypes.includes(o.key);
                     return (
                       <Label
-                        key={o.value}
+                        key={o.key}
                         className="flex items-center gap-2 rounded-md border p-3 text-sm font-normal cursor-pointer hover:bg-muted/50"
                       >
                         <Checkbox
                           checked={checked}
                           onCheckedChange={(next) => {
                             if (next === true) {
-                              setPresentationTypes((prev) => [...prev, o.value]);
+                              setPresentationTypes((prev) => [...prev, o.key]);
                               return;
                             }
                             // Never allow an empty offering — the type is
@@ -263,7 +273,7 @@ export default function ContentPage() {
                               toast.error("At least one presentation type must stay enabled");
                               return;
                             }
-                            setPresentationTypes((prev) => prev.filter((v) => v !== o.value));
+                            setPresentationTypes((prev) => prev.filter((v) => v !== o.key));
                           }}
                         />
                         {o.label}

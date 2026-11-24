@@ -49,7 +49,7 @@ describe("loadExternalHelpEvents", () => {
       dates: "12 March 2027 to 14 March 2027",
       supportEmail: "heart@example.com",
       abstractDeadline: "1 December 2099 at 23:59 (Asia/Dubai)",
-      presentationTypes: ["Oral Presentation", "Poster Presentation"],
+      presentationTypes: ["Oral", "Poster"],
     });
     const where = mockFindMany.mock.calls[0][0].where;
     expect(where.AND).toContainEqual({ speakers: { some: { userId: "u1" } } });

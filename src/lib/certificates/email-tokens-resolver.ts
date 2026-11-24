@@ -9,6 +9,7 @@
  * always-log-failures contract.
  */
 
+import { POSTER_TYPE_KEY } from "@/lib/abstract-presentation-types";
 import { db } from "@/lib/db";
 import { escapeHtml } from "@/lib/html";
 import { apiLogger } from "@/lib/logger";
@@ -94,7 +95,7 @@ async function loadAbstractTitle(speakerId: string | null, eventId: string): Pro
       speakerId,
       eventId,
       status: "ACCEPTED",
-      presentationType: "POSTER",
+      presentationType: POSTER_TYPE_KEY,
     },
     select: { title: true },
     orderBy: { createdAt: "asc" },

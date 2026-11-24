@@ -67,6 +67,8 @@ import {
   buildAbstractDecisionVars,
   buildAbstractManagementLink,
 } from "@/lib/abstract-notifications";
+import { presentationTypeLabel, type PresentationTypeDef } from "@/lib/abstract-presentation-types";
+import { loadPresentationTypes, loadPresentationTypesForEvent } from "@/lib/abstract-presentation-types-server";
 import { consolidateReviewNotes, meanOverallScore } from "@/lib/abstract-review";
 import { resolveTravelGrantBlock } from "@/lib/travel-grant/server";
 import { templateUsesTravelGrantBlock } from "@/lib/travel-grant/block";
@@ -627,11 +629,12 @@ function abstractOwnVars(
   emailType: string,
   ab: NonNullable<ResolvedRecipient["abstract"]>,
   speaker: { title?: string | null; firstName: string; lastName: string },
+  types: readonly PresentationTypeDef[],
 ): Record<string, string | number> {
   const vars: Record<string, string | number> = buildAbstractConfirmationVars({
     abstractTitle: ab.title,
     serialId: ab.serialId,
-    presentationType: ab.presentationType,
+    presentationTypeName: presentationTypeLabel(types, ab.presentationType),
     themeName: ab.themeName,
     coAuthors: ab.coAuthors,
     speaker,
@@ -695,8 +698,9 @@ export async function previewAbstractEmailVars(args: {
   };
   if (!perAbstract) return { vars: greeting, shownFor: authorName, perAbstract };
   const ab = abstractContextOf(row);
+  const types = await loadPresentationTypesForEvent(args.eventId);
   return {
-    vars: { ...greeting, ...abstractOwnVars(args.emailType, ab, speaker) },
+    vars: { ...greeting, ...abstractOwnVars(args.emailType, ab, speaker, types) },
     shownFor: ab.serialId != null ? `abstract ${formatAbstractSerial(ab.serialId)}` : `the abstract "${ab.title}"`,
     perAbstract,
   };
@@ -1534,6 +1538,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // on the Email Activity View button, Aug 3 2026). The event is already
   // loaded here, so default from it — ONE fix covering every caller.
   const resolvedOrganizationId = organizationId ?? event.organizationId ?? null;
+  // The type names a per-abstract email shows, as the event's organisation calls them.
+  const presentationTypes = recipientType === "abstracts" ? await loadPresentationTypes(event.organizationId) : [];
 
   // App URL for building public links — same fallback chain as the
   // send-completion-emails route so behavior is identical on EC2 +
@@ -2215,7 +2221,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       if (ab) {
         Object.assign(
           vars,
-          abstractOwnVars(emailType, ab, { title: recipient.title, firstName: recipient.firstName, lastName: recipient.lastName }),
+          abstractOwnVars(emailType, ab, { title: recipient.title, firstName: recipient.firstName, lastName: recipient.lastName }, presentationTypes),
         );
         // A bulk confirmation RESEND carries the travel-grant offer exactly as
         // the automatic send does, through the SAME resolver (mint-or-reuse the

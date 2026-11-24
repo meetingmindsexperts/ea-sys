@@ -11,14 +11,15 @@ import { recordImport } from "@/lib/audit-data-transfer";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
-import { PresentationType } from "@prisma/client";
+import { BUILT_IN_PRESENTATION_TYPE_KEYS, type BuiltInPresentationTypeKey } from "@/lib/abstract-presentation-types";
 import { authorTypeWrite, organiserTypeWrite } from "@/lib/abstract-requested-type";
 
 /** Statuses that mean a decision was already made when the row was exported elsewhere. */
 const DECIDED_IMPORT_STATUSES = new Set(["ACCEPTED", "REJECTED", "REVISION_REQUESTED"]);
 
 /** Every type an abstract can have; a cell naming none of them imports with no type. */
-const PRESENTATION_TYPES = Object.values(PresentationType);
+// Keys only until step 5 of docs/ABSTRACT_PRESENTATION_TYPES_PLAN.md reads a written name too.
+const PRESENTATION_TYPES: readonly string[] = BUILT_IN_PRESENTATION_TYPE_KEYS;
 
 const ABSTRACT_STATUS_VALUES = new Set([
   "DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED",
@@ -161,7 +162,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       // Resolve presentation type
       const ptRaw = getField(fields, idx.presentationType)?.toUpperCase();
-      const presentationType = PRESENTATION_TYPES.find((t) => t === ptRaw) ?? null;
+      const presentationType = (PRESENTATION_TYPES.find((t) => t === ptRaw) ?? null) as BuiltInPresentationTypeKey | null;
 
       try {
         // Serial + create in one tx so a failed row rolls the counter back

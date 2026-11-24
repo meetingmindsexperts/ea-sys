@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { findPublicEvent } from "@/lib/tenant/event-tenant";
+import { loadPresentationTypes } from "@/lib/abstract-presentation-types-server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import {
@@ -132,7 +133,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       const kind = link.kind as ShareKind;
       const on = effectiveFields(kind, link.fields);
       const statuses = effectiveStatuses(kind, link.statuses);
-      const items = await loadItems(kind, event.id, statuses, on);
+      const items = await loadItems(kind, event.id, event.organizationId, statuses, on);
 
       return NextResponse.json(
         {
@@ -153,7 +154,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 }
 
 /** One extra row past the cap is read so the page can say the list was cut. */
-async function loadItems(kind: ShareKind, eventId: string, statuses: string[], on: Set<string>): Promise<SharedItem[]> {
+async function loadItems(kind: ShareKind, eventId: string, organizationId: string, statuses: string[], on: Set<string>): Promise<SharedItem[]> {
   if (statuses.length === 0) return [];
   if (kind === "ABSTRACTS") {
     const rows = await db.abstract.findMany({
@@ -175,7 +176,8 @@ async function loadItems(kind: ShareKind, eventId: string, statuses: string[], o
       orderBy: [{ serialId: "asc" }, { submittedAt: "asc" }],
       take: SHARE_ROW_CAP + 1,
     });
-    return rows.map((r) => projectAbstract(r, on));
+    const types = on.has("presentationType") ? await loadPresentationTypes(organizationId) : [];
+    return rows.map((r) => projectAbstract(r, on, types));
   }
   const rows = await db.sessionProposal.findMany({
     where: { eventId, status: { in: statuses as SessionProposalStatus[] } },

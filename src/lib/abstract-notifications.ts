@@ -16,7 +16,8 @@ import { db } from "@/lib/db";
 import { getTitleLabel, formatPersonName } from "@/lib/utils";
 import { formatCoAuthorNames } from "@/lib/abstract-coauthors";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
-import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
+import { presentationTypeLabel } from "@/lib/abstract-presentation-types";
+import { loadPresentationTypesForEvent } from "@/lib/abstract-presentation-types-server";
 
 const REVIEW_STATUSES = new Set(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]);
 
@@ -91,7 +92,11 @@ export interface SendAbstractSubmissionConfirmationParams {
 export interface AbstractConfirmationVarInput {
   abstractTitle: string;
   serialId: number | null;
-  presentationType: string | null;
+  /**
+   * The type's NAME, as the organisation calls it (`presentationTypeLabel`),
+   * never its key: the caller loads the organisation's list. "" for none.
+   */
+  presentationTypeName: string;
   themeName: string | null;
   coAuthors: unknown;
   speaker: { title?: string | null; firstName: string; lastName: string };
@@ -111,10 +116,7 @@ export function buildAbstractConfirmationVars(input: AbstractConfirmationVarInpu
     // "" (not "—") on legacy serial-less rows — the template hides the row.
     abstractNumber: input.serialId != null ? formatAbstractSerial(input.serialId) : "",
     abstractTitle: input.abstractTitle,
-    presentationType: input.presentationType
-      ? PRESENTATION_TYPE_LABELS[input.presentationType as keyof typeof PRESENTATION_TYPE_LABELS] ??
-        input.presentationType
-      : "",
+    presentationType: input.presentationTypeName,
     theme: input.themeName ?? "",
     authorName: formatPersonName(input.speaker.title, input.speaker.firstName, input.speaker.lastName),
     coAuthorNames: formatCoAuthorNames(input.coAuthors),
@@ -200,11 +202,12 @@ export async function sendAbstractSubmissionConfirmation(
       })
       .catch(() => null);
 
+    const types = await loadPresentationTypesForEvent(eventId);
     const vars: Record<string, string> = {
       ...buildAbstractConfirmationVars({
         abstractTitle,
         serialId,
-        presentationType: details?.presentationType ?? null,
+        presentationTypeName: presentationTypeLabel(types, details?.presentationType),
         themeName: details?.theme?.name ?? null,
         coAuthors: details?.coAuthors,
         speaker,
@@ -375,9 +378,7 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
         select: { presentationType: true, coAuthors: true, theme: { select: { name: true } } },
       })
       .catch(() => null);
-    const presentationTypeLabel = details?.presentationType
-      ? PRESENTATION_TYPE_LABELS[details.presentationType] ?? details.presentationType
-      : "";
+    const typeName = presentationTypeLabel(await loadPresentationTypesForEvent(eventId), details?.presentationType);
     const themeName = details?.theme?.name ?? "";
     const coAuthorNames = formatCoAuthorNames(details?.coAuthors);
     const authorName = formatPersonName(speaker.title, speaker.firstName, speaker.lastName);
@@ -388,7 +389,7 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
       lastName: speaker.lastName,
       eventName,
       abstractTitle,
-      presentationType: presentationTypeLabel,
+      presentationType: typeName,
       theme: themeName,
       authorName,
       coAuthorNames,

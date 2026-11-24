@@ -1,5 +1,4 @@
-import type { PresentationType } from "@prisma/client";
-import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
+import { presentationTypeLabel, type PresentationTypeDef } from "@/lib/abstract-presentation-types";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import type { DocxEntry } from "@/lib/docx-export";
@@ -89,26 +88,22 @@ function durationLine(minutes: number | null): string {
   return minutes === 1 ? "1 minute" : `${minutes} minutes`;
 }
 
-function presentationTypeLine(type: string | null): string {
-  if (!type) return "";
-  return PRESENTATION_TYPE_LABELS[type as PresentationType] ?? type;
-}
-
 /** Blank (so the line is left out) unless the author asked for something other than the type now set. */
-function requestedTypeLine(type: string | null, requested: string | null): string {
+function requestedTypeLine(types: readonly PresentationTypeDef[], type: string | null, requested: string | null): string {
   if (!requested || requested === type) return "";
-  return presentationTypeLine(requested);
+  return presentationTypeLabel(types, requested);
 }
 
-export function abstractToDocxEntry(row: AbstractDocxRow): DocxEntry {
+/** One abstract's entry. `types` is the event's organisation's list, for the type's name. */
+export function abstractToDocxEntry(row: AbstractDocxRow, types: readonly PresentationTypeDef[]): DocxEntry {
   return {
     heading: `${formatAbstractSerial(row.serialId)}  ${row.title}`,
     fields: [
       { label: "Theme", value: themeLine(row.theme, row.subTheme) },
       { label: "Presenting Author", value: personLine(row.speaker) },
       { label: "Co-authors", value: coAuthorsLine(row.coAuthors) },
-      { label: "Presentation Type", value: presentationTypeLine(row.presentationType) },
-      { label: "Requested by the author", value: requestedTypeLine(row.presentationType, row.requestedPresentationType ?? null) },
+      { label: "Presentation Type", value: presentationTypeLabel(types, row.presentationType) },
+      { label: "Requested by the author", value: requestedTypeLine(types, row.presentationType, row.requestedPresentationType ?? null) },
     ],
     body: row.content,
   };

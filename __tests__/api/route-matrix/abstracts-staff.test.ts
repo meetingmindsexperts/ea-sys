@@ -29,6 +29,7 @@ vi.mock("@/lib/security", async (importOriginal) => ({
 
 import { domainMatrix, type HandlerCase } from "./harness";
 import { GET as themesGET, POST as themesPOST } from "@/app/api/events/[eventId]/abstract-themes/route";
+import { GET as presentationTypesGET } from "@/app/api/events/[eventId]/presentation-types/route";
 import { PUT as themePUT, DELETE as themeDELETE } from "@/app/api/events/[eventId]/abstract-themes/[themeId]/route";
 import { POST as subThemesPOST } from "@/app/api/events/[eventId]/abstract-themes/[themeId]/sub-themes/route";
 import { PUT as subThemePUT, DELETE as subThemeDELETE } from "@/app/api/events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]/route";
@@ -58,6 +59,7 @@ const abs = { abstractId: "ab1" };
 
 const CASES: HandlerCase[] = [
   { name: "GET abstract-themes", handler: themesGET, method: "GET" },
+  { name: "GET presentation-types", handler: presentationTypesGET, method: "GET" },
   { name: "POST abstract-themes", handler: themesPOST, method: "POST", body: { name: "Cardiology" } },
   { name: "PUT abstract-themes/[themeId]", handler: themePUT, method: "PUT", params: theme, body: { name: "Cardio" } },
   { name: "DELETE abstract-themes/[themeId]", handler: themeDELETE, method: "DELETE", params: theme },
