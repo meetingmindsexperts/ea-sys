@@ -69,8 +69,12 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+// The settings half of a save is written inside the same transaction as the
+// columns (mergeSettingsInTransaction, review of d3e669030). The fake records
+// (eventId, patch) as the old helper did, so the assertions on the patch hold.
 vi.mock("@/lib/event-settings", () => ({
   updateEventSettings: (...args: unknown[]) => mockUpdateEventSettings(...args),
+  mergeSettingsInTransaction: (_tx: unknown, _table: string, id: string, patch: unknown) => mockUpdateEventSettings(id, patch),
   updateOrganizationSettings: vi.fn(),
 }));
 
@@ -483,6 +487,27 @@ describe("PUT /api/events/[eventId]", () => {
       expect((await res.json()).code).toBe("INVALID_SLUG");
       expect(mockDb.event.update).not.toHaveBeenCalled();
     });
+  });
+
+  it("writes the settings and the columns in ONE transaction, settings first (review of d3e669030)", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1", slug: "test", settings: {} });
+    mockDb.event.update.mockResolvedValue(sampleEvent);
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+    const tx = { event: { update: vi.fn().mockResolvedValue(sampleEvent) } };
+    const txRun = vi.fn(async (cb: (t: unknown) => unknown) => cb(tx));
+    (mockDb as unknown as { $transaction: unknown }).$transaction = txRun;
+    try {
+      const res = await PUT(makePutRequest({ name: "Renamed", settings: { registrationOpen: false } }), makeParams("evt-1"));
+      expect(res.status).toBe(200);
+      expect(txRun).toHaveBeenCalledTimes(1);
+      // Both halves inside that one transaction: the column update on its client, not the plain one.
+      expect(tx.event.update).toHaveBeenCalledWith({ where: { id: "evt-1" }, data: expect.objectContaining({ name: "Renamed" }) });
+      expect(mockDb.event.update).not.toHaveBeenCalled();
+      expect(mockUpdateEventSettings.mock.invocationCallOrder[0]).toBeLessThan(tx.event.update.mock.invocationCallOrder[0]);
+    } finally {
+      delete (mockDb as unknown as { $transaction?: unknown }).$transaction;
+    }
   });
 
   it("merges settings with existing settings", async () => {

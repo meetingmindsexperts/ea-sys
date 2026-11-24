@@ -26,7 +26,7 @@ import {
 } from "@/lib/permissions/field-permissions";
 import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { RESTRICTED_EVENT_DETAIL_SELECT, pickRestrictedSettings } from "@/lib/event-visibility";
-import { updateEventSettings } from "@/lib/event-settings";
+import { mergeSettingsInTransaction } from "@/lib/event-settings";
 import { SUPPORT_CONTACT_SETTING, storedSupportContact, supportContactSchema } from "@/lib/support-contact";
 import { keepStoredHandouts, readHandouts } from "@/lib/webinar/handouts";
 import { removeHandoutFiles } from "@/lib/webinar/handout-download";
@@ -696,6 +696,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
       });
     }
 
+    // The settings half of the save. Written in the SAME transaction as the
+    // columns below (review of d3e669030): it used to be its own transaction,
+    // committed first, so a failed column update left half a save.
+    let settingsPatch: ((current: Record<string, unknown>) => Record<string, unknown>) | null = null;
     // Merge settings if provided — protect managed keys from being overwritten.
     // The settings merge runs through the atomic read-merge-write helper so a
     // concurrent settings writer (reviewers API, sponsors, webinar, …) can't be
@@ -726,9 +730,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
       const cleanSettings = JSON.parse(JSON.stringify(editableEventSettings(settings)));
       // Handouts are owned by the handouts routes: keep the stored list.
-      await runWithTenant(orgGuard.orgId, () =>
-        updateEventSettings(eventId, (current) => keepStoredHandouts(current, { ...current, ...cleanSettings })),
-      );
+      settingsPatch = (current) => keepStoredHandouts(current, { ...current, ...cleanSettings });
     }
 
     const eventUpdateData = {
@@ -800,6 +802,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         const out = await runWithTenant(orgGuard.orgId, () =>
           tenantTransaction(
             async (tx) => {
+              if (settingsPatch) await mergeSettingsInTransaction(tx, "Event", eventId, settingsPatch, { notFoundError: "EVENT_NOT_FOUND" });
               const ev = await tx.event.update({ where: { id: eventId }, data: eventUpdateData });
               const summary = await applyScheduleShift(tx, {
                 eventId,
@@ -842,7 +845,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
     } else {
       // A WRITE outside a lane matches no row once Event has a policy, and
       // answers as if the event did not exist (the shadow inventory's first item).
-      event = await runWithTenant(orgGuard.orgId, () => db.event.update({ where: { id: eventId }, data: eventUpdateData }));
+      const patch = settingsPatch;
+      event = await runWithTenant(orgGuard.orgId, () =>
+        patch
+          ? tenantTransaction(async (tx) => {
+              await mergeSettingsInTransaction(tx, "Event", eventId, patch, { notFoundError: "EVENT_NOT_FOUND" });
+              return tx.event.update({ where: { id: eventId }, data: eventUpdateData });
+            })
+          : db.event.update({ where: { id: eventId }, data: eventUpdateData }),
+      );
     }
 
     apiLogger.info({ msg: "Event updated", eventId, userId: session.user.id, fields: Object.keys(validated.data) });

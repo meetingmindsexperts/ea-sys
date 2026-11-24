@@ -69,6 +69,16 @@ describe("updateOrganizationSettings — atomic merge", () => {
     });
   });
 
+  it("writes the columns it is given in the SAME update as the settings: one write, never half a save (review of d3e669030)", async () => {
+    mockDb._tx.$queryRaw.mockResolvedValue([{ settings: { zoom: { a: 1 } } }]);
+    await updateOrganizationSettings("org1", { website: "https://x.example" }, { columns: { name: "New name" } });
+    expect(mockDb._tx.organization.update).toHaveBeenCalledTimes(1);
+    expect(mockDb._tx.organization.update).toHaveBeenCalledWith({
+      where: { id: "org1" },
+      data: { name: "New name", settings: { zoom: { a: 1 }, website: "https://x.example" } },
+    });
+  });
+
   it("throws ORGANIZATION_NOT_FOUND when gone", async () => {
     mockDb._tx.$queryRaw.mockResolvedValue([]);
     await expect(updateOrganizationSettings("nope", {})).rejects.toThrow("ORGANIZATION_NOT_FOUND");

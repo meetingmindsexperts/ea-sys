@@ -176,42 +176,43 @@ export async function PUT(req: Request) {
       route: "organization:PUT",
     });
 
-    // Get current organization to merge settings
+    // The organisation must exist (its id only: the row's settings hold credentials).
     const currentOrg = await db.organization.findUnique({
       where: { id: orgId },
+      select: { id: true },
     });
 
     if (!currentOrg) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
-    // Settings merge goes through the atomic read-merge-write helper so a
-    // concurrent settings writer (zoom/eventsAir credentials, …) can't be
-    // clobbered. Scalar columns stay on the organization.update below.
+    const columns = {
+      ...(name && { name }),
+      ...(logo !== undefined && { logo }),
+      ...(primaryColor !== undefined && { primaryColor }),
+      ...(companyName !== undefined && { companyName }),
+      ...(companyAddress !== undefined && { companyAddress }),
+      ...(companyCity !== undefined && { companyCity }),
+      ...(companyState !== undefined && { companyState }),
+      ...(companyZipCode !== undefined && { companyZipCode }),
+      ...(companyCountry !== undefined && { companyCountry }),
+      ...(companyPhone !== undefined && { companyPhone }),
+      ...(companyEmail !== undefined && { companyEmail }),
+      ...(taxId !== undefined && { taxId }),
+      ...(invoicePrefix !== undefined && { invoicePrefix }),
+    };
+
+    // Settings and columns in ONE locked update (review of d3e669030: the
+    // settings went first in their own transaction, so a failed column write
+    // left half a save). The locked read-merge-write keeps a concurrent
+    // settings writer (zoom/eventsAir credentials, ...) from being clobbered.
     if (settings) {
       const cleanSettings = JSON.parse(JSON.stringify(settings));
       if (settings.supportContact !== undefined) cleanSettings[SUPPORT_CONTACT_SETTING] = storedSupportContact(settings.supportContact);
-      await updateOrganizationSettings(orgId, cleanSettings);
+      await updateOrganizationSettings(orgId, cleanSettings, { columns });
+    } else {
+      await db.organization.update({ where: { id: orgId }, data: columns });
     }
-
-    const organization = await db.organization.update({
-      where: { id: orgId },
-      data: {
-        ...(name && { name }),
-        ...(logo !== undefined && { logo }),
-        ...(primaryColor !== undefined && { primaryColor }),
-        ...(companyName !== undefined && { companyName }),
-        ...(companyAddress !== undefined && { companyAddress }),
-        ...(companyCity !== undefined && { companyCity }),
-        ...(companyState !== undefined && { companyState }),
-        ...(companyZipCode !== undefined && { companyZipCode }),
-        ...(companyCountry !== undefined && { companyCountry }),
-        ...(companyPhone !== undefined && { companyPhone }),
-        ...(companyEmail !== undefined && { companyEmail }),
-        ...(taxId !== undefined && { taxId }),
-        ...(invoicePrefix !== undefined && { invoicePrefix }),
-      },
-    });
 
     forgetBrand(orgId);
 
@@ -219,15 +220,20 @@ export async function PUT(req: Request) {
     await db.auditLog.create({
       data: {
         userId: session.user.id,
-        organizationId: organization.id,
+        organizationId: orgId,
         action: "UPDATE",
         entityType: "Organization",
-        entityId: organization.id,
+        entityId: orgId,
         changes: { ...validated.data, ip: getClientIp(req) },
       },
     });
 
-    return NextResponse.json(organization);
+    // The saved profile, never the row: the row's settings hold every encrypted
+    // credential (Zoom, Stripe, AI, DET, EventsAir), which the GET was trimmed
+    // of on Oct 7, 2026 and this answer still carried (review of d3e669030).
+    // No caller reads the body; it is what a client may show.
+    const saved = await db.organization.findUnique({ where: { id: orgId }, select: { id: true, name: true, slug: true, logo: true, primaryColor: true } });
+    return NextResponse.json(saved);
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating organization" });
     return NextResponse.json(

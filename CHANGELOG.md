@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Saving the organisation or an event is one write, and the organisation save no longer returns credentials (November 24, 2026)
+
+Two older defects the review of the help assistant's phone and hours found; owner: "proceed with fixes".
+
+- **`PUT /api/organization` answered with the whole organisation row**, its settings included: every encrypted
+  credential (Zoom, Stripe, AI, DET eTicketing, EventsAir). The GET was trimmed of exactly this on Oct 7, 2026;
+  the save was not. It now answers with the profile only (id, name, slug, logo, colour). Only admins who may save
+  the organisation ever received it, and no screen read the answer.
+- **Both saves wrote in two steps**: the settings in their own transaction, committed first, then the columns.
+  A failure of the second left half a save. Each is now one transaction: the organisation's columns ride in the
+  settings' own locked update, and an event's settings merge and its column update share one transaction (with
+  the date shift's, when the dates move), settings first as before. `mergeSettingsInTransaction` in
+  `src/lib/event-settings.ts` is the locked merge on a transaction the caller holds.
+
+Checked against the local database: a save of a column and a setting together stores both on both routes, a
+refused setting leaves the column unchanged, and the organisation's answer has no settings. Both rows were
+restored byte for byte.
+
 ### Recording a partner's stream, step 2: the pieces go to S3 (November 24, 2026)
 
 Plan: `docs/PARTNER_STREAM_RECORDING_PLAN.md` §4.2. Still dark: nothing starts a recording until

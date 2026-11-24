@@ -43,13 +43,13 @@ describe("PUT /api/organization defaultRegistrationTypes", () => {
   it("saves a trimmed list through the settings merge", async () => {
     const res = await put({ settings: { defaultRegistrationTypes: [" Delegate ", "Exhibitor"] } });
     expect(res.status).toBe(200);
-    expect(mockMerge).toHaveBeenCalledWith("org1", { defaultRegistrationTypes: ["Delegate", "Exhibitor"] });
+    expect(mockMerge).toHaveBeenCalledWith("org1", { defaultRegistrationTypes: ["Delegate", "Exhibitor"] }, { columns: {} });
   });
 
   it("saves an empty list (no starting types)", async () => {
     const res = await put({ settings: { defaultRegistrationTypes: [] } });
     expect(res.status).toBe(200);
-    expect(mockMerge).toHaveBeenCalledWith("org1", { defaultRegistrationTypes: [] });
+    expect(mockMerge).toHaveBeenCalledWith("org1", { defaultRegistrationTypes: [] }, { columns: {} });
   });
 
   it("says in words why a list with the reserved name is refused", async () => {

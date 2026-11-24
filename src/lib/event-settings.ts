@@ -34,12 +34,47 @@ function lockEvent(tx: Prisma.TransactionClient, id: string, organizationId?: st
   return tx.$queryRaw<{ settings: SettingsObject | null }[]>`SELECT "settings" FROM "Event" WHERE "id" = ${id} AND "organizationId" = ${organizationId} FOR UPDATE`;
 }
 
+/**
+ * The locked read-merge-write, on a transaction the caller already holds.
+ * `columns` are written in the same UPDATE, so a request that changes both an
+ * event's (or an organisation's) columns and its settings is ONE write: until
+ * Nov 24, 2026 the settings went first in their own transaction and a failure
+ * of the column update left half a save (review of d3e669030).
+ */
+export async function mergeSettingsInTransaction(
+  tx: Prisma.TransactionClient,
+  table: "Event" | "Organization",
+  id: string,
+  patch: SettingsPatch,
+  opts: { notFoundError: string; organizationId?: string; columns?: Record<string, unknown> },
+): Promise<SettingsObject> {
+  // Row-lock the row so concurrent settings writers serialize. Table name is
+  // a hardcoded union (no injection surface); id is parameterized.
+  const rows =
+    table === "Event"
+      ? await lockEvent(tx, id, opts.organizationId)
+      : await tx.$queryRaw<{ settings: SettingsObject | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${id} FOR UPDATE`;
+  if (rows.length === 0) throw new Error(opts.notFoundError);
+
+  const current = (rows[0].settings ?? {}) as SettingsObject;
+  const merged = typeof patch === "function" ? patch(current) : { ...current, ...patch };
+  const data = { ...(opts.columns ?? {}), settings: merged as Prisma.InputJsonValue };
+
+  if (table === "Event") {
+    await tx.event.update({ where: { id }, data: data as Prisma.EventUpdateInput });
+  } else {
+    await tx.organization.update({ where: { id }, data: data as Prisma.OrganizationUpdateInput });
+  }
+  return merged;
+}
+
 async function mergeSettingsLocked(
   table: "Event" | "Organization",
   id: string,
   patch: SettingsPatch,
   notFoundError: string,
   organizationId?: string,
+  columns?: Record<string, unknown>,
 ): Promise<SettingsObject> {
   // `tenantTransaction`, not `db.$transaction` (review of 2db57e7f). On master
   // the two are the same transaction. Where row security is on, the raw lock
@@ -49,25 +84,7 @@ async function mergeSettingsLocked(
   // on the lock this one holds until the transaction times out.
   // `tenantTransaction` sets the organisation on the transaction's own backend
   // first. With no lane it is plain `db.$transaction`, as before.
-  return tenantTransaction(async (tx) => {
-    // Row-lock the row so concurrent settings writers serialize. Table name is
-    // a hardcoded union (no injection surface); id is parameterized.
-    const rows =
-      table === "Event"
-        ? await lockEvent(tx, id, organizationId)
-        : await tx.$queryRaw<{ settings: SettingsObject | null }[]>`SELECT "settings" FROM "Organization" WHERE "id" = ${id} FOR UPDATE`;
-    if (rows.length === 0) throw new Error(notFoundError);
-
-    const current = (rows[0].settings ?? {}) as SettingsObject;
-    const merged = typeof patch === "function" ? patch(current) : { ...current, ...patch };
-
-    if (table === "Event") {
-      await tx.event.update({ where: { id }, data: { settings: merged as Prisma.InputJsonValue } });
-    } else {
-      await tx.organization.update({ where: { id }, data: { settings: merged as Prisma.InputJsonValue } });
-    }
-    return merged;
-  });
+  return tenantTransaction((tx) => mergeSettingsInTransaction(tx, table, id, patch, { notFoundError, organizationId, columns }));
 }
 
 /**
@@ -89,9 +106,16 @@ export function updateEventSettings(eventId: string, patch: SettingsPatch, opts:
   return opts.organizationId && getTenantStore() === undefined ? runWithTenant(opts.organizationId, merge) : merge();
 }
 
-/** Atomically merge a patch into `Organization.settings`. Throws `ORGANIZATION_NOT_FOUND` if gone. */
-export function updateOrganizationSettings(organizationId: string, patch: SettingsPatch): Promise<SettingsObject> {
-  return mergeSettingsLocked("Organization", organizationId, patch, "ORGANIZATION_NOT_FOUND");
+/**
+ * Atomically merge a patch into `Organization.settings`. Throws `ORGANIZATION_NOT_FOUND` if gone.
+ * `columns` are written in the same UPDATE (the organisation PUT's name, logo, billing details...).
+ */
+export function updateOrganizationSettings(
+  organizationId: string,
+  patch: SettingsPatch,
+  opts: { columns?: Record<string, unknown> } = {},
+): Promise<SettingsObject> {
+  return mergeSettingsLocked("Organization", organizationId, patch, "ORGANIZATION_NOT_FOUND", undefined, opts.columns);
 }
 
 /**
