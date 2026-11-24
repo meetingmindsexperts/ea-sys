@@ -126,7 +126,7 @@ import { EVENT_HIDDEN_SESSION_ROLES_SETTING, readEventHiddenSessionRoles } from 
 import { isAllowedSenderAddress } from "@/lib/sender-domain";
 import { toast } from "sonner";
 import { Loader2, Pencil, Plus, X } from "lucide-react";
-import { MAX_SUPPORT_HOURS, MAX_SUPPORT_PHONE, readSupportContact, SUPPORT_CONTACT_SETTING } from "@/lib/support-contact";
+import { MAX_SUPPORT_HOURS, MAX_SUPPORT_PHONE, readSupportContact, sameSupportContact, SUPPORT_CONTACT_SETTING } from "@/lib/support-contact";
 import dynamic from "next/dynamic";
 
 const TiptapEditor = dynamic(
@@ -356,6 +356,10 @@ export default function EventSettingsPage() {
 
   // The event's own phone and office hours; empty means the organisation's (src/lib/support-contact.ts).
   const [supportContact, setSupportContact] = useState({ phone: "", hours: "" });
+  // As loaded: the contact is sent only when changed here (review of d3e669030),
+  // so a save of another field never asks events.settings for it, and a page
+  // opened before a colleague's change never puts the old phone back.
+  const loadedSupportContact = useRef({ phone: "", hours: "" });
 
   const [agendaSettings, setAgendaSettings] = useState({
     agendaPublished: false,
@@ -537,7 +541,8 @@ export default function EventSettingsPage() {
         setPersonFieldChoices(loadedPersonFieldChoices.current);
 
         const ownContact = readSupportContact(settings);
-        setSupportContact({ phone: ownContact.phone ?? "", hours: ownContact.hours ?? "" });
+        loadedSupportContact.current = { phone: ownContact.phone ?? "", hours: ownContact.hours ?? "" };
+        setSupportContact(loadedSupportContact.current);
         loadedAgendaTrackBorder.current = readAgendaTrackBorder(settings);
         loadedHiddenSessionRoles.current = readEventHiddenSessionRoles(settings);
         setHiddenSessionRoles(loadedHiddenSessionRoles.current);
@@ -934,7 +939,7 @@ export default function EventSettingsPage() {
               fontSizes: badgeFontSizesPt(),
             },
             presenterRegistration: { payNowEnabled: presenterPayNow },
-            [SUPPORT_CONTACT_SETTING]: supportContact,
+            ...(!sameSupportContact(supportContact, loadedSupportContact.current) && { [SUPPORT_CONTACT_SETTING]: supportContact }),
             travelGrant: {
               enabled: travelGrantEnabled,
               homeCountries: travelGrantHomeCountries,
@@ -1422,6 +1427,7 @@ export default function EventSettingsPage() {
                       maxLength={MAX_SUPPORT_PHONE}
                       placeholder="+971 4 000 0000"
                       value={supportContact.phone}
+                      disabled={!canEditSettings}
                       onChange={(e) => setSupportContact({ ...supportContact, phone: e.target.value })}
                     />
                   </div>
@@ -1432,6 +1438,7 @@ export default function EventSettingsPage() {
                       maxLength={MAX_SUPPORT_HOURS}
                       placeholder="Monday to Friday, 9:00 to 18:00, Dubai time"
                       value={supportContact.hours}
+                      disabled={!canEditSettings}
                       onChange={(e) => setSupportContact({ ...supportContact, hours: e.target.value })}
                     />
                   </div>

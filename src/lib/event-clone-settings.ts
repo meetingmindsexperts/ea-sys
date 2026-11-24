@@ -35,6 +35,9 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
   "formFields",
   // The event's own choice for Title, Role and Specialty (person-fields.ts).
   "personFieldChoices",
+  // The event's own support phone and office hours (support-contact.ts); the
+  // support email is a column the clone already copies.
+  "supportContact",
   "mainRegisterTiers",
   "codeRequiredTiers",
   "maxAttendees",

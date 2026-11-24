@@ -90,6 +90,11 @@ describe("cloneEventSettings", () => {
     expect(cloneEventSettings(source)).toMatchObject(source);
   });
 
+  it("carries the event's own support phone and office hours (review of d3e669030)", () => {
+    const source = { supportContact: { phone: "+971 50 999 0000", hours: "Sunday to Thursday" } };
+    expect(cloneEventSettings(source)).toMatchObject(source);
+  });
+
   it("DROPS an unknown/new key (allow-list fail-safe — the anti-deny-list property)", () => {
     const out = cloneEventSettings({
       cme: { hours: 3 },

@@ -401,7 +401,10 @@ export default function SettingsPage() {
         qc.invalidateQueries({ queryKey: queryKeys.orgBranding });
         toast.success("Organization settings saved");
       } else {
-        toast.error("Failed to save organization settings");
+        // Name the field that was refused (the support phone is checked), not only that it failed.
+        const data = await res.json().catch(() => null);
+        const why = data?.details?.fieldErrors?.settings?.[0];
+        toast.error(why ? `Not saved: ${why}` : "Failed to save organization settings");
       }
     } catch (error) {
       console.error("Error saving organization:", error);

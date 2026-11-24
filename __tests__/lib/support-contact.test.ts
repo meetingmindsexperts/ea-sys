@@ -4,7 +4,7 @@
  * override field by field, as one cleaned line each.
  */
 import { describe, it, expect } from "vitest";
-import { effectiveSupportContact, readSupportContact, storedSupportContact, supportContactSchema } from "@/lib/support-contact";
+import { effectiveSupportContact, readSupportContact, sameSupportContact, storedSupportContact, supportContactSchema } from "@/lib/support-contact";
 
 const org = { supportContact: { phone: "+971 4 123 4567", hours: "Monday to Friday, 9:00 to 18:00" } };
 
@@ -38,5 +38,25 @@ describe("support contact", () => {
       expect(supportContactSchema.safeParse({ phone }).success, phone).toBe(false);
     }
     expect(supportContactSchema.safeParse({ hours: "x".repeat(201) }).success).toBe(false);
+  });
+
+  // Review of d3e669030.
+  it("a phone has at least six digits: brackets or dots alone are not a phone", () => {
+    for (const phone of ["(", "+(", "(-)", "( . )", "12345"]) {
+      expect(supportContactSchema.safeParse({ phone }).success, phone).toBe(false);
+    }
+    expect(supportContactSchema.safeParse({ phone: "800 123" }).success).toBe(true);
+  });
+
+  it("null clears both, and control characters never reach the stored line", () => {
+    expect(supportContactSchema.safeParse(null).success).toBe(true);
+    expect(storedSupportContact(null)).toEqual({});
+    expect(readSupportContact({ supportContact: { hours: "Mon\u0000 to\u0007 Fri" } }).hours).toBe("Mon to Fri");
+  });
+
+  it("an unchanged contact is the same however it is spaced, so a save does not send it again", () => {
+    expect(sameSupportContact({ phone: "", hours: "" }, {})).toBe(true);
+    expect(sameSupportContact({ phone: " +971 4 123 4567 ", hours: "" }, { phone: "+971 4 123 4567" })).toBe(true);
+    expect(sameSupportContact({ phone: "+971 4 123 4567" }, { phone: "+971 4 123 4568" })).toBe(false);
   });
 });

@@ -190,7 +190,7 @@ export async function PUT(req: Request) {
     // clobbered. Scalar columns stay on the organization.update below.
     if (settings) {
       const cleanSettings = JSON.parse(JSON.stringify(settings));
-      if (settings.supportContact) cleanSettings[SUPPORT_CONTACT_SETTING] = storedSupportContact(settings.supportContact);
+      if (settings.supportContact !== undefined) cleanSettings[SUPPORT_CONTACT_SETTING] = storedSupportContact(settings.supportContact);
       await updateOrganizationSettings(orgId, cleanSettings);
     }
 
