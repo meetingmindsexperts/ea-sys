@@ -28,6 +28,7 @@ import { EventCountdownBadge } from "@/components/events/event-countdown-badge";
 import { EventActions } from "./event-actions";
 import { ActivityFeed } from "@/components/activity-feed";
 import { formatDateRange } from "@/lib/utils";
+import { webinarVideoSource } from "@/lib/webinar/video-source";
 
 const statusConfig: Record<string, { label: string; cls: string }> = {
   DRAFT:     { label: "Draft",     cls: "bg-white/15 text-white border-white/25" },
@@ -73,6 +74,9 @@ export default async function EventPage({ params }: EventPageProps) {
         venue: true,
         city: true,
         country: true,
+        // The Clone dialog starts a webinar's copy on its video source.
+        eventType: true,
+        settings: true,
         _count: {
           select: {
             // Delegate count — exclude faculty companion registrations so the
@@ -279,7 +283,11 @@ export default async function EventPage({ params }: EventPageProps) {
               </div>
             </div>
             {!isRestricted && (
-              <EventActions eventId={eventId} eventName={event.name} />
+              <EventActions
+                eventId={eventId}
+                eventName={event.name}
+                webinarSource={event.eventType === "WEBINAR" ? webinarVideoSource(event.settings) : null}
+              />
             )}
           </div>
         </div>

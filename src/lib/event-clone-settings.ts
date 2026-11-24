@@ -141,3 +141,24 @@ export function cloneEventSettings(source: unknown): Record<string, unknown> {
 
   return out;
 }
+
+/**
+ * A clone's video source, chosen in the Clone dialog (Nov 24, 2026; owner: "when a webinar is cloned,
+ * video source option is not coming there"). The settings come from cloneEventSettings, which keeps the
+ * source's. Choosing the other one also drops autoProvisionZoom and viewingMode, which the provisioner
+ * set for the old source (a partner's webinar is "no Zoom, custom stream"): kept, a partner's webinar
+ * copied as Zoom would never be given its Zoom webinar. Without them the provisioner decides as for a
+ * new webinar of that source. Pure.
+ */
+export function withWebinarSource(settings: Record<string, unknown>, target: "zoom" | "external"): Record<string, unknown> {
+  const raw = settings.webinar;
+  const webinar = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
+  const current = webinar.source === "external" ? "external" : "zoom";
+  if (current === target) return settings;
+  delete webinar.autoProvisionZoom;
+  delete webinar.viewingMode;
+  if (target === "external") webinar.source = "external";
+  else delete webinar.source;
+  return { ...settings, webinar };
+}
+

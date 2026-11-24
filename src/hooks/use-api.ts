@@ -459,18 +459,20 @@ export interface CloneEventInput {
   includeAgenda: boolean;
   /** Copy certificate templates (auto-issue paused). Defaults to true on the server. */
   includeCertificates: boolean;
+  /** A webinar's video source for the copy; absent keeps the source's. */
+  webinarSource?: "zoom" | "external";
 }
 
 export function useCloneEvent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ eventId, includeSpeakers, includeAgenda, includeCertificates }: CloneEventInput) =>
+    mutationFn: ({ eventId, includeSpeakers, includeAgenda, includeCertificates, webinarSource }: CloneEventInput) =>
       fetchApi<{ id: string; name: string; slug: string }>(
         `/api/events/${eventId}/clone`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ includeSpeakers, includeAgenda, includeCertificates }),
+          body: JSON.stringify({ includeSpeakers, includeAgenda, includeCertificates, webinarSource }),
         }
       ),
     onSuccess: () => {

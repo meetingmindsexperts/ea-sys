@@ -7,7 +7,7 @@
  * preserving every config/publish/deadline key the old copy carried.
  */
 import { describe, it, expect } from "vitest";
-import { cloneEventSettings } from "@/lib/event-clone-settings";
+import { cloneEventSettings, withWebinarSource } from "@/lib/event-clone-settings";
 
 describe("cloneEventSettings", () => {
   it("drops the webinar anchor identity/state but keeps webinar config", () => {
@@ -140,6 +140,22 @@ describe("cloneEventSettings: the abstract Pay Now switch", () => {
     expect(out).not.toHaveProperty("presenterRegistration");
     // Its neighbour on the list still copies.
     expect(out.groupRegistration).toEqual({ enabled: true, minMembers: 2, maxMembers: 10 });
+  });
+});
+
+describe("withWebinarSource: the copy's video source (Nov 24, 2026)", () => {
+  it("the same source changes nothing", () => {
+    const settings = { webinar: { source: "external", viewingMode: "hls" } };
+    expect(withWebinarSource(settings, "external")).toBe(settings);
+    expect(withWebinarSource({ webinar: { viewingMode: "embed" } }, "zoom")).toEqual({ webinar: { viewingMode: "embed" } });
+  });
+
+  it("the other source drops what the provisioner set for the old one, and keeps the rest", () => {
+    expect(withWebinarSource({ registrationOpen: true, webinar: { source: "external", viewingMode: "hls", autoProvisionZoom: false, lobbyMessage: "Hi" } }, "zoom")).toEqual({
+      registrationOpen: true,
+      webinar: { lobbyMessage: "Hi" },
+    });
+    expect(withWebinarSource({}, "external")).toEqual({ webinar: { source: "external" } });
   });
 });
 

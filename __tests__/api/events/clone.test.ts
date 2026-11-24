@@ -509,6 +509,70 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(eventCreateData.status).toBe("DRAFT");
     });
 
+    describe("a webinar's video source, chosen in the Clone dialog (Nov 24, 2026)", () => {
+      async function clonedSettings(sourceSettings: Record<string, unknown>, body?: unknown) {
+        setupSuccessfulClone({ eventType: "WEBINAR", settings: sourceSettings });
+        const res = await POST(makeRequest(body), makeParams("evt-1"));
+        const txFn = mockDb.$transaction.mock.calls[0][0];
+        const mockTx = {
+          event: { create: vi.fn().mockResolvedValue({ id: "x", name: "T (Copy)", slug: "t-copy" }) },
+          ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
+          speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
+          track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+          sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
+          hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
+          roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
+          eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
+          sessionSpeaker: { create: vi.fn().mockResolvedValue({}) },
+        };
+        await txFn(mockTx);
+        return { res, webinar: mockTx.event.create.mock.calls[0][0].data.settings.webinar };
+      }
+
+      it("no choice sent keeps the source's, as before", async () => {
+        const { webinar } = await clonedSettings({ webinar: { source: "external", viewingMode: "hls", autoProvisionZoom: false } });
+        expect(webinar).toEqual({ source: "external", viewingMode: "hls", autoProvisionZoom: false });
+      });
+
+      it("a partner's webinar copied as Zoom loses the partner's settings, so the provisioner makes its Zoom webinar", async () => {
+        const { webinar } = await clonedSettings(
+          { webinar: { source: "external", viewingMode: "hls", autoProvisionZoom: false, waitingRoom: true } },
+          { webinarSource: "zoom" },
+        );
+        expect(webinar).toEqual({ waitingRoom: true });
+      });
+
+      it("a Zoom webinar copied for a partner is marked external", async () => {
+        const { webinar } = await clonedSettings({ webinar: { viewingMode: "embed", autoProvisionZoom: true } }, { webinarSource: "external" });
+        expect(webinar).toEqual({ source: "external" });
+      });
+
+      it("copying a partner's webinar as Zoom works on a server with no partner streams", async () => {
+        readiness.ready = false;
+        const { res } = await clonedSettings({ webinar: { source: "external" } }, { webinarSource: "zoom" });
+        readiness.ready = true;
+        expect(res.status).toBe(201);
+      });
+
+      it("choosing a partner for the copy is refused where partner streams are not offered", async () => {
+        readiness.ready = false;
+        // One lookup only: the refusal comes before the slug check, so a second queued answer would be
+        // left for the next test.
+        mockAuth.mockResolvedValue(adminSession);
+        mockDb.event.findFirst.mockResolvedValueOnce(makeSourceEvent({ eventType: "WEBINAR", settings: { webinar: {} } }));
+        const res = await POST(makeRequest({ webinarSource: "external" }), makeParams("evt-1"));
+        readiness.ready = true;
+        expect(res.status).toBe(400);
+        expect((await res.json()).code).toBe("PARTNER_STREAMS_NOT_AVAILABLE");
+      });
+
+      it("a conference ignores the field", async () => {
+        setupSuccessfulClone({ eventType: "CONFERENCE", settings: {} });
+        const res = await POST(makeRequest({ webinarSource: "external" }), makeParams("evt-1"));
+        expect(res.status).toBe(201);
+      });
+    });
+
     it("resets reviewerUserIds in cloned settings", async () => {
       setupSuccessfulClone();
       await POST(makeRequest(), makeParams("evt-1"));

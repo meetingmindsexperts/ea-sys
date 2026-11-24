@@ -7,7 +7,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { reservedTypeNameRefusal } from "@/lib/faculty-filter";
 import { refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
-import { cloneEventSettings } from "@/lib/event-clone-settings";
+import { cloneEventSettings, withWebinarSource } from "@/lib/event-clone-settings";
 import { webinarVideoSource } from "@/lib/webinar/video-source";
 import { partnerStreamReadiness } from "@/lib/webinar/partner-stream-readiness";
 import { PARTNER_STREAM_NOT_OFFERED_MESSAGE } from "@/lib/webinar/partner-stream-availability";
@@ -36,6 +36,9 @@ const cloneOptionsSchema = z.object({
   // and auto-issue tag. Default TRUE like the other two, so the next edition
   // arrives with its CME certificate instead of an empty Certificates page.
   includeCertificates: z.boolean().default(true),
+  // A webinar's video source for the copy (Nov 24, 2026). Absent keeps the source's, as before; it is
+  // read only when the source is a webinar.
+  webinarSource: z.enum(["zoom", "external"]).optional(),
 });
 
 export async function POST(
@@ -134,9 +137,12 @@ export async function POST(
     const outOfScope = refuseOutOfScope(gate.principal, "events.create", { eventType: source.eventType ?? "" }, { route: "events/[eventId]/clone:POST", eventId });
     if (outOfScope) return outOfScope;
 
-    // A copy of a partner-streamed webinar is one too (the clone keeps its video source), so it is refused
-    // on a server that cannot issue a partner's key, as the events POST refuses one (review of d86921d4).
-    if (source.eventType === "WEBINAR" && webinarVideoSource(source.settings) === "external") {
+    // The copy's video source: the one chosen in the Clone dialog, else the source's. A partner-streamed
+    // copy is refused on a server that cannot issue a partner's key, as the events POST refuses one
+    // (review of d86921d4); choosing Zoom for the copy of a partner's webinar is how to clone it there.
+    const isWebinar = source.eventType === "WEBINAR";
+    const targetSource = isWebinar ? (parsedOptions.data.webinarSource ?? webinarVideoSource(source.settings)) : null;
+    if (targetSource === "external") {
       const readiness = partnerStreamReadiness();
       if (!readiness.ready) {
         apiLogger.warn({ eventId, userId: session.user.id, missing: readiness.missing }, "events-clone:partner-stream-not-offered");
@@ -170,7 +176,8 @@ export async function POST(
     // wholesale spread carried the source's webinar anchor sessionId (→ every
     // Zoom attach 409'd), its surveyShareLink (a live token), and its
     // agendaPublished flag (→ the clone's public agenda went live).
-    const settings = cloneEventSettings(source.settings) as Prisma.InputJsonValue;
+    const copied = cloneEventSettings(source.settings);
+    const settings = (targetSource ? withWebinarSource(copied, targetSource) : copied) as Prisma.InputJsonValue;
 
     // Use 30s timeout — default 5s is too short on Vercel/pgbouncer when cloning
     // events with many related records (each is a sequential create).
@@ -570,6 +577,8 @@ export async function POST(
       includeCertificates,
       certificateTemplatesCloned: certificateTemplatesToClone.length,
       certificateAutoIssuePaused: certificateTemplatesToClone.filter((ct) => ct.autoIssueOnSurvey).length,
+      webinarSource: targetSource,
+      webinarSourceChanged: targetSource !== null && targetSource !== webinarVideoSource(source.settings),
     });
 
     return NextResponse.json(

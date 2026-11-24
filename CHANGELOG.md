@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Cloning a webinar asks for its video source (November 24, 2026)
+
+Owner: "when a webinar is cloned, video source option is not coming there."
+
+- **The Clone dialog of a webinar has a Video source choice**, starting on the original's: our Zoom webinar, or a partner streaming from their own platform (offered only on a server that can issue a partner's key, as on the new-event form). The copy of a partner's webinar can always be switched to Zoom, which is also how to clone one on a server without partner streams
+- Choosing the other source drops the "no Zoom" and "custom stream" settings the provisioner made for the old one, so the copy is set up like a new webinar of its source when its provisioner runs. Not choosing (the agent, an API caller) keeps the original's source, as before
+- `src/lib/event-clone-settings.ts` (`withWebinarSource`), `POST /api/events/[id]/clone` (`webinarSource`)
+
 ### Abstract submitters are not asked to pay online until you open it (November 23, 2026)
 
 Owner: "lets talk about pay now for abstract submitters, how can we suppress it", then option A: the event's switch decides, for everyone on the event.

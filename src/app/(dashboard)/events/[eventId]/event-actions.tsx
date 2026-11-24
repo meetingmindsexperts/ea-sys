@@ -17,17 +17,22 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Edit, Copy, Loader2 } from "lucide-react";
-import { useCloneEvent } from "@/hooks/use-api";
+import { useCloneEvent, usePartnerStreamAvailability } from "@/hooks/use-api";
 import { useCan } from "@/hooks/use-can";
 import { toast } from "sonner";
+
+type VideoSource = "zoom" | "external";
 
 interface EventActionsProps {
   eventId: string;
   eventName: string;
+  /** A webinar's video source, which the Clone dialog starts the copy on; null for any other event. */
+  webinarSource: VideoSource | null;
 }
 
-export function EventActions({ eventId, eventName }: EventActionsProps) {
+export function EventActions({ eventId, eventName, webinarSource }: EventActionsProps) {
   const router = useRouter();
   const cloneEvent = useCloneEvent();
   const canClone = useCan("events.clone", eventId) === "allowed";
@@ -36,6 +41,13 @@ export function EventActions({ eventId, eventName }: EventActionsProps) {
   const [includeSpeakers, setIncludeSpeakers] = useState(true);
   const [includeAgenda, setIncludeAgenda] = useState(true);
   const [includeCertificates, setIncludeCertificates] = useState(true);
+  // A webinar's copy can take the other video source (Nov 24, 2026), as a new webinar can. "A partner
+  // streams" is offered only where the server can issue a partner's key (usePartnerStreamAvailability,
+  // as the new-event form asks); the copy of a partner's webinar can always switch to Zoom.
+  const partnerStreams = usePartnerStreamAvailability();
+  const [copySource, setCopySource] = useState<VideoSource>(webinarSource ?? "zoom");
+  const partnerOffered = partnerStreams.data?.offered === true;
+  const showSourceChoice = webinarSource !== null && (partnerOffered || webinarSource === "external");
 
   // Every open starts from "copy everything", so a choice made for one clone
   // is never silently reused for the next.
@@ -44,6 +56,7 @@ export function EventActions({ eventId, eventName }: EventActionsProps) {
       setIncludeSpeakers(true);
       setIncludeAgenda(true);
       setIncludeCertificates(true);
+      setCopySource(webinarSource ?? "zoom");
     }
     setOpen(next);
   };
@@ -59,7 +72,13 @@ export function EventActions({ eventId, eventName }: EventActionsProps) {
 
   const handleClone = async () => {
     try {
-      const result = await cloneEvent.mutateAsync({ eventId, includeSpeakers, includeAgenda, includeCertificates });
+      const result = await cloneEvent.mutateAsync({
+        eventId,
+        includeSpeakers,
+        includeAgenda,
+        includeCertificates,
+        ...(webinarSource !== null ? { webinarSource: copySource } : {}),
+      });
       setOpen(false);
       toast.success(`Event cloned as "${result.name}"`);
       router.push(`/events/${result.id}`);
@@ -155,6 +174,27 @@ export function EventActions({ eventId, eventName }: EventActionsProps) {
                       </p>
                     </div>
                   </div>
+                  {showSourceChoice && (
+                    <div className="space-y-1.5 border-t pt-4">
+                      <Label htmlFor="clone-webinar-source">Video source</Label>
+                      <Select value={copySource} onValueChange={(v) => setCopySource(v as VideoSource)}>
+                        <SelectTrigger id="clone-webinar-source" data-testid="clone-webinar-source">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="zoom">Our Zoom webinar</SelectItem>
+                          {partnerOffered && (
+                            <SelectItem value="external">A partner streams from their own platform</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-muted-foreground">
+                        {copySource === "external"
+                          ? "No Zoom webinar is created for the copy. Issue the partner a stream key from its Webinar Console. This cannot be changed after the copy is made."
+                          : "A Zoom webinar is created for the copy when you run the provisioner from its Webinar Console."}
+                      </p>
+                    </div>
+                  )}
                   {includeAgenda && !includeSpeakers && (
                     <p className="text-sm text-amber-700 dark:text-amber-400">
                       Sessions will be copied with no speakers assigned.
