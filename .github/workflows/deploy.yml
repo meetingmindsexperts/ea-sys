@@ -73,6 +73,14 @@ jobs:
         run: npx prisma generate
 
       # Run type-check in background, lint in foreground, then collect both.
+      # The route types (Nov 24, 2026): `next typegen` writes next-env.d.ts and
+      # .next/types, both gitignored. The gate (scripts/gate.sh) runs it before
+      # ITS type check, so without this step the two read different files: a
+      # commit using PageProps<...>, RouteContext<...> or an imported image
+      # passed the gate's type check and failed this job's. About 3 seconds.
+      - name: Route types
+        run: npx next typegen
+
       # Both are independent — saves ~15-20s vs running sequentially.
       #
       # `wait` must name the type check's PID. A bare `wait` returns 0 whatever

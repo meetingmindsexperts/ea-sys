@@ -46,6 +46,10 @@ WORKDIR="${GATE_WORKDIR:-${TMPDIR:-/tmp}}"
 WORKDIR="${WORKDIR%/}"
 WT="$WORKDIR/ea-sys-gate-$SHORT"
 STARTED=$(date +%s)
+# Only this script decides whether its build skips Next's type check. A value
+# inherited from the caller would also reach the browser suite's server, which
+# rebuilds when it finds no build (review of 9811bed4c).
+unset GATE_TYPES_ALREADY_CHECKED
 
 # One gate at a time: every run uses port 3199 and rebuilds the e2e database.
 LOCK="$DIR/lock"
@@ -70,12 +74,27 @@ kill_tree() {
   kill "$1" 2>/dev/null
 }
 
+# Each lane writes its own file, so two tools never interleave in the log.
+# Folded into the one log when the lanes end, and when the gate is killed: the
+# output up to the kill is what explains it.
+merge_lane_logs() {
+  local part
+  for part in "$LOG.build-lane" "$LOG.checks-lane"; do
+    if [ -f "$part" ]; then cat "$part" >>"$LOG"; rm -f "$part"; fi
+  done
+}
+
 LANES=""
 FAILS=""
 cleanup() {
   local pid
-  for pid in $LANES; do kill_tree "$pid"; done
-  rm -f "$LOG.build-lane" "$LOG.checks-lane"
+  # Stopped first, then killed from the leaves up (review of 9811bed4c). A lane
+  # left running sees its tool die, prints a false FAIL and starts its next
+  # step while the tree is being walked: on Ctrl-C a `next build` outlived the
+  # gate and its worktree every time.
+  for pid in $LANES; do kill -STOP "$pid" 2>/dev/null; done
+  for pid in $LANES; do kill_tree "$pid"; kill -CONT "$pid" 2>/dev/null; done
+  merge_lane_logs
   if [ -n "$FAILS" ]; then rm -f "$FAILS"; fi
   rm -rf "$LOCK"
   cd "$REPO" && git worktree remove --force "$WT" >/dev/null 2>&1
@@ -92,7 +111,7 @@ done
 git worktree prune >/dev/null 2>&1
 
 # The browser suite starts its own server on 3199 and refuses a port in use. A
-# killed gate or another e2e run can leave one there: say so now, not after four minutes.
+# killed gate or another e2e run can leave one there: say so now, not minutes in.
 PORT_HOLDER=$(lsof -nP -iTCP:3199 -sTCP:LISTEN -t 2>/dev/null | head -1)
 if [ -n "$PORT_HOLDER" ]; then
   echo "gate: port 3199 is in use by pid $PORT_HOLDER (a killed gate, or a browser suite run). Stop it, then run the gate again."
@@ -126,6 +145,9 @@ STEP_LOG="$LOG"
 step() {
   local name=$1 began
   shift
+  # $$ is the gate itself, also inside a lane. A gate killed outright (kill -9)
+  # runs no cleanup: its lanes stop here, not at the end of every step left.
+  kill -0 $$ 2>/dev/null || exit 1
   began=$(date +%s)
   printf '\n===== %s =====\n' "$name" >>"$STEP_LOG"
   if "$@" >>"$STEP_LOG" 2>&1; then
@@ -162,10 +184,13 @@ lane_types_and_build() {
   step "route types" route_types || checked=0
   step "type check" env NODE_OPTIONS=$HEAP npm run type-check || checked=0
   step "build" env NODE_OPTIONS=$HEAP GATE_TYPES_ALREADY_CHECKED=$checked npx next build
+  return 0
 }
 
-# LANE 2. Nothing here reads or writes .next (lint ignores it), so it is safe
-# beside the build. Unit tests first: their workers are done before the build's start.
+# LANE 2. Nothing here depends on .next, so it is safe beside the build: lint
+# ignores the folder, the guards read tracked sources, and the unit tests start
+# first, while lane 1 is still type checking (their path plugin walks the tree
+# once at startup, .next included, and reads only tsconfig files there).
 lane_checks() {
   local guard
   STEP_LOG="$LOG.checks-lane"
@@ -175,23 +200,29 @@ lane_checks() {
   # Every guard on disk, found by name: a new scripts/check-* is gated the day it lands.
   for guard in scripts/check-*.sh; do step "guard $(basename "$guard" .sh)" bash "$guard"; done
   for guard in scripts/check-*.mjs; do step "guard $(basename "$guard" .mjs)" node "$guard"; done
+  return 0
 }
 
+# Each lane is waited for BY PID and must end with status 0 (review of
+# 9811bed4c). A lane only records the steps it reaches: one killed half way, or
+# ended by a shell error, left no line for the steps it never ran, and a bare
+# `wait` called that green. The same hole deploy.yml's type check had until Nov 10.
 if [ "${GATE_SERIAL:-}" = "1" ]; then
-  lane_types_and_build
+  # The checks first: the unit tests then start without a build on disk, as they always have.
   lane_checks
+  lane_types_and_build
 else
   lane_types_and_build &
   LANES="$!"
   lane_checks &
   LANES="$LANES $!"
-  wait
+  for pid in $LANES; do
+    wait "$pid" || printf '[a lane stopped before its last step]\n' >>"$FAILS"
+  done
 fi
 LANES=""
 STEP_LOG="$LOG"
-for part in "$LOG.build-lane" "$LOG.checks-lane"; do
-  if [ -f "$part" ]; then cat "$part" >>"$LOG"; rm -f "$part"; fi
-done
+merge_lane_logs
 
 # The browser suite, which includes the route smoke test (e2e/route-smoke.spec.ts):
 # every GET route asked on a real database as every role, none may answer 500.
@@ -205,7 +236,8 @@ if [ "$(git -C "$REPO" config core.hooksPath)" != ".githooks" ]; then
   echo "note: the git hooks are not installed in this checkout. Run: npm run hooks:install"
 fi
 
-FAILED=$(tr '\n' ' ' < "$FAILS")
+# A record that cannot be read is a failure, never an empty list.
+FAILED=$(tr '\n' ' ' < "$FAILS") || FAILED="[the record of failed steps could not be read]"
 if [ -n "$FAILED" ]; then
   echo "GATE RED for $SHORT in ${ELAPSED}s: $FAILED"
   echo "log: $LOG"

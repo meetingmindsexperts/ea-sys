@@ -46,8 +46,8 @@ Owner: "how do reduce the gate time? I wanna reduce it". `npm run gate` took abo
 over eight runs) because every step ran one after another.
 
 - **Two lanes side by side, then the browser suite**: route types, type check, build in one lane; unit
-  tests, lint and the guards in the other. Every step still runs and a failed step is still named; only the
-  order changed. The type check and the build share a lane on purpose: the build rewrites `.next/types`,
+  tests, lint and the guards in the other. Every step still runs and a failed step is still named; one
+  step was added (route types) and the order changed. The type check and the build share a lane on purpose: the build rewrites `.next/types`,
   which the type check reads.
 - **The gate type checks once, not twice.** The build used to run TypeScript again (about 44 s) after the
   gate's own type check had passed. The gate now runs `next typegen` first, so its own type check reads the
@@ -63,6 +63,30 @@ over eight runs) because every step ran one after another.
 took 32 s without its own type check (66 to 79 s with it). `gate-parity.test.ts` runs the real
 script with stubbed tools: the lanes are proven to overlap, the serial switch not to, and the build's
 switch to be named by no workflow, image or test server.
+
+Review of 9811bed4c (0 BLOCKER, 1 HIGH, 2 MED, 6 LOW), all fixed:
+
+- **HIGH**: the gate's type check read files CI's did not. `next typegen` writes `next-env.d.ts` and
+  `.next/types`, both untracked, so a commit using `PageProps<...>`, `RouteContext<...>` or an imported
+  image passed the gate and failed CI's type check. Nothing in `src/` does today. CI's checks job now runs
+  `next typegen` before its type check too (about 3 s), and the parity test pins the order.
+- **MED**: a lane killed half way was not noticed. It records only the steps it reaches, and a bare `wait`
+  called the rest passed: the gate went green without lint, the guards or the build. Each lane is now
+  waited for by its own process id and must end cleanly; two tests kill a lane in each.
+- **MED**: on Ctrl-C a tool outlived the gate and its worktree (a `next build` with a 6 GB heap, 10 runs of
+  10 in the review), with false FAIL lines printed. The lanes are now stopped before their tools are killed.
+  Checked by hand: 5 interrupted runs, nothing left running, no false FAIL.
+- LOW: a gate killed outright (`kill -9`) left its lanes running to the end; each step now checks the gate
+  is still alive. A failure record that cannot be read is a failure, not an empty list. A killed gate keeps
+  the lanes' output in its log. A `GATE_TYPES_ALREADY_CHECKED` inherited from the caller is dropped at the
+  start. The test of who may name that switch is now every tracked file against a list of five. Comments
+  that overstated what the lanes guarantee were corrected.
+- `GATE_SERIAL=1` now runs the checks lane first, so the unit tests start without a build on disk, as they
+  always have.
+- Older, fixed: the "unit tests fail" row of the gate's own tests also failed the browser suite, so it would
+  have stayed red had a unit test failure been lost.
+- Older, not fixed: two gates started in the same instant can both take the lock (between making the lock
+  folder and writing the process id into it).
 
 ### The webinar player's full screen on a phone (November 24, 2026)
 
