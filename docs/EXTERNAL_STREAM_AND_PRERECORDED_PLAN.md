@@ -273,6 +273,9 @@ Three ways, the owner chooses (section 9, A3):
 3. **We record it.** MediaMTX can write the stream to disk. About 1.1 GB an hour at 2.5 Mbps,
    on a disk that was 65% full in September, so the file must be moved to S3 and removed
    from the box by a job. About 2 more days. Proposed for later, if partners do not deliver.
+   **Chosen Nov 24, 2026** (owner: record to S3, for attendees and as an archive). The full
+   plan, which supersedes this paragraph's size and method, is
+   [PARTNER_STREAM_RECORDING_PLAN.md](PARTNER_STREAM_RECORDING_PLAN.md).
 
 ### 4.8 The attendance report
 
@@ -434,7 +437,8 @@ all behave as for a live webinar, because to them it is one.
 2. **How long a key works.** Proposed: from the moment it is issued until 24 hours after the
    scheduled end, changeable per webinar.
 3. **Recording.** None, the partner sends the file (works today), or we record (2 more days,
-   proposed for later).
+   proposed for later). **Decided Nov 24, 2026: we record**, to S3; planned in
+   [PARTNER_STREAM_RECORDING_PLAN.md](PARTNER_STREAM_RECORDING_PLAN.md).
 4. **The technician's test page.** In the first build or as the first follow-up (proposed).
 5. **Closing the room.** Changed by the review: by the producer, or by the two-hour safety
    net every room has. Never on the stream going quiet (4.5).
