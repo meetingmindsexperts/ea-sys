@@ -173,12 +173,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
             entityType: "RSVP_CAMPAIGN",
             entityId: campaignId,
             changes: {
+              // Which fields this save carried: without it a wording change left a row whose
+              // before and after were identical (review of 3b8d4f365).
+              changedFields: Object.keys(p),
               before: {
                 name: existing.name,
                 selectionMode: existing.selectionMode,
                 allowGuests: existing.allowGuests,
                 collectDietary: existing.collectDietary,
                 isActive: existing.isActive,
+                description: existing.description,
+                questionText: existing.questionText,
+                questionHelpText: existing.questionHelpText,
+                thankYouText: existing.thankYouText,
               },
               guestsCleared,
               after: {
@@ -187,6 +194,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
                 allowGuests: campaign?.allowGuests,
                 collectDietary: campaign?.collectDietary,
                 isActive: campaign?.isActive,
+                description: campaign?.description,
+                questionText: campaign?.questionText,
+                questionHelpText: campaign?.questionHelpText,
+                thankYouText: campaign?.thankYouText,
               },
             },
           },

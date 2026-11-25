@@ -51,3 +51,16 @@ export function rsvpQuestionHelpText(campaign: RsvpQuestionWording, manyItems: b
 export function rsvpThankYouText(campaign: RsvpQuestionWording & { name: string }): string {
   return campaign.thankYouText?.trim() || defaultRsvpThankYou(campaign.name);
 }
+
+/** A name that already opens with a title ("Dr. Hadeel Ammar", "Prof Ali"): typed that way by hand. */
+const NAME_OPENS_WITH_TITLE = /^(dr|prof|professor|mr|mrs|ms|miss)\b\.?\s/i;
+
+/**
+ * The thank-you's greeting name: the person's title, when the event knows one, before their name.
+ * Never twice: an invitee typed in as "Dr. Hadeel Ammar" keeps exactly that (review of 3b8d4f365).
+ */
+export function rsvpGreetingName(titleLabel: string | null | undefined, name: string): string {
+  const title = titleLabel?.trim();
+  if (!title || NAME_OPENS_WITH_TITLE.test(name.trim())) return name.trim();
+  return `${title} ${name.trim()}`;
+}

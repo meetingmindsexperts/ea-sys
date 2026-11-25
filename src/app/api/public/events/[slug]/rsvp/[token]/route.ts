@@ -226,7 +226,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       const seatsUsed = await seatsUsedByItem(db, items.filter((d) => d.capacity != null).map((d) => d.id));
       // A failed title lookup must never cost the invitee their form: the greeting is then the name alone.
       const inviteeTitle = await loadInviteeTitle(invite).catch((err) => {
-        apiLogger.warn({ err, inviteId: invite.id }, "rsvp-public:title-lookup-failed");
+        apiLogger.error({ err, inviteId: invite.id }, "rsvp-public:title-lookup-failed");
         return null;
       });
 

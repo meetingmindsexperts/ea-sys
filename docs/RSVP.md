@@ -16,7 +16,9 @@ Event ──< RsvpCampaign ──< RsvpItem        ("Gala Dinner", "Workshop A")
 ```
 
 - **`RsvpCampaign`** — one RSVP. `name`, `description?`, `selectionMode`
-  (SINGLE / MULTI), `allowGuests`, `collectDietary`, `isActive`, `sortOrder`.
+  (SINGLE / MULTI), `allowGuests`, `collectDietary`, `isActive`, `sortOrder`,
+  and the page's own wording `questionText?`, `questionHelpText?`,
+  `thankYouText?` (Nov 25, 2026; null = built in).
 - **`RsvpItem`** — one thing to say yes to: `name`, `startsAt`, `location?`,
   `description?`, `rsvpDeadline?`, `sortOrder`, `isActive`.
 - **`RsvpInvite`** — one invited person **per campaign**: unique `token`,

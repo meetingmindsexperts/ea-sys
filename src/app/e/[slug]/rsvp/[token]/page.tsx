@@ -27,7 +27,7 @@ import { EventBannerBand } from "@/components/public/event-banner";
 import { PublicEventNotice } from "@/components/public/event-notice";
 import { resolveTimezone, tzLabel } from "@/lib/event-time";
 import { toast } from "sonner";
-import { rsvpQuestionHelpText, rsvpQuestionText, rsvpThankYouText } from "@/lib/rsvp/question-wording";
+import { rsvpGreetingName, rsvpQuestionHelpText, rsvpQuestionText, rsvpThankYouText } from "@/lib/rsvp/question-wording";
 
 interface ItemRow {
   id: string;
@@ -240,8 +240,7 @@ export default function RsvpPage() {
           </div>
           {/* The greeting is the system's, with the person's title when the event knows it. */}
           <h1 className="text-2xl font-bold text-slate-900 mb-2">
-            Thank you, {data.invitee.title ? `${data.invitee.title} ` : ""}
-            {data.invitee.name}!
+            Thank you, {rsvpGreetingName(data.invitee.title, data.invitee.name)}!
           </h1>
           {/* The organiser's own words when they wrote some (question-wording.ts); line breaks kept. */}
           <p className="text-slate-500 whitespace-pre-line">{rsvpThankYouText(data.campaign)}</p>
@@ -256,7 +255,7 @@ export default function RsvpPage() {
   // Require an explicit choice: at least one item picked, or "I won't attend".
   const hasChoice = notAttending || items.some((d) => d.attending);
 
-  // The organiser's own words when they wrote some, else the built-in wording (rsvp.ts).
+  // The organiser's own words when they wrote some, else the built-in wording (question-wording.ts).
   const question = rsvpQuestionText(data.campaign, manyItems, single);
   const helper = rsvpQuestionHelpText(data.campaign, manyItems, single);
   const declineLabel = manyItems
@@ -283,7 +282,7 @@ export default function RsvpPage() {
             {/* No greeting line (owner, Nov 25, 2026): the invitee's name is in the form below, and
                 the organiser's own introduction says the rest. */}
             {data.campaign.description && (
-              <p className="text-sm text-slate-500 mt-2">{data.campaign.description}</p>
+              <p className="text-sm text-slate-500 mt-2 whitespace-pre-line">{data.campaign.description}</p>
             )}
           </div>
 
@@ -303,7 +302,7 @@ export default function RsvpPage() {
             {/* Items */}
             <div>
               <Label className="text-sm font-semibold text-slate-800">{question}</Label>
-              <p className="text-xs text-slate-500 mt-0.5">{helper}</p>
+              <p className="text-xs text-slate-500 mt-0.5 whitespace-pre-line">{helper}</p>
               {allClosed && (
                 <p className="text-sm text-amber-600 mt-1">RSVP is now closed for this event.</p>
               )}

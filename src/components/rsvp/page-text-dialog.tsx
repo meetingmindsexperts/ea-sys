@@ -4,9 +4,10 @@
  * The words on an RSVP's own page, in the organiser's hands (owner, Nov 25, 2026: "give text boxes
  * for organizer to add" the question and the line under it, and "thank you text also").
  *
- * Four boxes: the introduction under the event's name, the question, the line under the question,
- * and the message shown once the invitee has answered. An empty box means the built-in wording,
- * which each box shows as its placeholder (question-wording.ts, the same words the page renders).
+ * Four boxes: the note under the event's name (the create form's "Note for invitees"), the question,
+ * the line under the question, and the message shown once the invitee has answered. For the last
+ * three an empty box means the built-in wording, which the box shows as its placeholder
+ * (question-wording.ts, the same words the page renders); an empty note shows no note.
  * The greeting "Thank you, Dr. Name!" above the message is the system's and is not edited here.
  */
 import { useState } from "react";
@@ -37,6 +38,17 @@ export interface RsvpPageText {
 
 const DESCRIPTION_MAX = 2000;
 
+type PageTextForm = { description: string; questionText: string; questionHelpText: string; thankYouText: string };
+
+/** The boxes whose text differs from what the dialog opened with, trimmed as they will be stored. */
+export function changedPageText(opened: PageTextForm, form: PageTextForm): Partial<PageTextForm> {
+  const out: Partial<PageTextForm> = {};
+  for (const key of ["description", "questionText", "questionHelpText", "thankYouText"] as const) {
+    if (form[key].trim() !== opened[key].trim()) out[key] = form[key].trim();
+  }
+  return out;
+}
+
 export function RsvpPageTextDialog({
   open,
   onOpenChange,
@@ -54,27 +66,31 @@ export function RsvpPageTextDialog({
   manyItems: boolean;
   onSaved: () => void | Promise<void>;
 }) {
-  const [form, setForm] = useState({
+  // What the boxes opened with. Only a box the organiser changed is sent (review of 3b8d4f365): an
+  // empty box means "clear it", so sending all four would wipe a text this dialog was never given,
+  // and would undo a colleague's save made while this one was open.
+  const [opened] = useState(() => ({
     description: campaign.description ?? "",
     questionText: campaign.questionText ?? "",
     questionHelpText: campaign.questionHelpText ?? "",
     thankYouText: campaign.thankYouText ?? "",
-  });
+  }));
+  const [form, setForm] = useState(opened);
   const [saving, setSaving] = useState(false);
   const single = campaign.selectionMode === "SINGLE";
 
   const save = async () => {
+    const changed = changedPageText(opened, form);
+    if (Object.keys(changed).length === 0) {
+      onOpenChange(false);
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch(apiBase, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          description: form.description.trim(),
-          questionText: form.questionText.trim(),
-          questionHelpText: form.questionHelpText.trim(),
-          thankYouText: form.thankYouText.trim(),
-        }),
+        body: JSON.stringify(changed),
       });
       if (!res.ok) {
         const json = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -82,38 +98,43 @@ export function RsvpPageTextDialog({
         toast.error(json?.error || "Could not save the page text");
         return;
       }
-      toast.success("Page text saved");
-      await onSaved();
-      onOpenChange(false);
     } catch (err) {
       console.error("rsvp-console:page-text-save-error", err);
       toast.error("Could not save the page text");
+      return;
     } finally {
       setSaving(false);
     }
+    // Saved: say so and close before the console reloads, so a failed reload is never read as a
+    // failed save.
+    toast.success("Page text saved");
+    onOpenChange(false);
+    await Promise.resolve(onSaved()).catch((err) => console.error("rsvp-console:reload-after-page-text-failed", err));
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Page text</DialogTitle>
           <DialogDescription>
-            The words invitees read on this RSVP&apos;s page. Leave a box empty to use the wording shown in grey.
+            The words invitees read on this RSVP&apos;s page. Leave the question, its line or the thank-you empty to use
+            the wording shown in grey.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label htmlFor="rsvp-text-intro">Introduction</Label>
+            <Label htmlFor="rsvp-text-intro">Note for invitees</Label>
             <Textarea
               id="rsvp-text-intro"
               rows={3}
               maxLength={DESCRIPTION_MAX}
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              placeholder="We are delighted to invite you for an evening of dinner and gathering."
             />
-            <p className="mt-1 text-xs text-muted-foreground">Shown under the event&apos;s name, above the form.</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Shown under the event&apos;s name, above the form. Leave it empty to show no note.
+            </p>
           </div>
           <div>
             <Label htmlFor="rsvp-text-question">Question</Label>

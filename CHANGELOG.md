@@ -23,6 +23,17 @@ thank-you's greeting "can be system but with title".
   (`questionText`, `questionHelpText`, `thankYouText`). Additive; an older image never reads them.
 - The assistant's `list_rsvps` reports the three texts (null = built in). The create form is unchanged: the boxes are
   on the RSVP's own page, after it is created.
+- **Review of 3b8d4f365** (0 BLOCKER, 0 HIGH, 3 MED, 11 LOW; privacy, injection and the migration came out clean).
+  Fixed: the dialog sends only the boxes that changed (it sent all four, so a box it was never given, or a colleague's
+  save made meanwhile, would have been cleared); the note's box no longer promises a sample sentence the page never
+  shows, and is called "Note for invitees" as on the create form; the audit row records the wording before and after
+  and which fields the save carried. Also: the dialog scrolls on a short screen and the console's buttons wrap on a
+  phone; a name typed with a title is never greeted "Dr. Dr."; a linked speaker or registration answers the title only
+  while it still carries the invitee's own address; line breaks are kept in the note and the help line; a save is not
+  reported as failed when only the reload after it failed; a thrown title lookup logs at error; tests for the public
+  answer (the title as a label, the texts, no ids), the roster's page text and the audit row; the user guide. Left: a
+  hand-typed invitee who shares an address with a titled person on the same event gets that title (no such pair on
+  the local copy; Speaker is unique per event and address).
 
 ### Webinars: the attendance files say who each attendee is (November 25, 2026)
 

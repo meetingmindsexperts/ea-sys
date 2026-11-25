@@ -64,8 +64,9 @@ export type RsvpCampaignRow = NonNullable<Awaited<ReturnType<typeof loadRsvpCamp
  * Hadeel Ammar! this can be system but with title"). An invite holds a name and an address only, so
  * the title is read from the person's own record on THIS event: the speaker or registration the
  * invite was imported from, else one on the same address (a speaker first: faculty are the people a
- * dinner is for; a cancelled registration never answers). Null when the event knows no title for
- * them, and the greeting is then the name alone. Call it INSIDE the event's tenant lane.
+ * dinner is for; a cancelled registration never answers). A speaker who declined or was cancelled is
+ * still the same person, so their title is used whatever their status. Null when the event knows no
+ * title for them, and the greeting is then the name alone. Call it INSIDE the event's tenant lane.
  */
 export async function loadInviteeTitle(invite: {
   eventId: string;
@@ -75,12 +76,15 @@ export async function loadInviteeTitle(invite: {
 }): Promise<string | null> {
   const sameAddress = equalsIgnoringCase(invite.inviteeEmail);
   const [linkedSpeaker, linkedRegistration] = await Promise.all([
+    // A linked record counts only while it still carries the invitee's own address (review of
+    // 3b8d4f365): the ids arrive from the browser when invitees are added, and a record can change
+    // hands, so the id alone must never put another person's title on this name.
     invite.speakerId
-      ? db.speaker.findFirst({ where: { id: invite.speakerId, eventId: invite.eventId }, select: { title: true } })
+      ? db.speaker.findFirst({ where: { id: invite.speakerId, eventId: invite.eventId, email: sameAddress }, select: { title: true } })
       : null,
     invite.registrationId
       ? db.registration.findFirst({
-          where: { id: invite.registrationId, eventId: invite.eventId, status: { not: "CANCELLED" } },
+          where: { id: invite.registrationId, eventId: invite.eventId, status: { not: "CANCELLED" }, attendee: { email: sameAddress } },
           select: { attendee: { select: { title: true } } },
         })
       : null,

@@ -143,6 +143,16 @@ describe("GET roster — must return every item field the console edits (B2)", (
     expect(select.description).toBe(true);
     expect(select.rsvpDeadline).toBe(true);
   });
+
+  it("selects the campaign's page text, which Edit page text opens from (review of 3b8d4f365)", async () => {
+    mockDb.rsvpItem.findMany.mockResolvedValue([]);
+    mockDb.rsvpInvite.findMany.mockResolvedValue([]);
+    await rosterGet({ url: "http://x/api/events/ev1/rsvp-campaigns/c1/invites" } as unknown as Request, { params: campaignParams });
+    // The same class as B2: a box that opens blank because its text was never sent would be
+    // saved back as "clear it". The dialog now sends only changed boxes; this is the second lock.
+    const select = mockDb.rsvpCampaign.findFirst.mock.calls[0][0].select;
+    for (const field of ["description", "questionText", "questionHelpText", "thankYouText"]) expect(select[field]).toBe(true);
+  });
 });
 
 // Owner, Oct 26, 2026: the roster and the CSV carry each invitee's

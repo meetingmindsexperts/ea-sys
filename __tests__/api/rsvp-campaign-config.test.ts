@@ -123,3 +123,16 @@ describe("the page's own wording (owner, Nov 25, 2026)", () => {
     expect(mockDb.rsvpCampaign.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("the audit row for a wording change (review of 3b8d4f365)", () => {
+  it("names the fields the save carried and records the wording before and after", async () => {
+    mockDb.rsvpCampaign.findFirst
+      .mockResolvedValueOnce({ ...base, questionText: null, thankYouText: "Old thanks." })
+      .mockResolvedValueOnce({ ...base, questionText: "Will you join us?", thankYouText: "Old thanks." });
+    await put({ questionText: "Will you join us?" });
+    const changes = mockDb.auditLog.create.mock.calls[0][0].data.changes;
+    expect(changes.changedFields).toEqual(["questionText"]);
+    expect(changes.before).toMatchObject({ questionText: null, thankYouText: "Old thanks." });
+    expect(changes.after).toMatchObject({ questionText: "Will you join us?", thankYouText: "Old thanks." });
+  });
+});
