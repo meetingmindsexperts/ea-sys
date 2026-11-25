@@ -37,6 +37,31 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Webinar post-event report: who attended, by role and organisation (recorded Nov 25, 2026): not started
+
+**Asked by the owner, Nov 25, 2026:** "we need to add attendee details like role and org in the report". The report
+(`src/lib/webinar/post-event-report.ts`; the page at `/events/[id]/analytics/report` and its PDF, Word and CSV files)
+says how many registered and attended and from which registration type, but nothing about who they are.
+
+**What is there to use:** `Attendee.role` (text, the organisation's own answers; its label comes from the person
+fields rule, never a fixed list), `Attendee.organization` (free text as typed, so "Cleveland Clinic" and "CCAD" are two
+rows until someone groups them), and beside them `specialty`, `country` and `jobTitle`. Attendance is the page record
+(`WebinarPresence`) or Zoom's report, as the report already decides.
+
+**To decide before building (owner):**
+1. **Breakdowns or a list of people.** The report is written to be forwarded to a client or sponsor and names no
+   attendee (its header says so, and the PDF, Word and CSV print "No attendee is named"). Counts by role and by
+   organisation, for registered and for attended, keep that rule. A list of attendees with their role and organisation
+   breaks it: that would be a second, staff-only file (the page attendance CSV in the console is the nearest thing
+   today), not a line in the forwarded report.
+2. **Organisation is typed text.** Show the top ones and fold the rest into "Other", and treat a small count as
+   identifying (an organisation with one attendee names that person to anyone who knows them).
+3. **Which other fields**: specialty and country are the same work once role is in.
+
+**Build, once decided:** the breakdowns go into the report's shape once (`PostEventReport`), and the page and all three
+files read them from there, with their words in `post-event-report-text.ts`; faculty stay out, as for every other
+figure in the report.
+
 ## The send dialog's count is not always who the email goes to: what the Nov 23 review left (recorded Nov 23, 2026): not started
 
 "Send to all 0" no longer sends, and a Communications card whose list failed says so (`a6f25c7f`; CHANGELOG, Nov 23). Review of `a6f25c7f`: 0 BLOCKER, 1 HIGH, 2 MED, 6 LOW. The HIGH is fixed in the follow-up commit (the browser test `bulk-email-payment-filter` picked "Unpaid", which no seeded registration is, so the new rule left Send off and the gate would have gone red; it picks the status the seed holds). Also fixed: the dialog's line no longer points at scheduling and reads true for every audience; a list hidden from a role answers 404 and now reads "no access", not "could not load"; the CHANGELOG no longer overclaims for abstracts.
