@@ -25,6 +25,7 @@
 
 import crypto from "crypto";
 import { z } from "zod";
+import { RSVP_QUESTION_HELP_MAX, RSVP_QUESTION_MAX, RSVP_THANK_YOU_MAX } from "./question-wording";
 
 /** 24 random bytes → 32-char base64url token. Unguessable, URL-safe. */
 export function generateRsvpToken(): string {
@@ -61,6 +62,10 @@ export type RsvpItemInput = z.infer<typeof rsvpItemInputSchema>;
 export const rsvpCampaignFieldsSchema = z.object({
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).optional().or(z.literal("")),
+  /** The invitee page's question, the line under it and its thank-you; empty = the built-in wording. */
+  questionText: z.string().trim().max(RSVP_QUESTION_MAX).optional().or(z.literal("")),
+  questionHelpText: z.string().trim().max(RSVP_QUESTION_HELP_MAX).optional().or(z.literal("")),
+  thankYouText: z.string().trim().max(RSVP_THANK_YOU_MAX).optional().or(z.literal("")),
   selectionMode: rsvpSelectionModeSchema.optional(),
   allowGuests: z.boolean().optional(),
   collectDietary: z.boolean().optional(),

@@ -27,6 +27,7 @@ import { EventBannerBand } from "@/components/public/event-banner";
 import { PublicEventNotice } from "@/components/public/event-notice";
 import { resolveTimezone, tzLabel } from "@/lib/event-time";
 import { toast } from "sonner";
+import { rsvpQuestionHelpText, rsvpQuestionText, rsvpThankYouText } from "@/lib/rsvp/question-wording";
 
 interface ItemRow {
   id: string;
@@ -58,12 +59,16 @@ interface RsvpData {
     id: string;
     name: string;
     description: string | null;
+    /** The organiser's own question and help line; null = the built-in wording. */
+    questionText?: string | null;
+    questionHelpText?: string | null;
+    thankYouText?: string | null;
     selectionMode: "SINGLE" | "MULTI";
     allowGuests: boolean;
     collectDietary: boolean;
     isActive: boolean;
   };
-  invitee: { name: string; email: string; dietary: string };
+  invitee: { name: string; /** "Dr.", "Prof." or "": from their own record on the event. */ title?: string; email: string; dietary: string };
   status: string;
   items: ItemRow[];
 }
@@ -82,18 +87,6 @@ function fmtDate(iso: string, timezone: string | null | undefined): string {
     timeZone: tz,
   });
   return `${formatted} ${tzLabel(d, tz)}`;
-}
-
-function rsvpQuestion(manyItems: boolean, single: boolean): string {
-  if (!manyItems) return "Will you be attending?";
-  return single ? "Which one will you attend?" : "Which of these will you attend?";
-}
-
-function rsvpHelperText(manyItems: boolean, single: boolean): string {
-  if (!manyItems) return "Tick the box if you’ll join, or choose “I won’t be able to attend” below.";
-  return single
-    ? "Choose one option, or select “I won’t be able to attend” below."
-    : "Tick everything you’ll join, or choose “I won’t be able to attend” below.";
 }
 
 function rsvpChoiceHint(manyItems: boolean, single: boolean): string {
@@ -245,11 +238,13 @@ export default function RsvpPage() {
           <div className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
             <Check className="h-7 w-7 text-emerald-600" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank you, {data.invitee.name}!</h1>
-          <p className="text-slate-500">
-            Your response to {data.campaign.name} has been recorded. You can revisit this link to
-            change it any time before the deadline.
-          </p>
+          {/* The greeting is the system's, with the person's title when the event knows it. */}
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">
+            Thank you, {data.invitee.title ? `${data.invitee.title} ` : ""}
+            {data.invitee.name}!
+          </h1>
+          {/* The organiser's own words when they wrote some (question-wording.ts); line breaks kept. */}
+          <p className="text-slate-500 whitespace-pre-line">{rsvpThankYouText(data.campaign)}</p>
         </div>
       </div>
     );
@@ -261,8 +256,9 @@ export default function RsvpPage() {
   // Require an explicit choice: at least one item picked, or "I won't attend".
   const hasChoice = notAttending || items.some((d) => d.attending);
 
-  const question = rsvpQuestion(manyItems, single);
-  const helper = rsvpHelperText(manyItems, single);
+  // The organiser's own words when they wrote some, else the built-in wording (rsvp.ts).
+  const question = rsvpQuestionText(data.campaign, manyItems, single);
+  const helper = rsvpQuestionHelpText(data.campaign, manyItems, single);
   const declineLabel = manyItems
     ? "I won’t be able to attend any of these"
     : "I won’t be able to attend";
@@ -284,9 +280,8 @@ export default function RsvpPage() {
               </span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">{data.event.name}</h1>
-            <p className="text-slate-500 mt-1">
-              Hello <strong>{data.invitee.name}</strong>, please let us know your plans.
-            </p>
+            {/* No greeting line (owner, Nov 25, 2026): the invitee's name is in the form below, and
+                the organiser's own introduction says the rest. */}
             {data.campaign.description && (
               <p className="text-sm text-slate-500 mt-2">{data.campaign.description}</p>
             )}

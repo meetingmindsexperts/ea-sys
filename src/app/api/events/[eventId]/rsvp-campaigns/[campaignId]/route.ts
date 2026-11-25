@@ -134,6 +134,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
           data: {
             ...(p.name !== undefined ? { name: p.name } : {}),
             ...(p.description !== undefined ? { description: p.description || null } : {}),
+            // Empty clears it back to the built-in wording.
+            ...(p.questionText !== undefined ? { questionText: p.questionText || null } : {}),
+            ...(p.questionHelpText !== undefined ? { questionHelpText: p.questionHelpText || null } : {}),
+            ...(p.thankYouText !== undefined ? { thankYouText: p.thankYouText || null } : {}),
             ...(p.selectionMode !== undefined ? { selectionMode: p.selectionMode } : {}),
             ...(p.allowGuests !== undefined ? { allowGuests: p.allowGuests } : {}),
             ...(p.collectDietary !== undefined ? { collectDietary: p.collectDietary } : {}),

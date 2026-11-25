@@ -30,6 +30,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { resolvePublicEventOrg } from "@/lib/tenant/event-tenant";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rsvpSubmitSchema, violatesSelectionMode, itemIsFull } from "@/lib/rsvp/rsvp";
+import { loadInviteeTitle } from "@/lib/rsvp/server";
+import { getTitleLabel } from "@/lib/utils";
 
 /**
  * Thrown INSIDE the submit transaction when a new yes would exceed an
@@ -105,6 +107,8 @@ async function loadInviteForSlug(req: Request, slug: string, token: string) {
       campaignId: true,
       inviteeName: true,
       inviteeEmail: true,
+      registrationId: true,
+      speakerId: true,
       dietary: true,
       status: true,
       campaign: {
@@ -112,6 +116,9 @@ async function loadInviteForSlug(req: Request, slug: string, token: string) {
           id: true,
           name: true,
           description: true,
+          questionText: true,
+          questionHelpText: true,
+          thankYouText: true,
           selectionMode: true,
           allowGuests: true,
           collectDietary: true,
@@ -217,12 +224,19 @@ export async function GET(req: Request, { params }: RouteParams) {
       // before the invitee picks one. Their OWN current yes still counts as a
       // held seat, so an attending invitee sees a full option as selectable.
       const seatsUsed = await seatsUsedByItem(db, items.filter((d) => d.capacity != null).map((d) => d.id));
+      // A failed title lookup must never cost the invitee their form: the greeting is then the name alone.
+      const inviteeTitle = await loadInviteeTitle(invite).catch((err) => {
+        apiLogger.warn({ err, inviteId: invite.id }, "rsvp-public:title-lookup-failed");
+        return null;
+      });
 
       return NextResponse.json({
         event: invite.event,
         campaign: invite.campaign,
         invitee: {
           name: invite.inviteeName,
+          // "Dr.", "Prof." or "": for the thank-you's greeting, from their own record on this event.
+          title: getTitleLabel(inviteeTitle),
           email: invite.inviteeEmail,
           dietary: invite.dietary ?? "",
         },

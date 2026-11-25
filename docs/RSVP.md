@@ -102,6 +102,19 @@ Then, per campaign:
 4. Read the roster: per-invitee status + which options + guests + dietary,
    per-option **headcount tiles**, **CSV export** (guests/dietary columns appear
    only when the campaign collects them).
+5. **Edit page text** (Nov 25, 2026, [RsvpPageTextDialog](../src/components/rsvp/page-text-dialog.tsx)):
+   the words on the invitee's page are the organiser's. Four boxes: the
+   introduction (`description`), the question (`questionText`, built in: "Will
+   you be attending?"), the line under it (`questionHelpText`) and the message
+   shown once they have answered (`thankYouText`). An empty box means the
+   built-in wording, which the box shows in grey; the wording is written once,
+   in [question-wording.ts](../src/lib/rsvp/question-wording.ts), and the page
+   renders from the same file. The page no longer opens with "Hello NAME,
+   please let us know your plans". The thank-you's greeting stays the system's,
+   "Thank you, Dr. Name!", with the person's title read from their own record on
+   the event (`loadInviteeTitle` in [server.ts](../src/lib/rsvp/server.ts): the
+   speaker or registration the invite was imported from, else one on the same
+   address; no title known, the name alone).
 
 **Invitee** — `/e/[slug]/rsvp/[token]`
 ([page](../src/app/e/%5Bslug%5D/rsvp/%5Btoken%5D/page.tsx), public, no login):

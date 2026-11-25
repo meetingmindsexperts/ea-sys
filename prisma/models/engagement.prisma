@@ -536,6 +536,12 @@ model RsvpCampaign {
   organizationId String?
   name           String
   description    String?           @db.Text
+  // The invitee page's question ("Will you be attending?"), the line under it, and the message
+  // shown once they have answered, in the organiser's own words (Nov 25, 2026). Null = the built-in
+  // wording (src/lib/rsvp/question-wording.ts).
+  questionText     String?
+  questionHelpText String?
+  thankYouText     String?
   selectionMode  RsvpSelectionMode @default(MULTI)
   // Guests and dietary are INDEPENDENT, deliberately not one `kind` enum: a
   // site visit collects dietary (packed lunch) but no guests; a workshop

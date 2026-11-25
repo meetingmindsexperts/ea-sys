@@ -11,6 +11,7 @@
  */
 import { db } from "@/lib/db";
 import { findGatedEvent, type EventGate } from "@/lib/tenant/event-tenant";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 
 export interface RsvpEventRef {
   id: string;
@@ -42,6 +43,9 @@ export async function loadRsvpCampaign(campaignId: string, eventId: string) {
       organizationId: true,
       name: true,
       description: true,
+      questionText: true,
+      questionHelpText: true,
+      thankYouText: true,
       selectionMode: true,
       allowGuests: true,
       collectDietary: true,
@@ -54,3 +58,46 @@ export async function loadRsvpCampaign(campaignId: string, eventId: string) {
 }
 
 export type RsvpCampaignRow = NonNullable<Awaited<ReturnType<typeof loadRsvpCampaign>>>;
+
+/**
+ * The invitee's title ("DR", "PROF") for the thank-you's greeting (owner, Nov 25, 2026: "Thank you,
+ * Hadeel Ammar! this can be system but with title"). An invite holds a name and an address only, so
+ * the title is read from the person's own record on THIS event: the speaker or registration the
+ * invite was imported from, else one on the same address (a speaker first: faculty are the people a
+ * dinner is for; a cancelled registration never answers). Null when the event knows no title for
+ * them, and the greeting is then the name alone. Call it INSIDE the event's tenant lane.
+ */
+export async function loadInviteeTitle(invite: {
+  eventId: string;
+  inviteeEmail: string;
+  registrationId: string | null;
+  speakerId: string | null;
+}): Promise<string | null> {
+  const sameAddress = equalsIgnoringCase(invite.inviteeEmail);
+  const [linkedSpeaker, linkedRegistration] = await Promise.all([
+    invite.speakerId
+      ? db.speaker.findFirst({ where: { id: invite.speakerId, eventId: invite.eventId }, select: { title: true } })
+      : null,
+    invite.registrationId
+      ? db.registration.findFirst({
+          where: { id: invite.registrationId, eventId: invite.eventId, status: { not: "CANCELLED" } },
+          select: { attendee: { select: { title: true } } },
+        })
+      : null,
+  ]);
+  const linked = linkedSpeaker?.title ?? linkedRegistration?.attendee.title ?? null;
+  if (linked) return linked;
+
+  const [speaker, registration] = await Promise.all([
+    db.speaker.findFirst({
+      where: { eventId: invite.eventId, email: sameAddress, title: { not: null } },
+      select: { title: true },
+    }),
+    db.registration.findFirst({
+      where: { eventId: invite.eventId, status: { not: "CANCELLED" }, attendee: { email: sameAddress, title: { not: null } } },
+      orderBy: { createdAt: "desc" },
+      select: { attendee: { select: { title: true } } },
+    }),
+  ]);
+  return speaker?.title ?? registration?.attendee.title ?? null;
+}

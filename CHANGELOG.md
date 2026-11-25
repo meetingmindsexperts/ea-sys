@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### RSVP: the page's words are the organiser's (November 25, 2026)
+
+Owner, from an organiser's screen of the 4th GCC Hematology Hub dinner RSVP: remove "Hello NAME, please let us know your
+plans", "give text boxes for organizer to add" the question and the line under it, "thank you text also", and the
+thank-you's greeting "can be system but with title".
+
+- **Edit page text** on an RSVP's console: the introduction, the question ("Will you be attending?"), the line under it
+  and the thank-you message. An empty box means the built-in wording, shown in grey in the box. The same message is
+  shown to people who accept and people who decline.
+- The invitee's page no longer opens with "Hello NAME, please let us know your plans".
+- The thank-you's greeting is still written by the system, now with the person's title when the event knows it
+  ("Thank you, Dr. Hadeel Ammar!"): from the speaker or registration the invite was imported from, else one on the same
+  address on that event.
+- **Migration** `20261125120000_rsvp_campaign_question_text`: three nullable text columns on `RsvpCampaign`
+  (`questionText`, `questionHelpText`, `thankYouText`). Additive; an older image never reads them.
+- The assistant's `list_rsvps` reports the three texts (null = built in). The create form is unchanged: the boxes are
+  on the RSVP's own page, after it is created.
+
 ### Webinars: the attendance files say who each attendee is (November 25, 2026)
 
 Asked by the webinar team: role, specialty, organisation and country in the attendance report.

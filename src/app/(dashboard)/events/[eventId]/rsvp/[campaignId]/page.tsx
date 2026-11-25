@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { ImportInviteesDialog } from "@/components/rsvp/import-invitees-dialog";
+import { RsvpPageTextDialog } from "@/components/rsvp/page-text-dialog";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { openEmailPreviewWindow } from "@/lib/email-preview-window";
 import {
@@ -71,6 +72,10 @@ interface RsvpCampaign {
   id: string;
   name: string;
   description: string | null;
+  /** The page's question, the line under it and the thank-you, in the organiser's words; null = built in. */
+  questionText?: string | null;
+  questionHelpText?: string | null;
+  thankYouText?: string | null;
   selectionMode: "SINGLE" | "MULTI";
   allowGuests: boolean;
   collectDietary: boolean;
@@ -152,6 +157,8 @@ export default function RsvpCampaignConsole() {
   const [savingInvites, setSavingInvites] = useState(false);
 
   const [importDialog, setImportDialog] = useState(false);
+  // The words on the invitee's page (owner, Nov 25, 2026): page-text-dialog.tsx.
+  const [textDialog, setTextDialog] = useState(false);
 
   const [sendDialog, setSendDialog] = useState(false);
   const [sendTarget, setSendTarget] = useState<"all" | "pending">("all");
@@ -515,6 +522,11 @@ export default function RsvpCampaignConsole() {
               <Send className="h-4 w-4 mr-1" /> Email invitations
             </Button>
           )}
+          {campaign && (
+            <Button variant="outline" size="sm" onClick={() => setTextDialog(true)}>
+              <Pencil className="h-4 w-4 mr-1" /> Edit page text
+            </Button>
+          )}
           <a href={`${apiBase}/invites?export=csv`}>
             <Button variant="outline" size="sm">
               <Download className="h-4 w-4 mr-1" /> Export CSV
@@ -822,6 +834,18 @@ export default function RsvpCampaignConsole() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Page text. Mounted only while open, so its boxes start from what is saved now. */}
+      {campaign && textDialog && (
+        <RsvpPageTextDialog
+          open
+          onOpenChange={setTextDialog}
+          apiBase={apiBase}
+          campaign={campaign}
+          manyItems={items.filter((i) => i.isActive).length > 1}
+          onSaved={loadRoster}
+        />
+      )}
 
       {/* Import dialog */}
       <ImportInviteesDialog

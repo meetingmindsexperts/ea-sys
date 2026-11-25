@@ -99,3 +99,27 @@ describe("everything else leaves responses alone", () => {
     expect(mockDb.rsvpResponse.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("the page's own wording (owner, Nov 25, 2026)", () => {
+  it("saves the question, the line under it and the thank-you; an empty box goes back to the built-in wording", async () => {
+    const res = await put({ questionText: "  Will you join us for dinner?  ", questionHelpText: "", thankYouText: "See you on Saturday." });
+    expect(res.status).toBe(200);
+    const data = mockDb.rsvpCampaign.updateMany.mock.calls[0][0].data;
+    expect(data).toEqual({ questionText: "Will you join us for dinner?", questionHelpText: null, thankYouText: "See you on Saturday." });
+    // Wording never touches the answers on file.
+    expect(mockDb.rsvpResponse.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("a box left out of the request is left as it was", async () => {
+    await put({ thankYouText: "Thank you." });
+    const data = mockDb.rsvpCampaign.updateMany.mock.calls[0][0].data;
+    expect(Object.keys(data)).toEqual(["thankYouText"]);
+  });
+
+  it("refuses text past the limits", async () => {
+    expect((await put({ questionText: "x".repeat(201) })).status).toBe(400);
+    expect((await put({ questionHelpText: "x".repeat(501) })).status).toBe(400);
+    expect((await put({ thankYouText: "x".repeat(1001) })).status).toBe(400);
+    expect(mockDb.rsvpCampaign.updateMany).not.toHaveBeenCalled();
+  });
+});
