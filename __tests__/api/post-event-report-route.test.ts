@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   pdfSpy: vi.fn(),
   docxSpy: vi.fn(),
   rate: { allowed: true },
+  rateSpy: vi.fn(),
 }));
 
 vi.mock("next/server", () => {
@@ -41,7 +42,12 @@ vi.mock("@/lib/logger", () => ({ apiLogger: h.mockLogger }));
 vi.mock("@/lib/db", () => ({ db: h.mockDb }));
 vi.mock("@/lib/require-org", () => ({ requireOrgId: () => ({ orgId: "org1" }) }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
-vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: h.rate.allowed, retryAfterSeconds: 60 }) }));
+vi.mock("@/lib/security", () => ({
+  checkRateLimit: (opts: unknown) => {
+    h.rateSpy(opts);
+    return { allowed: h.rate.allowed, retryAfterSeconds: 60 };
+  },
+}));
 vi.mock("@/lib/permissions/require-permission", () => ({
   requirePermission: (_s: unknown, key: string) => h.permSpy(key),
 }));
@@ -142,8 +148,21 @@ describe("the post-event report route", () => {
     expect(h.loadSpy.mock.calls[0][1]).toMatchObject({ includeComments: false });
     expect(h.loadSpy.mock.calls[1][1]).toMatchObject({ includeComments: true });
     expect(h.pdfSpy).not.toHaveBeenCalled();
+    // One bucket for the three files, at the PDF's limit, apart from the page's.
+    await GET(req("?format=pdf"), ctx);
+    await GET(req(), ctx);
+    const keys = h.rateSpy.mock.calls.map(([o]) => `${(o as { key: string }).key}/${(o as { limit: number }).limit}`);
+    expect(keys).toEqual(["post-event-report-pdf:u1/30", "post-event-report-pdf:u1/30", "post-event-report-pdf:u1/30", "post-event-report-view:u1/120"]);
     h.rate.allowed = false;
     expect((await GET(req("?format=csv"), ctx)).status).toBe(429);
+  });
+
+  it("an empty format is the page's view, and the case does not matter", async () => {
+    const empty = await GET(req("?format="), ctx);
+    expect(empty.status).toBe(200);
+    expect(h.pdfSpy).not.toHaveBeenCalled();
+    const upper = (await GET(req("?format=PDF"), ctx)) as unknown as { headers: Record<string, string> };
+    expect(upper.headers["Content-Type"]).toBe("application/pdf");
   });
 
   it("an unknown format is a logged 400, before anything is read", async () => {

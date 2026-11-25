@@ -16,6 +16,13 @@ export const PRIVACY_NOTE =
 export const ARCHIVED_NOTE =
   "This webinar is more than 90 days old: the minute-by-minute record has been archived, so the time watched, the peak and the devices are not shown.";
 
+export const NO_SURVEY_ANSWERS = "No survey answers yet.";
+
+export const NO_COMMENTS = "No comments.";
+
+/** A figure the archived record no longer holds (review of 4c7a35d5c: it read as 0). */
+const NOT_KNOWN = "Not known";
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** "Webinar: 24 Nov 2026, 20:00 (Asia/Dubai)   ·   Report made ..." */
@@ -31,8 +38,8 @@ export function glanceTiles(r: PostEventReport): { label: string; value: string 
   return [
     { label: "Registered", value: String(r.registrations.registered) },
     { label: "Attended", value: `${r.attendance.attended} (${r.attendance.attendanceRate}%)` },
-    { label: "Average watched", value: reportDuration(r.attendance.avgWatchSeconds) },
-    { label: "Most watching at once", value: String(r.attendance.peak) },
+    { label: "Average watched", value: r.attendance.archived ? NOT_KNOWN : reportDuration(r.attendance.avgWatchSeconds) },
+    { label: "Most watching at once", value: r.attendance.archived ? NOT_KNOWN : String(r.attendance.peak) },
     { label: "Questions asked", value: String(r.questions.asked) },
   ];
 }

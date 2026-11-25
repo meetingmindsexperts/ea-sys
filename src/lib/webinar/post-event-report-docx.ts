@@ -29,6 +29,8 @@ import {
   commentsLeftOutLine,
   commentsShownNote,
   glanceTiles,
+  NO_COMMENTS,
+  NO_SURVEY_ANSWERS,
   NOT_ENDED_NOTE,
   PRIVACY_NOTE,
   questionsLine,
@@ -146,7 +148,7 @@ function surveyQuestionBlocks(q: ReportSurveyQuestion, commentsIncluded: boolean
     return blocks;
   }
   if (!commentsIncluded) return [...blocks, para(commentsLeftOutLine(q.count), { color: MUTED, size: SMALL })];
-  if (q.comments.length === 0) return [...blocks, para("No comments.", { color: MUTED, size: SMALL })];
+  if (q.comments.length === 0) return [...blocks, para(NO_COMMENTS, { color: MUTED, size: SMALL })];
   for (const c of q.comments) blocks.push(para(`“${c}”`, { indent: true }));
   const shown = commentsShownNote(q.comments.length, q.count);
   if (shown) blocks.push(para(shown, { color: MUTED, size: SMALL }));
@@ -174,7 +176,7 @@ function questionBlocks(r: PostEventReport): Block[] {
 
 function surveyBlocks(r: PostEventReport): Block[] {
   if (r.surveys === null) return [];
-  if (r.surveys.length === 0) return [heading("Survey results"), para("No survey answers yet.")];
+  if (r.surveys.length === 0) return [heading("Survey results"), para(NO_SURVEY_ANSWERS)];
   const blocks: Block[] = [heading("Survey results")];
   for (const s of r.surveys) {
     blocks.push(subheading(surveyHeading(s)));
@@ -206,8 +208,13 @@ function reportBlocks(r: PostEventReport, company: ReportCompany): Block[] {
 }
 
 export async function generatePostEventReportDocx(report: PostEventReport, company: ReportCompany): Promise<Buffer> {
+  // The organisation as the author: docx writes "Un-named" otherwise, shown in Word's File, Info
+  // (review of 4c7a35d5c).
+  const author = clean(company.companyName || company.name);
   const doc = new Document({
     title: clean(`${report.event.name}: ${REPORT_DOCUMENT_TITLE}`),
+    creator: author,
+    lastModifiedBy: author,
     sections: [{ properties: {}, children: reportBlocks(report, company) }],
   });
   return Packer.toBuffer(doc);

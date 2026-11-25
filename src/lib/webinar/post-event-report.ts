@@ -1,13 +1,14 @@
 /**
  * The post-event report of a webinar (Nov 23, 2026; owner: "a consolidated post event report which
- * includes attendee count, registrations, Q&A and survey results"). One report, two outputs: the page
- * at /events/[id]/analytics/report and its PDF, both drawn from this shape, so they never disagree.
+ * includes attendee count, registrations, Q&A and survey results"). One report, four outputs: the page
+ * at /events/[id]/analytics/report and its PDF, Word and CSV files (Nov 25, 2026), all drawn from this
+ * shape and from the same words (post-event-report-text.ts), so they never disagree.
  *
  * Written to be forwarded to a client or a sponsor (owner's choice): counts, shares and survey answers
  * only. It carries no attendee's name or email, no asker's name on a question, and survey comments
  * without who wrote them. Typed text (a question, a comment) is the person's own words and can name
  * someone, so (review of cdec0c859): every email address and phone number in it is removed, each is
- * cut to TEXT_MAX_CHARS, the page asks before comments go into the PDF, and the console's download,
+ * cut to TEXT_MAX_CHARS, the page asks before comments go into a download, and the console's download,
  * which shows no such warning, leaves comments out.
  *
  * Client-safe: the page imports the types and the small rules here; the reads are in

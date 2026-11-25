@@ -10,7 +10,18 @@
 import { toCsv } from "@/lib/csv-escape";
 import { formatDateTimeInTz } from "@/lib/event-time";
 import { percentOf, type PostEventReport, type ReportBreakdown, type ReportSurvey } from "./post-event-report";
-import { ARCHIVED_NOTE, attendanceSourceLine, NOT_ENDED_NOTE, PRIVACY_NOTE, questionsListedNote, ratingRows, commentsShownNote, commentsLeftOutLine } from "./post-event-report-text";
+import {
+  ARCHIVED_NOTE,
+  attendanceSourceLine,
+  commentsLeftOutLine,
+  commentsShownNote,
+  NO_COMMENTS,
+  NO_SURVEY_ANSWERS,
+  NOT_ENDED_NOTE,
+  PRIVACY_NOTE,
+  questionsListedNote,
+  ratingRows,
+} from "./post-event-report-text";
 
 export const POST_EVENT_REPORT_CSV_HEADER = ["Section", "Item", "Answer", "Count", "Share (%)"] as const;
 
@@ -89,6 +100,9 @@ function surveyRows(s: ReportSurvey, commentsIncluded: boolean): Row[] {
       rows.push(...breakdownRows(section, (b) => [q.label, b.label], q.options, q.count));
     } else if (!commentsIncluded) {
       rows.push([section, q.label, commentsLeftOutLine(q.count), q.count, ""]);
+    } else if (q.comments.length === 0) {
+      // Said, as the PDF and Word do, so the question does not vanish (review of 4c7a35d5c).
+      rows.push([section, q.label, NO_COMMENTS, q.count, ""]);
     } else {
       rows.push(...q.comments.map((c): Row => [section, q.label, c, "", ""]));
       const shown = commentsShownNote(q.comments.length, q.count);
@@ -98,6 +112,13 @@ function surveyRows(s: ReportSurvey, commentsIncluded: boolean): Row[] {
   return rows;
 }
 
+/** Null surveys: the caller may not read them, and the file says nothing. None yet: it says so. */
+function surveySection(r: PostEventReport): Row[] {
+  if (r.surveys === null) return [];
+  if (r.surveys.length === 0) return [["Survey results", "Note", NO_SURVEY_ANSWERS, "", ""]];
+  return r.surveys.flatMap((s) => surveyRows(s, r.commentsIncluded));
+}
+
 export function postEventReportCsv(r: PostEventReport): string {
   const rows: (readonly (string | number)[])[] = [
     POST_EVENT_REPORT_CSV_HEADER,
@@ -105,7 +126,7 @@ export function postEventReportCsv(r: PostEventReport): string {
     ...registrationRows(r),
     ...attendanceRows(r),
     ...questionRows(r),
-    ...(r.surveys ?? []).flatMap((s) => surveyRows(s, r.commentsIncluded)),
+    ...surveySection(r),
   ];
   return BOM + toCsv(rows, "\r\n") + "\r\n";
 }

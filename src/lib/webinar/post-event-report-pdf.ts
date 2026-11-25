@@ -26,6 +26,8 @@ import {
   commentsLeftOutLine,
   commentsShownNote,
   glanceTiles,
+  NO_COMMENTS,
+  NO_SURVEY_ANSWERS,
   NOT_ENDED_NOTE,
   PRIVACY_NOTE,
   questionsLine,
@@ -122,7 +124,7 @@ function draw(doc: Doc, r: PostEventReport, company: ReportCompany, logoBuffer: 
   if (r.surveys === null) return;
   y = heading(doc, y, "Survey results");
   if (r.surveys.length === 0) {
-    paragraph(doc, y, "No survey answers yet.");
+    paragraph(doc, y, NO_SURVEY_ANSWERS);
     return;
   }
   for (const s of r.surveys) {
@@ -139,7 +141,7 @@ function surveyQuestion(doc: Doc, y: number, q: ReportSurveyQuestion, commentsIn
   }
   if (q.type === "choice") return bars(doc, y, q.options.map((o) => ({ ...o, label: sanitizePdfText(o.label) })), q.count);
   if (!commentsIncluded) return paragraph(doc, y, commentsLeftOutLine(q.count), { color: COLOR_MUTED, size: 9 });
-  if (q.comments.length === 0) return paragraph(doc, y, "No comments.", { color: COLOR_MUTED, size: 9 });
+  if (q.comments.length === 0) return paragraph(doc, y, NO_COMMENTS, { color: COLOR_MUTED, size: 9 });
   for (const c of q.comments) y = paragraph(doc, y, `"${sanitizePdfText(c)}"`, { size: 9, indent: 8 });
   const shown = commentsShownNote(q.comments.length, q.count);
   if (shown) y = paragraph(doc, y, shown, { color: COLOR_MUTED, size: 8 });

@@ -60,6 +60,17 @@ describe("the Word copy", () => {
     expect(xml).toContain("1 comment, left out of this copy.");
   });
 
+  it("names the organisation as the author, never docx's \"Un-named\"", async () => {
+    const core = new PizZip(await generatePostEventReportDocx(report(), COMPANY)).file("docProps/core.xml")?.asText() ?? "";
+    expect(core).toContain("<dc:creator>Meeting Minds</dc:creator>");
+    expect(core).not.toContain("Un-named");
+  });
+
+  it("an archived webinar's tiles say Not known, not 0", async () => {
+    const xml = documentXml(await generatePostEventReportDocx(report({ attendance: { ...report().attendance, archived: true } }), COMPANY));
+    expect(xml).toContain("Not known");
+  });
+
   it("no survey section for a caller who may not read surveys", async () => {
     const xml = documentXml(await generatePostEventReportDocx(report({ surveys: null }), COMPANY));
     expect(xml).not.toContain("Survey results");
@@ -94,6 +105,15 @@ describe("the CSV", () => {
     expect(csv).toContain(`"'=HYPERLINK(""x"") ما الجرعة؟ 💊",Answered,2,`);
     expect(csv).toContain(`"Not answered, asked in Zoom",0,`);
     expect(csv).toContain(`"Great, ""really"" useful"`);
+  });
+
+  it("a text question with no comment to show says so; no answers yet is said; no surveys for the caller says nothing", () => {
+    const empty = report({
+      surveys: [{ name: "S", responses: 1, questions: [{ type: "text", label: "Comments", count: 0, comments: [] }] }],
+    });
+    expect(postEventReportCsv(empty)).toContain("Survey: S,Comments,No comments.,0,");
+    expect(postEventReportCsv(report({ surveys: [] }))).toContain("Survey results,Note,No survey answers yet.,,");
+    expect(postEventReportCsv(report({ surveys: null }))).not.toContain("Survey");
   });
 
   it("leaves comments out when not asked, and the archived note replaces the minutes", () => {

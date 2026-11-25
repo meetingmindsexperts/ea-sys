@@ -56,7 +56,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "webinar.analytics.read", { route, eventId, onMissing: "hide" });
     if (!gate.ok) return gate.response;
     const search = new URL(req.url).searchParams;
-    const formatParam = search.get("format");
+    // Empty means the page's JSON, and the case is not held against a caller (review of 4c7a35d5c).
+    const formatParam = search.get("format")?.trim().toLowerCase() || null;
     const format = fileFormatOf(formatParam);
     if (formatParam !== null && !format) {
       apiLogger.warn({ eventId, userId: session.user.id, format: formatParam }, "post-event-report:unknown-format");

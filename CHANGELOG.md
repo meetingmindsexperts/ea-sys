@@ -20,6 +20,11 @@ Owner: the client wants to edit the post-event report PDF; "can we give CSV opti
   `post-event-report:file-generated` with a `format` field.
 - The CSV cells go through `escapeCsvCell` (a question typed as `=...` never runs as a formula) and the file starts
   with a byte order mark, so Excel reads Arabic. The Word text goes through `sanitizeXmlText`.
+- **Review of 4c7a35d5c** (0 BLOCKER, 0 HIGH, 0 MED, 7 LOW), all fixed: an archived webinar's "Average watched"
+  and "Most watching at once" say "Not known" instead of 0 (the page too, which now shows the files' tiles); the CSV
+  says "No comments." and "No survey answers yet." where the PDF and Word do; the Word file names the organisation as
+  its author instead of "Un-named"; `?format=` is the page's view and `?format=PDF` works; a comment and a test that
+  did not check the shared limit are corrected. The review rendered the old and new PDFs from the same reports: identical.
 
 ### Webinars: the organiser chooses the email sequence (November 25, 2026)
 

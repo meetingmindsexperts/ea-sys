@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePostEventReport } from "@/hooks/use-api";
 import { downloadPostEventReport, type PostEventReportFormat } from "@/lib/webinar/post-event-report-download";
 import { knownTimezone, DEFAULT_EVENT_TIMEZONE } from "@/lib/event-time";
+import { glanceTiles } from "@/lib/webinar/post-event-report-text";
 import {
   percentOf,
   reportDuration,
@@ -113,11 +114,10 @@ function ReportView({ eventId, report: r }: { eventId: string; report: PostEvent
       </p>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <Tile label="Registered" value={String(r.registrations.registered)} />
-        <Tile label="Attended" value={`${r.attendance.attended} (${r.attendance.attendanceRate}%)`} />
-        <Tile label="Average watched" value={reportDuration(r.attendance.avgWatchSeconds)} />
-        <Tile label="Most watching at once" value={String(r.attendance.peak)} />
-        <Tile label="Questions asked" value={String(r.questions.asked)} />
+        {/* The files' tiles: an archived webinar's minutes and peak say "Not known", never 0. */}
+        {glanceTiles(r).map((t) => (
+          <Tile key={t.label} label={t.label} value={t.value} />
+        ))}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
