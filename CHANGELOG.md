@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM: an email on a conversation with no deal now tells someone (November 25, 2026)
+
+Owner: "investigate why CRM notifications is not working", then "yes, build the owner fallback". Production showed the
+bell itself works; it told almost nobody. An arriving email notified only the owner of the conversation's DEAL, and 98
+of the 113 emails received so far sit on 78 conversations linked to a contact with no deal. Deal
+notifications never fire because every deal action on production was taken by the deal's own owner, and nobody is told
+about their own action (by design).
+
+- **Who hears about an email** arriving in the CRM inbox, a reply to an email we sent or one captured from the
+  partnerships mailbox: the deal's owner, else the contact's owner, else the account's owner
+  (`emailNotificationTarget` in `src/crm/lib/email-notification-recipient.ts`, asked by both doors). On production
+  this would have reached someone for 51 of those 78 conversations; 29 have no owner anywhere and are still told to
+  nobody but the shared inbox.
+- The notification names what the email is about: the deal, else the account, else the person.
+- Unchanged: the email forward copy of a reply still goes to the deal owner only, plus the partnerships mailbox and
+  the send's CC/BCC.
+- The worker logs who each email's bell went to (`crm-inbound:notify-target`, with `via` deal, contact or account) or
+  that nobody owns the conversation (`crm-inbound:no-owner-to-notify`).
+
 ### CRM: People beside the deal's activity, and a History that scrolls (November 25, 2026)
 
 Owner, from a deal page: put History "in a container like 400px and overflow y scroll", give the People card "more

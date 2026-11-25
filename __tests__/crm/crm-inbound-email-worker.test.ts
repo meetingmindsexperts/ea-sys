@@ -260,6 +260,34 @@ describe("runTick", () => {
     expect(cmds).toContain("Delete");
   });
 
+  it("a reply on a conversation with no deal bells the contact's owner, and the forward copy goes to nobody new", async () => {
+    vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue({
+      ...thread,
+      deal: null,
+      notifyEmails: [],
+      crmContact: { firstName: "Jane", lastName: "Doe", ownerId: "u-contact", company: { name: "Abbott", ownerId: "u-account" } },
+    } as never);
+    mockS3({ "inbound/nodeal": rawEmail() });
+    expect(await runTick()).toMatchObject({ stored: 1 });
+    expect(notifyCrmUser).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "EMAIL_RECEIVED", recipientId: "u-contact", message: expect.stringContaining("replied on Abbott:") }),
+    );
+    // The email forward still follows the DEAL owner only: with no deal there is no owner copy.
+    expect(db.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("a reply where nothing has an owner rings no bell", async () => {
+    vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue({
+      ...thread,
+      deal: null,
+      notifyEmails: [],
+      crmContact: { firstName: "Jane", lastName: "Doe", ownerId: null, company: null },
+    } as never);
+    mockS3({ "inbound/nobody": rawEmail() });
+    expect(await runTick()).toMatchObject({ stored: 1 });
+    expect(notifyCrmUser).not.toHaveBeenCalled();
+  });
+
   it("holds a reply for an organisation whose CRM is switched off: kept under held/, not filed or forwarded", async () => {
     vi.mocked(orgModuleState).mockResolvedValueOnce("off");
     mockS3({ "inbound/off": rawEmail() });

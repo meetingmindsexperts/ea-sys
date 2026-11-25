@@ -193,6 +193,47 @@ describe("partnerships capture", () => {
     expect(movedTo()).toEqual(["processed/a"]);
   });
 
+  it("an email on a conversation with no deal bells the contact's owner (Nov 25, 2026)", async () => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({
+      id: "t-new",
+      subject: "Sponsorship enquiry",
+      dealId: null,
+      deal: null,
+      crmContact: { firstName: "Jane", lastName: "Doe", ownerId: "u-contact", company: { name: "Abbott", ownerId: "u-account" } },
+    } as never);
+    mockS3({ "inbound/c": rawEmail() });
+    await runTick();
+    expect(notifyCrmUser).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientId: "u-contact", type: "EMAIL_RECEIVED", message: expect.stringContaining("on Abbott:") }),
+    );
+  });
+
+  it("falls back to the account's owner when the contact has none", async () => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({
+      id: "t-new",
+      subject: "Sponsorship enquiry",
+      dealId: null,
+      deal: null,
+      crmContact: { firstName: "Jane", lastName: "Doe", ownerId: null, company: { name: "Abbott", ownerId: "u-account" } },
+    } as never);
+    mockS3({ "inbound/d": rawEmail() });
+    await runTick();
+    expect(notifyCrmUser).toHaveBeenCalledWith(expect.objectContaining({ recipientId: "u-account" }));
+  });
+
+  it("rings no bell when nothing on the conversation has an owner", async () => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({
+      id: "t-new",
+      subject: "Sponsorship enquiry",
+      dealId: null,
+      deal: null,
+      crmContact: { firstName: "Jane", lastName: "Doe", ownerId: null, company: null },
+    } as never);
+    mockS3({ "inbound/e": rawEmail() });
+    expect(await runTick()).toMatchObject({ stored: 1 });
+    expect(notifyCrmUser).not.toHaveBeenCalled();
+  });
+
   it("joins the existing conversation it replies to", async () => {
     vi.mocked(findCaptureThread).mockResolvedValue("t-old");
     mockS3({ "inbound/b": rawEmail({ extra: ["In-Reply-To: <ours@amazonses.com>"] }) });

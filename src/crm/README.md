@@ -399,9 +399,14 @@ are swallowed; callers `void`-call it after the real write).
 
 Triggers: deal assigned (create/re-assign), your deal stage-moved / won / lost
 (a drag into a mapped terminal column announces the OUTCOME, not a stage move),
-task assigned, and the reminders worker's task-due nudge (minted right after the
+task assigned, the reminders worker's task-due nudge (minted right after the
 `remindedAt` claim, so it rides the same idempotency as the email and reaches
-mailbox-less temp accounts). Titles/messages carry **no deal money**, so the
+mailbox-less temp accounts), and an email arriving in the inbox. That last one goes
+to the deal's owner, else the contact's owner, else the account's owner
+(`emailNotificationTarget` in [`lib/email-notification-recipient.ts`](lib/email-notification-recipient.ts),
+Nov 25, 2026; asked by both inbound doors). Until then it reached only a deal's
+owner, and 98 of the first 113 emails received were on conversations with no deal.
+The email FORWARD copy still goes to the deal owner only. Titles/messages carry **no deal money**, so the
 FINANCIAL_KEYS redaction question never arises for this feed. Reads/mark-read are
 scoped to the caller's own `userId` + org in the `where` clause — a foreign id
 matches nothing (no IDOR by construction). API-key callers get an explicit 400
