@@ -49,7 +49,7 @@
 
 <h1>Webinar Troubleshooting</h1>
 <p class="sub">What can go wrong with a webinar, how to recognise it, and how to fix it yourself. Written for the webinar
-team running webinars in EA-SYS, Nov 24, 2026, from the screens and messages as they are today. Organised by what you or an
+team running webinars in EA-SYS, Nov 24, 2026 (recording added Nov 25), from the screens and messages as they are today. Organised by what you or an
 attendee sees. Words in quotation marks are exactly what appears on screen. A <span class="dev">Developer</span> mark means
 the fix needs someone with access to the server.</p>
 
@@ -238,18 +238,19 @@ we cannot restart the partner's stream for them.</p>
 
 <h3 id="recording">Recording the partner's stream</h3>
 <p>Our own copy of the partner's stream (the Recording section of the Partner stream card, and "Partner stream recording" on
-the Recording tab), shown only on a server set up for it. Recorded only with the partner's agreement. Closing the room stops
-it; it is finished 10 minutes later unless the room is opened again, and the MP4 is ready a few minutes after that.</p>
+the Recording tab), shown once the key is issued, on a server set up for it. Recorded only with the partner's agreement.
+Closing the room stops it; it is finished 10 minutes after it stopped unless the room is opened again, and the MP4 is ready a
+few minutes after that. The attendee page does not yet say a webinar is being recorded: have the host say so.</p>
 <table>
   <tr><th>What you see</th><th>Why</th><th>What to do</th></tr>
-  <tr><td><span class="id">D12</span>No Recording section in the Partner stream card</td><td>The server is not set up for recording yet, or your role lacks the Webinar console permission.</td><td><span class="dev">Developer</span> to switch it on. Meanwhile ask the partner for their own file.</td></tr>
-  <tr><td><span class="id">D13</span>"Confirm that the partner has agreed to be recorded before starting." / "Issue the partner's key first."</td><td>The agreement tick is required before the first start; recording needs the key to exist.</td><td>Confirm with the partner, tick, press "Start recording". Issue the key first if it reads so.</td></tr>
+  <tr><td><span class="id">D12</span>No Recording section in the Partner stream card</td><td>Most often the partner's key is not issued yet. Otherwise the server is not set up for recording (the Recording tab reads "Recording a partner's stream is not set up on this server yet."), or your role lacks the Webinar console permission.</td><td>Issue the key first. <span class="dev">Developer</span> to switch recording on. Meanwhile ask the partner for their own file.</td></tr>
+  <tr><td><span class="id">D13</span>"Start recording" is greyed out, or the Recording tab reads "Issue the partner's key first."</td><td>The agreement tick is required before the first start; recording needs the key to exist.</td><td>Confirm with the partner, tick "The partner has agreed to this recording", press "Start recording". Issue the key first if it reads so.</td></tr>
   <tr><td><span class="id">D14</span>"Recording was not started: the server is short of disk space, or it could not be checked."</td><td>The server keeps up to two hours of video before it reaches storage, and refuses to start without the room.</td><td><span class="dev">Developer</span> at once. The live webinar is not affected.</td></tr>
   <tr><td><span class="id">D15</span>"Ready to record" while the webinar is live</td><td>Recording is on but the partner's video is not arriving ("Signal: Not receiving").</td><td>See <a href="#d4">D4</a>. It records the moment the video arrives. "Recording, stream not confirmed" instead means the stream server did not answer the check: watch whether the time and size grow.</td></tr>
   <tr><td><span class="id">D16</span>Amber "Nothing new has reached storage for N minutes. If this lasts, tell a developer: the recording may have a gap."</td><td>The pieces are not reaching storage: the worker is down or storage refuses.</td><td><span class="dev">Developer</span> now: the server keeps unshipped pieces for two hours, so a fix within that loses nothing.</td></tr>
-  <tr><td><span class="id">D17</span>"Finished: The file to download is being prepared." for long</td><td>The MP4 is made once the last pieces are in storage: a few minutes, longer for a long webinar. Delete is refused meanwhile ("still being made").</td><td>Wait. Still preparing an hour after the end: <span class="dev">Developer</span>. After 6 hours of failing it turns "Failed" by itself.</td></tr>
+  <tr><td><span class="id">D17</span>"Finished: The file to download is being prepared." for long</td><td>The MP4 is made once the last pieces are in storage: a few minutes, longer for a long webinar. There is no Delete button until it is ready.</td><td>Wait. Still preparing an hour after the end: <span class="dev">Developer</span>. After 6 hours of failing it turns "Failed" by itself.</td></tr>
   <tr><td><span class="id">D18</span>"Failed" with a reason, or "Nothing recorded"</td><td>The file could not be made; or the partner's stream never arrived while recording was on.</td><td>"Failed": <span class="dev">Developer</span> before deleting (the pieces may be recoverable). "Nothing recorded": delete it to record again.</td></tr>
-  <tr><td><span class="id">D19</span>The room was closed by mistake while recording</td><td>Closing the room stops the recording; it is finished 10 minutes later unless the room is opened again.</td><td>Re-open the room within 10 minutes and press "Start again". After that, the finished recording keeps what was recorded; a second one needs the first deleted.</td></tr>
+  <tr><td><span class="id">D19</span>The room was closed by mistake while recording</td><td>Closing the room stops the recording; it is finished 10 minutes after it stopped unless the room is opened again. A recording you had already stopped more than 10 minutes before the close is finished within a minute.</td><td>Re-open the room within 10 minutes and press "Start again". After that, the finished recording keeps what was recorded; a second one needs the first deleted.</td></tr>
   <tr><td><span class="id">D20</span>The recording has a rehearsal or a test pattern in it</td><td>It records whatever the partner sends while it is on, rehearsal included.</td><td>Press Stop after a rehearsal and Start again shortly before the speakers. Trimming is not available: delete and record again, or edit the downloaded file.</td></tr>
 </table>
 
@@ -332,7 +333,7 @@ it; it is finished 10 minutes later unless the room is opened again, and the MP4
   <li>Panelists are not kept in step with the speakers: press "Import from Speakers" after every change (A9).</li>
   <li>The webinar emails go to every Confirmed registration, speakers and tests included (G11).</li>
   <li>Only one of our Zoom webinars can run at a time (C13).</li>
-  <li>Our own recording of a partner's stream needs the server set up for it (D12); it cannot be trimmed (D20), and a recording's 12 month keep date cannot be changed yet.</li>
+  <li>Our own recording of a partner's stream needs the server set up for it (D12); it cannot be trimmed (D20), a recording's 12 month keep date cannot be changed yet, the attendee page does not yet say a webinar is being recorded, and a deleted recording stays in the system's backup copy.</li>
   <li>"Fetch window expired" can appear 6 hours after the end, while the card's text speaks of 7 days (G4).</li>
   <li>Removing a viewer stops their page, not the video stream itself: a copied stream address keeps playing, and the webinar emails still reach them (F10).</li>
 </ul>
@@ -351,7 +352,7 @@ it; it is finished 10 minutes later unless the room is opened again, and the MP4
 <p>Call quickly for a stream that drops again and again: the server's own record of why is cleared after a while.</p>
 </div>
 
-<p class="sub">Sources for this guide: the Webinar Console and the attendee pages as built on Nov 24, 2026. Technical
+<p class="sub">Sources for this guide: the Webinar Console and the attendee pages as built on Nov 24, 2026; recording a partner's stream as built on Nov 25, 2026. Technical
 background: <code>docs/WEBINAR_STREAMING.html</code>, <code>docs/LIVE_STREAMING.md</code>, <code>docs/WEBINAR_EVENTS.md</code>,
 and the operator guide, <code>public/user-guide.html</code> section 11. When a screen or message changes, change it here too.</p>
 

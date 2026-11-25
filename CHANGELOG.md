@@ -15,6 +15,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   permission (`s3:AbortMultipartUpload`), a lifecycle rule for `recordings/` that keeps today's rule, switching it on,
   the hour's rehearsal, and a decision owed on deleted recordings staying in the Singapore copy.
 
+Review of 746458064 (0 BLOCKER, 1 HIGH, 2 MED, 7 LOW), all fixed in the docs:
+
+- HIGH: the runbook's throwaway check of `mediamtx.yml` could not start (the file logs to `/logs`, which the image
+  lacks), so the safety check would always fail for a reason that is not the configuration. It now mounts a folder.
+- MED: the rehearsal must begin after the webinar's scheduled start (a close before it leaves the recording
+  alone); and the attendee page does not yet say a webinar is being recorded (plan D6, step 6), which the runbook
+  and both guides now say, with what to do meanwhile.
+- LOW: "no Recording section" names the missing key first; the 10 minutes count from when recording stopped; two
+  messages that cannot appear on screen are replaced by what is seen; a delete does not clear the backup copy;
+  the disk check command; the index lines.
+
 ### Recording a partner's stream, step 4: the MP4, Download, Delete and retention (November 25, 2026)
 
 Plan: `docs/PARTNER_STREAM_RECORDING_PLAN.md` §4.4. Still dark until `STREAM_RECORDING_ENABLED` is set, after the

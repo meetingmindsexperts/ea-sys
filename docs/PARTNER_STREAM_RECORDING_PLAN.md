@@ -386,16 +386,19 @@ deleted after 90 days, unfinished uploads aborted after 30 days). The hourly cop
 recordings are in it with no change (D3); see step 7 for what it does not do.
 
 1. **Deploy** (gate and push) a build that carries steps 2 to 4. The worker image now includes
-   ffmpeg, about 100 to 200 MB more: first check the box's disk, `aws ssm send-command
-   --region ap-south-1 --instance-ids i-0b51ab1213d084640 --document-name AWS-RunShellScript
-   --parameters 'commands=["df -h /"]'` (63% of 50 GB on Nov 24, 2026; under 80% is fine).
+   ffmpeg, about 100 to 200 MB more: first check the box's disk, `df -h /` on the box
+   (`aws ssm start-session --target i-0b51ab1213d084640 --region ap-south-1`, then
+   `sudo -iu ubuntu`). 63% of 50 GB on Nov 24, 2026; under 80% is fine.
 
 2. **Recreate the stream server**, between webinars (it cuts any live stream), on the box from
    `/home/ubuntu/ea-sys`:
    ```
-   docker run --rm -v "$PWD/mediamtx.yml:/mediamtx.yml:ro" bluenviron/mediamtx:1.17.1
+   docker run --rm -v "$PWD/mediamtx.yml:/mediamtx.yml:ro" -v "$(mktemp -d):/logs" bluenviron/mediamtx:1.17.1
    ```
-   It must start without a configuration error; stop it with Ctrl-C. Then:
+   It must start without a configuration error; stop it with Ctrl-C. The second `-v` gives the
+   throwaway copy somewhere to write its log file: `mediamtx.yml` logs to `/logs/mediamtx.log`,
+   the image has no such folder, and without it the copy stops with "open /logs/mediamtx.log: no
+   such file or directory", which is not a fault in the configuration (review of 746458064). Then:
    ```
    docker compose -f docker-compose.prod.yml up -d --force-recreate mediamtx
    docker logs ea-sys-mediamtx --since 1m
@@ -426,21 +429,30 @@ recordings are in it with no change (D3); see step 7 for what it does not do.
    `scripts/deploy.sh` (the web and the worker both read it). Only after step 2: before it, a
    recording would use the stream server's own defaults. The Recording section then appears in
    the Partner stream card.
+   **Attendees are not told yet.** D6 (the page says "This webinar is being recorded" while it
+   records) is step 6, not built. Until it is, whoever starts a recording has the speakers and
+   attendees told another way (the host says it at the start, or a line in the lobby message);
+   the user guide says so.
 
 6. **The rehearsal** (an hour), on a published partner webinar made for it (not a draft, whose
-   room counts as open), with OBS at 720p, 2.5 Mbps, a keyframe every 2 seconds:
+   room counts as open), with OBS at 720p, 2.5 Mbps, a keyframe every 2 seconds. **Begin after
+   the webinar's scheduled start has passed** (set it a few minutes ahead when creating it): a
+   close before the start is a rehearsal close, which leaves the recording alone, so "Stopped"
+   and "Finished" below would never come.
    - Issue the key, start OBS, tick the agreement, **Start recording**: REC within seconds, the
      time and size growing about a minute behind.
    - **Stop** for a minute, **Start again**; stop OBS for 30 seconds and start it again (a drop);
      both breaks must be in the file as jumps, not frozen pictures.
    - Close the room: "Stopped". Re-open within 10 minutes and **Start again**: it carries on.
+     (The 10 minutes count from when recording stopped: a recording staff had already stopped
+     more than 10 minutes before the close is finished within a minute of it.)
    - After about 50 minutes, close the room and wait: "Finished" after 10 minutes, "Ready" a few
      minutes later, with the MP4's size.
    - **Download**; play it in Chrome, Safari, QuickTime and VLC, seeking across both breaks;
      upload it to Vimeo (QuickTime and Vimeo were not tried in step 0).
    - The console's Stream timeline lists Recording started, stopped, finished.
    - **Delete recording**; then `aws s3 ls s3://ea-sys-uploads/recordings/ --recursive
-     --region ap-south-1` shows nothing for it.
+     --region ap-south-1` shows nothing for it (its old versions stay 7 days, unlisted).
    - Logs: `npm run prod:psql` and `select level, message from "SystemLog" where message like
      '%stream-recording%' and timestamp > now() - interval '2 hours' order by timestamp;` shows
      no error.
