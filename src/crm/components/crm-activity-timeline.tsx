@@ -110,7 +110,14 @@ export function CrmActivityTimeline({
         <p className="py-2 text-sm text-muted-foreground">No changes recorded yet.</p>
       )}
       {!isLoading && rows.length > 0 && (
-        <ul className="space-y-3">
+        // A long history scrolls inside the card (owner, Nov 25, 2026): it used to push
+        // everything under it down the page. A short one keeps its own height. The list
+        // takes keyboard focus so it can be scrolled without a mouse.
+        <ul
+          aria-label="History, newest first"
+          tabIndex={0}
+          className="max-h-[400px] space-y-3 overflow-y-auto rounded-sm pr-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
           {rows.map((row) => {
             const meta = ACTION_ICON[row.action] ?? { icon: Pencil, className: "text-muted-foreground" };
             const Icon = meta.icon;

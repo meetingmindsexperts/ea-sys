@@ -403,42 +403,50 @@ export function DealDetailBody({
               </RecordCard>
             )}
 
-            <RecordCard
-              icon={Users}
-              title="People"
-              action={<Badge variant="secondary" className="tabular-nums">{contactCount}</Badge>}
-            >
-              <DealContacts deal={deal} canWrite={canWrite} />
-            </RecordCard>
+            {/* ── Follow-up (side column since Nov 25, 2026: it swapped places with People) ── */}
+            {canWrite && (
+              <RecordCard icon={CalendarDays} title="Add a follow-up">
+                <div className="space-y-2">
+                  <Input
+                    aria-label="Follow-up"
+                    placeholder="Chase Abbott about the Gold package"
+                    value={taskTitle}
+                    onChange={(e) => setTaskTitle(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <Input
+                      type="date"
+                      aria-label="Due date"
+                      className="min-w-0 flex-1"
+                      value={taskDue}
+                      onChange={(e) => setTaskDue(e.target.value)}
+                    />
+                    <Button onClick={handleAddTask} disabled={!taskTitle.trim() || createTask.isPending}>
+                      Add
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    A due date also sets the reminder: you&apos;ll get an email when it&apos;s due.
+                  </p>
+                </div>
+              </RecordCard>
+            )}
           </>
         }
       >
         {/* ── Activity — the primary work area, first (money-gated; null for MEMBER) ── */}
         <CrmNotesCard attach={{ dealId: deal.id }} canWrite={canWrite} />
 
-        {/* ── Follow-up ──────────────────────────────────────────────────── */}
-        {canWrite && (
-          <RecordCard icon={CalendarDays} title="Add a follow-up">
-            <div className="space-y-2">
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  placeholder="Chase Abbott about the Gold package"
-                  value={taskTitle}
-                  onChange={(e) => setTaskTitle(e.target.value)}
-                />
-                <div className="flex gap-2">
-                  <Input type="date" className="w-40" value={taskDue} onChange={(e) => setTaskDue(e.target.value)} />
-                  <Button onClick={handleAddTask} disabled={!taskTitle.trim() || createTask.isPending}>
-                    Add
-                  </Button>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                A due date also sets the reminder — you&apos;ll get an email when it&apos;s due.
-              </p>
-            </div>
-          </RecordCard>
-        )}
+        {/* ── People (main column since Nov 25, 2026, owner: who we are talking to
+            comes before the paperwork; it swapped places with Follow-up) ───────── */}
+        <RecordCard
+          icon={Users}
+          title="People"
+          className="border-primary/40 shadow-sm"
+          action={<Badge variant="secondary" className="tabular-nums">{contactCount}</Badge>}
+        >
+          <DealContacts deal={deal} canWrite={canWrite} />
+        </RecordCard>
 
         {/* ── Products (line items) ──────────────────────────────────────── */}
         <RecordCard icon={Package} title="Products">
@@ -487,13 +495,13 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
           Nobody linked yet — add the rep you&apos;re actually talking to.
         </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="grid gap-2 sm:grid-cols-2">
           {onDeal.map(({ crmContact, role: r }) => (
-            <li key={crmContact.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
+            <li key={crmContact.id} className="flex min-w-0 items-center justify-between gap-2 rounded-md border p-3">
               <div className="min-w-0">
                 <Link
                   href={`/crm/contacts/${crmContact.id}`}
-                  className="block truncate text-sm font-medium hover:underline"
+                  className="block truncate text-sm font-semibold hover:underline"
                 >
                   {crmContact.firstName} {crmContact.lastName}
                 </Link>
@@ -524,7 +532,7 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
 
       {canWrite && (
         <>
-          <Button size="sm" variant="outline" className="w-full" onClick={() => setAddOpen(true)}>
+          <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => setAddOpen(true)}>
             <UserPlus className="mr-2 h-3.5 w-3.5" />
             Add people
           </Button>
