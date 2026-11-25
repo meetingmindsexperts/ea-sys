@@ -17,7 +17,7 @@ import { isStreamArriving, probeStream } from "@/lib/webinar/stream-probe";
 import { updateEventSettings } from "@/lib/event-settings";
 import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
 import { recordStreamEvent } from "@/lib/webinar/stream-timeline";
-import { finishRecordingOnRoomClose } from "@/services/stream-recording-service";
+import { stopRecordingOnRoomClose } from "@/services/stream-recording-service";
 
 type PartnerSignalOnOpen = "receiving" | "not-receiving" | "switched-off" | "unknown";
 
@@ -189,9 +189,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
     // The thank-you follows the close, not the scheduled end (Oct 28, 2026). Never throws.
     if (!validated.data.open) await retimeThankYouAfterRoomClose(eventId);
-    // The webinar is over, so a partner's stream recording is finished (never on a rehearsal close). Never throws.
+    // The webinar is over, so a partner's stream recording is stopped, and finished by the sweep 10 minutes
+    // later unless the room is opened again (never on a rehearsal close). Never throws.
     if (nextStatus === "COMPLETED") {
-      await finishRecordingOnRoomClose({
+      await stopRecordingOnRoomClose({
         organizationId: orgGuard.orgId,
         eventId,
         sessionId: webinar.sessionId,

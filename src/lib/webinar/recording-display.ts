@@ -7,6 +7,14 @@
 export type RecordingDisplayStatus = "RECORDING" | "PAUSED" | "FINISHING" | "READY" | "FAILED";
 
 /**
+ * Whether the partner's video is arriving, as the Partner stream card knows
+ * it. "unknown" when the stream server's check did not answer, or the card's
+ * own read has not come back: never taken as "not arriving" (review of
+ * be8511218, MED), or a recording in trouble would read as calmly armed.
+ */
+export type PartnerSignal = "receiving" | "not-receiving" | "unknown";
+
+/**
  * A piece is 6 seconds, settles for 20 before it is moved, and the job moving
  * pieces runs every minute: about a minute and a half from being recorded to
  * being in storage. Past three minutes with the partner's video arriving,
@@ -41,15 +49,28 @@ export interface RecordingState {
 }
 
 /**
- * The recording's state in words. `receiving` is the partner stream card's
- * signal: an open recording with no video arriving is armed, not recording.
+ * The recording's state in words. An open recording with no video arriving is
+ * armed, not recording; one whose signal is not known says so.
  */
-export function recordingState(status: RecordingDisplayStatus, receiving: boolean, error: string | null): RecordingState {
-  if (status === "RECORDING" && receiving) return { label: "Recording", live: true, hint: null };
+export function recordingState(status: RecordingDisplayStatus, signal: PartnerSignal, error: string | null): RecordingState {
+  if (status === "RECORDING" && signal === "receiving") return { label: "Recording", live: true, hint: null };
+  if (status === "RECORDING" && signal === "unknown") {
+    return {
+      label: "Recording, stream not confirmed",
+      live: false,
+      hint: "The stream server did not say whether the partner's video is arriving. The time and size show what has reached storage.",
+    };
+  }
   if (status === "RECORDING") {
     return { label: "Ready to record", live: false, hint: "Recording starts the moment the partner's stream arrives." };
   }
-  if (status === "PAUSED") return { label: "Stopped", live: false, hint: "Start again carries on the same recording, with a break marked." };
+  if (status === "PAUSED") {
+    return {
+      label: "Stopped",
+      live: false,
+      hint: "Start again carries on the same recording, with a break marked. When the room is closed, it is finished 10 minutes later.",
+    };
+  }
   if (status === "FINISHING") return { label: "Finished", live: false, hint: "The file to download is being prepared." };
   if (status === "READY") return { label: "Ready", live: false, hint: null };
   return { label: "Failed", live: false, hint: error ?? "The recording could not be completed. Tell a developer." };
@@ -57,17 +78,19 @@ export function recordingState(status: RecordingDisplayStatus, receiving: boolea
 
 /**
  * Minutes since the last piece reached storage, when that is late: recording,
- * the partner's video arriving, and nothing new for PIECES_LATE_MS. Counted
+ * the partner's video arriving or not known to be absent, and nothing new for
+ * PIECES_LATE_MS. `now` is on the server's clock (the times compared are the
+ * server's: review of be8511218, MED). Counted
  * from the latest of the newest piece, the last Start, and the partner's last
  * connection: a recording armed hours early is not late the moment the
  * partner connects. Null when nothing is wrong.
  */
 export function piecesLateMinutes(
   recording: { status: RecordingDisplayStatus; lastStartedAt: string; lastPieceAt: string | null },
-  partner: { receiving: boolean; lastConnectionAt: string | null },
+  partner: { signal: PartnerSignal; lastConnectionAt: string | null },
   now: number,
 ): number | null {
-  if (recording.status !== "RECORDING" || !partner.receiving) return null;
+  if (recording.status !== "RECORDING" || partner.signal === "not-receiving") return null;
   const since = now - Math.max(time(recording.lastStartedAt), time(recording.lastPieceAt), time(partner.lastConnectionAt));
   if (since <= PIECES_LATE_MS) return null;
   return Math.floor(since / 60_000);

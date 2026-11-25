@@ -85,6 +85,31 @@ export function recordingOverran(recording: { lastStartedAt: Date; sessionEndTim
   return now.getTime() - from >= RECORDING_MAX_MS;
 }
 
+/**
+ * Closing the room STOPS the recording; it is finished this long after, unless
+ * the room was opened again (review of be8511218, HIGH). A producer who closes
+ * by mistake and re-opens a minute later presses Start again and loses
+ * nothing, where finishing at once would have ended the recording for good.
+ * Ten minutes is past the console's own window to re-open (the thank-you
+ * waits five).
+ */
+export const ROOM_CLOSED_FINISH_GRACE_MS = 10 * 60 * 1000;
+
+/**
+ * Whether the sweep finishes a recording because the webinar is over: stopped,
+ * its room closed (the session COMPLETED; a rehearsal close puts it back to
+ * SCHEDULED), and stopped for the grace. Counted from the stop, which the room
+ * closing made, or an earlier one by staff: either way the room is closed now
+ * and nobody started it again.
+ */
+export function finishesAfterRoomClosed(
+  recording: { status: RecordingStatus; stoppedAt: Date | null; sessionStatus: string },
+  now: Date,
+): boolean {
+  if (recording.status !== "PAUSED" || recording.sessionStatus !== "COMPLETED" || !recording.stoppedAt) return false;
+  return now.getTime() - recording.stoppedAt.getTime() >= ROOM_CLOSED_FINISH_GRACE_MS;
+}
+
 /** How long a recording is kept (the owner, Nov 24, 2026: 12 months, changeable per recording). */
 export const RECORDING_RETENTION_MONTHS = 12;
 

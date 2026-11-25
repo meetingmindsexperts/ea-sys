@@ -16,6 +16,8 @@ import {
   readPauses,
   serverSetting,
   type RecordingStatus,
+  finishesAfterRoomClosed,
+  ROOM_CLOSED_FINISH_GRACE_MS,
 } from "@/lib/webinar/stream-recording";
 
 const CLOSED: RecordingStatus[] = ["FINISHING", "READY", "FAILED"];
@@ -156,3 +158,26 @@ describe("the pause list (review of 9592d2151: every pause, not only the last)",
   });
 });
 
+
+// Review of be8511218 (HIGH): closing the room stops the recording; the sweep finishes it after a grace.
+describe("finishesAfterRoomClosed", () => {
+  const now = new Date("2026-12-01T12:00:00Z");
+  const stoppedAgo = (ms: number) => new Date(now.getTime() - ms);
+  const closed = { status: "PAUSED" as const, stoppedAt: stoppedAgo(ROOM_CLOSED_FINISH_GRACE_MS), sessionStatus: "COMPLETED" };
+
+  it("finishes a stopped recording once its room has been closed for the grace", () => {
+    expect(finishesAfterRoomClosed(closed, now)).toBe(true);
+    expect(finishesAfterRoomClosed({ ...closed, stoppedAt: stoppedAgo(ROOM_CLOSED_FINISH_GRACE_MS - 1) }, now)).toBe(false);
+  });
+
+  it("not when the room was opened again, or closed as a rehearsal", () => {
+    expect(finishesAfterRoomClosed({ ...closed, sessionStatus: "LIVE" }, now)).toBe(false);
+    expect(finishesAfterRoomClosed({ ...closed, sessionStatus: "SCHEDULED" }, now)).toBe(false);
+  });
+
+  it("not a recording someone started again, or one already finished", () => {
+    expect(finishesAfterRoomClosed({ ...closed, status: "RECORDING" }, now)).toBe(false);
+    expect(finishesAfterRoomClosed({ ...closed, status: "FINISHING" }, now)).toBe(false);
+    expect(finishesAfterRoomClosed({ ...closed, stoppedAt: null }, now)).toBe(false);
+  });
+});

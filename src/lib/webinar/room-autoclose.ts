@@ -27,7 +27,7 @@ import { getLastZoomEndTime } from "@/lib/zoom/reports";
 import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
 import { isWebinarStreamArriving, OVERRUN_HARD_CAP_MS } from "@/lib/webinar/overrun";
 import { recordStreamEvent } from "@/lib/webinar/stream-timeline";
-import { finishRecordingOnRoomClose } from "@/services/stream-recording-service";
+import { stopRecordingOnRoomClose } from "@/services/stream-recording-service";
 
 export const SAFETY_NET_MS = 2 * 60 * 60 * 1000;
 export const MAX_ROOMS_PER_TICK = 20;
@@ -188,8 +188,9 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
           source: "worker",
         });
         await retimeThankYouAfterRoomClose(room.eventId, now);
-        // Never throws; a no-op on the many webinars that were not recorded.
-        await finishRecordingOnRoomClose({
+        // Stops a partner stream's recording; the sweep finishes it 10 minutes later unless the room is
+        // opened again. Never throws; a no-op on the many webinars that were not recorded.
+        await stopRecordingOnRoomClose({
           organizationId: room.event.organizationId,
           eventId: room.eventId,
           sessionId: room.id,

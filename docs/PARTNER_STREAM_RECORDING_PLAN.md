@@ -190,7 +190,9 @@ the first day:
   follows a break (the stream dropped, or recording was paused).
 
 One recording per webinar. Stop and Start again continue the same recording with a break marked.
-It is finished when the room closes, or when staff press **Finish recording**, or by the sweep
+Closing the room (after the start) stops it, and the sweep finishes it 10 minutes later unless the
+room was opened again, so a mistaken close loses nothing (review of be8511218); otherwise it is
+finished when staff press **Finish recording**, or by the sweep
 6 hours after the webinar's scheduled end or after recording was last started, whichever is later
 (safety). Not counted from when the recording was made: Start before the stream arms it, possibly
 hours early.
@@ -386,8 +388,11 @@ Handed over as exact commands when their step is reached; none is run by the age
 - **Two webinars recorded at once** double the buffer and the shipping, both small. The 6 GB
   disk guard is per start.
 - **The picture is single quality.** An attendee on a weak connection may buffer in phase 2.
-- **A recording nobody stops.** It is finished when the room closes, and by the sweep 6 hours
-  after the webinar's scheduled end at the latest.
+- **A recording nobody stops.** It is stopped when the room closes and finished 10 minutes later,
+  and by the sweep 6 hours after the webinar's scheduled end at the latest.
+- **A rehearsal is recorded too.** A recording started before a rehearsal keeps recording through
+  the rehearsal's close (which is not the end of the webinar), so test streams that day become
+  part of the recording. Stop it after the rehearsal; delete arrives with step 4.
 - **Deleted is not gone at once** in a versioned bucket: the lifecycle rule is what clears it.
 
 ## 10. Not in this plan

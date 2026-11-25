@@ -33,7 +33,14 @@ import {
   type WebinarStreamRecordingChange,
   type WebinarStreamRecordingView,
 } from "@/hooks/use-api";
-import { piecesLateMinutes, recordedLength, recordedSize, recordingState } from "@/lib/webinar/recording-display";
+import { useServerClock } from "@/hooks/use-server-clock";
+import {
+  piecesLateMinutes,
+  recordedLength,
+  recordedSize,
+  recordingState,
+  type PartnerSignal,
+} from "@/lib/webinar/recording-display";
 
 function errorText(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
@@ -48,14 +55,29 @@ function report(change: WebinarStreamRecordingChange, done: string) {
   toast.success(done);
 }
 
-/** A clock that ticks every 15 seconds, for the "no new pieces" line. */
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now());
+/**
+ * The server's time, ticking every 15 seconds, for the "no new pieces" line:
+ * the times it compares are the server's, and a laptop clock a minute and a
+ * half fast would raise it on a healthy recording (review of be8511218). Null
+ * until the offset is measured, so nothing is said on a guess.
+ */
+function useServerNow(): number | null {
+  const clock = useServerClock();
+  const [tick, setTick] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 15_000);
+    const id = setInterval(() => setTick(Date.now()), 15_000);
     return () => clearInterval(id);
   }, []);
-  return now;
+  if (clock.offsetMs === null) return null;
+  return tick + clock.offsetMs;
+}
+
+/** The partner's signal as the panel uses it: a switched-off key is not arriving; no answer yet is not known. */
+function partnerSignal(data: ReturnType<typeof useWebinarPartnerStream>["data"]): PartnerSignal {
+  if (!data) return "unknown";
+  if (data.partnerStream && !data.partnerStream.enabled) return "not-receiving";
+  if (data.signal === "receiving" || data.signal === "not-receiving") return data.signal;
+  return "unknown";
 }
 
 /**
@@ -76,7 +98,9 @@ export function StreamRecordingPanel({ eventId, placement }: { eventId: string; 
       </p>
     );
   }
-  if (state.isError || !state.data) {
+  // A failed refetch keeps the last answer on screen, with Stop and Finish (review of be8511218); only a first
+  // read that failed has nothing to show.
+  if (!state.data) {
     return <p className="text-sm text-red-600">{errorText(state.error, "Could not load the recording.")}</p>;
   }
   const { available, recording } = state.data;
@@ -85,11 +109,7 @@ export function StreamRecordingPanel({ eventId, placement }: { eventId: string; 
     return <p className="text-sm text-muted-foreground">Recording a partner&apos;s stream is not set up on this server yet.</p>;
   }
   const stream = partner.data?.partnerStream ?? null;
-  const facts = {
-    receiving: partner.data?.signal === "receiving",
-    lastConnectionAt: stream?.lastPublishAt ?? null,
-    keyIssued: stream !== null,
-  };
+  const signal = partnerSignal(partner.data);
 
   return (
     <section
@@ -99,9 +119,14 @@ export function StreamRecordingPanel({ eventId, placement }: { eventId: string; 
     >
       {placement === "card" && <h3 className="text-sm font-semibold">Recording</h3>}
       {recording ? (
-        <RecordingNow eventId={eventId} recording={recording} partner={facts} />
+        <RecordingNow
+          eventId={eventId}
+          recording={recording}
+          available={available}
+          partner={{ signal, lastConnectionAt: stream?.lastPublishAt ?? null }}
+        />
       ) : (
-        <StartFirst eventId={eventId} keyIssued={facts.keyIssued} receiving={facts.receiving} />
+        <StartFirst eventId={eventId} keyIssued={stream !== null} receiving={signal === "receiving"} />
       )}
     </section>
   );
@@ -145,17 +170,20 @@ function StartFirst({ eventId, keyIssued, receiving }: { eventId: string; keyIss
 function RecordingNow({
   eventId,
   recording,
+  available,
   partner,
 }: {
   eventId: string;
   recording: WebinarStreamRecordingView;
-  partner: { receiving: boolean; lastConnectionAt: string | null };
+  /** Whether this server can record: with it off, a stopped recording can be finished but not started again. */
+  available: boolean;
+  partner: { signal: PartnerSignal; lastConnectionAt: string | null };
 }) {
   const action = useWebinarStreamRecordingAction(eventId);
   const [confirmFinish, setConfirmFinish] = useState(false);
-  const now = useNow();
-  const shown = recordingState(recording.status, partner.receiving, recording.error);
-  const late = piecesLateMinutes(recording, partner, now);
+  const now = useServerNow();
+  const shown = recordingState(recording.status, partner.signal, recording.error);
+  const late = now === null ? null : piecesLateMinutes(recording, partner, now);
   const open = recording.status === "RECORDING" || recording.status === "PAUSED";
 
   const run = async (which: "start" | "stop" | "finish", done: string) => {
@@ -185,18 +213,19 @@ function RecordingNow({
       {late !== null && (
         <p className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900" role="status">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          Nothing new has reached storage for {late} minutes while the partner&apos;s video is arriving. If this lasts, tell a developer: the
+          Nothing new has reached storage for {late} minutes. If this lasts, tell a developer: the
           recording may have a gap.
         </p>
       )}
       {open && (
         <div className="flex flex-wrap gap-2">
-          {recording.status === "RECORDING" ? (
+          {recording.status === "RECORDING" && (
             <Button size="sm" variant="outline" onClick={() => void run("stop", "Recording stopped")} disabled={action.isPending}>
               <Pause className="mr-2 h-4 w-4" />
               Stop
             </Button>
-          ) : (
+          )}
+          {recording.status === "PAUSED" && available && (
             <Button size="sm" onClick={() => void run("start", "Recording carried on")} disabled={action.isPending}>
               <Play className="mr-2 h-4 w-4" />
               Start again
@@ -209,7 +238,9 @@ function RecordingNow({
         </div>
       )}
       {open && (
-        <p className="text-xs text-muted-foreground">Closing the room after the webinar finishes the recording on its own.</p>
+        <p className="text-xs text-muted-foreground">
+          Closing the room after the start stops the recording, and finishes it 10 minutes later unless the room is opened again.
+        </p>
       )}
       <AlertDialog open={confirmFinish} onOpenChange={setConfirmFinish}>
         <AlertDialogContent>

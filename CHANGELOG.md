@@ -19,8 +19,20 @@ Plan: `docs/PARTNER_STREAM_RECORDING_PLAN.md` §4.5. Still dark: the controls sh
   three minutes while the partner's video is arriving. Needs `webinar.manage`.
 - `GET/POST /api/events/{id}/webinar/partner-stream/recording` (actions `start`, `stop`, `finish`; 60 an hour per
   event). A stream server that did not take a change is said in the answer and put right by the minute sweep.
-- Closing the room after the start, by staff or automatically, finishes the recording; a rehearsal close does not.
+- Closing the room after the start, by staff or automatically, stops the recording, and the minute sweep finishes
+  it 10 minutes later unless the room was opened again; a rehearsal close leaves it alone.
 - Each start, stop and finish is a line on the console's Stream timeline (Recording started, stopped, finished).
+
+Review of be8511218 (0 BLOCKER, 1 HIGH, 2 MED, 6 LOW), fixed in the same push:
+
+- HIGH: closing the room finished the recording for good, so re-opening after a mistaken close recorded nothing
+  more. It now stops it, with the 10 minute window above.
+- MED: a stream server that did not answer showed as the calm "Ready to record" and silenced the warning. It now
+  reads "Recording, stream not confirmed" and the warning still runs.
+- MED: the warning compared the laptop's clock with the server's times; it now uses the server's clock.
+- LOW, fixed: Start again is hidden where recording is switched off; one failed refresh no longer hides the
+  controls; the system closing a room on a finished recording is not a warning. LOW, left: rehearsal footage is
+  recorded (noted in the plan), the route test reads a mocked view, the timeline helpers' fixed row limits.
 
 ### Webinars: the post-event report also downloads as Word and CSV (November 25, 2026)
 

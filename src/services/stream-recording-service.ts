@@ -55,6 +55,7 @@ import { freeDiskBytes, RECORDING_MIN_FREE_BYTES } from "@/lib/webinar/recording
 import { sessionStream } from "@/lib/webinar/session-stream";
 import { recordStreamEvent, type StreamEventKind } from "@/lib/webinar/stream-timeline";
 import {
+  finishesAfterRoomClosed,
   isRecordingOpen,
   pausesAfterStart,
   pausesAfterStop,
@@ -161,7 +162,7 @@ const ROW_SELECT = {
   archiveBytes: true,
   error: true,
   deleteAfter: true,
-  session: { select: { endTime: true } },
+  session: { select: { endTime: true, status: true } },
   // The newest piece only, for lastPieceAt. One row by the (recordingId, seq) unique.
   segments: { orderBy: { seq: "desc" }, take: 1, select: { startedAt: true, durationMs: true } },
 } as const;
@@ -186,7 +187,7 @@ interface Row {
   archiveBytes: bigint | null;
   error: string | null;
   deleteAfter: Date | null;
-  session: { endTime: Date };
+  session: { endTime: Date; status: string };
   segments: { startedAt: Date; durationMs: number }[];
 }
 
@@ -218,8 +219,8 @@ function lastPieceEnd(piece: { startedAt: Date; durationMs: number } | undefined
 
 function refuse(caller: Caller, op: RecordingAction, code: StreamRecordingErrorCode): { ok: false; code: StreamRecordingErrorCode; message: string } {
   // A person refused is a warning. The system finding nothing to do (the room closing on a webinar
-  // that was never recorded, which is most of them) is not.
-  const level = caller.source !== "rest" && code === "NOT_STARTED" ? "info" : "warn";
+  // that was never recorded, which is most of them, or one already finished) is not.
+  const level = caller.source !== "rest" && (code === "NOT_STARTED" || code === "ALREADY_FINISHED") ? "info" : "warn";
   apiLogger[level]({ eventId: caller.eventId, sessionId: caller.sessionId, userId: caller.userId, code }, `stream-recording:${op}-refused`);
   return { ok: false, code, message: MESSAGES[code] };
 }
@@ -231,8 +232,9 @@ const TIMELINE_KIND: Record<string, StreamEventKind> = {
   STREAM_RECORDING_FINISHED: "RECORDING_FINISHED",
 };
 
-const FINISH_REASON_TEXT: Record<string, string> = {
+const REASON_TEXT: Record<string, string> = {
   "room-closed": "The room was closed",
+  "room-closed-stop": "The room was closed: finished in 10 minutes unless the room is opened again",
   overran: "Still open 6 hours after the scheduled end",
 };
 
@@ -245,7 +247,8 @@ const FINISH_REASON_TEXT: Record<string, string> = {
 async function audit(caller: Caller, action: string, entityId: string, changes: Record<string, unknown>): Promise<void> {
   const kind = TIMELINE_KIND[action];
   if (kind && caller.organizationId) {
-    const reason = typeof changes.reason === "string" ? FINISH_REASON_TEXT[changes.reason] : undefined;
+    const reasonKey = action === "STREAM_RECORDING_STOPPED" ? `${String(changes.reason)}-stop` : String(changes.reason);
+    const reason = REASON_TEXT[reasonKey];
     await recordStreamEvent({
       organizationId: caller.organizationId,
       eventId: caller.eventId,
@@ -476,16 +479,19 @@ export async function startStreamRecording(input: StartCaller & { partnerAgreed?
   return answer(input, "start");
 }
 
-/** Stop recording for now. Start again continues the same recording, with a break marked. */
-export async function stopStreamRecording(input: Caller & { now?: Date }): Promise<StreamRecordingResult> {
+/**
+ * Stop recording for now. Start again continues the same recording, with a
+ * break marked. `reason` "room-closed" when the room closing stopped it.
+ */
+export async function stopStreamRecording(input: Caller & { now?: Date; reason?: "room-closed" }): Promise<StreamRecordingResult> {
   const existing = await readRow(input);
   const step = recordingTransition(existing?.status ?? null, "stop");
   if (!step.ok || !existing) return refuse(input, "stop", step.ok ? "NOT_STARTED" : step.code);
 
   const now = input.now ?? new Date();
   if (step.changed && (await move(existing, { status: "PAUSED", stoppedAt: now, pauses: pausesAfterStop(existing.pauses, now) }))) {
-    apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "stream-recording:stopped");
-    await audit(input, "STREAM_RECORDING_STOPPED", existing.id, {});
+    apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId, reason: input.reason }, "stream-recording:stopped");
+    await audit(input, "STREAM_RECORDING_STOPPED", existing.id, input.reason ? { reason: input.reason } : {});
   }
   // Lost a race here means someone else stopped or closed it: either way it is not recording, which is what Stop asked.
   return answer(input, "stop");
@@ -517,19 +523,22 @@ export async function finishStreamRecording(
 }
 
 /**
- * The room closing ends the webinar, so it finishes the recording (plan §4.3).
- * Called by the producer's close and by the automatic close, only when the
- * webinar is over (a close before the start is a rehearsal, and leaves the
- * recording open for the day). Never throws: the room is already closed, and
- * a recording left open is finished by the sweep at its limit.
+ * The room closing ends the webinar, so it STOPS the recording (plan §4.3);
+ * the sweep finishes it ROOM_CLOSED_FINISH_GRACE_MS later unless the room was
+ * opened again (review of be8511218, HIGH: finishing at once left a mistaken
+ * close no way back). Called by the producer's close and by the automatic
+ * close, only when the webinar is over (a close before the start is a
+ * rehearsal, and leaves the recording as it is). Never throws: the room is
+ * already closed, and a recording left running is finished by the sweep at
+ * its limit.
  */
-export async function finishRecordingOnRoomClose(
+export async function stopRecordingOnRoomClose(
   at: At & { organizationId: string; userId: string | null; source: "room" | "worker" },
 ): Promise<void> {
   try {
-    await finishStreamRecording({ ...at, reason: "room-closed" });
+    await stopStreamRecording({ ...at, reason: "room-closed" });
   } catch (err) {
-    apiLogger.error({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:finish-on-room-close-failed");
+    apiLogger.error({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:stop-on-room-close-failed");
   }
 }
 
@@ -538,7 +547,8 @@ export type KeepInStepOutcome = "closed" | "corrected" | "unchanged";
 
 /**
  * The sweep's work for one recording, run inside that recording's own tenant:
- * close it if it ran past its limit, otherwise make the stream server hold
+ * finish it when its room has been closed for the grace, or when it ran past
+ * its limit, otherwise make the stream server hold
  * what it says. Reads the recording afresh: the sweep's own list is only the
  * list of which to look at. `serverReachable` false (the control address is
  * not set up here) still closes an overrun recording, which is a database
@@ -551,6 +561,12 @@ export async function keepRecordingInStep(
 ): Promise<KeepInStepOutcome> {
   const row = await readRow(at);
   if (!row) return "unchanged";
+  if (finishesAfterRoomClosed({ status: row.status, stoppedAt: row.stoppedAt, sessionStatus: row.session.status }, now)) {
+    const closed = await finishStreamRecording({ ...at, userId: null, source: "worker", reason: "room-closed", now });
+    if (!closed.ok) return "unchanged";
+    apiLogger.info({ eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:finished-after-room-closed");
+    return "closed";
+  }
   if (
     isRecordingOpen(row.status) &&
     recordingOverran({ lastStartedAt: row.lastStartedAt, sessionEndTime: row.session.endTime }, now)

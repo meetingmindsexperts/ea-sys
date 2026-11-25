@@ -25,22 +25,29 @@ describe("recordedSize", () => {
 
 describe("recordingState", () => {
   it("recording with video arriving is the red REC mark", () => {
-    expect(recordingState("RECORDING", true, null)).toEqual({ label: "Recording", live: true, hint: null });
+    expect(recordingState("RECORDING", "receiving", null)).toEqual({ label: "Recording", live: true, hint: null });
   });
 
   it("recording with no video arriving is armed, not shown as recording", () => {
-    const s = recordingState("RECORDING", false, null);
+    const s = recordingState("RECORDING", "not-receiving", null);
     expect(s.live).toBe(false);
     expect(s.label).toBe("Ready to record");
   });
 
+  // Review of be8511218 (MED): a stream server that did not answer is not the calm "armed".
+  it("recording with the signal not known says so, never 'Ready to record'", () => {
+    const s = recordingState("RECORDING", "unknown", null);
+    expect(s.label).toBe("Recording, stream not confirmed");
+    expect(s.live).toBe(false);
+  });
+
   it("a failed recording shows its error, or a fallback", () => {
-    expect(recordingState("FAILED", false, "Storage refused the file").hint).toBe("Storage refused the file");
-    expect(recordingState("FAILED", false, null).hint).toMatch(/developer/);
+    expect(recordingState("FAILED", "not-receiving", "Storage refused the file").hint).toBe("Storage refused the file");
+    expect(recordingState("FAILED", "not-receiving", null).hint).toMatch(/developer/);
   });
 
   it("stopped, finished and ready are never live, even with video arriving", () => {
-    for (const status of ["PAUSED", "FINISHING", "READY"] as const) expect(recordingState(status, true, null).live).toBe(false);
+    for (const status of ["PAUSED", "FINISHING", "READY"] as const) expect(recordingState(status, "receiving", null).live).toBe(false);
   });
 });
 
@@ -48,7 +55,7 @@ describe("piecesLateMinutes", () => {
   const now = Date.parse("2027-01-21T10:00:00Z");
   const ago = (ms: number) => new Date(now - ms).toISOString();
   const base = { status: "RECORDING" as const, lastStartedAt: ago(60 * 60_000), lastPieceAt: ago(PIECES_LATE_MS + 60_000) };
-  const receiving = { receiving: true, lastConnectionAt: ago(60 * 60_000) };
+  const receiving = { signal: "receiving" as const, lastConnectionAt: ago(60 * 60_000) };
 
   it("says how late when recording, receiving and nothing new for over three minutes", () => {
     expect(piecesLateMinutes(base, receiving, now)).toBe(4);
@@ -59,14 +66,18 @@ describe("piecesLateMinutes", () => {
   });
 
   it("nothing to say when the partner's video is not arriving, or the recording is not running", () => {
-    expect(piecesLateMinutes(base, { ...receiving, receiving: false }, now)).toBeNull();
+    expect(piecesLateMinutes(base, { ...receiving, signal: "not-receiving" }, now)).toBeNull();
     expect(piecesLateMinutes({ ...base, status: "PAUSED" }, receiving, now)).toBeNull();
+  });
+
+  it("still says it when the signal is not known: the stream server may be the thing in trouble (review of be8511218)", () => {
+    expect(piecesLateMinutes(base, { ...receiving, signal: "unknown" }, now)).toBe(4);
   });
 
   it("a recording armed an hour early is not late the moment the partner connects", () => {
     const armed = { ...base, lastPieceAt: null };
-    expect(piecesLateMinutes(armed, { receiving: true, lastConnectionAt: ago(30_000) }, now)).toBeNull();
-    expect(piecesLateMinutes(armed, { receiving: true, lastConnectionAt: ago(PIECES_LATE_MS + 120_000) }, now)).toBe(5);
+    expect(piecesLateMinutes(armed, { signal: "receiving", lastConnectionAt: ago(30_000) }, now)).toBeNull();
+    expect(piecesLateMinutes(armed, { signal: "receiving", lastConnectionAt: ago(PIECES_LATE_MS + 120_000) }, now)).toBe(5);
   });
 
   it("counts from a later Start after a stop", () => {

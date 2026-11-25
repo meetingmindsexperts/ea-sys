@@ -38,12 +38,12 @@ vi.mock("@/lib/webinar/recording-disk", () => ({ freeDiskBytes: diskSpy, RECORDI
 vi.mock("@/lib/webinar/stream-timeline", () => ({ recordStreamEvent: timelineSpy }));
 
 import {
-  finishRecordingOnRoomClose,
   finishStreamRecording,
   getStreamRecording,
   keepRecordingInStep,
   resetStreamRecordingReports,
   startStreamRecording,
+  stopRecordingOnRoomClose,
   stopStreamRecording,
   streamRecordingAvailable,
 } from "@/services/stream-recording-service";
@@ -66,7 +66,7 @@ const row = (extra: Record<string, unknown> = {}) => ({
   pauses: [],
   finishedAt: null,
   serverClearedAt: null,
-  session: { endTime: SESSION_END },
+  session: { endTime: SESSION_END, status: "LIVE" },
   segmentCount: 0,
   totalBytes: BigInt(0),
   durationMs: 0,
@@ -498,25 +498,57 @@ describe("the stream timeline", () => {
   });
 });
 
-describe("finishRecordingOnRoomClose", () => {
+// Review of be8511218 (HIGH): finishing at once left a mistaken close no way back.
+describe("stopRecordingOnRoomClose", () => {
   const at = { organizationId: "org1", eventId: "ev1", sessionId: "s1", userId: "u1", source: "room" as const };
 
-  it("finishes an open recording, saying the room was closed", async () => {
-    reads(row(), row({ status: "FINISHING" }));
-    await finishRecordingOnRoomClose(at);
-    expect(moves()).toEqual([{ where: { id: "r1", status: "RECORDING" }, data: expect.objectContaining({ status: "FINISHING" }) }]);
-    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ reason: "room-closed", source: "room" });
+  it("STOPS an open recording (never finishes it), saying the room was closed", async () => {
+    reads(row(), row({ status: "PAUSED" }));
+    await stopRecordingOnRoomClose(at);
+    expect(moves()).toEqual([{ where: { id: "r1", status: "RECORDING" }, data: expect.objectContaining({ status: "PAUSED" }) }]);
+    expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: "STREAM_RECORDING_STOPPED", changes: { reason: "room-closed", source: "room" } });
+    expect(timelineSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "RECORDING_STOPPED", detail: "The room was closed: finished in 10 minutes unless the room is opened again" }),
+    );
+  });
+
+  it("an already finished recording is not a warning when the system closes the room again", async () => {
+    reads(row({ status: "READY", finishedAt: NOW }));
+    await stopRecordingOnRoomClose({ ...at, userId: null, source: "worker" });
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.objectContaining({ code: "ALREADY_FINISHED" }), "stream-recording:stop-refused");
   });
 
   it("never throws: the room is already closed, and the sweep finishes it at its limit", async () => {
     mockDb.streamRecording.findFirst.mockRejectedValue(new Error("db down"));
-    await expect(finishRecordingOnRoomClose(at)).resolves.toBeUndefined();
-    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "stream-recording:finish-on-room-close-failed");
+    await expect(stopRecordingOnRoomClose(at)).resolves.toBeUndefined();
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "stream-recording:stop-on-room-close-failed");
   });
 });
 
 describe("keepRecordingInStep (the sweep's work for one recording)", () => {
   const at = { eventId: "ev1", sessionId: "s1", organizationId: "org1" };
+
+  // Review of be8511218 (HIGH): the room closing stops; the sweep finishes ten minutes later.
+  it("finishes a stopped recording whose room has been closed for ten minutes, as the system", async () => {
+    const stopped = new Date(NOW.getTime() - 10 * 60_000);
+    const closedRoom = row({ status: "PAUSED", stoppedAt: stopped, session: { endTime: SESSION_END, status: "COMPLETED" } });
+    // The sweep's own read, then finish's.
+    reads(closedRoom, closedRoom, row({ status: "FINISHING" }));
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("closed");
+    expect(moves()).toEqual([{ where: { id: "r1", status: "PAUSED" }, data: { status: "FINISHING", stoppedAt: stopped, finishedAt: NOW } }]);
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ reason: "room-closed", source: "worker" });
+  });
+
+  it("leaves it stopped within the ten minutes, and when the room was opened again", async () => {
+    const recent = new Date(NOW.getTime() - 9 * 60_000);
+    reads(row({ status: "PAUSED", stoppedAt: recent, session: { endTime: SESSION_END, status: "COMPLETED" } }));
+    control.setPathRecording.mockResolvedValue({ ok: true, changed: false });
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("unchanged");
+    reads(row({ status: "PAUSED", stoppedAt: new Date(NOW.getTime() - 60 * 60_000), session: { endTime: SESSION_END, status: "LIVE" } }));
+    expect(await keepRecordingInStep(at, NOW, true)).toBe("unchanged");
+    expect(moves()).toEqual([]);
+  });
 
   it("reads the recording afresh and makes the stream server hold what it says", async () => {
     control.setPathRecording.mockResolvedValue({ ok: true, changed: false });
