@@ -524,7 +524,25 @@ export default function PublicSessionPage() {
   useEffect(() => {
     if (!isWebinarEvent || authState.kind !== "ok") return;
     async function beat() {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      // A hidden tab still asks whether it may watch (review of eeebe2b2b: a removed viewer listening
+      // in a background tab kept the stream playing); it sends no counts and is not counted.
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        try {
+          const res = await fetch(`/api/public/events/${slug}/sessions/${sessionId}/presence`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phase: "lobby", hidden: true }),
+          });
+          if (res.status !== 403) return;
+          const data = (await res.json().catch(() => ({}))) as { code?: string; error?: string };
+          if (data.code !== "REMOVED_FROM_WEBINAR") return;
+          setJoinInfo(null);
+          setAuthState({ kind: "removed", message: data.error ?? "You have been removed from this webinar." });
+        } catch {
+          // The next beat asks again.
+        }
+        return;
+      }
       const joined = isJoiningRef.current;
       // Taken off the tally before sending, and put back if the beat fails (takeTally).
       const { sent, kept } = takeTally(playbackTallyRef.current);
@@ -617,7 +635,9 @@ export default function PublicSessionPage() {
   // Handouts sit under the panelists (Oct 6, 2026), so either fills the left column.
   // Only once the join check has settled, so a signed-out visitor never
   // fires a refused request (review of handouts).
-  const handouts = useWebinarHandouts(slug, sessionId, !loading && isWebinarEvent && authState.kind === "ok");
+  const loadedHandouts = useWebinarHandouts(slug, sessionId, !loading && isWebinarEvent && authState.kind === "ok");
+  // The hook keeps what it loaded; a viewer removed since then must not see the list.
+  const handouts = authState.kind === "ok" ? loadedHandouts : [];
   const showPanelists = panelists.length > 0;
   const showLeftColumn = showPanelists || handouts.length > 0;
   const layout = webinarVideoLayout({ showQa, showPanelists: showLeftColumn });
@@ -1012,6 +1032,10 @@ export default function PublicSessionPage() {
 
           {/* Tab 1 — Live Video */}
           <TabsContent value="video">
+            {/* Removed by the organisers (Nov 25, 2026): the strip above says so; nothing here plays,
+                links or invites them to join. */}
+            {authState.kind === "removed" ? null : (
+            <>
             {/* Custom stream: Q&A sits beside the video (below it on a phone),
                  so a viewer never leaves the stream to ask (owner feedback,
                  Oct 2, 2026). Custom-stream viewers are not in Zoom, so
@@ -1231,6 +1255,8 @@ export default function PublicSessionPage() {
                 alt=""
                 className="mx-auto mt-4 block h-auto max-w-full rounded-xl"
               />
+            )}
+            </>
             )}
           </TabsContent>
 

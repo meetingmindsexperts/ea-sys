@@ -27,6 +27,10 @@ const presenceSchema = z.object({
       reconnects: z.number().int().nonnegative(),
     })
     .optional(),
+  // A beat from a tab in the background (review of eeebe2b2b): it only asks whether the viewer may
+  // still watch, so a removed viewer's hidden tab stops too. It writes nothing and counts nothing,
+  // since a hidden tab was never counted as watching.
+  hidden: z.boolean().optional(),
 });
 
 /**
@@ -76,7 +80,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ errors: parsed.error.flatten() }, "presence:validation-failed");
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
-    const { phase, view, quality } = parsed.data;
+    const { phase, view, quality, hidden } = parsed.data;
 
     const event = await findPublicEvent(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }, {
       select: { id: true, organizationId: true, eventType: true, status: true, settings: true },
@@ -97,12 +101,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Must be a registered (non-cancelled) attendee of this event.
     const registration = await db.registration.findFirst({
       where: await viewerAccessWhere(event.id, authSession.user.id, event.eventType),
+      // Always the same one, so a person with two (their account's and an unheld one on their own
+      // address) keeps one presence row, not one per beat (review of 663e79c42).
+      orderBy: [{ userId: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }],
       select: { id: true },
     });
     if (!registration) {
       // A removed viewer's page is told so on its next beat and stops the player (Nov 25, 2026).
       if (await viewerRemoved(event.id, authSession.user.id)) {
-        apiLogger.info({ userId: authSession.user.id, eventId: event.id, sessionId }, "presence:denied:removed-from-webinar");
+        apiLogger.warn({ userId: authSession.user.id, eventId: event.id, sessionId }, "presence:denied:removed-from-webinar");
         return NextResponse.json(
           { error: VIEWER_REFUSAL_MESSAGE[REMOVED_FROM_WEBINAR], code: REMOVED_FROM_WEBINAR },
           { status: 403 },
@@ -114,6 +121,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
       return NextResponse.json({ error: "Not registered", code: "NOT_REGISTERED" }, { status: 403 });
     }
+    if (hidden) return NextResponse.json({ ok: true, tracked: false });
 
     // Session must belong to this event (defense against cross-event writes).
     const sessionRow = await db.eventSession.findFirst({

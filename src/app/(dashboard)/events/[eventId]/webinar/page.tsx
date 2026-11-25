@@ -102,6 +102,7 @@ import {
   useWebinarPartnerStream,
   useWebinarViewerQuestions,
   type WebinarViewerQuestionRow,
+  type WebinarRemovedViewer,
   useUpdateWebinarViewerQuestion,
   useWebinarPresence,
   useSetWebinarViewerRemoved,
@@ -2031,15 +2032,45 @@ function PanelistsCard({
 
 // ── Q&A ────────────────────────────────────────────────────────────
 
+/** Viewers removed from the webinar, with Let back in (Nov 25, 2026). */
+function RemovedViewersList({
+  removed,
+  canManage,
+  pending,
+  onLetBackIn,
+}: {
+  removed: WebinarRemovedViewer[];
+  canManage: boolean;
+  pending: boolean;
+  onLetBackIn: (r: WebinarRemovedViewer) => void;
+}) {
+  return (
+    <div className="max-h-48 divide-y overflow-y-auto rounded-lg border border-red-100 bg-red-50/30">
+      {removed.map((r) => (
+        <div key={r.registrationId} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+          <div className="min-w-0">
+            <p className="truncate font-medium">{r.name}</p>
+            <p className="truncate text-xs text-muted-foreground">{r.email ?? ""}</p>
+          </div>
+          {canManage && (
+            <Button size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={pending} onClick={() => onLetBackIn(r)}>
+              Let back in
+            </Button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
-  // Only poll + render while the room is live — presence is meaningless otherwise.
-  const { data, isLoading } = useWebinarPresence(eventId, live);
+  // Polled while the room is live; read once otherwise, so the removed list (and Let back in) stays
+  // reachable after the room closes (review of eeebe2b2b: the block also covers the replay).
+  const { data, isLoading } = useWebinarPresence(eventId, true, live);
   // Remove a viewer (owner, Nov 25, 2026): block this webinar only, their page stops within ~30 s.
   const canManage = useCan("webinar.manage", eventId) === "allowed";
   const setRemoved = useSetWebinarViewerRemoved(eventId);
   const [confirmRemove, setConfirmRemove] = useState<{ registrationId: string; name: string } | null>(null);
-  if (!live) return null;
-
   const changeRemoved = async (registrationId: string, removed: boolean, name: string) => {
     try {
       await setRemoved.mutateAsync({ registrationId, removed });
@@ -2048,6 +2079,33 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
       toast.error(err instanceof Error ? err.message : "Could not change the viewer");
     }
   };
+
+  if (!live) {
+    const removedOnly = data?.removed ?? [];
+    if (removedOnly.length === 0) return null;
+    return (
+      <Card>
+        <CardHeader>
+          <ConsoleTitle icon={CircleDot} tone="red">
+            Removed from this webinar
+          </ConsoleTitle>
+          <CardDescription>
+            They cannot watch, ask, chat or open the replay on our pages. Let someone back in here; they see it when they
+            next open or reload the page.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RemovedViewersList
+            removed={removedOnly}
+            canManage={canManage}
+            pending={setRemoved.isPending}
+            onLetBackIn={(r) => void changeRemoved(r.registrationId, false, r.name)}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+
 
   return (
     <Card>
@@ -2078,9 +2136,11 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
                 <p className="text-2xl font-bold text-emerald-700">{data.joined}</p>
                 <p className="text-xs text-muted-foreground">Joined</p>
               </div>
-              {/* Everyone who has opened the page tonight, here now or not (owner, Nov 25, 2026). */}
-              <div className="flex-1 rounded-lg border p-3 text-center" title="Everyone who has opened the webinar page so far, counted once each">
-                <p className="text-2xl font-bold">{data.opened}</p>
+              {/* Everyone who has ever opened the page, here now or not (owner, Nov 25, 2026); the same
+                  set as the attendance report's "Opened the page". `?? "-"`: an older container's answer
+                  has no count during a deploy. */}
+              <div className="flex-1 rounded-lg border p-3 text-center" title="Everyone who has opened the webinar page so far, counted once per registration">
+                <p className="text-2xl font-bold">{data.opened ?? "-"}</p>
                 <p className="text-xs text-muted-foreground">Opened so far</p>
               </div>
             </div>
@@ -2123,30 +2183,15 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
             </div>
           </>
         ) : null}
-        {data && data.removed.length > 0 && (
+        {(data?.removed?.length ?? 0) > 0 && (
           <div className="mt-4 space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Removed from this webinar ({data.removed.length})</p>
-            <div className="max-h-48 divide-y overflow-y-auto rounded-lg border border-red-100 bg-red-50/30">
-              {data.removed.map((r) => (
-                <div key={r.registrationId} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{r.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{r.email ?? ""}</p>
-                  </div>
-                  {canManage && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 shrink-0 px-2 text-xs"
-                      disabled={setRemoved.isPending}
-                      onClick={() => void changeRemoved(r.registrationId, false, r.name)}
-                    >
-                      Let back in
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
+            <p className="text-xs font-medium text-muted-foreground">Removed from this webinar ({data?.removed.length})</p>
+            <RemovedViewersList
+              removed={data?.removed ?? []}
+              canManage={canManage}
+              pending={setRemoved.isPending}
+              onLetBackIn={(r) => void changeRemoved(r.registrationId, false, r.name)}
+            />
           </div>
         )}
       </CardContent>
@@ -2155,9 +2200,10 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove {confirmRemove?.name} from the webinar?</AlertDialogTitle>
             <AlertDialogDescription>
-              Their page stops the video within about 30 seconds and tells them they were removed, and they can no longer
-              watch, ask questions, chat, vote or open the replay. Their registration is not changed. You can let them back in
-              from this card.
+              Their page stops the video within about 30 seconds and tells them they were removed, and on our pages they can no
+              longer watch, ask questions, chat, vote or open the replay. Their registration is not changed, and they still get
+              the webinar emails (a Zoom recording link in one still works). What they already posted stays: delete it from
+              the Q&amp;A and Chat tabs if needed. You can let them back in from this card.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -49,6 +49,7 @@ import { GET as presenceGET } from "@/app/api/events/[eventId]/webinar/presence/
 import { GET as questionsGET, PATCH as questionsPATCH } from "@/app/api/events/[eventId]/webinar/questions/route";
 import { POST as recordingPOST } from "@/app/api/events/[eventId]/webinar/recording/fetch/route";
 import { POST as roomPOST } from "@/app/api/events/[eventId]/webinar/room/route";
+import { PUT as viewerRemovalPUT } from "@/app/api/events/[eventId]/webinar/viewers/[registrationId]/route";
 import { GET as streamTimelineGET } from "@/app/api/events/[eventId]/webinar/stream-timeline/route";
 import { GET as chatGET, PATCH as chatPATCH, POST as chatPOST } from "@/app/api/events/[eventId]/webinar/chat/route";
 import { GET as sequenceGET, POST as sequencePOST } from "@/app/api/events/[eventId]/webinar/sequence/route";
@@ -94,6 +95,7 @@ const CASES: HandlerCase[] = [
   { name: "PATCH webinar/questions", handler: questionsPATCH, method: "PATCH", body: { id: "q1", status: "ANSWERED" } },
   { name: "POST webinar/recording/fetch", handler: recordingPOST, method: "POST", body: {} },
   { name: "POST webinar/room", handler: roomPOST, method: "POST", body: { open: true } },
+  { name: "PUT webinar/viewers/[registrationId]", handler: viewerRemovalPUT, method: "PUT", params: { registrationId: "r1" }, body: { removed: true } },
   { name: "GET webinar/sequence", handler: sequenceGET, method: "GET" },
   { name: "GET webinar/stream-timeline", handler: streamTimelineGET, method: "GET" },
   { name: "GET webinar/chat", handler: chatGET, method: "GET" },

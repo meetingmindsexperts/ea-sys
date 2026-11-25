@@ -4107,12 +4107,13 @@ export function useSetWebinarViewerRemoved(eventId: string) {
 }
 
 /** Real-time lobby/live presence — polls every ~18s while the console is open. */
-export function useWebinarPresence(eventId: string, enabled = true) {
+export function useWebinarPresence(eventId: string, enabled = true, poll = true) {
   return useQuery({
     queryKey: queryKeys.webinarPresence(eventId),
     queryFn: () => fetchApi<WebinarPresenceData>(`/api/events/${eventId}/webinar/presence`),
     enabled: !!eventId && enabled,
-    refetchInterval: 18000,
+    // Off the live hour the console reads it once, for the removed list (review of eeebe2b2b).
+    refetchInterval: poll ? 18000 : false,
   });
 }
 

@@ -21,8 +21,14 @@ Owner: "remove someone from viewing the session if they misbehave", decided as *
   stops and the page says "You have been removed from this webinar". A reload says the same (zoom-join answers
   the code, `viewerRefusal` asks it first so a removed viewer never reads as unpaid). A removed viewer leaves the
   roster at once.
-- Limit: the video stream is not checked per viewer, so someone who copied the raw stream address can still play
-  it. The removed list is on the Live now card, which shows only while the room is open.
+- Limits: the video stream is not checked per viewer, so someone who copied the raw stream address can still play
+  it; the webinar emails still go to them (a Zoom recording link in one still works); their earlier questions and
+  chat stay.
+- Review of eeebe2b2b: the migration gives up on a table lock after 10 s; a tab in the background still asks (a
+  hidden beat writes and counts nothing) so a removed viewer listening there stops too; Remove covers every
+  registration the person holds on the event; the removed list and Let back in stay on their own card after the
+  room closes; the removed viewer's video tab shows nothing at all (no handouts, no "Ready to join"); docs say what
+  removal does not do and add the attendee-side B18.
 - Migration `20261125100000_registration_webinar_removed` (two nullable columns, additive and idempotent; a
   rollback forgets the removals, `docs/ROLLBACK.md`).
 

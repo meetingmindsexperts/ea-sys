@@ -9,7 +9,7 @@ const { mockAuth, mockDb, permSpy, mockLimit } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
-    registration: { updateMany: vi.fn() },
+    registration: { updateMany: vi.fn(), findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   permSpy: vi.fn(),
@@ -36,6 +36,7 @@ beforeEach(() => {
   permSpy.mockReturnValue({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "ev1" } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", eventType: "WEBINAR" });
   mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+  mockDb.registration.findFirst.mockResolvedValue({ userId: "viewer1", attendee: { email: "Viewer@Example.com" } });
   mockDb.auditLog.create.mockReturnValue(Promise.resolve({}));
 });
 
@@ -44,8 +45,13 @@ describe("removing a webinar viewer", () => {
     const res = await put({ removed: true });
     expect(res.status).toBe(200);
     expect(permSpy).toHaveBeenCalledWith("webinar.manage");
+    expect(mockDb.registration.findFirst.mock.calls[0][0].where).toEqual({ id: "reg1", eventId: "ev1" });
     const call = mockDb.registration.updateMany.mock.calls[0][0];
-    expect(call.where).toEqual({ id: "reg1", eventId: "ev1" });
+    // The person on this event: the row, every row in their account, and rows unheld on their address.
+    expect(call.where.eventId).toBe("ev1");
+    expect(call.where.OR[0]).toEqual({ id: "reg1" });
+    expect(call.where.OR[1]).toEqual({ userId: "viewer1" });
+    expect(call.where.OR[2]).toMatchObject({ userId: null });
     expect(Object.keys(call.data).sort()).toEqual(["webinarRemovedAt", "webinarRemovedById"]);
     expect(call.data.webinarRemovedById).toBe("u1");
     expect(call.data.webinarRemovedAt).toBeInstanceOf(Date);
@@ -62,8 +68,9 @@ describe("removing a webinar viewer", () => {
   });
 
   it("a registration of another event is not found, never touched", async () => {
-    mockDb.registration.updateMany.mockResolvedValue({ count: 0 });
+    mockDb.registration.findFirst.mockResolvedValue(null);
     expect((await put({ removed: true })).status).toBe(404);
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
     expect(mockDb.auditLog.create).not.toHaveBeenCalled();
   });
 

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { isLinkedRole } from "@/lib/team-roles";
+import { TEAM_ROLES, isLinkedRole } from "@/lib/team-roles";
 
 const overview = readFileSync("src/app/(dashboard)/events/[eventId]/page.tsx", "utf8");
 const setup = readFileSync("src/app/(dashboard)/events/[eventId]/setup/page.tsx", "utf8");
@@ -14,7 +14,7 @@ const setup = readFileSync("src/app/(dashboard)/events/[eventId]/setup/page.tsx"
 describe("event pages and attendee-side accounts", () => {
   it("the rule covers all three attendee-side roles, and no staff role", () => {
     for (const role of ["REVIEWER", "SUBMITTER", "REGISTRANT"]) expect(isLinkedRole(role)).toBe(true);
-    for (const role of ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "BASE"]) expect(isLinkedRole(role)).toBe(false);
+    for (const role of TEAM_ROLES) expect(isLinkedRole(role)).toBe(false);
   });
 
   it("the overview restricts every attendee-side role, and hides the counts and quick actions behind it", () => {
@@ -24,7 +24,8 @@ describe("event pages and attendee-side accounts", () => {
   });
 
   it("the setup page refuses an attendee-side account before it reads anything", () => {
-    const guard = setup.indexOf("if (isLinkedRole(session.user.role)) notFound();");
+    const guard = setup.indexOf("if (isLinkedRole(session.user.role)) {");
+    expect(setup.slice(guard, guard + 300)).toContain("notFound();");
     expect(guard).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(setup.indexOf("hubEventWhere(session"));
   });

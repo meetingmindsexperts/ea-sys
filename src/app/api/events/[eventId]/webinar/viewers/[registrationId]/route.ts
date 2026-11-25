@@ -9,6 +9,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
+import { equalsIgnoringCase } from "@/lib/like-escape";
 
 /**
  * Remove a viewer from this webinar, or let them back (Nov 25, 2026; owner: "remove someone from
@@ -66,15 +67,30 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
 
       // Bound to THIS event: a registration id from another event is not found, never touched.
-      const now = new Date();
-      const updated = await db.registration.updateMany({
+      const target = await db.registration.findFirst({
         where: { id: registrationId, eventId: event.id },
-        data: removed ? { webinarRemovedAt: now, webinarRemovedById: userId } : { webinarRemovedAt: null, webinarRemovedById: null },
+        select: { userId: true, attendee: { select: { email: true } } },
       });
-      if (updated.count === 0) {
+      if (!target) {
         apiLogger.warn({ eventId, userId, registrationId }, "webinar-viewer:removal-registration-not-found");
         return NextResponse.json({ error: "Registration not found" }, { status: 404 });
       }
+      // The PERSON, not one row (review of eeebe2b2b): the viewer rule admits them through any
+      // registration in their account or unheld on their address, so every such row on this event
+      // is stamped, or a second registration would let them straight back in.
+      const email = target.attendee?.email?.trim();
+      const now = new Date();
+      const updated = await db.registration.updateMany({
+        where: {
+          eventId: event.id,
+          OR: [
+            { id: registrationId },
+            ...(target.userId ? [{ userId: target.userId }] : []),
+            ...(email ? [{ userId: null, attendee: { email: equalsIgnoringCase(email) } }] : []),
+          ],
+        },
+        data: removed ? { webinarRemovedAt: now, webinarRemovedById: userId } : { webinarRemovedAt: null, webinarRemovedById: null },
+      });
 
       db.auditLog
         .create({
@@ -85,12 +101,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
             action: removed ? "WEBINAR_VIEWER_REMOVED" : "WEBINAR_VIEWER_RESTORED",
             entityType: "Registration",
             entityId: registrationId,
-            changes: { removed, source: "rest" },
+            changes: { removed, registrations: updated.count, source: "rest" },
           },
         })
         .catch((err: unknown) => apiLogger.error({ err, eventId, registrationId }, "webinar-viewer:removal-audit-failed"));
 
-      apiLogger.info({ eventId, userId, registrationId, removed }, removed ? "webinar-viewer:removed" : "webinar-viewer:restored");
+      apiLogger.info({ eventId, userId, registrationId, removed, registrations: updated.count }, removed ? "webinar-viewer:removed" : "webinar-viewer:restored");
       return NextResponse.json({ registrationId, removed, removedAt: removed ? now.toISOString() : null });
     });
   } catch (err) {

@@ -92,6 +92,17 @@ describe("presence heartbeat", () => {
     expect(mockDb.webinarPresence.upsert).not.toHaveBeenCalled();
   });
 
+  // Review of eeebe2b2b: a tab in the background still asks, so a removed viewer's hidden tab stops.
+  it("a hidden tab's beat writes and counts nothing, but still hears it was removed", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
+    const ok = await call({ phase: "lobby", hidden: true });
+    expect(await ok.json()).toEqual({ ok: true, tracked: false });
+    expect(mockDb.webinarPresence.upsert).not.toHaveBeenCalled();
+    mockDb.registration.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "reg1" });
+    const removed = await call({ phase: "lobby", hidden: true });
+    expect(await removed.json()).toMatchObject({ code: "REMOVED_FROM_WEBINAR" });
+  });
+
   it("upserts a presence row on first beat + sets webinarFirstJoinedAt", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
     mockDb.webinarPresence.findUnique.mockResolvedValue(null);

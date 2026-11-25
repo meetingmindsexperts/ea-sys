@@ -250,7 +250,10 @@ export default async function SetupPage({ params }: SetupPageProps) {
   if (!session?.user) notFound();
   // A staff page: an attendee-side account (reviewer, submitter, registrant) never reads its
   // statuses and counts, whatever hubEventWhere's linked-role scoping would find (review of 9b4eb396a).
-  if (isLinkedRole(session.user.role)) notFound();
+  if (isLinkedRole(session.user.role)) {
+    apiLogger.warn({ eventId, userId: session.user.id, role: session.user.role }, "event-setup:linked-role-refused");
+    notFound();
+  }
   // Everything this page loads runs inside the tenant lane (src/lib/tenant/page-lane.ts).
   return inSessionLane(session, async () => {
 
