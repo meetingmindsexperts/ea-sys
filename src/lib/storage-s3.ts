@@ -83,11 +83,11 @@ export async function s3Upload(buffer: Buffer, key: string, mimeType: string): P
   );
 }
 
-export async function s3Read(key: string): Promise<Buffer> {
+export async function s3Read(key: string, signal?: AbortSignal): Promise<Buffer> {
   const { GetObjectCommand } = await import("@aws-sdk/client-s3");
   const s3 = await getClient();
   try {
-    const res = await s3.send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
+    const res = await s3.send(new GetObjectCommand({ Bucket: bucket(), Key: key }), signal ? { abortSignal: signal } : undefined);
     if (!res.Body) throw new StorageError("not-found", `Empty body for key: ${key}`);
     const bytes = await res.Body.transformToByteArray();
     return Buffer.from(bytes);
@@ -248,14 +248,23 @@ export const S3_PART_BYTES = 16 * 1024 * 1024;
 
 /**
  * Write a stream of bytes to one key as a multipart upload. An upload that
- * fails is aborted, so no half-written parts are left to bill.
+ * fails is aborted, so no half-written parts are left to bill. `signal`
+ * stops a call that has stalled (the client has no request timeout of its
+ * own), and an aborted upload is never completed: a source that ended early
+ * because its maker was stopped is not a whole file.
  */
-export async function s3UploadStream(source: AsyncIterable<Buffer>, key: string, contentType: string): Promise<{ bytes: number }> {
+export async function s3UploadStream(
+  source: AsyncIterable<Buffer>,
+  key: string,
+  contentType: string,
+  signal?: AbortSignal,
+): Promise<{ bytes: number }> {
   const { CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } = await import(
     "@aws-sdk/client-s3"
   );
   const s3 = await getClient();
-  const created = await s3.send(new CreateMultipartUploadCommand({ Bucket: bucket(), Key: key, ContentType: contentType }));
+  const opts = signal ? { abortSignal: signal } : undefined;
+  const created = await s3.send(new CreateMultipartUploadCommand({ Bucket: bucket(), Key: key, ContentType: contentType }), opts);
   const uploadId = created.UploadId;
   if (!uploadId) throw new Error(`No upload id for key: ${key}`);
   const parts: { ETag: string; PartNumber: number }[] = [];
@@ -268,7 +277,7 @@ export async function s3UploadStream(source: AsyncIterable<Buffer>, key: string,
     pending = [];
     pendingBytes = 0;
     const PartNumber = parts.length + 1;
-    const res = await s3.send(new UploadPartCommand({ Bucket: bucket(), Key: key, UploadId: uploadId, PartNumber, Body: body }));
+    const res = await s3.send(new UploadPartCommand({ Bucket: bucket(), Key: key, UploadId: uploadId, PartNumber, Body: body }), opts);
     if (!res.ETag) throw new Error(`No ETag for part ${PartNumber} of key: ${key}`);
     parts.push({ ETag: res.ETag, PartNumber });
   };
@@ -282,8 +291,10 @@ export async function s3UploadStream(source: AsyncIterable<Buffer>, key: string,
     }
     // The last part may be small; an empty file still needs one part.
     if (pendingBytes > 0 || parts.length === 0) await sendPart();
+    if (signal?.aborted) throw new Error("The upload was stopped before it was complete");
     await s3.send(
       new CompleteMultipartUploadCommand({ Bucket: bucket(), Key: key, UploadId: uploadId, MultipartUpload: { Parts: parts } }),
+      opts,
     );
     return { bytes };
   } catch (err) {

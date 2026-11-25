@@ -21,7 +21,7 @@
  */
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { deleteStoredFile, readStoredFile, writeStoredFileStream } from "@/lib/storage";
+import { deleteStoredFile, readStoredFile, StorageError, writeStoredFileStream } from "@/lib/storage";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { joinPiecesToMp4, Mp4JoinError, type SpawnFfmpeg } from "@/lib/webinar/recording-mp4";
 import { piecesLeftToShip } from "@/services/stream-recording-shipping";
@@ -50,7 +50,7 @@ export function archivePathFor(storagePrefix: string): string {
 /** The reason a recording failed, as staff read it; never a path or the stream key. */
 function failureText(err: Mp4JoinError): string {
   if (err.kind === "ffmpeg") return "The recording's file could not be made from its pieces.";
-  if (err.kind === "timeout") return "Making the recording's file took too long.";
+  if (err.kind === "timeout" || err.kind === "killed") return "Making the recording's file was stopped before it finished.";
   return "The recording's pieces could not be read or its file written to storage.";
 }
 
@@ -113,13 +113,28 @@ export async function buildRecordingArchive(at: At, now: Date, opts: { spawn?: S
 
   const archivePath = archivePathFor(row.storagePrefix);
   const began = Date.now();
+  let missing = 0;
+  // A piece whose file is gone from storage is left out, and the MP4 made from the rest (review of 593a7f31a):
+  // retrying could never bring it back.
+  const readPiece = async (i: number, signal: AbortSignal) => {
+    try {
+      return await readStoredFile(pieces[i].storedPath, UPLOAD_PREFIX.recordings, { signal });
+    } catch (err) {
+      if (!(err instanceof StorageError) || err.reason !== "not-found") throw err;
+      missing += 1;
+      return Buffer.alloc(0);
+    }
+  };
   try {
     const written = await joinPiecesToMp4({
       count: pieces.length,
-      readPiece: (i) => readStoredFile(pieces[i].storedPath, UPLOAD_PREFIX.recordings),
-      write: (mp4) => writeStoredFileStream(mp4, archivePath, UPLOAD_PREFIX.recordings, "video/mp4"),
+      readPiece,
+      write: (mp4, signal) => writeStoredFileStream(mp4, archivePath, UPLOAD_PREFIX.recordings, "video/mp4", { signal }),
       spawn: opts.spawn,
     });
+    if (missing > 0) {
+      apiLogger.error({ eventId: at.eventId, sessionId: at.sessionId, missing, of: pieces.length }, "stream-recording-archive:pieces-missing-from-storage");
+    }
     if (!(await setOutcome(row, { status: "READY", archivePath, archiveBytes: BigInt(written.bytes), error: null }))) {
       // Deleted while the file was being made: the file is not left behind.
       await deleteStoredFile(archivePath, UPLOAD_PREFIX.recordings);

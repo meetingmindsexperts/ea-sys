@@ -720,6 +720,16 @@ describe("deleteStreamRecording", () => {
     expect(await deleteStreamRecording({ ...caller, userId: null, source: "worker", reason: "retention" })).toEqual({ ok: true, filesLeft: 1 });
   });
 
+  // Review of 593a7f31a: the row was gone, the route answered 500 and nothing was audited.
+  it("files that cannot even be listed: still a delete, audited, all files left to the daily sweep", async () => {
+    reads(row({ status: "READY", serverClearedAt: NOW }));
+    storage.listStoredFiles.mockRejectedValue(new Error("AccessDenied"));
+    expect(await deleteStreamRecording({ ...caller, reason: "staff" })).toEqual({ ok: true, filesLeft: null });
+    expect(storage.deleteStoredFiles).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "stream-recording:delete-files-unlisted");
+    expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: "STREAM_RECORDING_DELETED", changes: { files: null, filesLeft: null } });
+  });
+
   it("someone else deleted it meanwhile: nothing of theirs is touched", async () => {
     reads(row({ status: "READY", serverClearedAt: NOW }));
     mockDb.streamRecording.deleteMany.mockResolvedValue({ count: 0 });

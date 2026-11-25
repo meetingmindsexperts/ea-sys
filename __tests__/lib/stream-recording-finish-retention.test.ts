@@ -35,6 +35,7 @@ const rowB = { eventId: "ev2", sessionId: "s2", organizationId: "org2" };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("STREAM_RECORDING_ENABLED", "true");
   h.tenants.length = 0;
   h.op.streamRecording.findMany.mockResolvedValue([]);
   h.list.mockResolvedValue([]);
@@ -71,6 +72,14 @@ describe("recordingIdOf", () => {
 });
 
 describe("runStreamRecordingRetention", () => {
+  // Review of 593a7f31a: before the owner's steps the worker may not list recordings/ at all.
+  it("does nothing on a server not set up for recording", async () => {
+    vi.stubEnv("STREAM_RECORDING_ENABLED", "");
+    await runStreamRecordingRetention(NOW);
+    expect(h.op.streamRecording.findMany).not.toHaveBeenCalled();
+    expect(h.list).not.toHaveBeenCalled();
+  });
+
   const old = new Date(NOW.getTime() - ORPHAN_MIN_AGE_MS);
   const young = new Date(NOW.getTime() - ORPHAN_MIN_AGE_MS + 1);
 

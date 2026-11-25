@@ -38,16 +38,18 @@ class FakeChild extends EventEmitter {
   stderr = new PassThrough();
   exitCode: number | null = null;
   killed = false;
+  // As a real kill: the child's stdin is destroyed, its stdout ends, and it closes by signal.
   kill = vi.fn(() => {
     this.killed = true;
+    this.stdin.destroy();
     this.stdout.end();
-    this.exit(null);
+    this.exit(null, "SIGKILL");
     return true;
   });
-  exit(code: number | null) {
+  exit(code: number | null, signal: NodeJS.Signals | null = null) {
     if (this.exitCode !== null) return;
     this.exitCode = code ?? -1;
-    setImmediate(() => this.emit("close", code));
+    setImmediate(() => this.emit("close", code, signal));
   }
 }
 
@@ -58,6 +60,23 @@ describe("joinPiecesToMp4 with the real ffmpeg", () => {
     // An MP4 begins with its ftyp box; a fragmented one carries a moof.
     expect(mp4.subarray(4, 8).toString("latin1")).toBe("ftyp");
     expect(mp4.includes(Buffer.from("moof"))).toBe(true);
+  });
+
+  // Review of 593a7f31a (BLOCKER): ffmpeg stopped while a piece was being read, the write then waited for room
+  // that never came, and the join never settled, wedging the job.
+  it.skipIf(!HAS_FFMPEG)("settles when ffmpeg is stopped while a piece is being read", async () => {
+    const slowRead = (i: number, signal: AbortSignal) =>
+      new Promise<Buffer>((resolve) => {
+        const t = setTimeout(() => resolve(PIECE), i === 0 ? 0 : 500);
+        signal.addEventListener("abort", () => {
+          clearTimeout(t);
+          resolve(PIECE);
+        });
+      });
+    const began = Date.now();
+    const err = await joinPiecesToMp4({ count: 3, readPiece: slowRead, write: collect, timeoutMs: 200 }).catch((e) => e);
+    expect((err as Mp4JoinError).kind).toBe("timeout");
+    expect(Date.now() - began).toBeLessThan(3000);
   });
 
   it.skipIf(!HAS_FFMPEG)("refuses bytes that are not video, as ffmpeg's refusal", async () => {
@@ -136,6 +155,43 @@ describe("joinPiecesToMp4 failures", () => {
     });
     const err = await joinPiecesToMp4({ count: 1, readPiece: async () => Buffer.from("x"), write: collect, spawn: fake.spawn }).catch((e) => e);
     expect((err as Mp4JoinError).kind).toBe("ffmpeg");
+  });
+
+  it("a write left waiting for room ends when ffmpeg goes, instead of waiting for ever", async () => {
+    // ffmpeg reads nothing (its input fills) and is then stopped by the timeout.
+    const fake = fakeFfmpeg(() => undefined);
+    const big = Buffer.alloc(1024 * 1024);
+    const err = await joinPiecesToMp4({ count: 5, readPiece: async () => big, write: collect, spawn: fake.spawn, timeoutMs: 30 }).catch((e) => e);
+    expect((err as Mp4JoinError).kind).toBe("timeout");
+  });
+
+  it("every failure aborts the signal the reads and the write were given, so a stalled storage call stops", async () => {
+    const fake = fakeFfmpeg(() => undefined);
+    let given: AbortSignal | null = null;
+    const err = await joinPiecesToMp4({
+      count: 1,
+      readPiece: (_i, signal) => {
+        given = signal;
+        return new Promise<Buffer>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+      },
+      write: collect,
+      spawn: fake.spawn,
+      timeoutMs: 20,
+    }).catch((e) => e);
+    expect((err as Mp4JoinError).kind).toBe("timeout");
+    expect(given!.aborted).toBe(true);
+  });
+
+  it("ffmpeg stopped from outside (a signal) is worth retrying, not ffmpeg's verdict", async () => {
+    const fake = fakeFfmpeg((c) => {
+      c.stdin.resume();
+      c.stdin.on("end", () => {
+        c.stdout.end();
+        c.exit(null, "SIGKILL");
+      });
+    });
+    const err = await joinPiecesToMp4({ count: 1, readPiece: async () => Buffer.from("x"), write: collect, spawn: fake.spawn }).catch((e) => e);
+    expect((err as Mp4JoinError).kind).toBe("killed");
   });
 
   it("a join that takes too long is stopped", async () => {

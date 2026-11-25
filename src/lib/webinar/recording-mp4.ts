@@ -53,8 +53,8 @@ const defaultSpawn: SpawnFfmpeg = (args) => nodeSpawn("ffmpeg", [...args], { std
 export class Mp4JoinError extends Error {
   constructor(
     message: string,
-    /** "ffmpeg": ffmpeg itself refused (missing, or the pieces are not video); anything else is storage or a timeout. */
-    readonly kind: "ffmpeg" | "read" | "write" | "timeout",
+    /** "ffmpeg": ffmpeg itself refused (missing, or the pieces are not video); anything else is storage, a timeout or a kill, worth retrying. */
+    readonly kind: "ffmpeg" | "read" | "write" | "timeout" | "killed",
   ) {
     super(message);
     this.name = "Mp4JoinError";
@@ -67,15 +67,23 @@ export class Mp4JoinError extends Error {
  * once ffmpeg has exited cleanly and the write is complete. Rejects with an
  * Mp4JoinError otherwise, and stops ffmpeg first, so a failed write never
  * leaves it blocked on a full pipe.
+ *
+ * NOTHING HERE MAY WAIT ON SOMETHING THAT CAN NO LONGER HAPPEN (review of
+ * 593a7f31a, BLOCKER): a write to the stdin of an ffmpeg that has stopped
+ * answers "full" and never drains, so every wait for room also ends when
+ * ffmpeg exits. And `signal` is aborted on any failure, including the
+ * timeout, so a storage call that has stalled is stopped too: the caller
+ * passes it to its reads and its write.
  */
 export async function joinPiecesToMp4<T>(opts: {
   count: number;
-  readPiece: (index: number) => Promise<Buffer>;
-  write: (mp4: AsyncIterable<Buffer>) => Promise<T>;
+  readPiece: (index: number, signal: AbortSignal) => Promise<Buffer>;
+  write: (mp4: AsyncIterable<Buffer>, signal: AbortSignal) => Promise<T>;
   spawn?: SpawnFfmpeg;
   timeoutMs?: number;
 }): Promise<T> {
   const child = (opts.spawn ?? defaultSpawn)(FFMPEG_ARGS);
+  const abort = new AbortController();
   let stderr = "";
   child.stderr.on("data", (d: Buffer) => {
     stderr = (stderr + d.toString("utf8")).slice(-STDERR_KEEP);
@@ -84,56 +92,64 @@ export async function joinPiecesToMp4<T>(opts: {
   let failure: Mp4JoinError | null = null;
   const fail = (err: Mp4JoinError) => {
     if (!failure) failure = err;
+    abort.abort();
     if (child.exitCode === null && !child.killed) child.kill("SIGKILL");
   };
 
-  const exited = new Promise<number | null>((resolve) => {
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
     child.on("error", (err) => {
       // Spawning failed: no ffmpeg on this machine.
       fail(new Mp4JoinError(`ffmpeg could not be started: ${err.message}`, "ffmpeg"));
-      resolve(null);
+      resolve({ code: null, signal: null });
     });
-    child.on("close", (code) => resolve(code));
+    child.on("close", (code, signal) => resolve({ code, signal }));
   });
 
   const timer = setTimeout(() => fail(new Mp4JoinError("Joining the pieces took too long", "timeout")), opts.timeoutMs ?? JOIN_TIMEOUT_MS);
+
+  /** Room in ffmpeg's input again, or ffmpeg gone: whichever comes first. */
+  const roomOrExit = async () => {
+    let onDrain: (() => void) | null = null;
+    const drained = new Promise<void>((resolve) => {
+      onDrain = resolve;
+      child.stdin.once("drain", resolve);
+    });
+    await Promise.race([drained, exited]);
+    if (onDrain) child.stdin.off("drain", onDrain);
+  };
+
+  const stdinGone = () => child.stdin.destroyed || child.stdin.writableEnded;
 
   const feed = (async () => {
     // A closed stdin (ffmpeg stopped) is reported by the exit, not here.
     child.stdin.on("error", () => undefined);
     for (let i = 0; i < opts.count; i++) {
-      if (failure) return;
+      if (failure || stdinGone()) return;
       let piece: Buffer;
       try {
-        piece = await opts.readPiece(i);
+        piece = await opts.readPiece(i, abort.signal);
       } catch (err) {
         fail(new Mp4JoinError(`A piece could not be read: ${(err as Error).message}`, "read"));
         return;
       }
-      if (!child.stdin.write(piece)) {
-        await new Promise<void>((resolve) => {
-          const done = () => {
-            child.stdin.off("drain", done);
-            child.stdin.off("close", done);
-            resolve();
-          };
-          child.stdin.on("drain", done);
-          child.stdin.on("close", done);
-        });
-      }
+      // ffmpeg may have stopped while the piece was read.
+      if (failure || stdinGone()) return;
+      if (!child.stdin.write(piece)) await roomOrExit();
     }
-    child.stdin.end();
+    if (!stdinGone()) child.stdin.end();
   })();
 
-  const written = opts.write(child.stdout as AsyncIterable<Buffer>).catch((err: Error) => {
+  const written = opts.write(child.stdout as AsyncIterable<Buffer>, abort.signal).catch((err: Error) => {
     fail(new Mp4JoinError(`The MP4 could not be written: ${err.message}`, "write"));
     return null;
   });
 
   try {
-    const [, result, code] = await Promise.all([feed, written, exited]);
+    const [, result, exit] = await Promise.all([feed, written, exited]);
     if (failure) throw failure;
-    if (code !== 0) throw new Mp4JoinError(`ffmpeg stopped with code ${code}: ${stderr.trim() || "no message"}`, "ffmpeg");
+    // Stopped from outside (the out-of-memory killer, a worker shutting down): worth trying again, not ffmpeg's verdict.
+    if (exit.signal) throw new Mp4JoinError(`ffmpeg was stopped by ${exit.signal}`, "killed");
+    if (exit.code !== 0) throw new Mp4JoinError(`ffmpeg stopped with code ${exit.code}: ${stderr.trim() || "no message"}`, "ffmpeg");
     return result as T;
   } finally {
     clearTimeout(timer);

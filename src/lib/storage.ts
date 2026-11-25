@@ -282,11 +282,12 @@ export async function uploadFile(
 export async function readStoredFile(
   storedPath: string,
   requirePrefix: string,
+  opts: { signal?: AbortSignal } = {},
 ): Promise<Buffer> {
   if (PROVIDER === "s3") {
     assertStoredPathWithin(storedPath, requirePrefix);
     const { s3Read } = await import("./storage-s3");
-    return s3Read(storedPathToKey(storedPath));
+    return s3Read(storedPathToKey(storedPath), opts.signal);
   }
   const { readFile } = await import("fs/promises");
   const real = await resolveLocalReadPath(storedPath, requirePrefix);
@@ -446,11 +447,12 @@ export async function writeStoredFileStream(
   storedPath: string,
   requirePrefix: string,
   contentType: string,
+  opts: { signal?: AbortSignal } = {},
 ): Promise<{ bytes: number }> {
   assertStoredPathWithin(storedPath, requirePrefix);
   if (PROVIDER === "s3") {
     const { s3UploadStream } = await import("./storage-s3");
-    const written = await s3UploadStream(source, storedPathToKey(storedPath), contentType);
+    const written = await s3UploadStream(source, storedPathToKey(storedPath), contentType, opts.signal);
     apiLogger.info({ msg: "storage:file-written", storedPath, provider: "s3", bytes: written.bytes });
     return written;
   }
@@ -471,7 +473,8 @@ export async function writeStoredFileStream(
       }
     })(),
   );
-  await pipeline(counted, createWriteStream(abs));
+  await pipeline(counted, createWriteStream(abs), opts.signal ? { signal: opts.signal } : {});
+  if (opts.signal?.aborted) throw new Error("The write was stopped before it was complete");
   return { bytes };
 }
 

@@ -587,7 +587,8 @@ export async function streamRecordingDownload(input: Caller & { eventSlug: strin
   return { ok: true, url, fileName };
 }
 
-export type StreamRecordingDeletion = { ok: true; filesLeft: number } | { ok: false; code: StreamRecordingErrorCode; message: string };
+/** `filesLeft` null when the files could not even be listed: all of them are left to the daily sweep. */
+export type StreamRecordingDeletion = { ok: true; filesLeft: number | null } | { ok: false; code: StreamRecordingErrorCode; message: string };
 
 /**
  * Delete a closed recording: its row, its pieces' rows, and every file under
@@ -616,16 +617,26 @@ export async function deleteStreamRecording(input: Caller & { reason: "staff" | 
   // Someone else deleted it, or it changed, between the read and now.
   if (count === 0) return refuse(input, "delete", "NOT_STARTED");
 
-  const files = await listStoredFiles(row.storagePrefix.replace(/^\/uploads\//, ""));
-  const { failed } = await deleteStoredFiles(
-    files.map((f) => f.storedPath),
-    UPLOAD_PREFIX.recordings,
-  );
+  // The row is gone: whatever happens to the files now, the delete happened and is audited (review of 593a7f31a).
+  let files: { storedPath: string }[] | null = null;
+  try {
+    files = await listStoredFiles(row.storagePrefix.replace(/^\/uploads\//, ""));
+  } catch (err) {
+    apiLogger.warn({ err, eventId: input.eventId, sessionId: input.sessionId }, "stream-recording:delete-files-unlisted");
+  }
+  const failed = files
+    ? (
+        await deleteStoredFiles(
+          files.map((f) => f.storedPath),
+          UPLOAD_PREFIX.recordings,
+        )
+      ).failed
+    : null;
   apiLogger.info(
-    { eventId: input.eventId, sessionId: input.sessionId, userId: input.userId, reason: input.reason, files: files.length, failed },
+    { eventId: input.eventId, sessionId: input.sessionId, userId: input.userId, reason: input.reason, files: files?.length ?? null, failed },
     "stream-recording:deleted",
   );
-  await audit(input, "STREAM_RECORDING_DELETED", row.id, { reason: input.reason, files: files.length, filesLeft: failed });
+  await audit(input, "STREAM_RECORDING_DELETED", row.id, { reason: input.reason, files: files?.length ?? null, filesLeft: failed });
   return { ok: true, filesLeft: failed };
 }
 

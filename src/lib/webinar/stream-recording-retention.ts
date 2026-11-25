@@ -18,6 +18,7 @@ import { apiLogger } from "@/lib/logger";
 import { deleteStoredFiles, listStoredFiles } from "@/lib/storage";
 import { runWithTenant } from "@/lib/tenant-context";
 import { UPLOAD_PREFIX, UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
+import { isStreamRecordingEnabled } from "@/lib/module-flags";
 import { deleteStreamRecording } from "@/services/stream-recording-service";
 
 /** A file younger than this is never taken for an orphan: its recording's row may be moments old. */
@@ -84,6 +85,9 @@ async function deleteOrphans(now: Date, report: RetentionReport): Promise<void> 
 
 export async function runStreamRecordingRetention(now: Date = new Date()): Promise<RetentionReport> {
   const report: RetentionReport = { expired: 0, expiredFailed: 0, orphanFiles: 0, orphanFilesLeft: 0 };
+  // Only on a server set up for recording (review of 593a7f31a): before the owner's §8 steps the worker may not
+  // list recordings/ at all, and a recording made before the switch went off is kept until it is on again.
+  if (!isStreamRecordingEnabled()) return report;
   await deleteExpired(now, report);
   await deleteOrphans(now, report);
   return report;

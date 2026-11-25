@@ -3850,7 +3850,7 @@ export function useDeleteWebinarStreamRecording(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      fetchApi<{ deleted: true; filesLeft: number }>(`/api/events/${eventId}/webinar/partner-stream/recording`, { method: "DELETE" }),
+      fetchApi<{ deleted: true; filesLeft: number | null }>(`/api/events/${eventId}/webinar/partner-stream/recording`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
     },

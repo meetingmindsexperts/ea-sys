@@ -4,6 +4,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const { StorageErrorStub } = vi.hoisted(() => ({
+  StorageErrorStub: class extends Error {
+    constructor(readonly reason: string) {
+      super(reason);
+    }
+  },
+}));
 const h = vi.hoisted(() => ({
   db: {
     streamRecording: { findFirst: vi.fn(), updateMany: vi.fn() },
@@ -17,7 +24,7 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/db", () => ({ db: h.db }));
 vi.mock("@/lib/logger", () => ({ apiLogger: h.logger }));
-vi.mock("@/lib/storage", () => h.storage);
+vi.mock("@/lib/storage", () => ({ ...h.storage, StorageError: StorageErrorStub }));
 vi.mock("@/services/stream-recording-shipping", () => ({ piecesLeftToShip: h.piecesLeft }));
 vi.mock("@/lib/webinar/recording-mp4", async (orig) => ({
   ...(await orig<typeof import("@/lib/webinar/recording-mp4")>()),
@@ -53,10 +60,11 @@ describe("buildRecordingArchive", () => {
     expect(await buildRecordingArchive(at, NOW)).toBe("ready");
     const call = h.join.mock.calls[0][0];
     expect(call.count).toBe(2);
-    await call.readPiece(1);
-    expect(h.storage.readStoredFile).toHaveBeenCalledWith(`${PREFIX}/2.ts`, "/uploads/recordings/");
-    await call.write("mp4-bytes");
-    expect(h.storage.writeStoredFileStream).toHaveBeenCalledWith("mp4-bytes", `${PREFIX}/recording.mp4`, "/uploads/recordings/", "video/mp4");
+    const signal = new AbortController().signal;
+    await call.readPiece(1, signal);
+    expect(h.storage.readStoredFile).toHaveBeenCalledWith(`${PREFIX}/2.ts`, "/uploads/recordings/", { signal });
+    await call.write("mp4-bytes", signal);
+    expect(h.storage.writeStoredFileStream).toHaveBeenCalledWith("mp4-bytes", `${PREFIX}/recording.mp4`, "/uploads/recordings/", "video/mp4", { signal });
     expect(h.db.streamRecording.updateMany).toHaveBeenCalledWith({
       where: { id: "r1", status: "FINISHING" },
       data: { status: "READY", archivePath: `${PREFIX}/recording.mp4`, archiveBytes: BigInt(5_000_000), error: null },
@@ -107,6 +115,26 @@ describe("buildRecordingArchive", () => {
     expect(data.status).toBe("FAILED");
     expect(data.error).toBe("The recording's file could not be made from its pieces.");
     expect(h.db.auditLog.create.mock.calls[0][0].data.action).toBe("STREAM_RECORDING_FAILED");
+  });
+
+  // Review of 593a7f31a: a piece whose file is gone cannot come back, so it is left out, not retried for six hours.
+  it("a piece missing from storage is left out and logged; any other read failure still fails the read", async () => {
+    let readPiece: ((i: number, s: AbortSignal) => Promise<Buffer>) | null = null;
+    h.join.mockImplementation(async (o: { readPiece: typeof readPiece }) => {
+      readPiece = o.readPiece;
+      expect((await o.readPiece!(0, new AbortController().signal)).length).toBe(0);
+      return { bytes: 1 };
+    });
+    h.storage.readStoredFile.mockRejectedValueOnce(new StorageErrorStub("not-found"));
+    expect(await buildRecordingArchive(at, NOW)).toBe("ready");
+    expect(h.logger.error).toHaveBeenCalledWith(expect.objectContaining({ missing: 1, of: 2 }), "stream-recording-archive:pieces-missing-from-storage");
+    h.storage.readStoredFile.mockRejectedValueOnce(new Error("network"));
+    await expect(readPiece!(1, new AbortController().signal)).rejects.toThrow("network");
+  });
+
+  it("ffmpeg killed from outside is tried again, not failed", async () => {
+    h.join.mockRejectedValue(new Mp4JoinError("ffmpeg was stopped by SIGKILL", "killed"));
+    expect(await buildRecordingArchive(at, NOW)).toBe("retry");
   });
 
   it("a storage failure still failing six hours after the finish gives up", async () => {

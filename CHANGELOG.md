@@ -25,6 +25,18 @@ owner's steps in §8.
   `DELETE /api/events/{id}/webinar/partner-stream/recording`; both need `webinar.manage`.
 - Not yet: changing one recording's keep date (owed).
 
+Review of 593a7f31a (1 BLOCKER, 0 HIGH, 2 MED, 3 LOW), fixed before anything is switched on:
+
+- BLOCKER: when ffmpeg stopped while a piece was being read (the 20 minute limit, a storage failure, ffmpeg
+  dying), the join waited for ever and wedged the MP4 job for every recording after it. Every wait now also ends
+  when ffmpeg exits (proven against the real ffmpeg in a test).
+- MED: the time limit did not stop a storage call that had stalled; reads and the upload now take a signal that
+  every failure aborts, and an aborted upload is never completed.
+- MED: a Delete whose file listing failed after the row was gone answered 500 with no audit row; it is now a
+  delete, audited, with its files left to the daily sweep.
+- LOW: ffmpeg stopped by a signal is retried, not marked Failed; a piece whose file is missing is left out
+  instead of failing the recording; the daily retention job runs only where recording is switched on.
+
 ### Email: bulk sends keep to the mail service's speed, and a refused email is sent again (November 25, 2026)
 
 **What happened.** On Nov 24, 2026 at 7:00 pm Dubai two webinar reminders came due in the same second: the 1-hour

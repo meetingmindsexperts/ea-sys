@@ -87,6 +87,20 @@ describe("s3UploadStream", () => {
   });
 });
 
+describe("s3UploadStream stopped", () => {
+  it("passes the signal to every call, and never completes an upload whose signal was aborted", async () => {
+    const { s3UploadStream } = await loadS3();
+    const ctl = new AbortController();
+    async function* endsEarly() {
+      yield Buffer.alloc(10);
+      ctl.abort();
+    }
+    await expect(s3UploadStream(endsEarly(), "k", "video/mp4", ctl.signal)).rejects.toThrow(/stopped/);
+    expect(kinds()).toEqual(["create", "part", "abort"]);
+    expect(sendMock.mock.calls[0][1]).toEqual({ abortSignal: ctl.signal });
+  });
+});
+
 describe("s3DeleteMany", () => {
   it("a thousand keys per request, and answers the keys S3 could not delete", async () => {
     const { s3DeleteMany } = await loadS3();
