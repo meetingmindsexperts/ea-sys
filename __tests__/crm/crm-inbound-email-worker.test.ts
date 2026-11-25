@@ -63,11 +63,13 @@ vi.mock("@/lib/db", () => {
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
 vi.mock("@/crm/lib/crm-activity", () => ({ recordCrmActivity: vi.fn(() => Promise.resolve({})) }));
 vi.mock("@/crm/lib/crm-notifications", () => ({ notifyCrmUser: vi.fn(() => Promise.resolve({})) }));
+vi.mock("@/crm/services/crm-inbox-notice-eligibility", () => ({ inboxNoticeRefusal: vi.fn(() => Promise.resolve(null)) }));
 
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
+import { inboxNoticeRefusal } from "@/crm/services/crm-inbox-notice-eligibility";
 import { orgModuleState } from "@/lib/module-entitlements";
 import {
   runTick,
@@ -142,6 +144,7 @@ beforeEach(() => {
     lastName: "Owner",
   } as never);
   vi.mocked(sendEmail).mockResolvedValue({ success: true } as never);
+  vi.mocked(inboxNoticeRefusal).mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -274,6 +277,58 @@ describe("runTick", () => {
     );
     // The email forward still follows the DEAL owner only: with no deal there is no owner copy.
     expect(db.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("reads the contact and its account with the thread, so the chain has something to follow", async () => {
+    mockS3({ "inbound/shape": rawEmail() });
+    await runTick();
+    expect(db.crmEmailThread.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          crmContact: { select: expect.objectContaining({ ownerId: true, company: { select: { name: true, ownerId: true } } }) },
+        }),
+      }),
+    );
+  });
+
+  it("skips an owner who may not see the inbox and tells the next one (review of 62a2ee7a0)", async () => {
+    vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue({
+      ...thread,
+      deal: null,
+      notifyEmails: [],
+      crmContact: { firstName: "Jane", lastName: "Doe", ownerId: "u-left", company: { name: "Abbott", ownerId: "u-account" } },
+    } as never);
+    vi.mocked(inboxNoticeRefusal).mockImplementation(async (_org, userId) => (userId === "u-left" ? "deactivated" : null));
+    mockS3({ "inbound/skip": rawEmail() });
+    await runTick();
+    expect(inboxNoticeRefusal).toHaveBeenCalledWith("org-1", "u-left");
+    expect(notifyCrmUser).toHaveBeenCalledTimes(1);
+    expect(notifyCrmUser).toHaveBeenCalledWith(expect.objectContaining({ recipientId: "u-account" }));
+  });
+
+  it("tells nobody when every owner is refused", async () => {
+    vi.mocked(inboxNoticeRefusal).mockResolvedValue("no-inbox-access");
+    mockS3({ "inbound/none-eligible": rawEmail() });
+    expect(await runTick()).toMatchObject({ stored: 1 });
+    expect(notifyCrmUser).not.toHaveBeenCalled();
+  });
+
+  it("an UNVERIFIED reply on a conversation with no deal bells the contact's owner with the verify warning", async () => {
+    vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue({
+      ...thread,
+      deal: null,
+      notifyEmails: [],
+      crmContact: { firstName: "Jane", lastName: "Doe", ownerId: "u-contact", company: { name: "Abbott", ownerId: "u-account" } },
+    } as never);
+    mockS3({ "inbound/spoof-nodeal": rawEmail({ from: "Jane Doe <jane@evil.example>" }) });
+    await runTick();
+    expect(notifyCrmUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientId: "u-contact",
+        title: "⚠ Unverified reply in the CRM inbox",
+        message: expect.stringContaining("verify before acting"),
+      }),
+    );
   });
 
   it("a reply where nothing has an owner rings no bell", async () => {

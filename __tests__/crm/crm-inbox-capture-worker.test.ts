@@ -56,6 +56,7 @@ vi.mock("@/lib/db", () => {
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
 vi.mock("@/crm/lib/crm-activity", () => ({ recordCrmActivity: vi.fn(() => Promise.resolve({})) }));
 vi.mock("@/crm/lib/crm-notifications", () => ({ notifyCrmUser: vi.fn(() => Promise.resolve({})) }));
+vi.mock("@/crm/services/crm-inbox-notice-eligibility", () => ({ inboxNoticeRefusal: vi.fn(() => Promise.resolve(null)) }));
 vi.mock("@/crm/services/inbox-capture-service", () => ({
   alreadyCaptured: vi.fn(),
   findCaptureThread: vi.fn(),
@@ -67,6 +68,7 @@ vi.mock("@/crm/services/inbox-capture-service", () => ({
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
+import { inboxNoticeRefusal } from "@/crm/services/crm-inbox-notice-eligibility";
 import {
   alreadyCaptured,
   findCaptureThread,
@@ -146,6 +148,7 @@ beforeEach(() => {
   vi.mocked(findCaptureThread).mockResolvedValue(null);
   vi.mocked(resolveCaptureContact).mockResolvedValue({ id: "c-new", companyId: "co-1", created: true });
   vi.mocked(soleDealForContact).mockResolvedValue("d-1");
+  vi.mocked(inboxNoticeRefusal).mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -219,6 +222,55 @@ describe("partnerships capture", () => {
     mockS3({ "inbound/d": rawEmail() });
     await runTick();
     expect(notifyCrmUser).toHaveBeenCalledWith(expect.objectContaining({ recipientId: "u-account" }));
+  });
+
+  it("skips a contact owner who may not see the inbox and tells the account's owner", async () => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({
+      id: "t-new",
+      subject: "Sponsorship enquiry",
+      dealId: null,
+      deal: null,
+      crmContact: { firstName: "Jane", lastName: "Doe", ownerId: "u-organizer", company: { name: "Abbott", ownerId: "u-account" } },
+    } as never);
+    vi.mocked(inboxNoticeRefusal).mockImplementation(async (_org, userId) => (userId === "u-organizer" ? "no-inbox-access" : null));
+    mockS3({ "inbound/f": rawEmail() });
+    await runTick();
+    expect(notifyCrmUser).toHaveBeenCalledTimes(1);
+    expect(notifyCrmUser).toHaveBeenCalledWith(expect.objectContaining({ recipientId: "u-account" }));
+  });
+
+  it("an unverified email that just made its contact never bells the account's owner (review of 62a2ee7a0)", async () => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({
+      id: "t-new",
+      subject: "Urgent invoice",
+      dealId: null,
+      deal: null,
+      crmContact: { firstName: "Jane", lastName: "Doe", ownerId: null, company: { name: "Abbott", ownerId: "u-account" } },
+    } as never);
+    vi.mocked(resolveCaptureContact).mockResolvedValue({ id: "c-new", companyId: "co-1", created: true });
+    mockS3({ "inbound/g": rawEmail({ dmarc: "fail" }) });
+    await runTick();
+    expect(notifyCrmUser).not.toHaveBeenCalled();
+  });
+
+  it("an unverified email on a known contact bells their owner with the verify warning", async () => {
+    vi.mocked(db.crmEmailThread.findFirst).mockResolvedValue({
+      id: "t-new",
+      subject: "Urgent invoice",
+      dealId: null,
+      deal: null,
+      crmContact: { firstName: "Jane", lastName: "Doe", ownerId: "u-contact", company: { name: "Abbott", ownerId: "u-account" } },
+    } as never);
+    vi.mocked(resolveCaptureContact).mockResolvedValue({ id: "c-old", companyId: "co-1", created: false });
+    mockS3({ "inbound/h": rawEmail({ dmarc: "fail" }) });
+    await runTick();
+    expect(notifyCrmUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientId: "u-contact",
+        title: "⚠ Unverified email in the CRM inbox",
+        message: expect.stringContaining("Verify before acting"),
+      }),
+    );
   });
 
   it("rings no bell when nothing on the conversation has an owner", async () => {

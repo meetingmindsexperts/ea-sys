@@ -1,10 +1,11 @@
 /**
  * Who hears about an email arriving in the CRM inbox (owner, Nov 25, 2026): the
- * deal's owner, else the contact's, else the account's. On production 98 of the
+ * deal's owner, else the contact's, else the account's, each only if they may see
+ * the inbox (the worker checks; this file is the order). On production 98 of the
  * first 113 emails received were on conversations with no deal, and nobody was told.
  */
 import { describe, expect, it } from "vitest";
-import { emailNotificationTarget, type EmailNotifyThread } from "@/crm/lib/email-notification-recipient";
+import { emailNotificationCandidates, type EmailNotifyThread } from "@/crm/lib/email-notification-recipient";
 
 const contact = (over: Partial<NonNullable<EmailNotifyThread["crmContact"]>> = {}) => ({
   firstName: "Jane",
@@ -14,55 +15,71 @@ const contact = (over: Partial<NonNullable<EmailNotifyThread["crmContact"]>> = {
   ...over,
 });
 
-describe("emailNotificationTarget", () => {
-  it("tells the deal's owner when the conversation is on a deal", () => {
+describe("emailNotificationCandidates", () => {
+  it("orders the owners: deal, then contact, then account, and names the deal", () => {
     expect(
-      emailNotificationTarget({
+      emailNotificationCandidates({
         deal: { name: "Abbott - MEHFC 2027", ownerId: "u-deal" },
         crmContact: contact({ ownerId: "u-contact", company: { name: "Abbott", ownerId: "u-account" } }),
       }),
-    ).toEqual({ recipientId: "u-deal", via: "deal", about: "Abbott - MEHFC 2027" });
+    ).toEqual({
+      candidates: [
+        { userId: "u-deal", via: "deal" },
+        { userId: "u-contact", via: "contact" },
+        { userId: "u-account", via: "account" },
+      ],
+      about: "Abbott - MEHFC 2027",
+    });
   });
 
-  it("falls back to the contact's owner when there is no deal, and names the account", () => {
+  it("starts at the contact's owner when there is no deal, and names the account", () => {
     expect(
-      emailNotificationTarget({
+      emailNotificationCandidates({
         deal: null,
         crmContact: contact({ ownerId: "u-contact", company: { name: "Abbott", ownerId: "u-account" } }),
       }),
-    ).toEqual({ recipientId: "u-contact", via: "contact", about: "Abbott" });
+    ).toEqual({
+      candidates: [
+        { userId: "u-contact", via: "contact" },
+        { userId: "u-account", via: "account" },
+      ],
+      about: "Abbott",
+    });
   });
 
-  it("falls back to the contact's owner when the deal has no owner, still naming the deal", () => {
+  it("starts at the contact's owner when the deal has no owner, still naming the deal", () => {
     expect(
-      emailNotificationTarget({ deal: { name: "Unowned deal", ownerId: null }, crmContact: contact({ ownerId: "u-contact" }) }),
-    ).toEqual({ recipientId: "u-contact", via: "contact", about: "Unowned deal" });
+      emailNotificationCandidates({ deal: { name: "Unowned deal", ownerId: null }, crmContact: contact({ ownerId: "u-contact" }) }),
+    ).toEqual({ candidates: [{ userId: "u-contact", via: "contact" }], about: "Unowned deal" });
   });
 
-  it("falls back to the account's owner when the contact has none", () => {
+  it("lists one person once, at their first step", () => {
     expect(
-      emailNotificationTarget({ deal: null, crmContact: contact({ company: { name: "GSK", ownerId: "u-account" } }) }),
-    ).toEqual({ recipientId: "u-account", via: "account", about: "GSK" });
+      emailNotificationCandidates({
+        deal: { name: "D", ownerId: "u-1" },
+        crmContact: contact({ ownerId: "u-1", company: { name: "GSK", ownerId: "u-1" } }),
+      }).candidates,
+    ).toEqual([{ userId: "u-1", via: "deal" }]);
+  });
+
+  it("drops the account step when asked (a contact made just now from an unverified sender)", () => {
+    expect(
+      emailNotificationCandidates(
+        { deal: null, crmContact: contact({ company: { name: "Abbott", ownerId: "u-account" } }) },
+        { skipAccount: true },
+      ),
+    ).toEqual({ candidates: [], about: "Abbott" });
   });
 
   it("names the person when there is no deal and no account", () => {
-    expect(emailNotificationTarget({ deal: null, crmContact: contact({ ownerId: "u-contact" }) })).toEqual({
-      recipientId: "u-contact",
-      via: "contact",
-      about: "Jane Doe",
-    });
+    expect(emailNotificationCandidates({ deal: null, crmContact: contact({ ownerId: "u-contact" }) }).about).toBe("Jane Doe");
   });
 
-  it("tells nobody when nothing on the conversation has an owner", () => {
-    expect(emailNotificationTarget({ deal: null, crmContact: contact({ company: { name: "GSK", ownerId: null } }) })).toEqual({
-      recipientId: null,
-      via: null,
+  it("has nobody to try when nothing on the conversation has an owner", () => {
+    expect(emailNotificationCandidates({ deal: null, crmContact: contact({ company: { name: "GSK", ownerId: null } }) })).toEqual({
+      candidates: [],
       about: "GSK",
     });
-    expect(emailNotificationTarget({ deal: null, crmContact: null })).toEqual({
-      recipientId: null,
-      via: null,
-      about: "a conversation",
-    });
+    expect(emailNotificationCandidates({ deal: null, crmContact: null })).toEqual({ candidates: [], about: "a conversation" });
   });
 });

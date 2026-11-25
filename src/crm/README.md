@@ -402,9 +402,11 @@ Triggers: deal assigned (create/re-assign), your deal stage-moved / won / lost
 task assigned, the reminders worker's task-due nudge (minted right after the
 `remindedAt` claim, so it rides the same idempotency as the email and reaches
 mailbox-less temp accounts), and an email arriving in the inbox. That last one goes
-to the deal's owner, else the contact's owner, else the account's owner
-(`emailNotificationTarget` in [`lib/email-notification-recipient.ts`](lib/email-notification-recipient.ts),
-Nov 25, 2026; asked by both inbound doors). Until then it reached only a deal's
+to the first of the deal's owner, the contact's owner and the account's owner who may see the
+inbox (`emailNotificationCandidates` in [`lib/email-notification-recipient.ts`](lib/email-notification-recipient.ts)
+for the order, `inboxNoticeRefusal` in [`services/crm-inbox-notice-eligibility.ts`](services/crm-inbox-notice-eligibility.ts)
+for who may be told: in the organisation, not deactivated, `crm.read` + `crm.inbox.read`; Nov 25, 2026; asked by
+both inbound doors). An unverified email that has just created its contact skips the account step. Until then it reached only a deal's
 owner, and 98 of the first 113 emails received were on conversations with no deal.
 The email FORWARD copy still goes to the deal owner only. Titles/messages carry **no deal money**, so the
 FINANCIAL_KEYS redaction question never arises for this feed. Reads/mark-read are

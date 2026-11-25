@@ -17,13 +17,24 @@ about their own action (by design).
 - **Who hears about an email** arriving in the CRM inbox, a reply to an email we sent or one captured from the
   partnerships mailbox: the deal's owner, else the contact's owner, else the account's owner
   (`emailNotificationTarget` in `src/crm/lib/email-notification-recipient.ts`, asked by both doors). On production
-  this would have reached someone for 51 of those 78 conversations; 29 have no owner anywhere and are still told to
-  nobody but the shared inbox.
+  this reaches someone for 49 of those 78 conversations; 29 have no owner anywhere and are still told to nobody but
+  the shared inbox.
 - The notification names what the email is about: the deal, else the account, else the person.
 - Unchanged: the email forward copy of a reply still goes to the deal owner only, plus the partnerships mailbox and
   the send's CC/BCC.
 - The worker logs who each email's bell went to (`crm-inbound:notify-target`, with `via` deal, contact or account) or
   that nobody owns the conversation (`crm-inbound:no-owner-to-notify`).
+- **Review of 62a2ee7a0** (0 BLOCKER, 0 HIGH, 2 MED, 4 LOW), all fixed:
+  - An owner is told only if they may see the inbox: in the organisation, not deactivated, and holding `crm.read` and
+    `crm.inbox.read` (`inboxNoticeRefusal`, `src/crm/services/crm-inbox-notice-eligibility.ts`). Anyone else is
+    skipped (`crm-inbound:notify-skipped`, with the reason) and the next owner is tried. Owning a record was never
+    that: a contact takes its creator as owner unchecked, a deactivated person keeps their records, and a custom role
+    may leave the inbox out.
+  - An email captured from a sender we could not verify says so in the message ("An UNVERIFIED sender ... Verify
+    before acting"), as replies already did, and never goes to the account's owner when it has just created its
+    contact: the domain alone put that contact on the account.
+  - Also: the corrected count above (it said 51), the user guide covers a deal with no owner, and tests pin the
+    select shape and the unverified reply on a conversation with no deal.
 
 ### CRM: People beside the deal's activity, and a History that scrolls (November 25, 2026)
 

@@ -38,7 +38,13 @@ import { sendEmail } from "@/lib/email";
 import { escapeHtml } from "@/lib/html";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
-import { EMAIL_NOTIFY_THREAD_SELECT, emailNotificationTarget, type EmailNotifyThread } from "@/crm/lib/email-notification-recipient";
+import {
+  EMAIL_NOTIFY_THREAD_SELECT,
+  emailNotificationCandidates,
+  type EmailNotifyCandidate,
+  type EmailNotifyThread,
+} from "@/crm/lib/email-notification-recipient";
+import { inboxNoticeRefusal } from "@/crm/services/crm-inbox-notice-eligibility";
 import { crmEmailIdentity, organisationForCaptureAddress } from "@/lib/crm-email-identity";
 import { isInternalEmail } from "@/lib/internal-domains";
 import { orgModuleState } from "@/lib/module-entitlements";
@@ -491,21 +497,43 @@ export function buildForwardAudience(input: {
 }
 
 /**
- * Bell the deal owner + forward-copy the reply to everyone on the thread — the
- * deal owner, the partnerships shared mailbox, and the CC/BCC addresses the
- * outbound send carried (`notifyEmails`, which includes the sender's own "copy
- * to me"). So a reply reaches Outlook, not just the CRM inbox. All best-effort —
- * the stored message row is the source of truth.
+ * Who an arriving email's bell goes to: the first owner in the chain (deal, then
+ * contact, then account) who may see the inbox. An owner who may not (deactivated,
+ * outside the organisation, or without the inbox) is skipped and logged, and the
+ * next is tried. Never throws: a failed check tells nobody and logs why, since the
+ * email is already stored and the shared inbox shows it.
  */
-/** Says who an arriving email's bell went to, or that nobody owns the conversation. */
-function logNotifyTarget(threadId: string, target: ReturnType<typeof emailNotificationTarget>): void {
-  if (target.recipientId) {
-    apiLogger.info({ msg: "crm-inbound:notify-target", threadId, via: target.via });
-    return;
+async function chooseNotifyRecipient(
+  organizationId: string,
+  threadId: string,
+  thread: EmailNotifyThread,
+  options: { skipAccount?: boolean } = {},
+): Promise<{ recipient: EmailNotifyCandidate | null; about: string }> {
+  const { candidates, about } = emailNotificationCandidates(thread, options);
+  try {
+    for (const candidate of candidates) {
+      const refusal = await inboxNoticeRefusal(organizationId, candidate.userId);
+      if (!refusal) {
+        apiLogger.info({ msg: "crm-inbound:notify-target", threadId, via: candidate.via });
+        return { recipient: candidate, about };
+      }
+      apiLogger.info({ msg: "crm-inbound:notify-skipped", threadId, via: candidate.via, reason: refusal });
+    }
+  } catch (err) {
+    apiLogger.error({ msg: "crm-inbound:notify-check-failed", threadId, err: err instanceof Error ? err.message : String(err) });
+    return { recipient: null, about };
   }
-  apiLogger.info({ msg: "crm-inbound:no-owner-to-notify", threadId });
+  apiLogger.info({ msg: "crm-inbound:no-owner-to-notify", threadId, owners: candidates.length, accountSkipped: options.skipAccount === true });
+  return { recipient: null, about };
 }
 
+/**
+ * Bell the owner chain (`chooseNotifyRecipient`) + forward-copy the reply to
+ * everyone on the thread: the DEAL owner, the partnerships shared mailbox, and
+ * the CC/BCC addresses the outbound send carried (`notifyEmails`, which includes
+ * the sender's own "copy to me"). So a reply reaches Outlook, not just the CRM
+ * inbox. All best-effort: the stored message row is the source of truth.
+ */
 async function notifyOwner(args: {
   thread: {
     id: string;
@@ -528,19 +556,18 @@ async function notifyOwner(args: {
   // follows the owner chain (deal, then contact, then account; owner, Nov 25, 2026).
   const ownerId = args.thread.deal?.ownerId ?? null;
   const senderLabel = args.fromName ? `${args.fromName} (${args.fromEmail})` : args.fromEmail;
-  const target = emailNotificationTarget(args.thread);
-  logNotifyTarget(args.thread.id, target);
+  const { recipient, about } = await chooseNotifyRecipient(args.thread.organizationId, args.thread.id, args.thread);
 
-  if (target.recipientId) {
+  if (recipient) {
     await notifyCrmUser({
       organizationId: args.thread.organizationId,
-      recipientId: target.recipientId,
+      recipientId: recipient.userId,
       actorId: null,
       type: "EMAIL_RECEIVED",
       title: args.unverified ? "⚠ Unverified reply in the CRM inbox" : "New reply in the CRM inbox",
       message: args.unverified
-        ? `An UNVERIFIED sender (${senderLabel}) replied on ${target.about}, verify before acting: ${args.thread.subject}`
-        : `${senderLabel} replied on ${target.about}: ${args.thread.subject}`,
+        ? `An UNVERIFIED sender (${senderLabel}) replied on ${about}, verify before acting: ${args.thread.subject}`
+        : `${senderLabel} replied on ${about}: ${args.thread.subject}`,
       link: `/crm/inbox?thread=${args.thread.id}`,
     });
   }
@@ -1022,17 +1049,25 @@ async function processCapture(args: {
       unverified: !sender.verified,
     });
     // The mailbox already holds the email, so no email copy: the in-app bell goes
-    // to the deal's owner, else the contact's, else the account's (Nov 25, 2026).
-    const target = inbound && thread ? emailNotificationTarget(thread) : null;
-    if (target) logNotifyTarget(threadId!, target);
-    if (thread && target?.recipientId) {
+    // to the first owner who may see the inbox: the deal's, else the contact's,
+    // else the account's (Nov 25, 2026). A contact made just now from a sender we
+    // could not verify sits on its account by domain alone, so its account's owner
+    // is not told (review of 62a2ee7a0): the shared inbox still shows it.
+    const chosen =
+      inbound && thread
+        ? await chooseNotifyRecipient(organizationId, threadId!, thread, { skipAccount: contact?.created === true && !sender.verified })
+        : null;
+    if (thread && chosen?.recipient) {
+      const senderLabel = counterpartyName ? `${counterpartyName} (${counterparty})` : counterparty;
       await notifyCrmUser({
         organizationId,
-        recipientId: target.recipientId,
+        recipientId: chosen.recipient.userId,
         actorId: null,
         type: "EMAIL_RECEIVED",
         title: sender.verified ? "New email in the CRM inbox" : "⚠ Unverified email in the CRM inbox",
-        message: `${counterpartyName ?? counterparty} wrote to partnerships on ${target.about}: ${thread.subject}`,
+        message: sender.verified
+          ? `${counterpartyName ?? counterparty} wrote to partnerships on ${chosen.about}: ${thread.subject}`
+          : `An UNVERIFIED sender (${senderLabel}) wrote to partnerships, filed under ${chosen.about}. Verify before acting: ${thread.subject}`,
         link: `/crm/inbox?thread=${threadId}`,
       }).catch((err) =>
         apiLogger.warn({ msg: "crm-capture:notify-failed", threadId, err: err instanceof Error ? err.message : String(err) }),

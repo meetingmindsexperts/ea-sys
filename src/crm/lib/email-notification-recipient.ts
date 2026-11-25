@@ -10,13 +10,15 @@
  *   2. the contact's owner (the rep who looks after that person);
  *   3. the owner of the contact's account.
  *
+ * Each owner is told only if they may see the inbox (`inboxNoticeRefusal`, in
+ * src/crm/services/crm-inbox-notice-eligibility.ts); otherwise the next is tried.
  * Nobody at all is a real answer (an unowned contact on an unowned account): the
  * shared inbox and its unread badge still show the email. Both inbound doors (a
  * reply to an email we sent, and an email captured from the partnerships
  * mailbox) ask this one function, so the two can never disagree.
  *
- * Pure: no database, no logging. The caller selects `EMAIL_NOTIFY_THREAD_SELECT`
- * and logs the outcome.
+ * Pure: no database, no logging. The caller selects `EMAIL_NOTIFY_THREAD_SELECT`,
+ * checks each candidate and logs the outcome.
  */
 
 /** The relations this rule reads. Spread into a thread `select`. */
@@ -44,11 +46,15 @@ export interface EmailNotifyThread {
 
 export type EmailNotifyVia = "deal" | "contact" | "account";
 
-export interface EmailNotifyTarget {
-  /** Who to tell, or null when nobody owns anything on this conversation. */
-  recipientId: string | null;
-  /** Which owner it is, for the log. */
-  via: EmailNotifyVia | null;
+export interface EmailNotifyCandidate {
+  userId: string;
+  /** Which owner this is, for the log. */
+  via: EmailNotifyVia;
+}
+
+export interface EmailNotifyCandidates {
+  /** The owners to try, in order, without repeats. Empty when nobody owns anything here. */
+  candidates: EmailNotifyCandidate[];
   /** What the notification says the email is about: the deal, else the account, else the person. */
   about: string;
 }
@@ -66,13 +72,29 @@ function aboutLabel(thread: EmailNotifyThread): string {
   return contactName(contact) || "a conversation";
 }
 
-export function emailNotificationTarget(thread: EmailNotifyThread): EmailNotifyTarget {
-  const about = aboutLabel(thread);
-  const dealOwner = thread.deal?.ownerId ?? null;
-  if (dealOwner) return { recipientId: dealOwner, via: "deal", about };
-  const contactOwner = thread.crmContact?.ownerId ?? null;
-  if (contactOwner) return { recipientId: contactOwner, via: "contact", about };
-  const accountOwner = thread.crmContact?.company?.ownerId ?? null;
-  if (accountOwner) return { recipientId: accountOwner, via: "account", about };
-  return { recipientId: null, via: null, about };
+/**
+ * The owner chain, in order. The caller tries each in turn and tells the first one
+ * who may see the inbox (`inboxNoticeRefusal`): owning a record is not that.
+ * `skipAccount` drops the account step, for a contact made just now from a sender
+ * we could not verify: their domain alone put them on that account, so the
+ * account's owner would be handed a stranger's words as if the account sent them.
+ */
+export function emailNotificationCandidates(
+  thread: EmailNotifyThread,
+  options: { skipAccount?: boolean } = {},
+): EmailNotifyCandidates {
+  const steps: Array<[EmailNotifyVia, string | null | undefined]> = [
+    ["deal", thread.deal?.ownerId],
+    ["contact", thread.crmContact?.ownerId],
+  ];
+  if (!options.skipAccount) steps.push(["account", thread.crmContact?.company?.ownerId]);
+
+  const candidates: EmailNotifyCandidate[] = [];
+  const seen = new Set<string>();
+  for (const [via, userId] of steps) {
+    if (!userId || seen.has(userId)) continue;
+    seen.add(userId);
+    candidates.push({ userId, via });
+  }
+  return { candidates, about: aboutLabel(thread) };
 }
