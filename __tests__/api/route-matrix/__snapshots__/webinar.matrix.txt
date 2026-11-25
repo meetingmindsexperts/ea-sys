@@ -631,13 +631,32 @@ POST webinar/chat
 
 POST webinar/sequence
   caller      conf        assigned    webinar     foreign
-  SUPER_ADMIN 500 r w     500 r w     500 r w     404
+  SUPER_ADMIN 500 r       500 r       500 r       404
   OPERATOR    403         403         403         403
-  ADMIN       500 r w     500 r w     500 r w     404
-  ORGANIZER   500 r w     500 r w     500 r w     404
+  ADMIN       500 r       500 r       500 r       404
+  ORGANIZER   500 r       500 r       500 r       404
   MEMBER      403         403         403         403
   ONSITE      403         403         403         403
-  WEBINARS    404         404         500 r w     404
+  WEBINARS    404         404         500 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  BASE        403         403         403         403
+  BASE_MKT    403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+PUT webinar/sequence
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 r       500 r       500 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       500 r       500 r       500 r       404
+  ORGANIZER   500 r       500 r       500 r       404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         500 r       404
   CRM_USER    403         403         403         403
   HR_USER     403         403         403         403
   BASE        403         403         403         403

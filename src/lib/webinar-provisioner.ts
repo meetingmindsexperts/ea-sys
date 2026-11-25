@@ -392,7 +392,9 @@ export async function provisionWebinar(
     });
 
     // Enqueue the 5 future email phases (reminder-24h, reminder-1h, reminder-15m, live-now,
-    // thank-you) regardless of whether Zoom attached here. The reminders point
+    // thank-you) regardless of whether Zoom attached here. Since Nov 25, 2026 this queues nothing for
+    // a webinar whose sequence the organiser has not scheduled (a new or cloned one): they choose
+    // the emails and press Schedule in the console (webinar-sequence-plan.ts, isSequenceScheduled). The reminders point
     // at OUR gated session page (not a Zoom URL), so they render even before
     // Zoom is attached (lifecycle review) — and once Zoom IS attached, the same
     // links start admitting attendees. Was gated on zoomStatus === "created",

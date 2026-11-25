@@ -137,7 +137,7 @@ const CALLER_LANED: Record<string, [count: number, why: string]> = {
   "src/lib/session-proposal-notify.ts": [1, "Called by the two session proposal routes, both inside their lane (the same function's template read is audited with email.ts)."],
   "src/lib/speaker-agreement.ts": [10, "An email or document builder: every route, the bulk send and the scheduled-email worker call it inside the lane."],
   "src/lib/speaker-companion.ts": [2, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
-  "src/lib/webinar-email-sequence.ts": [3, "Reached from a worker job that scans with the privileged client and enters the row's lane, and from routes inside theirs."],
+  "src/lib/webinar-email-sequence.ts": [4, "Reached from a worker job that scans with the privileged client and enters the row's lane, and from routes inside theirs (the fourth, Nov 25, 2026: the reschedule reads the plan inside its tenantTransaction; its callers are the event PUT, session-service and the sequence route, each in its lane)."],
   "src/lib/webinar-panelist-email.ts": [1, "Three callers, the panelist routes, all inside runWithTenant(orgGuard.orgId)."],
   "src/lib/webinar-provisioner.ts": [2, "Called inside createEvent's lane and the webinar route's; the retry in its catch rides the same lanes."],
   "src/lib/webinar/handouts-store.ts": [2, "Raw SQL on a tenant transaction; every caller (the handout routes) is inside the organisation's lane."],

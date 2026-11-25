@@ -6,6 +6,7 @@ import type { ReviewScoreScale } from "@/lib/abstract-score";
 import type { EventPresentationType, PresentationTypeChange, PresentationTypeWithUse } from "@/lib/abstract-presentation-types";
 import type { EventListRow } from "@/lib/event-visibility";
 import { useIsMutating, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { PhaseChoice, SequencePhase } from "@/lib/webinar-sequence-plan";
 import { useSession } from "next-auth/react";
 import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
 import { ApiError, errorMessageFor } from "@/lib/api-fetch";
@@ -3985,24 +3986,35 @@ export interface WebinarSequenceRow {
   retryCount: number;
 }
 
+export interface WebinarSequencePlanView {
+  phases: Record<SequencePhase, PhaseChoice>;
+  /** False until the organiser schedules it: then no webinar email goes out at all. */
+  scheduled: boolean;
+}
+
 export function useWebinarSequence(eventId: string) {
   return useQuery({
     queryKey: queryKeys.webinarSequence(eventId),
-    queryFn: () => fetchApi<{ rows: WebinarSequenceRow[] }>(`/api/events/${eventId}/webinar/sequence`),
+    queryFn: () => fetchApi<{ rows: WebinarSequenceRow[]; plan?: WebinarSequencePlanView }>(`/api/events/${eventId}/webinar/sequence`),
     enabled: !!eventId,
   });
 }
 
-export function useReenqueueWebinarSequence(eventId: string) {
+/** Save which webinar emails go and when, and schedule them (Nov 25, 2026). */
+export function useScheduleWebinarSequence(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (phases: Record<SequencePhase, PhaseChoice>) =>
       fetchApi<{
         ok: boolean;
         deleted: number;
         created: number;
         skipped: string | null;
-      }>(`/api/events/${eventId}/webinar/sequence`, { method: "POST" }),
+      }>(`/api/events/${eventId}/webinar/sequence`, {
+        method: "PUT",
+        body: JSON.stringify({ phases }),
+        headers: { "Content-Type": "application/json" },
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinarSequence(eventId) });
     },

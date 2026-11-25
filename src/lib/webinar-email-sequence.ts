@@ -5,6 +5,7 @@ import { readWebinarSettings } from "@/lib/webinar";
 import { isWebinarStreamArriving, OVERRUN_HARD_CAP_MS } from "@/lib/webinar/overrun";
 import { WEBINAR_EMAIL_TYPES, executeBulkEmail } from "@/lib/bulk-email";
 import { NOTIFIED_ROLES } from "@/lib/team-roles";
+import { PHASE_RULES, SEQUENCE_PHASES, readSequencePlan, type PhaseAnchor, type SequencePhase, type SequencePlan } from "@/lib/webinar-sequence-plan";
 
 // Minimum lead time before a phase fires. A "reminder-24h" scheduled for 5 min
 // from now is useless, so if we're too close to an anchor time we skip that phase.
@@ -55,23 +56,12 @@ export function isSequenceRowForOtherDate(row: SequenceRow, current: { startTime
   return Math.abs(madeFor.getTime() - current.startTime.getTime()) > RESEND_AFTER_MOVE_MS;
 }
 
-export type WebinarPhase =
-  | "webinar-reminder-24h"
-  | "webinar-reminder-1h"
-  | "webinar-reminder-15m"
-  | "webinar-live-now"
-  | "webinar-thank-you";
+export type WebinarPhase = SequencePhase;
 
-/** The 5 auto-sequence phases. Deliberately NOT WEBINAR_EMAIL_TYPES — that
- * list also carries webinar-confirmation, which organizers schedule MANUALLY
- * (send join links at 9am); the sequence machinery must never touch it. */
-export const WEBINAR_SEQUENCE_PHASES: readonly WebinarPhase[] = [
-  "webinar-reminder-24h",
-  "webinar-reminder-1h",
-  "webinar-reminder-15m",
-  "webinar-live-now",
-  "webinar-thank-you",
-];
+/** The 5 auto-sequence phases (one list, `webinar-sequence-plan.ts`). Deliberately NOT
+ * WEBINAR_EMAIL_TYPES — that list also carries webinar-confirmation, which organizers schedule
+ * MANUALLY (send join links at 9am); the sequence machinery must never touch it. */
+export const WEBINAR_SEQUENCE_PHASES: readonly WebinarPhase[] = SEQUENCE_PHASES;
 
 interface PhaseTiming {
   phase: WebinarPhase;
@@ -84,27 +74,62 @@ interface PhaseTiming {
  * later than the real end, and a rebuild must not drop or delay it, so it goes that long from now; the
  * sender still holds it while the room is open (review MED, Oct 28, 2026).
  */
-function thankYouTime(startTime: Date, endTime: Date, anchorStatus: string | null | undefined, now: number): Date {
-  const afterEnd = endTime.getTime() + THANK_YOU_AFTER_CLOSE_MS;
-  const soon = now + THANK_YOU_AFTER_CLOSE_MS;
+function thankYouTime(
+  startTime: Date,
+  endTime: Date,
+  anchorStatus: string | null | undefined,
+  now: number,
+  afterCloseMs: number = THANK_YOU_AFTER_CLOSE_MS,
+): Date {
+  const afterEnd = endTime.getTime() + afterCloseMs;
+  const soon = now + afterCloseMs;
   if (anchorStatus === "LIVE") return new Date(Math.max(afterEnd, soon));
   const closedSinceStart =
     anchorStatus === "COMPLETED" && now >= startTime.getTime() && now <= endTime.getTime() + CLOSE_COUNTS_UNTIL_MS;
   return new Date(closedSinceStart ? soon : afterEnd);
 }
 
-function computePhases(startTime: Date, endTime: Date, anchorStatus?: string | null): PhaseTiming[] {
+/**
+ * When each email the organiser kept goes (Nov 25, 2026: their plan, `webinar-sequence-plan.ts`; the
+ * five usual times when they kept the defaults). A switched-off email has no time, so it is never
+ * created, and a reschedule clears a pending one.
+ */
+function computePhases(startTime: Date, endTime: Date, anchorStatus: string | null | undefined, plan: SequencePlan): PhaseTiming[] {
   const now = Date.now();
-  const phases: PhaseTiming[] = [
-    { phase: "webinar-reminder-24h", scheduledFor: new Date(startTime.getTime() - 24 * 60 * 60_000) },
-    { phase: "webinar-reminder-1h", scheduledFor: new Date(startTime.getTime() - 60 * 60_000) },
-    // When the doors open: the session page lets attendees in from 15 minutes before (owner, Oct 28, 2026).
-    { phase: "webinar-reminder-15m", scheduledFor: new Date(startTime.getTime() - 15 * 60_000) },
-    { phase: "webinar-live-now", scheduledFor: new Date(startTime.getTime()) },
-    { phase: "webinar-thank-you", scheduledFor: thankYouTime(startTime, endTime, anchorStatus, now) },
-  ];
+  const start = startTime.getTime();
+  const phaseTime = (anchor: PhaseAnchor, ms: number): Date => {
+    if (anchor === "before-start") return new Date(start - ms);
+    if (anchor === "after-start") return new Date(start + ms);
+    return thankYouTime(startTime, endTime, anchorStatus, now, ms);
+  };
+  const phases: PhaseTiming[] = [];
+  for (const phase of SEQUENCE_PHASES) {
+    const choice = plan.phases[phase];
+    if (!choice.enabled) continue;
+    phases.push({ phase, scheduledFor: phaseTime(PHASE_RULES[phase].anchor, choice.minutes * 60_000) });
+  }
   // Drop phases whose scheduledFor is already in the past (too late to send).
   return phases.filter((p) => p.scheduledFor.getTime() > now + MIN_LEAD_MS);
+}
+
+/**
+ * Whether this webinar's sequence is scheduled (Nov 25, 2026): the organiser confirmed a plan, or,
+ * with none stored, the webinar already holds sequence rows (every webinar from before the change,
+ * which keeps its emails and its date moves as it had them). A new or cloned webinar is not, so the
+ * provisioner and the date-move hooks queue nothing for it until the organiser presses Schedule.
+ */
+export async function isSequenceScheduled(
+  eventId: string,
+  eventSettings: unknown,
+  client: Prisma.TransactionClient | typeof db = db,
+): Promise<boolean> {
+  const plan = readSequencePlan(eventSettings);
+  if (plan.stored) return plan.confirmed;
+  const row = await client.scheduledEmail.findFirst({
+    where: { eventId, emailType: { in: [...SEQUENCE_PHASES] } },
+    select: { id: true },
+  });
+  return row !== null;
 }
 
 /**
@@ -138,7 +163,7 @@ async function resolveSequenceActor(
 export interface EnqueueSequenceResult {
   ok: boolean;
   created: number;
-  skipped: "already-enqueued" | "no-anchor-session" | "no-actor" | "no-future-phases" | null;
+  skipped: "already-enqueued" | "no-anchor-session" | "no-actor" | "no-future-phases" | "not-scheduled" | null;
 }
 
 /**
@@ -177,6 +202,14 @@ async function enqueueSequenceInner(
     return { ok: false, created: 0, skipped: "no-anchor-session" };
   }
 
+  // Not scheduled by the organiser yet (Nov 25, 2026): the provisioner's call queues nothing. The
+  // reschedule path asked before it cleared anything (`scheduled` below), since clearing removes the
+  // rows that answer it for an older webinar.
+  if (!opts?.force && !(await isSequenceScheduled(eventId, event.settings, client))) {
+    apiLogger.info({ eventId }, "webinar-sequence:not-scheduled");
+    return { ok: true, created: 0, skipped: "not-scheduled" };
+  }
+
   // Idempotency: look up any existing webinar-* row for this event.
   // Skipped under force — the reschedule path clears pending rows first and
   // relies on the per-phase fired/cancelled exclusion below instead.
@@ -202,7 +235,7 @@ async function enqueueSequenceInner(
     return { ok: false, created: 0, skipped: "no-anchor-session" };
   }
 
-  let phases = computePhases(anchorSession.startTime, anchorSession.endTime, anchorSession.status);
+  let phases = computePhases(anchorSession.startTime, anchorSession.endTime, anchorSession.status, readSequencePlan(event.settings));
 
   if (opts?.force && phases.length > 0) {
     // Never duplicate or resurrect a phase:
@@ -377,6 +410,12 @@ export async function rescheduleWebinarSequenceForEvent(
     // retime's email-reschedule report "failed" (found via the group-register
     // live smoke, Aug 6 2026 — same lock shape).
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`webinar-seq:${eventId}`}))::text`;
+    // Nothing to move or create until the organiser schedules it (Nov 25, 2026). Asked before the
+    // clear: an older webinar's own rows are what say it is scheduled.
+    const event = await tx.event.findUnique({ where: { id: eventId }, select: { settings: true } });
+    if (!(await isSequenceScheduled(eventId, event?.settings, tx))) {
+      return { ok: true, created: 0, skipped: "not-scheduled" as const, cleared: 0 };
+    }
     const cleared = await clearPendingWebinarSequence(eventId, {
       resurrectCancelled: opts?.resurrectCancelled,
       tx,
@@ -441,8 +480,9 @@ export async function clearPendingWebinarSequence(
 //    thank-you to THANK_YOU_AFTER_CLOSE_MS after the close.
 
 export const THANK_YOU_HOLD_MS = 10 * 60_000;
-// 5 minutes since Nov 25, 2026 (owner: "let it go after the room closed in 5 mins"); it was 30.
-export const THANK_YOU_AFTER_CLOSE_MS = 5 * 60_000;
+// The usual delay: 5 minutes since Nov 25, 2026 (owner: "let it go after the room closed in 5 mins");
+// it was 30. Each webinar's own is its sequence plan's (webinar-sequence-plan.ts).
+export const THANK_YOU_AFTER_CLOSE_MS = PHASE_RULES["webinar-thank-you"].defaultMinutes * 60_000;
 /** A close counts as the webinar's end only from its scheduled start (a soundcheck closed before the
  *  start must not thank anyone, review MED) up to this long after its scheduled end: the overrun hard
  *  cap, so a close at the very end of a long overrun still moves the thank-you (Nov 5, 2026). */
@@ -498,6 +538,8 @@ export async function retimeThankYouAfterRoomClose(eventId: string, closedAt: Da
       apiLogger.info({ eventId, closedAt: closedAt.toISOString() }, "webinar-sequence:thank-you-not-moved-rehearsal");
       return 0;
     }
+    // The organiser's own delay (Nov 25, 2026), the usual one when they kept it.
+    const afterCloseMs = readSequencePlan(event?.settings).phases["webinar-thank-you"].minutes * 60_000;
     const moved = await db.scheduledEmail.updateMany({
       where: {
         eventId,
@@ -507,7 +549,7 @@ export async function retimeThankYouAfterRoomClose(eventId: string, closedAt: Da
         customMessage: null,
         recipientIds: { isEmpty: true },
       },
-      data: { scheduledFor: new Date(at + THANK_YOU_AFTER_CLOSE_MS) },
+      data: { scheduledFor: new Date(at + afterCloseMs) },
     });
     if (moved.count > 0) {
       apiLogger.info({ eventId, moved: moved.count, closedAt: closedAt.toISOString() }, "webinar-sequence:thank-you-moved-after-close");

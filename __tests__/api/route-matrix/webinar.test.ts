@@ -52,7 +52,8 @@ import { POST as roomPOST } from "@/app/api/events/[eventId]/webinar/room/route"
 import { PUT as viewerRemovalPUT } from "@/app/api/events/[eventId]/webinar/viewers/[registrationId]/route";
 import { GET as streamTimelineGET } from "@/app/api/events/[eventId]/webinar/stream-timeline/route";
 import { GET as chatGET, PATCH as chatPATCH, POST as chatPOST } from "@/app/api/events/[eventId]/webinar/chat/route";
-import { GET as sequenceGET, POST as sequencePOST } from "@/app/api/events/[eventId]/webinar/sequence/route";
+import { GET as sequenceGET, POST as sequencePOST, PUT as sequencePUT } from "@/app/api/events/[eventId]/webinar/sequence/route";
+import { defaultPhaseChoices } from "@/lib/webinar-sequence-plan";
 import { GET as zoomSettingsGET, PUT as zoomSettingsPUT } from "@/app/api/events/[eventId]/zoom/settings/route";
 import {
   GET as sessionZoomGET,
@@ -103,6 +104,7 @@ const CASES: HandlerCase[] = [
   { name: "PATCH webinar/chat", handler: chatPATCH, method: "PATCH", body: { slowMode: true } },
   { name: "POST webinar/chat", handler: chatPOST, method: "POST", body: { action: "unpin" } },
   { name: "POST webinar/sequence", handler: sequencePOST, method: "POST", body: {} },
+  { name: "PUT webinar/sequence", handler: sequencePUT, method: "PUT", body: { phases: defaultPhaseChoices() } },
   { name: "GET zoom/settings", handler: zoomSettingsGET, method: "GET" },
   { name: "PUT zoom/settings", handler: zoomSettingsPUT, method: "PUT", body: { enabled: true } },
   { name: "GET sessions/[sessionId]/zoom", handler: sessionZoomGET, method: "GET", params: sess },

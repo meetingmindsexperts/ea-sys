@@ -119,7 +119,7 @@ import {
   useDeleteWebinarHandout,
   useProvisionWebinar,
   useWebinarSequence,
-  useReenqueueWebinarSequence,
+  useScheduleWebinarSequence,
   useFetchWebinarRecording,
   useSyncWebinarAttendance,
   useSyncWebinarEngagement,
@@ -133,6 +133,7 @@ import {
   type WebinarSequenceRow,
   type WebinarPanelist,
 } from "@/hooks/use-api";
+import { PHASE_RULES, SEQUENCE_PHASES, defaultPhaseChoices, describePhaseTime, type PhaseChoice, type SequencePhase } from "@/lib/webinar-sequence-plan";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -1281,6 +1282,20 @@ function GlobalRefreshButton({
   );
 }
 
+type TimeUnit = "minutes" | "hours" | "days";
+const UNIT_MINUTES: Record<TimeUnit, number> = { minutes: 1, hours: 60, days: 24 * 60 };
+
+function unitFor(minutes: number): TimeUnit {
+  if (minutes > 0 && minutes % UNIT_MINUTES.days === 0) return "days";
+  if (minutes > 0 && minutes % UNIT_MINUTES.hours === 0) return "hours";
+  return "minutes";
+}
+
+/**
+ * The webinar's email sequence, chosen by the organiser (Nov 25, 2026; owner: "make it manual, let
+ * the organiser decide"). Pre-filled with the five usual emails; nothing goes out until Schedule is
+ * pressed. A webinar that already had a sequence queued keeps it and can change it here.
+ */
 function EmailSequenceCard({
   eventId,
   hasZoom,
@@ -1289,24 +1304,34 @@ function EmailSequenceCard({
   hasZoom: boolean;
 }) {
   const { data, isLoading } = useWebinarSequence(eventId);
-  const reenqueue = useReenqueueWebinarSequence(eventId);
+  const schedule = useScheduleWebinarSequence(eventId);
+  const canManage = useCan("webinar.manage", eventId) === "allowed";
+  const [draft, setDraft] = useState<Record<SequencePhase, PhaseChoice> | null>(null);
+  const [units, setUnits] = useState<Partial<Record<SequencePhase, TimeUnit>>>({});
 
-  const handleReenqueue = async () => {
+  const saved = data?.plan?.phases ?? defaultPhaseChoices();
+  const phases = draft ?? saved;
+  const scheduled = data?.plan?.scheduled ?? false;
+  const changed = draft !== null && JSON.stringify(draft) !== JSON.stringify(saved);
+
+  const setPhase = (phase: SequencePhase, next: Partial<PhaseChoice>) =>
+    setDraft({ ...phases, [phase]: { ...phases[phase], ...next } });
+
+  const handleSchedule = async () => {
     try {
-      const result = await reenqueue.mutateAsync();
+      const result = await schedule.mutateAsync(phases);
+      setDraft(null);
       if (result.skipped === "no-anchor-session") {
         toast.error("No anchor session. Run the provisioner first");
       } else if (result.skipped === "no-future-phases") {
-        toast.warning("All phase times are in the past, so nothing was scheduled");
+        toast.warning("Saved, but every chosen time is in the past, so nothing was queued");
       } else if (result.skipped === "no-actor") {
-        toast.error("No admin user found to create sequence rows");
+        toast.error("No admin user found to create the emails");
       } else {
-        toast.success(
-          `Queue refreshed: ${result.deleted} cleared, ${result.created} scheduled`,
-        );
+        toast.success(`Scheduled: ${result.created} email${result.created === 1 ? "" : "s"} queued`);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to re-enqueue sequence");
+      toast.error(err instanceof Error ? err.message : "Could not schedule the emails");
     }
   };
 
@@ -1315,49 +1340,112 @@ function EmailSequenceCard({
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <ConsoleTitle icon={Mail} tone="emerald">
-              Email Sequence
-            </ConsoleTitle>
-            <CardDescription>
-              Auto-scheduled reminders + live alert + thank-you with recording link.
-            </CardDescription>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleReenqueue}
-            disabled={reenqueue.isPending || !hasZoom}
-            title={!hasZoom ? "Attach a Zoom webinar first" : undefined}
-          >
-            {reenqueue.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RotateCw className="h-4 w-4 mr-2" />
-            )}
-            Re-enqueue
-          </Button>
-        </div>
+        <ConsoleTitle icon={Mail} tone="emerald">
+          Email Sequence
+        </ConsoleTitle>
+        <CardDescription>
+          Choose which emails go to confirmed registrants and when, then press Schedule. Nothing goes out until you do.
+        </CardDescription>
       </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <CardLoading />
-        ) : null}
-        {!isLoading && rows.length === 0 ? (
-          <CardEmpty
-            message={
-              hasZoom
-                ? "No sequence rows queued yet. Click Re-enqueue to schedule the 24h / 1h / 15m / live-now / thank-you emails."
-                : "No sequence rows queued yet. Attach a Zoom webinar first: the sequence needs a join link to render."
-            }
-          />
-        ) : null}
+      <CardContent className="space-y-4">
+        {isLoading ? <CardLoading /> : null}
+        {!isLoading && !scheduled && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Not scheduled yet: no reminder, live or thank-you email will be sent for this webinar until you press Schedule.
+            The usual five are filled in below.
+          </p>
+        )}
+        {!isLoading && (
+          <div className="divide-y rounded-lg border">
+            {SEQUENCE_PHASES.map((phase) => {
+              const rule = PHASE_RULES[phase];
+              const choice = phases[phase];
+              const unit = rule.anchor === "before-start" ? (units[phase] ?? unitFor(choice.minutes)) : "minutes";
+              const shown = Math.round((choice.minutes / UNIT_MINUTES[unit]) * 100) / 100;
+              return (
+                <div key={phase} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                  <Switch
+                    checked={choice.enabled}
+                    disabled={!canManage}
+                    onCheckedChange={(on) => setPhase(phase, { enabled: on })}
+                    aria-label={`Send the ${rule.label} email`}
+                  />
+                  <div className="min-w-[9rem] flex-1">
+                    <p className={choice.enabled ? "text-sm font-medium" : "text-sm font-medium text-muted-foreground line-through"}>{rule.label}</p>
+                    <p className="text-xs text-muted-foreground">{choice.enabled ? describePhaseTime(phase, choice.minutes) : "Not sent"}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      min={0}
+                      step={unit === "minutes" ? 1 : 0.5}
+                      value={shown}
+                      disabled={!canManage || !choice.enabled}
+                      aria-label={`${rule.label}: time`}
+                      onChange={(e) => {
+                        const raw = Number(e.target.value);
+                        if (!Number.isFinite(raw)) return;
+                        const minutes = Math.min(rule.max, Math.max(rule.min, Math.round(raw * UNIT_MINUTES[unit])));
+                        setPhase(phase, { minutes });
+                      }}
+                    />
+                    {rule.anchor === "before-start" ? (
+                      <Select value={unit} onValueChange={(v) => setUnits({ ...units, [phase]: v as TimeUnit })} disabled={!canManage || !choice.enabled}>
+                        <SelectTrigger className="h-8 w-[6.5rem]" aria-label={`${rule.label}: unit`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="minutes">minutes</SelectItem>
+                          <SelectItem value="hours">hours</SelectItem>
+                          <SelectItem value="days">days</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">min</span>
+                    )}
+                    <span className="hidden text-xs text-muted-foreground sm:inline">
+                      {rule.anchor === "before-start" ? "before" : "after"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {!isLoading && (
+          <p className="text-xs text-muted-foreground">
+            Each email keeps its own wording under Communications, Email Templates. The reminders say
+            &ldquo;tomorrow&rdquo;, &ldquo;in 1 hour&rdquo; and &ldquo;in 15 minutes&rdquo;: if you change a time, change its wording to match.
+            The thank-you follows the room: it goes that long after you close it.
+          </p>
+        )}
+        {canManage && !isLoading && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {changed && (
+              <Button variant="ghost" size="sm" onClick={() => setDraft(null)} disabled={schedule.isPending}>
+                Discard changes
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={() => void handleSchedule()}
+              disabled={schedule.isPending || !hasZoom || (scheduled && !changed)}
+              title={!hasZoom ? "Attach a Zoom webinar first" : undefined}
+            >
+              {schedule.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCw className="mr-2 h-4 w-4" />}
+              {scheduled ? "Save and reschedule" : "Schedule"}
+            </Button>
+          </div>
+        )}
         {!isLoading && rows.length > 0 ? (
-          <div className="divide-y">
-            {rows.map((row) => (
-              <SequenceRowView key={row.id} row={row} />
-            ))}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Queued and sent</p>
+            <div className="divide-y">
+              {rows.map((row) => (
+                <SequenceRowView key={row.id} row={row} />
+              ))}
+            </div>
           </div>
         ) : null}
       </CardContent>
@@ -1370,11 +1458,11 @@ function SequenceRowView({ row }: { row: WebinarSequenceRow }) {
   const label = (
     {
       "webinar-confirmation": "Confirmation",
-      "webinar-reminder-24h": "24-hour reminder",
-      "webinar-reminder-1h": "1-hour reminder",
-      "webinar-reminder-15m": "15-minute reminder",
-      "webinar-live-now": "Live now",
-      "webinar-thank-you": "Thank you + recording",
+      "webinar-reminder-24h": PHASE_RULES["webinar-reminder-24h"].label,
+      "webinar-reminder-1h": PHASE_RULES["webinar-reminder-1h"].label,
+      "webinar-reminder-15m": PHASE_RULES["webinar-reminder-15m"].label,
+      "webinar-live-now": PHASE_RULES["webinar-live-now"].label,
+      "webinar-thank-you": PHASE_RULES["webinar-thank-you"].label,
     } as Record<string, string>
   )[row.emailType] ?? row.emailType;
 

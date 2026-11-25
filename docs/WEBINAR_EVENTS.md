@@ -207,6 +207,16 @@ The **24-hour re-sync cap** on attendance is important: without it, every webina
 
 ## Email sequence
 
+**The organiser chooses it (Nov 25, 2026; owner: "make it manual, let the organiser decide what is the
+sequence").** The confirmation still goes at registration. The other five go only once the organiser
+presses **Schedule** in the console's Email Sequence card, pre-filled with the times below: each can be
+switched off and its time set (`Event.settings.webinar.sequence`, read by `webinar-sequence-plan.ts`;
+`PUT /api/events/{id}/webinar/sequence`). A new or cloned webinar sends none of them until then (a clone
+keeps the choices, never the confirmation); a webinar created before the change, which already holds
+sequence rows, counts as scheduled and keeps its emails and its date moves (`isSequenceScheduled`). The
+provisioner's and the date-move hooks' calls queue nothing for an unscheduled webinar. The times below
+are the defaults.
+
 6 templates in [src/lib/email-template-defaults.ts](../src/lib/email-template-defaults.ts):
 
 | Slug | When fires |
@@ -330,7 +340,7 @@ User can always switch. No URL pin (local state).
 ### Setup tab
 - **Overview card** — merged Anchor Session + Zoom details (previously two separate cards). Session name/status/times on top, Zoom details below a divider. Start as Host + Open Public Page buttons.
 - **Panelists card** — inline add form (name + email) + **Import from Speakers** button that pulls all anchor-session speakers with emails in one call. Optimistic UI: new panelist row appears instantly (greyed out + spinner), then reconciles after Zoom returns. Dedup against existing panelists so re-import is safe.
-- **Email Sequence card** — per-phase status icons (pending / processing / sent / failed / cancelled) + scheduled/sent timestamps + Re-enqueue button.
+- **Email Sequence card** — the organiser's choice of emails and times (on/off and a time each, Schedule / Save and reschedule; Nov 25, 2026), then per-phase status icons (pending / processing / sent / failed / cancelled) + scheduled/sent timestamps.
 
 ### Recording tab
 - **Recording card** — 5 UI states (`AVAILABLE` / `PENDING` / `FAILED` / `EXPIRED` / `NOT_REQUESTED`). Refetch button gated on session-ended.

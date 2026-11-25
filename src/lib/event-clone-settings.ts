@@ -24,6 +24,7 @@
  * and a clone starts with neither, and (3) an unrecognised future key is
  * dropped rather than silently carried.
  */
+import { cloneSequencePlan } from "@/lib/webinar-sequence-plan";
 
 /** Top-level config keys copied verbatim onto a clone. */
 const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
@@ -133,6 +134,10 @@ export function cloneEventSettings(source: unknown): Record<string, unknown> {
     for (const key of CLONEABLE_WEBINAR_KEYS) {
       if (key in srcWebinar && srcWebinar[key] !== undefined) cleaned[key] = srcWebinar[key];
     }
+    // The organiser's email sequence choices copy, their confirmation never does (Nov 25, 2026): the
+    // clone's emails go only once someone schedules them for its own date.
+    const sequence = cloneSequencePlan(srcWebinar.sequence);
+    if (sequence) cleaned.sequence = sequence;
     if (Object.keys(cleaned).length > 0) out.webinar = cleaned;
   }
 

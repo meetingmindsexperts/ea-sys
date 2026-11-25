@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinars: the organiser chooses the email sequence (November 25, 2026)
+
+Owner: "webinar sequence enqueue, it is automatic now, can we make it manual, let the organiser decide what is the
+sequence". Decided: pre-filled, organiser confirms; pick from the five and set each time; webinars already queued
+keep their emails.
+
+- The console's Email Sequence card lists the five emails (first, second and doors-open reminders, "We're live",
+  thank-you), each with an on/off switch and its time (minutes, hours or days before the start; minutes after the
+  start; minutes after the room closes). It is pre-filled with the usual times (24 h, 1 h, 15 min, at the start,
+  5 min after the close). **Schedule** saves the choices and queues them; afterwards **Save and reschedule** moves
+  them. Until then the card says "Not scheduled yet" and no reminder, live or thank-you email goes out (the
+  registration confirmation still goes at once).
+- Stored at `Event.settings.webinar.sequence` (`webinar-sequence-plan.ts`; route-owned, written only by
+  `PUT /api/events/{id}/webinar/sequence`, `webinar.manage`, audited `WEBINAR_SEQUENCE_SCHEDULED`, 30 an hour per
+  event). The engine creates only the kept emails at their times; a switched-off pending one is cleared; the
+  thank-you follows the close by the organiser's own delay. The provisioner and the date-move hooks queue nothing
+  for an unscheduled webinar (`isSequenceScheduled`): a webinar from before this, which already holds sequence
+  rows, counts as scheduled and works as it did. A clone keeps the choices, never the confirmation. The old
+  Re-enqueue (`POST`) schedules the plan as it stands.
+- The reminders' wording is unchanged ("tomorrow", "in 1 hour", "in 15 minutes"): the card says to change it in
+  Email Templates when a time changes.
+
 ### Webinar Console: remove a viewer (November 25, 2026)
 
 Owner: "remove someone from viewing the session if they misbehave", decided as **block this webinar only**, and

@@ -56,6 +56,16 @@ describe("retimeThankYouAfterRoomClose", () => {
     expect(mockDb.scheduledEmail.updateMany.mock.calls[0][0].data.scheduledFor).toEqual(new Date(closed.getTime() + THANK_YOU_AFTER_CLOSE_MS));
   });
 
+  // Nov 25, 2026: each webinar's own delay, from the organiser's sequence plan.
+  it("uses the organiser's own delay after the close", async () => {
+    mockDb.event.findUnique.mockResolvedValue({
+      settings: { webinar: { sessionId: "anchor", sequence: { confirmed: true, phases: { "webinar-thank-you": { enabled: true, minutes: 45 } } } } },
+    });
+    const closed = at("2026-11-03T11:02:00Z");
+    await retimeThankYouAfterRoomClose("ev1", closed);
+    expect(mockDb.scheduledEmail.updateMany.mock.calls[0][0].data.scheduledFor).toEqual(new Date(closed.getTime() + 45 * 60_000));
+  });
+
   it("a rehearsal days before does not send the real thank-you", async () => {
     expect(await retimeThankYouAfterRoomClose("ev1", at("2026-10-30T09:00:00Z"))).toBe(0);
     expect(mockDb.scheduledEmail.updateMany).not.toHaveBeenCalled();

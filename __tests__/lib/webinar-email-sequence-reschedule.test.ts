@@ -53,10 +53,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
+  // A webinar whose organiser scheduled the usual five (Nov 25, 2026: nothing is queued before that).
   mockDb.event.findUnique.mockResolvedValue({
     id: "ev1",
     organizationId: "org1",
-    settings: { webinar: { sessionId: "anchor1" } },
+    settings: { webinar: { sessionId: "anchor1", sequence: { confirmed: true } } },
   });
   mockDb.eventSession.findFirst.mockResolvedValue({ startTime: START, endTime: END });
   mockDb.scheduledEmail.findFirst.mockResolvedValue(null);
@@ -342,5 +343,55 @@ describe("a rebuild after the webinar has run keeps the thank-you (review MED, O
   it("before it runs, nothing changes: end + 5 (owner, Nov 25, 2026; it was 30)", async () => {
     await rescheduleWebinarSequenceForEvent("ev1", "u1");
     expect(thankYouAt()).toEqual(new Date("2026-09-04T11:05:00Z"));
+  });
+});
+
+// Owner, Nov 25, 2026: "make it manual, let the organiser decide what is the sequence".
+describe("the organiser's plan", () => {
+  const settings = (sequence?: unknown) => ({ id: "ev1", organizationId: "org1", settings: { webinar: { sessionId: "anchor1", ...(sequence === undefined ? {} : { sequence }) } } });
+
+  it("a new webinar (no plan, no rows) queues nothing: the provisioner's call and a date move both wait", async () => {
+    mockDb.event.findUnique.mockResolvedValue(settings());
+    expect((await enqueueWebinarSequenceForEvent("ev1", "u1")).skipped).toBe("not-scheduled");
+    const moved = await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(moved).toMatchObject({ skipped: "not-scheduled", cleared: 0 });
+    expect(mockDb.scheduledEmail.deleteMany).not.toHaveBeenCalled();
+    expect(mockDb.scheduledEmail.createMany).not.toHaveBeenCalled();
+  });
+
+  it("a plan saved but not confirmed (a clone) queues nothing either", async () => {
+    mockDb.event.findUnique.mockResolvedValue(settings({ confirmed: false }));
+    expect((await rescheduleWebinarSequenceForEvent("ev1", "u1")).skipped).toBe("not-scheduled");
+    expect(mockDb.scheduledEmail.createMany).not.toHaveBeenCalled();
+  });
+
+  it("a webinar from before the change (no plan, rows queued) keeps rescheduling as it did", async () => {
+    mockDb.event.findUnique.mockResolvedValue(settings());
+    mockDb.scheduledEmail.findFirst.mockResolvedValue({ id: "old-row" });
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(createdPhases()).toHaveLength(5);
+  });
+
+  it("a switched-off email is never created, and each kept one goes at the organiser's time", async () => {
+    mockDb.event.findUnique.mockResolvedValue(
+      settings({
+        confirmed: true,
+        phases: {
+          "webinar-reminder-24h": { enabled: true, minutes: 2 * 24 * 60 },
+          "webinar-reminder-1h": { enabled: false, minutes: 60 },
+          "webinar-reminder-15m": { enabled: true, minutes: 30 },
+          "webinar-live-now": { enabled: true, minutes: 5 },
+          "webinar-thank-you": { enabled: true, minutes: 20 },
+        },
+      }),
+    );
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    const rows = (mockDb.scheduledEmail.createMany.mock.calls[0][0] as { data: Array<{ emailType: string; scheduledFor: Date }> }).data;
+    const at = Object.fromEntries(rows.map((r) => [r.emailType, r.scheduledFor.toISOString()]));
+    expect(Object.keys(at)).not.toContain("webinar-reminder-1h");
+    expect(at["webinar-reminder-24h"]).toBe("2026-09-02T10:00:00.000Z");
+    expect(at["webinar-reminder-15m"]).toBe("2026-09-04T09:30:00.000Z");
+    expect(at["webinar-live-now"]).toBe("2026-09-04T10:05:00.000Z");
+    expect(at["webinar-thank-you"]).toBe("2026-09-04T11:20:00.000Z");
   });
 });
