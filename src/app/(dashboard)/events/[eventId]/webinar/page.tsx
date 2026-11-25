@@ -352,7 +352,8 @@ export default function WebinarConsolePage() {
           sits at the bottom of the Setup tab's right rail. */}
       <SequenceNotScheduledNotice
         eventId={eventId}
-        ended={status === "ended"}
+        // Nothing to schedule once it is over, or for a cancelled event.
+        ended={status === "ended" || data?.event?.status === "CANCELLED"}
         onOpen={() => {
           setPickedTab("setup");
           requestAnimationFrame(() => document.getElementById("email-sequence")?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -1303,11 +1304,6 @@ function unitFor(minutes: number): TimeUnit {
 }
 
 /**
- * The webinar's email sequence, chosen by the organiser (Nov 25, 2026; owner: "make it manual, let
- * the organiser decide"). Pre-filled with the five usual emails; nothing goes out until Schedule is
- * pressed. A webinar that already had a sequence queued keeps it and can change it here.
- */
-/**
  * Said at the top of the console while the webinar's emails are not scheduled (review of 3e967af29):
  * a new or cloned webinar sends no reminder until someone presses Schedule, and the card that says so
  * is the last one in the Setup tab.
@@ -1343,6 +1339,11 @@ function typedMinutes(phase: SequencePhase, typed: string, unit: TimeUnit): numb
   return Math.min(rule.max, Math.max(rule.min, Math.round(raw * UNIT_MINUTES[unit])));
 }
 
+/**
+ * The webinar's email sequence, chosen by the organiser (Nov 25, 2026; owner: "make it manual, let
+ * the organiser decide"). Pre-filled with the five usual emails; nothing goes out until Schedule is
+ * pressed. A webinar that already had a sequence queued keeps it and can change it here.
+ */
 function EmailSequenceCard({ eventId }: { eventId: string }) {
   const { data, isLoading } = useWebinarSequence(eventId);
   const schedule = useScheduleWebinarSequence(eventId);

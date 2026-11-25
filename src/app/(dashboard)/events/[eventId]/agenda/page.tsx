@@ -452,8 +452,12 @@ export default function AgendaPage() {
       // emails; a failure here means they may still fire on the OLD clock.
       if (data?.sequenceSync === "failed") {
         toast.warning(
-          "Session saved, but rescheduling the webinar's reminder emails failed — they may still fire on the old schedule. Use Reschedule in the Webinar Console's Email Sequence card button.",
+          "Session saved, but rescheduling the webinar's reminder emails failed — they may still fire on the old schedule. Use Reschedule in the Webinar Console's Email Sequence card.",
         );
+      }
+      // Nothing to move (Nov 25, 2026): this webinar's emails were never scheduled.
+      if (data?.sequenceSync === "not-scheduled") {
+        toast.info("The webinar's reminder emails are not scheduled yet. Schedule them in the Webinar Console's Email Sequence card.");
       }
     },
     onError: async (error: Error & { code?: string }) => {

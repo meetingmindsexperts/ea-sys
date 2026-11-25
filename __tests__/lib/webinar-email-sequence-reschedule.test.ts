@@ -13,7 +13,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockDb, mockApiLogger } = vi.hoisted(() => ({
+const { mockDb, mockApiLogger, locked } = vi.hoisted(() => ({
+  // What the settings row lock reads: the row as it is when the lock is taken.
+  locked: { settings: { webinar: { sessionId: "anchor1" } } as Record<string, unknown> },
   mockDb: {
     event: { findUnique: vi.fn(), update: vi.fn() },
     eventSession: { findFirst: vi.fn() },
@@ -35,7 +37,7 @@ vi.mock("@/lib/db", () => ({
   // The raw reads are the advisory lock (its answer unused) and the settings row lock, which
   // answers the webinar's settings.
   tenantTransaction: (fn: (tx: unknown) => unknown) =>
-    fn({ ...mockDb, $queryRaw: vi.fn().mockResolvedValue([{ settings: { webinar: { sessionId: "anchor1" } } }]) }),
+    fn({ ...mockDb, $queryRaw: vi.fn().mockImplementation(async () => [{ settings: locked.settings }]) }),
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 
@@ -53,6 +55,7 @@ const END = new Date("2026-09-04T11:00:00Z");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  locked.settings = { webinar: { sessionId: "anchor1" } };
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
   // A webinar whose organiser scheduled the usual five (Nov 25, 2026: nothing is queued before that).
@@ -396,6 +399,16 @@ describe("the organiser's plan", () => {
     expect(Object.values(written.data.settings.webinar.sequence.phases).every((p) => p.enabled)).toBe(true);
     // Written before the clear.
     expect(mockDb.event.update.mock.invocationCallOrder[0]).toBeLessThan(mockDb.scheduledEmail.deleteMany.mock.invocationCallOrder[0]);
+  });
+
+  it("a plan the organiser saved between the read and the lock is never replaced by the usual five (review, Nov 25, 2026)", async () => {
+    mockDb.event.findUnique.mockResolvedValue(settings());
+    mockDb.scheduledEmail.findFirst.mockResolvedValue({ id: "old-row" });
+    const saved = { confirmed: true, phases: { "webinar-reminder-1h": { enabled: false, minutes: 60 } } };
+    locked.settings = { webinar: { sessionId: "anchor1", sequence: saved } };
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    const written = mockDb.event.update.mock.calls[0][0] as { data: { settings: { webinar: { sequence: unknown } } } };
+    expect(written.data.settings.webinar.sequence).toEqual(saved);
   });
 
   it("a stored plan is never rewritten by a reschedule", async () => {

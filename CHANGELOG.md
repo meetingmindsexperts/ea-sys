@@ -63,6 +63,13 @@ keep their emails.
     before and after.
   - Not done: naming the emails a save dropped because their time had passed (L2), and the route matrix harness's
     settings read (L5).
+- **Owner-requested review of the four commits** (Nov 25, 2026; nothing serious, six small fixes): the plan written down
+  for an older webinar is checked again under the row lock, so it can never replace a plan the organiser saved at the
+  same moment; a date move on a webinar whose emails are not scheduled now says so (Settings said "reminder emails
+  moved", the Agenda said nothing) and the Agenda's failure message reads properly; the console's notice is not shown
+  for a cancelled event; the sequence list's 404 is logged. In the post-event report (all three files and the page), a
+  survey answer that is no longer one of a choice question's options is cleaned of email addresses and phone numbers
+  like any typed text (older than these commits: the stored value was printed as it was).
 
 ### Webinar Console: remove a viewer (November 25, 2026)
 

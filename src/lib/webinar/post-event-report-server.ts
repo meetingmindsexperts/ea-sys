@@ -279,7 +279,12 @@ function reportQuestion(a: QuestionAggregate, includeComments: boolean): ReportS
   if (a.type === "single_select") {
     // The survey's own option order (a scale reads in order), then answers to an option renamed or
     // removed while the survey was open, so the options add up to the answers.
-    const options = [...Object.entries(a.counts), ...Object.entries(a.orphaned)].map(([label, count]) => ({ label, count }));
+    // An orphaned answer is the stored value, not one of the organiser's options: cleaned like any
+    // typed text, in case the question was a text one when it was answered (review, Nov 25, 2026).
+    const options = [
+      ...Object.entries(a.counts).map(([label, count]) => ({ label, count })),
+      ...Object.entries(a.orphaned).map(([label, count]) => ({ label: reportText(label), count })),
+    ];
     return { type: "choice", label: a.label, count: a.count, options };
   }
   if (!includeComments) return { type: "text", label: a.label, count: a.count, comments: [] };

@@ -195,6 +195,20 @@ function anchorZoomNote(zoomSync: string | undefined): string {
   return "";
 }
 
+/**
+ * What the save says about the webinar's reminder emails after a date move. "not-scheduled" (Nov 25,
+ * 2026): the organiser never scheduled them, so nothing moved and the save must not say they did.
+ */
+function sequenceSyncNote(sequenceSync: string | undefined): string {
+  if (sequenceSync === "failed") {
+    return " Reminder emails may still be on the old schedule. Use Reschedule in the Webinar Console's Email Sequence card.";
+  }
+  if (sequenceSync === "not-scheduled") {
+    return " The reminder emails are not scheduled yet: schedule them in the Webinar Console's Email Sequence card.";
+  }
+  return "";
+}
+
 /** Convert a Date to `datetime-local` input value in Dubai timezone (UTC+4) */
 function toDatetimeLocal(date: Date): string {
   const dubaiOffset = 4 * 60 * 60 * 1000; // UTC+4
@@ -711,10 +725,7 @@ export default function EventSettingsPage() {
           const zoomNote = shift.zoomFailed?.length
             ? ` ${plural(shift.zoomFailed.length, "Zoom meeting")} did not update. Retime those sessions from the Agenda to retry.`
             : "";
-          const seqNote =
-            shift.sequenceSync === "failed"
-              ? " Reminder emails may still be on the old schedule. Use Reschedule in the Webinar Console's Email Sequence card."
-              : "";
+          const seqNote = sequenceSyncNote(shift.sequenceSync);
           // Only on an event brought FORWARD: a closing date that would have
           // landed in the past was left where it was rather than closing
           // registration or submissions with no warning.
@@ -731,10 +742,7 @@ export default function EventSettingsPage() {
           queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
         } else if (cascade?.anchorMoved) {
           const zoomNote = anchorZoomNote(cascade.zoomSync);
-          const seqNote =
-            cascade.sequenceSync === "failed"
-              ? " Reminder emails may still be on the old schedule — use Reschedule in the Webinar Console's Email Sequence card."
-              : "";
+          const seqNote = sequenceSyncNote(cascade.sequenceSync);
           if (zoomNote || seqNote) {
             toast.warning(`Saved. Webinar session moved, but:${zoomNote}${seqNote}`);
           } else {

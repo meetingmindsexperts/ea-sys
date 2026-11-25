@@ -451,6 +451,9 @@ export async function rescheduleWebinarSequenceForEvent(
         "Event",
         eventId,
         (current) => {
+          // Asked again under the row lock: the read above was not locked, and a plan the organiser
+          // saved in between must never be replaced by the usual five (review, Nov 25, 2026).
+          if (readSequencePlan(current).stored) return current;
           const webinar = current.webinar && typeof current.webinar === "object" ? (current.webinar as Record<string, unknown>) : {};
           return { ...current, webinar: { ...webinar, sequence: storedSequencePlan(defaultPhaseChoices(), true) } };
         },

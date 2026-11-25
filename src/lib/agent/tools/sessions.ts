@@ -421,6 +421,7 @@ const updateSession: ToolExecutor = async (input, ctx) => {
       ...(result.zoomSync ? { zoomSync: result.zoomSync } : {}),
       // "failed" ⇒ webinar reminder emails may still be on the OLD schedule —
       // the agent should point the operator at the console's Reschedule button.
+      // "not-scheduled" ⇒ nothing moved: the emails wait for Schedule in the console.
       ...(result.sequenceSync ? { sequenceSync: result.sequenceSync } : {}),
     };
     });

@@ -212,6 +212,14 @@ describe("the reads", () => {
     expect(withComments.surveys?.[0].questions[2]).toMatchObject({ comments: ["call [number removed]"] });
   });
 
+  it("an answer that is no longer one of a choice question's options is cleaned like typed text (review, Nov 25, 2026)", async () => {
+    // A question that was a text one when it was answered: the stored value is the person's own words.
+    h.db.surveyResponse.findMany.mockResolvedValue([{ id: "r1", submittedAt: at(70), answers: { q2: "mail me at dr.ali@clinic.ae" } }]);
+    const r = await loadPostEventReport(EVENT, { includeSurveys: true, includeComments: false });
+    const q = r.surveys?.[0].questions[1];
+    expect(q).toMatchObject({ type: "choice", options: [{ label: "Yes", count: 0 }, { label: "No", count: 0 }, { label: "mail me at [email removed]", count: 1 }] });
+  });
+
   it("Zoom's average is per person, not per join", async () => {
     h.db.zoomAttendance.findMany.mockResolvedValue([
       { id: "1", email: "a@x.com", joinTime: at(0), leaveTime: at(10), durationSeconds: 600 },

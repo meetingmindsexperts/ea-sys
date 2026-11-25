@@ -90,6 +90,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       select: { id: true, settings: true },
     });
     if (!event) {
+      apiLogger.warn({ eventId, userId: session.user.id }, "webinar-sequence:list-event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
