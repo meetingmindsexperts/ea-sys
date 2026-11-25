@@ -2177,7 +2177,32 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
         <p><strong>Attendance.</strong> Zoom&rsquo;s reports do not apply. Use Analytics &rsaquo; <strong>Attendance on our page</strong> and <strong>Export CSV</strong> (the button needs the permission to export webinar attendance): who opened the page, when, how many times they joined and the minutes they watched. Export it within 90 days: the page record is archived after that.</p>
 
-        <p><strong>Not available on a partner&rsquo;s webinar:</strong> Panelists, Start as Host and Zoom&rsquo;s recording. For a replay, ask the partner for the file, upload it to Vimeo and paste the link (see <a href="#s11-5">Recording &amp; replay</a>).</p>
+        <p><strong>Not available on a partner&rsquo;s webinar:</strong> Panelists, Start as Host and Zoom&rsquo;s recording. We can make our own recording of the partner&rsquo;s stream instead (below), or ask the partner for their file. For a replay attendees watch, upload the file to Vimeo and paste the link (see <a href="#s11-5">Recording &amp; replay</a>).</p>
+
+        <p id="partner-recording"><strong>Recording the partner&rsquo;s stream.</strong> Our own copy of what the partner sends, for staff to download and hand to the client. The <strong>Recording</strong> section appears in the Partner stream card (and a <strong>Partner stream recording</strong> card on the Recording tab) only on a server set up for it, and needs the Webinar console permission. Many sponsored webinars are deliberately not kept, so it is recorded only with the partner&rsquo;s agreement.</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Tick <strong>The partner has agreed to this recording</strong> and press <strong>Start recording</strong>. Pressing it before the stream begins is fine: it reads <strong>Ready to record</strong> and records from the moment the partner connects.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">While it records: a red <strong>REC</strong> mark with the time and size that have reached storage. They grow about a minute behind the live picture; that is normal.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Stop</strong> pauses it (say for a break or a technical pause); <strong>Start again</strong> carries on the same recording. The pause is left out of the file.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">At the end, close the room as usual. That stops the recording, and it is finished 10 minutes later unless the room is opened again (so a mistaken close loses nothing: re-open and press <strong>Start again</strong>). Or press <strong>Finish recording</strong> yourself.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">A few minutes after it is finished, the card shows <strong>Ready</strong> with the MP4&rsquo;s size, <strong>Download</strong> and the date it is <strong>kept until</strong> (12 months; then it is deleted by itself). Download it and send it to the client, or upload it to Vimeo for a replay.</div></div>
+        </div>
+        <p>The recording is exactly what the partner sent: holding slides, a test pattern or a technician&rsquo;s voice before the start are in it. Start shortly before the speakers begin, or press Stop and Start again around anything that should not be kept. A recording started before a rehearsal also records the rehearsal: press Stop after it. <strong>Delete recording</strong> removes it and its file for good (download first if the client may need it); the webinar can then be recorded again. Every download and delete is recorded in the audit log.</p>
+        <table class="st">
+          <thead><tr><th>What you see</th><th>What to do</th></tr></thead>
+          <tbody>
+            <tr><td>No Recording section in the Partner stream card</td><td>The server is not set up for recording, or you lack the Webinar console permission. Ask the system administrator.</td></tr>
+            <tr><td>&ldquo;Confirm that the partner has agreed to be recorded before starting.&rdquo;</td><td>Tick the agreement box first.</td></tr>
+            <tr><td>&ldquo;Recording was not started: the server is short of disk space, or it could not be checked.&rdquo;</td><td>Tell the system administrator at once; the webinar itself is not affected.</td></tr>
+            <tr><td><strong>Recording, stream not confirmed</strong></td><td>The stream server did not answer whether the partner&rsquo;s video is arriving. Watch the time and size: if they keep growing, it is recording.</td></tr>
+            <tr><td>Amber line &ldquo;Nothing new has reached storage for N minutes&rdquo;</td><td>Tell a developer: the recording may have a gap. The live webinar is not affected.</td></tr>
+            <tr><td>&ldquo;&hellip;but the stream server did not take it yet&rdquo; after Start or Stop</td><td>Saved; the server is told again within a minute. Nothing to do.</td></tr>
+            <tr><td><strong>Finished</strong>: &ldquo;The file to download is being prepared.&rdquo;</td><td>Wait a few minutes (longer for a long webinar). Delete is not possible until it is ready.</td></tr>
+            <tr><td><strong>Nothing recorded</strong></td><td>The partner&rsquo;s stream never arrived while recording was on. Delete it to record again.</td></tr>
+            <tr><td><strong>Failed</strong> with a reason</td><td>Tell a developer before deleting it: the pieces may still be recoverable.</td></tr>
+            <tr><td>&ldquo;This webinar&rsquo;s recording is already finished. Delete it to record again.&rdquo;</td><td>A finished recording cannot carry on. Download it, then delete it to start a new one.</td></tr>
+          </tbody>
+        </table>
 
         <table class="st">
           <thead><tr><th>What you see</th><th>What to do</th></tr></thead>

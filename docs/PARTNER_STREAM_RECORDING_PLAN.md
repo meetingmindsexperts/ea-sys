@@ -1,6 +1,6 @@
 # Recording a partner's stream
 
-Status: IN BUILD (Nov 25, 2026). Steps 1 to 4 of 8 are built and dark (`STREAM_RECORDING_ENABLED` unset);
+Status: IN BUILD (Nov 25, 2026). Steps 1 to 4 of 8 are built and dark (`STREAM_RECORDING_ENABLED` unset), and step 5's docs are written; its rehearsal waits on the owner's steps in §8;
 step 0, the proof on a throwaway stream server, is done (2.1). Owner: "plan it please, partner side for now, we will use S3 for storage and
 not disk", the recording is for both attendees to watch and an archive file for us and the client,
 then "ok fine, proceed" on the proposals of section 6.
@@ -338,7 +338,7 @@ built first and attendees watch through Vimeo until phase 2; D2 follows the rese
 | 2 | **BUILT Nov 24, 2026** (4.2). The shipping job, the disk guard, the waiting-pieces and not-recording alerts, the piece length reader, the stream server's recording defaults in `mediamtx.yml`, and the two mounts. | 1 |
 | 3 | **BUILT Nov 25, 2026.** The console: agreement tick, Start, Stop, Finish (confirmed), the REC mark with the time and size in storage, the "nothing new has reached storage" warning, in the Partner stream card and the Recording tab (`stream-recording-panel.tsx`, `GET/POST .../webinar/partner-stream/recording`); each action a line on the stream timeline; the room closing (by staff or automatically) finishes the recording, a rehearsal close does not. | 1 |
 | 4 | **BUILT Nov 25, 2026** (4.4). The finishing job, `ffmpeg` in the worker image, Download, Delete, the retention and orphan sweep. Owed: a control to change one recording's keep date. | 1 |
-| 5 | Docs, the user guide, and a production rehearsal with a real partner-style stream of an hour. | 0.5 |
+| 5 | **Docs BUILT Nov 25, 2026**: the user guide (Partner stream, "Recording the partner's stream"), the troubleshooting guide (D12 to D20), and §8 written out as exact commands and the rehearsal. **The rehearsal waits on the owner's §8 steps 1 to 5.** | 0.5 |
 | | **Phase 1** | **5** |
 | 6 | The replay rule's third kind, the playlist route, the notice to attendees. | 1 |
 | 7 | `ReplayPlayer`, the session page and the portal's replay page. | 1.5 |
@@ -372,25 +372,85 @@ Each step is its own commit with its tests, reviewed once, as usual.
 
 ## 8. Steps that are the owner's
 
-Handed over as exact commands when their step is reached; none is run by the agent.
+Written out in full at step 5 (Nov 25, 2026), from what AWS holds today (read-only checks that
+day). None is run by the agent. In this order; steps 1 to 5 switch recording on, step 6 is the
+rehearsal that closes phase 1.
 
-- **Before recording is switched on**, between webinars (the stream server is restarted, which
-  cuts any live stream): on the box, from `/home/ubuntu/ea-sys` after a deploy that carries
-  step 2, check the new `mediamtx.yml` loads in a throwaway copy, then recreate the stream server
-  so it picks up its new mount and settings, and check it is up:
-  `docker run --rm -v "$PWD/mediamtx.yml:/mediamtx.yml:ro" bluenviron/mediamtx:1.17.1` (it must
-  start without a config error; stop it with Ctrl-C), then
-  `docker compose -f docker-compose.prod.yml up -d --force-recreate mediamtx` and
-  `docker logs ea-sys-mediamtx --since 1m`. The recordings folder appears on its own.
-- **S3**: a lifecycle rule on `recordings/` (old versions cleared, unfinished uploads cleared
-  after a day: the MP4 is a multipart upload, and an aborted one is cleared by the code, a crashed
-  one by this rule), and whether the Singapore copy includes it (D3). The box's role must allow
-  `s3:ListBucket` on the prefix, `s3:DeleteObject` (one batch delete per recording) and the
-  multipart calls (`s3:AbortMultipartUpload`); it reads and writes the rest of the bucket
-  already, checked at that step.
-- **The worker image grows** by ffmpeg (about 100 to 200 MB with `--no-install-recommends`). The
-  next deploy builds it; check the box's disk before (63% of 50 GB on Nov 24, 2026).
-- **Then** `STREAM_RECORDING_ENABLED=true` on the box.
+**What AWS already allows (checked Nov 25, 2026):** the box's role `ea-sys-mumbai-ec2-role`
+(policy `UploadsS3Storage`) already has `s3:PutObject` (which covers starting, uploading and
+completing a multipart upload), `s3:GetObject`, `s3:DeleteObject` (which covers the batch delete),
+`s3:ListBucket` on the bucket, and the KMS key. The one call missing is `s3:AbortMultipartUpload`.
+The bucket `ea-sys-uploads` is versioned, with one lifecycle rule for every object (old versions
+deleted after 90 days, unfinished uploads aborted after 30 days). The hourly copy to Singapore
+(`aws s3 sync s3://ea-sys-uploads/ ...`, `infra/dr/README.md`) takes the whole bucket, so
+recordings are in it with no change (D3); see step 7 for what it does not do.
+
+1. **Deploy** (gate and push) a build that carries steps 2 to 4. The worker image now includes
+   ffmpeg, about 100 to 200 MB more: first check the box's disk, `aws ssm send-command
+   --region ap-south-1 --instance-ids i-0b51ab1213d084640 --document-name AWS-RunShellScript
+   --parameters 'commands=["df -h /"]'` (63% of 50 GB on Nov 24, 2026; under 80% is fine).
+
+2. **Recreate the stream server**, between webinars (it cuts any live stream), on the box from
+   `/home/ubuntu/ea-sys`:
+   ```
+   docker run --rm -v "$PWD/mediamtx.yml:/mediamtx.yml:ro" bluenviron/mediamtx:1.17.1
+   ```
+   It must start without a configuration error; stop it with Ctrl-C. Then:
+   ```
+   docker compose -f docker-compose.prod.yml up -d --force-recreate mediamtx
+   docker logs ea-sys-mediamtx --since 1m
+   ls -ld recordings
+   ```
+   The `recordings` folder appears on its own (owned by root; the worker reads it read-only).
+
+3. **Let the box abort an unfinished upload** (the MP4 is a multipart upload; without this a
+   failed one is cleared only by the 30 day rule):
+   ```
+   aws iam put-role-policy --role-name ea-sys-mumbai-ec2-role --policy-name UploadsS3Recordings \
+     --policy-document '{"Version":"2012-10-17","Statement":[{"Sid":"RecordingsAbortUpload","Effect":"Allow","Action":"s3:AbortMultipartUpload","Resource":"arn:aws:s3:::ea-sys-uploads/recordings/*"}]}'
+   ```
+
+4. **A lifecycle rule for recordings** (D3): a deleted recording's old versions go after 7 days
+   instead of 90, and an unfinished upload after 1 day instead of 30. **This command replaces the
+   bucket's whole lifecycle configuration, so it repeats today's rule**; check
+   `aws s3api get-bucket-lifecycle-configuration --bucket ea-sys-uploads --region ap-south-1`
+   first and stop if it no longer shows only `expire-noncurrent-versions`.
+   ```
+   aws s3api put-bucket-lifecycle-configuration --bucket ea-sys-uploads --region ap-south-1 \
+     --lifecycle-configuration '{"Rules":[{"ID":"expire-noncurrent-versions","Status":"Enabled","Filter":{},"Expiration":{"ExpiredObjectDeleteMarker":true},"NoncurrentVersionExpiration":{"NoncurrentDays":90},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":30}},{"ID":"recordings-short-tail","Status":"Enabled","Filter":{"Prefix":"recordings/"},"NoncurrentVersionExpiration":{"NoncurrentDays":7},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'
+   ```
+   Where two rules cover one object, S3 applies the one that acts sooner, so recordings get the
+   short tail and everything else keeps today's rule.
+
+5. **Switch it on**: add `STREAM_RECORDING_ENABLED=true` to `/home/ubuntu/ea-sys/.env` and run
+   `scripts/deploy.sh` (the web and the worker both read it). Only after step 2: before it, a
+   recording would use the stream server's own defaults. The Recording section then appears in
+   the Partner stream card.
+
+6. **The rehearsal** (an hour), on a published partner webinar made for it (not a draft, whose
+   room counts as open), with OBS at 720p, 2.5 Mbps, a keyframe every 2 seconds:
+   - Issue the key, start OBS, tick the agreement, **Start recording**: REC within seconds, the
+     time and size growing about a minute behind.
+   - **Stop** for a minute, **Start again**; stop OBS for 30 seconds and start it again (a drop);
+     both breaks must be in the file as jumps, not frozen pictures.
+   - Close the room: "Stopped". Re-open within 10 minutes and **Start again**: it carries on.
+   - After about 50 minutes, close the room and wait: "Finished" after 10 minutes, "Ready" a few
+     minutes later, with the MP4's size.
+   - **Download**; play it in Chrome, Safari, QuickTime and VLC, seeking across both breaks;
+     upload it to Vimeo (QuickTime and Vimeo were not tried in step 0).
+   - The console's Stream timeline lists Recording started, stopped, finished.
+   - **Delete recording**; then `aws s3 ls s3://ea-sys-uploads/recordings/ --recursive
+     --region ap-south-1` shows nothing for it.
+   - Logs: `npm run prod:psql` and `select level, message from "SystemLog" where message like
+     '%stream-recording%' and timestamp > now() - interval '2 hours' order by timestamp;` shows
+     no error.
+   - Watch the box's CPU in CloudWatch while the MP4 is made (expected: a minute of one CPU).
+
+7. **Decide (D3, follow-up):** the hourly copy to Singapore never deletes, so a recording deleted
+   here, by staff or after its 12 months, stays in the Singapore copy for good, pieces and MP4.
+   Options: a monthly prune of `recordings/` in the copy against the live bucket, or copying only
+   the MP4s (`--exclude "recordings/*.ts"`), which halves it but still keeps deleted ones.
+
 - **Phase 2 only**: the bucket as a second origin of the CloudFront distribution, readable only
   by CloudFront, a signing key, and a behaviour for the replay path; the private key into the
   box's `.env`.

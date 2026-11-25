@@ -236,6 +236,23 @@ we cannot restart the partner's stream for them.</p>
   <tr><td><span class="id">D11</span>"Replace the key" or "Cut the feed" by mistake</td><td>Replace stops the old key and cuts the stream; Cut switches the key off and cuts the stream. The room stays open.</td><td>After Replace: show the new key and send it. After Cut: "Switch the key on" ("the partner can connect again"). To end the webinar itself, close the room.</td></tr>
 </table>
 
+<h3 id="recording">Recording the partner's stream</h3>
+<p>Our own copy of the partner's stream (the Recording section of the Partner stream card, and "Partner stream recording" on
+the Recording tab), shown only on a server set up for it. Recorded only with the partner's agreement. Closing the room stops
+it; it is finished 10 minutes later unless the room is opened again, and the MP4 is ready a few minutes after that.</p>
+<table>
+  <tr><th>What you see</th><th>Why</th><th>What to do</th></tr>
+  <tr><td><span class="id">D12</span>No Recording section in the Partner stream card</td><td>The server is not set up for recording yet, or your role lacks the Webinar console permission.</td><td><span class="dev">Developer</span> to switch it on. Meanwhile ask the partner for their own file.</td></tr>
+  <tr><td><span class="id">D13</span>"Confirm that the partner has agreed to be recorded before starting." / "Issue the partner's key first."</td><td>The agreement tick is required before the first start; recording needs the key to exist.</td><td>Confirm with the partner, tick, press "Start recording". Issue the key first if it reads so.</td></tr>
+  <tr><td><span class="id">D14</span>"Recording was not started: the server is short of disk space, or it could not be checked."</td><td>The server keeps up to two hours of video before it reaches storage, and refuses to start without the room.</td><td><span class="dev">Developer</span> at once. The live webinar is not affected.</td></tr>
+  <tr><td><span class="id">D15</span>"Ready to record" while the webinar is live</td><td>Recording is on but the partner's video is not arriving ("Signal: Not receiving").</td><td>See <a href="#d4">D4</a>. It records the moment the video arrives. "Recording, stream not confirmed" instead means the stream server did not answer the check: watch whether the time and size grow.</td></tr>
+  <tr><td><span class="id">D16</span>Amber "Nothing new has reached storage for N minutes. If this lasts, tell a developer: the recording may have a gap."</td><td>The pieces are not reaching storage: the worker is down or storage refuses.</td><td><span class="dev">Developer</span> now: the server keeps unshipped pieces for two hours, so a fix within that loses nothing.</td></tr>
+  <tr><td><span class="id">D17</span>"Finished: The file to download is being prepared." for long</td><td>The MP4 is made once the last pieces are in storage: a few minutes, longer for a long webinar. Delete is refused meanwhile ("still being made").</td><td>Wait. Still preparing an hour after the end: <span class="dev">Developer</span>. After 6 hours of failing it turns "Failed" by itself.</td></tr>
+  <tr><td><span class="id">D18</span>"Failed" with a reason, or "Nothing recorded"</td><td>The file could not be made; or the partner's stream never arrived while recording was on.</td><td>"Failed": <span class="dev">Developer</span> before deleting (the pieces may be recoverable). "Nothing recorded": delete it to record again.</td></tr>
+  <tr><td><span class="id">D19</span>The room was closed by mistake while recording</td><td>Closing the room stops the recording; it is finished 10 minutes later unless the room is opened again.</td><td>Re-open the room within 10 minutes and press "Start again". After that, the finished recording keeps what was recorded; a second one needs the first deleted.</td></tr>
+  <tr><td><span class="id">D20</span>The recording has a rehearsal or a test pattern in it</td><td>It records whatever the partner sends while it is on, rehearsal included.</td><td>Press Stop after a rehearsal and Start again shortly before the speakers. Trimming is not available: delete and record again, or edit the downloaded file.</td></tr>
+</table>
+
 <!-- ───────────────────────────── E ───────────────────────────── -->
 <h2 id="watch">8. Attendees watching</h2>
 <h3>Custom stream (our player)</h3>
@@ -293,7 +310,7 @@ we cannot restart the partner's stream for them.</p>
     <td>Webinar Console, <b>Recording</b> tab: switch on "Show the recording to attendees". If it says "Attendees cannot see this replay: switch on...", that is the switch.</td></tr>
   <tr><td><span class="id">G4</span>Recording card: "Recording processing", "Fetch failed", "Fetch window expired", or "Cloud recording not yet polled"</td>
     <td>Zoom's recording is fetched from 10 minutes after the end. If Zoom has none 6 hours after the end, it shows "Fetch window expired" (the "more than 7 days" wording is misleading then): usually cloud recording was off.</td>
-    <td>Check the recording exists in Zoom, then "Refetch now". For a partner's webinar there is no Zoom recording: ask the partner for the file (our own recording of partner streams is being built).</td></tr>
+    <td>Check the recording exists in Zoom, then "Refetch now". For a partner's webinar there is no Zoom recording: use our own recording (<a href="#recording">D12 to D20</a>) where the server is set up for it, or ask the partner for their file.</td></tr>
   <tr><td><span class="id">G5</span>The Zoom replay link stops working weeks later</td><td>Zoom deletes recordings after the account's retention period, and the card still says available.</td><td>Download from Zoom, upload to Vimeo, paste it in "Replay link (Vimeo)", save, "Preview the saved replay". Vimeo replays do not expire.</td></tr>
   <tr><td><span class="id">G6</span>The Vimeo replay shows a Vimeo error, or anyone with the link can watch it on Vimeo</td><td>The video's privacy or allowed-sites settings in Vimeo. A showcase or review link is refused ("Must be a Vimeo video link...").</td><td>Fix in Vimeo, then check with "Preview the saved replay": what you see there is what attendees get.</td></tr>
   <tr><td><span class="id">G7</span>The thank-you email had no replay, or the old one</td><td>It is sent once, about 5 minutes after the room closes, and mentions a replay only if the switch was on by then. It is never re-sent.</td><td>Switch the recording on before the end. Afterwards, send the replay link in an email of your own.</td></tr>
@@ -315,7 +332,7 @@ we cannot restart the partner's stream for them.</p>
   <li>Panelists are not kept in step with the speakers: press "Import from Speakers" after every change (A9).</li>
   <li>The webinar emails go to every Confirmed registration, speakers and tests included (G11).</li>
   <li>Only one of our Zoom webinars can run at a time (C13).</li>
-  <li>We do not yet record a partner's stream ourselves (G4).</li>
+  <li>Our own recording of a partner's stream needs the server set up for it (D12); it cannot be trimmed (D20), and a recording's 12 month keep date cannot be changed yet.</li>
   <li>"Fetch window expired" can appear 6 hours after the end, while the card's text speaks of 7 days (G4).</li>
   <li>Removing a viewer stops their page, not the video stream itself: a copied stream address keeps playing, and the webinar emails still reach them (F10).</li>
 </ul>

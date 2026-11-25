@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Recording a partner's stream, step 5: the docs and the owner's runbook (November 25, 2026)
+
+- **User guide**, Webinars, A partner streams into our webinar: "Recording the partner's stream" (agreeing, Start,
+  Stop, what closing the room does, Download, Delete, the 12 months) and a table of what each message means.
+- **Troubleshooting guide**: D12 to D20 for recording, G4 and the known gaps updated.
+- `docs/PARTNER_STREAM_RECORDING_PLAN.md` §8 as exact commands, from AWS as read on the day: the one missing
+  permission (`s3:AbortMultipartUpload`), a lifecycle rule for `recordings/` that keeps today's rule, switching it on,
+  the hour's rehearsal, and a decision owed on deleted recordings staying in the Singapore copy.
+
 ### Recording a partner's stream, step 4: the MP4, Download, Delete and retention (November 25, 2026)
 
 Plan: `docs/PARTNER_STREAM_RECORDING_PLAN.md` §4.4. Still dark until `STREAM_RECORDING_ENABLED` is set, after the
