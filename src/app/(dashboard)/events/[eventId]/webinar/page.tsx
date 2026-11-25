@@ -104,6 +104,7 @@ import {
   type WebinarViewerQuestionRow,
   useUpdateWebinarViewerQuestion,
   useWebinarPresence,
+  useSetWebinarViewerRemoved,
   useWebinarStreamTimeline,
   type WebinarStreamTimelineEntry,
   useEventSurveys,
@@ -2033,7 +2034,20 @@ function PanelistsCard({
 function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
   // Only poll + render while the room is live — presence is meaningless otherwise.
   const { data, isLoading } = useWebinarPresence(eventId, live);
+  // Remove a viewer (owner, Nov 25, 2026): block this webinar only, their page stops within ~30 s.
+  const canManage = useCan("webinar.manage", eventId) === "allowed";
+  const setRemoved = useSetWebinarViewerRemoved(eventId);
+  const [confirmRemove, setConfirmRemove] = useState<{ registrationId: string; name: string } | null>(null);
   if (!live) return null;
+
+  const changeRemoved = async (registrationId: string, removed: boolean, name: string) => {
+    try {
+      await setRemoved.mutateAsync({ registrationId, removed });
+      toast.success(removed ? `${name} removed from the webinar` : `${name} can watch again`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not change the viewer");
+    }
+  };
 
   return (
     <Card>
@@ -2080,22 +2094,88 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
                       {r.serialId != null ? ` · #${String(r.serialId).padStart(3, "0")}` : ""}
                     </p>
                   </div>
-                  <Badge
-                    variant={r.phase === "joined" ? undefined : "outline"}
-                    className={
-                      r.phase === "joined"
-                        ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                        : ""
-                    }
-                  >
-                    {r.phase === "joined" ? "Joined" : "Lobby"}
-                  </Badge>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge
+                      variant={r.phase === "joined" ? undefined : "outline"}
+                      className={
+                        r.phase === "joined"
+                          ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                          : ""
+                      }
+                    >
+                      {r.phase === "joined" ? "Joined" : "Lobby"}
+                    </Badge>
+                    {canManage && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                        disabled={setRemoved.isPending}
+                        onClick={() => setConfirmRemove({ registrationId: r.registrationId, name: r.name })}
+                        aria-label={`Remove ${r.name} from the webinar`}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           </>
         ) : null}
+        {data && data.removed.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Removed from this webinar ({data.removed.length})</p>
+            <div className="max-h-48 divide-y overflow-y-auto rounded-lg border border-red-100 bg-red-50/30">
+              {data.removed.map((r) => (
+                <div key={r.registrationId} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{r.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{r.email ?? ""}</p>
+                  </div>
+                  {canManage && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 shrink-0 px-2 text-xs"
+                      disabled={setRemoved.isPending}
+                      onClick={() => void changeRemoved(r.registrationId, false, r.name)}
+                    >
+                      Let back in
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
+      <AlertDialog open={confirmRemove !== null} onOpenChange={(open) => !open && setConfirmRemove(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {confirmRemove?.name} from the webinar?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Their page stops the video within about 30 seconds and tells them they were removed, and they can no longer
+              watch, ask questions, chat, vote or open the replay. Their registration is not changed. You can let them back in
+              from this card.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep watching</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={setRemoved.isPending}
+              onClick={() => {
+                const target = confirmRemove;
+                setConfirmRemove(null);
+                if (target) void changeRemoved(target.registrationId, true, target.name);
+              }}
+            >
+              Remove
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

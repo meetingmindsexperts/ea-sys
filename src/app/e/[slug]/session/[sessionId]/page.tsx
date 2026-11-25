@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Ban,
   Video,
   ExternalLink,
   Clock,
@@ -134,7 +135,9 @@ type JoinAuthState =
   | { kind: "needs-login" }
   | { kind: "needs-registration" }
   /** Registered, but pending approval, waitlisted or with the fee outstanding (viewer-entitlement.ts). */
-  | { kind: "not-active"; message: string };
+  | { kind: "not-active"; message: string }
+  /** Removed from this webinar by the organisers (Nov 25, 2026): no player, Q&A or chat. */
+  | { kind: "removed"; message: string };
 
 interface LobbyStatus {
   roomOpen: boolean;
@@ -346,6 +349,8 @@ export default function PublicSessionPage() {
           setAuthState({ kind: "needs-login" });
         } else if (joinData.code === "NOT_REGISTERED") {
           setAuthState({ kind: "needs-registration" });
+        } else if (joinData.code === "REMOVED_FROM_WEBINAR") {
+          setAuthState({ kind: "removed", message: joinData.error });
         } else if (NOT_ACTIVE_CODES.has(joinData.code)) {
           setAuthState({ kind: "not-active", message: joinData.error });
         } else if (joinData.joinableAt) {
@@ -540,6 +545,15 @@ export default function PublicSessionPage() {
             }),
           },
         );
+        // Removed by the organisers (Nov 25, 2026): the player and the Q&A go at once, on this beat.
+        if (res.status === 403) {
+          const data = (await res.json().catch(() => ({}))) as { code?: string; error?: string };
+          if (data.code === "REMOVED_FROM_WEBINAR") {
+            setJoinInfo(null);
+            setAuthState({ kind: "removed", message: data.error ?? "You have been removed from this webinar." });
+            return;
+          }
+        }
         // A failed beat's counts go with the next one.
         if (!res.ok) putBack();
       } catch {
@@ -1463,6 +1477,23 @@ function StickyCta({
   onLeave: () => void;
 }) {
   // Ended + recording → Watch Replay
+  // First: a removed viewer is offered nothing, not even the recording (Nov 25, 2026).
+  if (authState.kind === "removed") {
+    return (
+      <Card className="border-red-200 bg-red-50/70 shadow-sm">
+        <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
+          <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+            <Ban className="h-6 w-6 text-red-600" />
+          </div>
+          <div className="flex-1 text-center sm:text-left">
+            <p className="font-semibold">You have been removed from this webinar</p>
+            <p className="text-xs text-muted-foreground">{authState.message}</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (isPast && hasRecording) {
     return (
       <Card className="border-emerald-200 bg-emerald-50/70 shadow-sm">

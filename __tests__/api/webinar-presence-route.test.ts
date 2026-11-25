@@ -17,6 +17,7 @@ const { mockAuth, mockDb, mockCheckRateLimit } = vi.hoisted(() => ({
     registration: { findFirst: vi.fn(), updateMany: vi.fn() },
     eventSession: { findFirst: vi.fn() },
     webinarPresence: { findUnique: vi.fn(), upsert: vi.fn() },
+    user: { findUnique: vi.fn(async () => ({ email: "viewer@example.com" })) },
   },
 }));
 
@@ -79,6 +80,16 @@ describe("presence heartbeat", () => {
     mockDb.registration.findFirst.mockResolvedValue(null);
     const res = await call({ phase: "lobby" });
     expect(res.status).toBe(403);
+  });
+
+  // Nov 25, 2026: the page is told on its next beat that the organisers removed this viewer.
+  it("a removed viewer is answered REMOVED_FROM_WEBINAR, so their page stops the player", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
+    mockDb.registration.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "reg1" });
+    const res = await call({ phase: "joined" });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "REMOVED_FROM_WEBINAR" });
+    expect(mockDb.webinarPresence.upsert).not.toHaveBeenCalled();
   });
 
   it("upserts a presence row on first beat + sets webinarFirstJoinedAt", async () => {

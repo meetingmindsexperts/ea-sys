@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockWarn } = vi.hoisted(() => ({
-  mockDb: { registration: { findMany: vi.fn() }, eventSession: { findFirst: vi.fn() }, user: { findUnique: vi.fn() } },
+  mockDb: { registration: { findMany: vi.fn(), findFirst: vi.fn() }, eventSession: { findFirst: vi.fn() }, user: { findUnique: vi.fn() } },
   mockWarn: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -29,6 +29,7 @@ beforeEach(() => {
   resetRoomOpenCache();
   resetViewerAddressCache();
   mockDb.user.findUnique.mockResolvedValue({ email: "Jane.Doe@Hospital.org " });
+  mockDb.registration.findFirst.mockResolvedValue(null);
 });
 
 /**
@@ -164,6 +165,7 @@ describe("viewerRegistrationWhere", () => {
       eventId: "ev1",
       userId: "u1",
       status: { in: ["CONFIRMED", "CHECKED_IN"] },
+      webinarRemovedAt: null,
       OR: [
         { paymentStatus: { in: ["PAID", "COMPLIMENTARY", "INCLUSIVE"] } },
         {
@@ -211,6 +213,24 @@ describe("viewerRefusal", () => {
     expect(await viewerRefusal("ev1", "u1")).toBe("WAITLISTED");
     mockDb.registration.findMany.mockResolvedValue([{ status: "CONFIRMED" }]);
     expect(await viewerRefusal("ev1", "u1")).toBe("PAYMENT_OUTSTANDING");
+  });
+
+  // Nov 25, 2026: a removed viewer's registration is in good standing; it must not read as unpaid.
+  it("a viewer the organisers removed is told so first, in the account or on their own address", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg1" });
+    mockDb.registration.findMany.mockResolvedValue([{ status: "CONFIRMED" }]);
+    expect(await viewerRefusal("ev1", "u1")).toBe("REMOVED_FROM_WEBINAR");
+    const where = mockDb.registration.findFirst.mock.calls[0][0].where;
+    expect(where).toMatchObject({ eventId: "ev1", webinarRemovedAt: { not: null } });
+    expect(where.OR[0]).toEqual({ userId: "u1" });
+    expect(where.OR[1]).toMatchObject({ userId: null });
+  });
+});
+
+describe("a removed viewer", () => {
+  it("is outside the standing rule on a webinar, so every door that asks it refuses them", () => {
+    expect(viewerStandingWhere("WEBINAR")).toMatchObject({ webinarRemovedAt: null });
+    expect(viewerStandingWhere("CONFERENCE")).not.toHaveProperty("webinarRemovedAt");
   });
 });
 

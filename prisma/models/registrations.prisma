@@ -213,6 +213,14 @@ model Registration {
   /// live who's-here-now state lives in WebinarPresence. Same write-once
   /// convention as checkedInAt.
   webinarFirstJoinedAt       DateTime?
+  /// Removed from this webinar by the organisers (Nov 25, 2026; owner: "remove someone from viewing
+  /// the session if they misbehave"). The registration itself is untouched (counts, payment,
+  /// certificates); while this is set the viewer rule (src/lib/webinar/viewer-entitlement.ts) lets
+  /// them into nothing: the page, the player, Q&A, chat, polls, handouts, the replay. Null again on
+  /// Unblock. Written only by PUT /api/events/{id}/webinar/viewers/{registrationId}.
+  webinarRemovedAt           DateTime?
+  /// Who removed them (a User id, no relation: an audit fact that outlives the account).
+  webinarRemovedById         String?
   // Badge-print analytics: first-print timestamp + total prints (reprints
   // bump the count). Set by the badge route; powers "badges printed vs
   // registered" and reprint metrics. Per-print history lives in AuditLog

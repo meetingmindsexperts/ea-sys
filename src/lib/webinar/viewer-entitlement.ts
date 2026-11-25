@@ -47,6 +47,8 @@ export function viewerStandingWhere(eventType: string | null | undefined): Prism
   if (eventType !== "WEBINAR") return { status: { not: "CANCELLED" } };
   return {
     status: { in: WEBINAR_VIEWER_STATUSES },
+    // Removed by the organisers (Nov 25, 2026): their registration stands, the webinar does not.
+    webinarRemovedAt: null,
     OR: [{ paymentStatus: { in: [...SETTLED_PAYMENT_STATUSES] } }, NOTHING_OWED],
   };
 }
@@ -151,12 +153,35 @@ async function viewerAddress(userId: string): Promise<string | null> {
   }
 }
 
-export type ViewerRefusal = "PENDING_APPROVAL" | "WAITLISTED" | "PAYMENT_OUTSTANDING";
+export type ViewerRefusal = "PENDING_APPROVAL" | "WAITLISTED" | "PAYMENT_OUTSTANDING" | "REMOVED_FROM_WEBINAR";
+
+/** The answer every webinar door gives a removed viewer, so their page can say so and stop. */
+export const REMOVED_FROM_WEBINAR = "REMOVED_FROM_WEBINAR" as const;
+
+/**
+ * Whether the person was removed from this webinar (Nov 25, 2026): a registration on the event in
+ * their account, or on their own address in no account (the allowance above), that the organisers
+ * removed. Only asked on the refusal path, so a viewer who is let in pays nothing for it.
+ */
+export async function viewerRemoved(eventId: string, userId: string): Promise<boolean> {
+  const email = await viewerAddress(userId);
+  const removed = await db.registration.findFirst({
+    where: {
+      eventId,
+      webinarRemovedAt: { not: null },
+      OR: [{ userId }, ...(email ? [{ userId: null, attendee: { email: equalsIgnoringCase(email) } }] : [])],
+    },
+    select: { id: true },
+  });
+  return removed !== null;
+}
 
 export const VIEWER_REFUSAL_MESSAGE: Record<ViewerRefusal, string> = {
   PENDING_APPROVAL: "Your registration is awaiting approval. You can join once it has been approved.",
   WAITLISTED: "You are on the waiting list for this webinar. You can join once your place is confirmed.",
   PAYMENT_OUTSTANDING: "Your registration's payment is not complete. Please contact the organisers if you think this is wrong.",
+  REMOVED_FROM_WEBINAR:
+    "You have been removed from this webinar by the organisers. If you think this is a mistake, please contact them.",
 };
 
 /**
@@ -164,6 +189,8 @@ export const VIEWER_REFUSAL_MESSAGE: Record<ViewerRefusal, string> = {
  * they hold none (then they are simply not registered). Only called on the refusal path.
  */
 export async function viewerRefusal(eventId: string, userId: string): Promise<ViewerRefusal | null> {
+  // First: a removed viewer's registration is otherwise in good standing, and would read as unpaid.
+  if (await viewerRemoved(eventId, userId)) return REMOVED_FROM_WEBINAR;
   const registrations = await db.registration.findMany({
     where: { eventId, userId, status: { not: "CANCELLED" } },
     select: { status: true },

@@ -269,6 +269,10 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   function `person_role_key_sync` BEFORE the column or the type: Postgres does not record
   the function as depending on them, so the column drops cleanly and every later write to
   the four tables then fails.
+- **Removed webinar viewers (Nov 25, 2026; migration `20261125100000_registration_webinar_removed`).** Two
+  nullable columns on `Registration` (`webinarRemovedAt`, `webinarRemovedById`). Additive: an image older than
+  the migration never reads them, so a rollback simply forgets every removal and those people can watch again
+  until the newer image is back. Nothing to clean up; never drop the columns while a newer image may run.
 - **Presentation types stored as text (Nov 24, 2026; migration `20261124140000_presentation_type_key_text_columns`).**
   `Abstract` gained `"presentationTypeKey"` and `"requestedPresentationTypeKey"`, and
   `AbstractReviewSubmission` gained `"recommendedFormatKey"`, which the code reads as

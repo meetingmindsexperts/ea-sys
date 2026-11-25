@@ -96,7 +96,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       // the card renders a clean empty state.
       if (summaryOnly) return NextResponse.json(presenceReportSummary([]));
       if (analyticsOnly) return NextResponse.json(watchAnalytics([]));
-      return NextResponse.json({ lobby: 0, joined: 0, total: 0, opened: 0, rows: [] });
+      return NextResponse.json({ lobby: 0, joined: 0, total: 0, opened: 0, rows: [], removed: [] });
     }
 
     if (exportCsv || summaryOnly || analyticsOnly) {
@@ -115,11 +115,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     const cutoff = new Date(Date.now() - PRESENT_WINDOW_MS);
     // Everyone who has opened the page so far, beside who is on it now (owner, Nov 25, 2026):
     // one row per registration and session, so a count of rows is a count of people.
-    const [rows, opened] = await Promise.all([db.webinarPresence.findMany({
+    const [rows, opened, removedRows] = await Promise.all([db.webinarPresence.findMany({
       // eventId binds the roster to THIS org-verified event (multi-tenancy sweep).
-      where: { sessionId: anchorSessionId, eventId, lastSeenAt: { gte: cutoff } },
+      // A removed viewer leaves the roster at once, not when their last beat ages out.
+      where: { sessionId: anchorSessionId, eventId, lastSeenAt: { gte: cutoff }, registration: { webinarRemovedAt: null } },
       select: {
         id: true,
+        registrationId: true,
         phase: true,
         firstJoinedAt: true,
         lastSeenAt: true,
@@ -133,10 +135,18 @@ export async function GET(req: Request, { params }: RouteParams) {
       },
       orderBy: { lastSeenAt: "desc" },
       take: 1000,
-    }), db.webinarPresence.count({ where: { sessionId: anchorSessionId, eventId } })]);
+    }), db.webinarPresence.count({ where: { sessionId: anchorSessionId, eventId } }),
+    // Viewers the organisers removed (Nov 25, 2026), so the card can let them back in.
+    db.registration.findMany({
+      where: { eventId, webinarRemovedAt: { not: null } },
+      select: { id: true, serialId: true, webinarRemovedAt: true, attendee: { select: { firstName: true, lastName: true, email: true } } },
+      orderBy: { webinarRemovedAt: "desc" },
+      take: 500,
+    })]);
 
     const mapped = rows.map((r) => ({
       id: r.id,
+      registrationId: r.registrationId,
       phase: r.phase,
       name: `${r.registration.attendee?.firstName ?? ""} ${r.registration.attendee?.lastName ?? ""}`.trim() || "Attendee",
       email: r.registration.attendee?.email ?? null,
@@ -149,7 +159,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     const joined = mapped.filter((r) => r.phase === "joined").length;
     const lobby = mapped.length - joined;
 
-    return NextResponse.json({ lobby, joined, total: mapped.length, opened, rows: mapped });
+    const removed = removedRows.map((r) => ({
+      registrationId: r.id,
+      name: `${r.attendee?.firstName ?? ""} ${r.attendee?.lastName ?? ""}`.trim() || "Attendee",
+      email: r.attendee?.email ?? null,
+      serialId: r.serialId,
+      removedAt: r.webinarRemovedAt?.toISOString() ?? null,
+    }));
+
+    return NextResponse.json({ lobby, joined, total: mapped.length, opened, rows: mapped, removed });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar:presence-fetch-failed");

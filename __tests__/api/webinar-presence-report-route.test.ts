@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const h = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  mockDb: { event: { findFirst: vi.fn() }, webinarPresence: { findMany: vi.fn(), groupBy: vi.fn(), count: vi.fn() } },
+  mockDb: { event: { findFirst: vi.fn() }, webinarPresence: { findMany: vi.fn(), groupBy: vi.fn(), count: vi.fn() }, registration: { findMany: vi.fn(async () => []) } },
   permSpy: vi.fn(),
   exportSpy: vi.fn(),
   rate: { allowed: true },
@@ -151,13 +151,14 @@ describe("the live roster", () => {
   it("counts everyone who opened the page, beside the people on it now", async () => {
     h.mockDb.webinarPresence.count.mockResolvedValue(85);
     const body = await (await GET(req(""), ctx)).json();
-    expect(body).toMatchObject({ total: 1, opened: 85 });
+    expect(body).toMatchObject({ total: 1, opened: 85, removed: [] });
     expect(h.mockDb.webinarPresence.count).toHaveBeenCalledWith({ where: { sessionId: "s1", eventId: "ev1" } });
-    expect(h.mockDb.webinarPresence.findMany.mock.calls[0][0].where).toMatchObject({ sessionId: "s1", eventId: "ev1", lastSeenAt: expect.any(Object) });
+    // A removed viewer leaves the roster at once (Nov 25, 2026).
+    expect(h.mockDb.webinarPresence.findMany.mock.calls[0][0].where).toMatchObject({ sessionId: "s1", eventId: "ev1", lastSeenAt: expect.any(Object), registration: { webinarRemovedAt: null } });
   });
 
   it("no webinar session yet: nothing opened", async () => {
     h.mockDb.event.findFirst.mockResolvedValue({ id: "ev1", settings: {}, timezone: "Asia/Dubai" });
-    expect(await (await GET(req(""), ctx)).json()).toEqual({ lobby: 0, joined: 0, total: 0, opened: 0, rows: [] });
+    expect(await (await GET(req(""), ctx)).json()).toEqual({ lobby: 0, joined: 0, total: 0, opened: 0, rows: [], removed: [] });
   });
 });

@@ -4061,6 +4061,8 @@ export function useWebinarAttendance(eventId: string) {
 
 export interface WebinarPresenceRow {
   id: string;
+  /** The viewer's registration: what Remove acts on. */
+  registrationId: string;
   phase: "lobby" | "joined" | string;
   name: string;
   email: string | null;
@@ -4077,6 +4079,31 @@ export interface WebinarPresenceData {
   /** Everyone who has opened the webinar page so far, on it now or not. */
   opened: number;
   rows: WebinarPresenceRow[];
+  /** Viewers the organisers removed from this webinar (Nov 25, 2026). */
+  removed: WebinarRemovedViewer[];
+}
+
+export interface WebinarRemovedViewer {
+  registrationId: string;
+  name: string;
+  email: string | null;
+  serialId: number | null;
+  removedAt: string | null;
+}
+
+/** Remove a viewer from the webinar, or let them back (block this webinar only; Nov 25, 2026). */
+export function useSetWebinarViewerRemoved(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ registrationId, removed }: { registrationId: string; removed: boolean }) =>
+      fetchApi<{ registrationId: string; removed: boolean; removedAt: string | null }>(
+        `/api/events/${eventId}/webinar/viewers/${registrationId}`,
+        { method: "PUT", body: JSON.stringify({ removed }), headers: { "Content-Type": "application/json" } },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinarPresence(eventId) });
+    },
+  });
 }
 
 /** Real-time lobby/live presence — polls every ~18s while the console is open. */

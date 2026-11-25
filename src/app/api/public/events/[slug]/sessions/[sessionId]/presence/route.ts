@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isViewerRoomOpen, viewerAccessWhere } from "@/lib/webinar/viewer-entitlement";
+import { isViewerRoomOpen, viewerAccessWhere, REMOVED_FROM_WEBINAR, VIEWER_REFUSAL_MESSAGE, viewerRemoved } from "@/lib/webinar/viewer-entitlement";
 import { apiLogger } from "@/lib/logger";
 import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { checkRateLimit } from "@/lib/security";
@@ -100,6 +100,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { id: true },
     });
     if (!registration) {
+      // A removed viewer's page is told so on its next beat and stops the player (Nov 25, 2026).
+      if (await viewerRemoved(event.id, authSession.user.id)) {
+        apiLogger.info({ userId: authSession.user.id, eventId: event.id, sessionId }, "presence:denied:removed-from-webinar");
+        return NextResponse.json(
+          { error: VIEWER_REFUSAL_MESSAGE[REMOVED_FROM_WEBINAR], code: REMOVED_FROM_WEBINAR },
+          { status: 403 },
+        );
+      }
       apiLogger.warn(
         { userId: authSession.user.id, eventId: event.id, sessionId },
         "presence:denied:not-registered",

@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinar Console: remove a viewer (November 25, 2026)
+
+Owner: "remove someone from viewing the session if they misbehave", decided as **block this webinar only**, and
+**stop their page within about 30 seconds**.
+
+- The Live now card has **Remove** beside each viewer (with a confirm step) and a "Removed from this webinar" list
+  with **Let back in**. `webinar.manage`; audited (`WEBINAR_VIEWER_REMOVED` / `WEBINAR_VIEWER_RESTORED`); 120 an
+  hour per user. `PUT /api/events/{id}/webinar/viewers/{registrationId}` `{ removed }`.
+- It sets `Registration.webinarRemovedAt` (and who). The registration is not changed: status, payment, seats and
+  certificates stay. While it is set the viewer rule (`viewerStandingWhere`) lets the person into nothing on the
+  webinar: the page, the player, Q&A, chat, polls, handouts, the end survey and the replay.
+- Their page learns it on its next heartbeat (the presence route answers `REMOVED_FROM_WEBINAR`): the player
+  stops and the page says "You have been removed from this webinar". A reload says the same (zoom-join answers
+  the code, `viewerRefusal` asks it first so a removed viewer never reads as unpaid). A removed viewer leaves the
+  roster at once.
+- Limit: the video stream is not checked per viewer, so someone who copied the raw stream address can still play
+  it. The removed list is on the Live now card, which shows only while the room is open.
+- Migration `20261125100000_registration_webinar_removed` (two nullable columns, additive and idempotent; a
+  rollback forgets the removals, `docs/ROLLBACK.md`).
+
 ### Event pages keep staff figures from attendee accounts (November 25, 2026)
 
 - An event's overview hides the count tiles (registrations, speakers, sessions, hotels) and the quick actions from
