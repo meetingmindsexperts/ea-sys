@@ -24,6 +24,12 @@ affected.
   The daily quota and a paused account are not retried.
 - **Still open** (ROADMAP): a send that ends with some failures is marked Sent and cannot be retried from the screen;
   the alert emails about a send failure go through the same service at the same moment.
+- **Review of a7cb314ef** (0 BLOCKER, 0 HIGH, 3 MED, LOWs; "safe to deploy before tonight's send"). Fixed: the pacer
+  reads a clock that only goes forward (a time sync stepping the wall clock back would have held every bulk email for
+  the size of the step); a refusal that names the daily quota is never retried; a fractional speed is at least 1 a
+  second; two comments that had become untrue. The three MEDs are in ROADMAP with their reasons (an open breaker fails
+  the rest of a send; three single emails that ride the bulk stream inside a request; bulk sends run inside a web
+  request are slower and can outlast the proxy).
 
 ### Recording a partner's stream, step 3: the console (November 25, 2026)
 

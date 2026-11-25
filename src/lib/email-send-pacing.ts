@@ -35,7 +35,9 @@ export function bulkSendRate(env: NodeJS.ProcessEnv = process.env): number {
   const raw = env.EMAIL_BULK_SEND_RATE;
   if (raw === undefined || raw.trim() === "") return env.NODE_ENV === "test" ? 0 : DEFAULT_BULK_SEND_RATE;
   const rate = Number(raw);
-  return Number.isFinite(rate) && rate >= 0 ? rate : DEFAULT_BULK_SEND_RATE;
+  if (!Number.isFinite(rate) || rate < 0) return DEFAULT_BULK_SEND_RATE;
+  // Above 0 it is at least 1 a second: "0.001" would be one email every 17 minutes, which is a typo.
+  return rate === 0 ? 0 : Math.max(1, rate);
 }
 
 export interface Pacer {
@@ -48,7 +50,9 @@ export interface Pacer {
  * No burst allowance on purpose: a burst is what the service refused.
  */
 export function createPacer(ratePerSecond: number, deps: { now?: () => number; sleep?: Sleep } = {}): Pacer {
-  const now = deps.now ?? Date.now;
+  // A clock that only goes forward: the wall clock stepping back an hour (a time sync) would make
+  // every bulk email wait that hour, silently (review of a7cb314ef).
+  const now = deps.now ?? (() => performance.now());
   const sleep = deps.sleep ?? realSleep;
   if (!(ratePerSecond > 0)) return { take: async () => {} };
   const intervalMs = 1000 / ratePerSecond;
@@ -71,18 +75,16 @@ export function paceBulkSend(): Promise<void> {
   return bulkPacer.take();
 }
 
-/** Test seam: forget the process pacer so the next send reads the speed again. */
-export function resetBulkPacerForTests(): void {
-  bulkPacer = null;
-}
-
 /**
  * Refused for speed, and so not sent: safe to send again. NOT the daily quota or a paused account
  * (`LimitExceededException`, `SendingPausedException`): waiting a few seconds does not fix those.
  */
 export function isSendRateRefusal(error: unknown): boolean {
-  const name = (error as { name?: string } | null)?.name ?? "";
-  return name === "TooManyRequestsException" || name === "ThrottlingException" || name === "Throttling";
+  const e = error as { name?: string; message?: string } | null;
+  const name = e?.name ?? "";
+  if (name !== "TooManyRequestsException" && name !== "ThrottlingException" && name !== "Throttling") return false;
+  // The day's quota, whatever name the service gives it: not fixed by a few seconds (review of a7cb314ef).
+  return !/daily|quota/i.test(e?.message ?? "");
 }
 
 /**

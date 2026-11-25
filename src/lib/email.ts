@@ -885,8 +885,9 @@ export async function sendEmail(input: SendEmailParams): Promise<SendEmailResult
 
   if (!breaker.canRequest()) {
     // Open: skip the provider entirely + record the skip as a FAILED row so it
-    // stays visible in /logs and the bulk loop counts it as not-sent (so a
-    // later retry resumes it via emailedKeys).
+    // stays visible in /logs and the bulk loop counts it as not-sent. NOT resumed by
+    // anything today: the row ends SENT with a failure count, and Retry takes only
+    // FAILED rows (ROADMAP, "Bulk email after the Nov 24 sending-speed failures").
     apiLogger.warn({ msg: "email:circuit-open-short-circuit", stream, to: toEmails, subject: params.subject });
     void logEmail({
       to: primaryTo,

@@ -53,8 +53,10 @@ export const MAX_PER_TICK = 10;
 
 // Rows stuck in PROCESSING for longer than this are assumed to have crashed
 // mid-send (server restart, Lambda eviction, segfault) and are flipped to
-// FAILED so the user can manually retry. 10 minutes is well above the longest
-// realistic single-row send time.
+// FAILED so the user can manually retry. A long send is NOT stuck: since Nov 25,
+// 2026 bulk email is paced (10 a second, so 5,000 people take about 8 minutes),
+// and a row still sending refreshes its updatedAt, per batch and on a timer
+// (below), which is what keeps it clear of this cutoff.
 export const STUCK_PROCESSING_MS = 10 * 60 * 1000;
 
 // How often a PROCESSING row's updatedAt is refreshed mid-send so the stuck

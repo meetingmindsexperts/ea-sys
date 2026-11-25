@@ -51,11 +51,36 @@ were refused (CHANGELOG, Nov 25). Fixed that day: bulk email is paced and a refu
    12 alert emails on Nov 24 were refused too. They now get the transactional retry; a burst of them is still one per
    failed email until the dedup key catches up.
 3. **The pacer is per process.** The worker sends scheduled bulk email; the two web containers send transactional email
-   and a few bulk kinds (CRM blast, certificates sent at once). Each bulk sender keeps to 10 a second on its own, so
-   two processes together can pass 14. The retry covers it today; a shared count (Redis, or a database row) is the
-   real answer if volume grows.
+   and the bulk kinds that run inside a request (the webinar registration confirmation, the assistant's
+   `send_bulk_email`, a CRM blast, registration forms, evidence requests, certificates sent at once). Each bulk sender
+   keeps to 10 a second on its own, so two processes together can pass 14. The retry covers it today; a shared count
+   (Redis, or a database row) is the real answer if volume grows.
 4. **Ask AWS for a higher sending rate** (owner step, SES console, Account dashboard, "Request a limit increase"), then
    raise `EMAIL_BULK_SEND_RATE` to match.
+
+**From the review of a7cb314ef (0 BLOCKER, 0 HIGH, 3 MED), not fixed that day.** All three are older than the pacing or
+need volumes production does not have (the largest send from inside a request in 90 days was 98 emails), and each means
+changing the batch loop or a tool's limits, which was not done a few hours before a live webinar's reminders:
+
+5. **MED: an open breaker fails the rest of a send in milliseconds.** Once five emails in a row have failed every try,
+   `sendEmail` answers `circuit_open` at once and `executeBulkEmail` moves on to the next batch, so everyone left is
+   failed and the row is still marked SENT (item 1). Rarer since the retry (about 20 seconds of solid refusal are needed
+   now). Fix with item 1: on `circuit_open`, stop the send and mark the row FAILED, so Retry resumes through
+   `emailedKeys`; or wait out the 30 second cooldown and run those people again.
+6. **MED: three single emails ride the bulk stream inside a person's request**, so a speed refusal now holds that
+   request for up to about 25 seconds (it used to fail at once and lose the email): the webinar registration
+   confirmation (`sendWebinarConfirmationForRegistration`, awaited by the public register route), the single survey
+   invitation from a registration, and a CRM inbox reply. Let `executeBulkEmail` take the stream and send these as
+   transactional.
+7. **MED: a bulk send run inside a web request is about ten times slower and can outlast the proxy's 60 seconds**
+   (`location /` in `deploy/nginx.conf` sets no read timeout): the assistant's `send_bulk_email` (500 people, about
+   50 seconds) and a CRM blast (no cap). Past 60 seconds the caller sees a gateway error while the send finishes, and
+   sending again emails everyone twice. Queue these as scheduled rows, as Send now already is.
+8. **LOW:** the pacer counts emails, and the service may count every recipient (To, CC, BCC), so an event-wide CC makes
+   10 a second 20 against the limit (weight the turn by recipients; no recent event has a CC); the AWS client's own
+   three tries sit under ours (up to 15 requests for one bulk email); a long send holds the job, so other due rows wait
+   for it (5,000 people, about 8 minutes); and a deploy landing in the middle of a send leaves the row to the 10 minute
+   sweep, so do not deploy within a couple of minutes of a scheduled send.
 
 ## Webinar post-event report: who attended, by role and organisation (recorded Nov 25, 2026): not started
 

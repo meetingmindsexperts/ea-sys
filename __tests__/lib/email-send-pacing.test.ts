@@ -44,6 +44,8 @@ describe("the bulk speed", () => {
     // Nonsense falls back to the default, never to "no limit".
     expect(bulkSendRate({ NODE_ENV: "production", EMAIL_BULK_SEND_RATE: "fast" })).toBe(10);
     expect(bulkSendRate({ NODE_ENV: "production", EMAIL_BULK_SEND_RATE: "-3" })).toBe(10);
+    // A fraction is a typo for "slow", never one email every 17 minutes.
+    expect(bulkSendRate({ NODE_ENV: "production", EMAIL_BULK_SEND_RATE: "0.001" })).toBe(1);
   });
 });
 
@@ -82,6 +84,7 @@ describe("which refusals are sent again", () => {
     expect(isSendRateRefusal(named("TooManyRequestsException", "Maximum sending rate exceeded."))).toBe(true);
     expect(isSendRateRefusal(named("ThrottlingException"))).toBe(true);
     expect(isSendRateRefusal(named("LimitExceededException"))).toBe(false);
+    expect(isSendRateRefusal(named("TooManyRequestsException", "Daily message quota exceeded."))).toBe(false);
     expect(isSendRateRefusal(named("SendingPausedException"))).toBe(false);
     expect(isSendRateRefusal(named("MessageRejected"))).toBe(false);
     expect(isSendRateRefusal(new Error("socket hang up"))).toBe(false);
@@ -198,6 +201,22 @@ describe("sendEmail: the one sender applies both rules", () => {
     expect(result.success).toBe(true);
     expect(calls.n).toBe(3);
     expect(warns.filter((w) => w.msg === "email:send-rate-refused-retrying")).toHaveLength(2);
+  });
+
+  it("still refused after every try: the email is failed once, and the breaker hears one failure, not five", async () => {
+    vi.useFakeTimers();
+    const { sendEmail, calls } = await loadSender({ refusals: 99 });
+    const pending = sendEmail(email("a@example.com", "bulk"));
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await pending;
+    expect(result.success).toBe(false);
+    expect(calls.n).toBe(5);
+    // One exhausted email is one failure: four more exhausted emails are needed before the bulk
+    // breaker (threshold 5) opens, so the next email is still tried.
+    const next = sendEmail(email("b@example.com", "bulk"));
+    await vi.advanceTimersByTimeAsync(60_000);
+    await next;
+    expect(calls.n).toBe(10);
   });
 
   it("two bulk sends starting together share the speed: 10 emails at 5 a second take about 2 seconds", async () => {
