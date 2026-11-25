@@ -124,7 +124,7 @@ Everything else, from the attendee page to the emails, reads that one field.</di
   <tr><td>Room open</td><td>Presses Open the room / Go live</td><td>Player appears and plays within about 20 s</td><td>Status <code>LIVE</code>; Zoom is told to start pushing (skipped if already arriving). The "Live now" email goes at the scheduled start, not on opening.</td></tr>
   <tr><td>Live</td><td>Moderates Q&amp;A, launches polls</td><td>Video, Q&amp;A, one open poll at a time</td><td>Players fetch pieces every 2 s; Q&amp;A and polls refresh every 15 s; presence beats every 30 to 40 s.</td></tr>
   <tr><td>Running late</td><td>Nothing; the console shows a "running past the scheduled end" note</td><td>Still the live view</td><td>Nothing ends on the clock. Thank-you email held. See the overrun rule below.</td></tr>
-  <tr><td>End</td><td>Presses Close the room (asks to confirm), or ends Zoom</td><td>Thank-you screen, survey popup, exit button</td><td>Status <code>COMPLETED</code>; the thank-you email is moved to 30 minutes after the close.</td></tr>
+  <tr><td>End</td><td>Presses Close the room (asks to confirm), or ends Zoom</td><td>Thank-you screen, survey popup, exit button</td><td>Status <code>COMPLETED</code>; the thank-you email is moved to 5 minutes after the close.</td></tr>
 </table>
 
 <h2 id="algorithms">5. The rules each part follows</h2>
@@ -301,7 +301,7 @@ or Zoom's live-stream service. If MediaMTX shows a clean close from Zoom's side,
   <tr><td><code>webinar-room-autoclose:kept-stream-on-air</code></td><td>Past the safety net but still streaming: kept open</td><td>info</td></tr>
   <tr><td><code>webinar-overrun:stream-missing-grace-started</code> / <code>stream-gone</code></td><td>Overrun check saw the stream missing / missing over 5 minutes</td><td>info</td></tr>
   <tr><td><code>scheduled-email:thank-you-held-room-open</code></td><td>Thank-you held because the room is open</td><td>info</td></tr>
-  <tr><td><code>webinar-sequence:thank-you-moved-after-close</code></td><td>Thank-you moved to 30 minutes after the close</td><td>info</td></tr>
+  <tr><td><code>webinar-sequence:thank-you-moved-after-close</code></td><td>Thank-you moved to 5 minutes after the close</td><td>info</td></tr>
   <tr><td><code>stream-probe:mediamtx-unreachable</code></td><td>The app or worker could not reach MediaMTX at all (at most once a minute)</td><td>warn</td></tr>
   <tr><td><code>webinar-stream:dropped-while-live</code></td><td>The watchdog saw the stream gone (twice, 20 s apart) while the room is open</td><td>warn</td></tr>
   <tr><td><code>webinar-stream:auto-restart-stopped-not-live-in-zoom</code></td><td>Zoom says the webinar is not running: no more restarts for this drop</td><td>warn</td></tr>

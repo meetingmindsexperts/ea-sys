@@ -26,6 +26,8 @@ function phaseOffsetMs(phase: string, start: Date, end: Date): number | null {
   if (phase === "webinar-reminder-1h") return -60 * 60_000;
   if (phase === "webinar-reminder-15m") return -15 * 60_000;
   if (phase === "webinar-live-now") return 0;
+  // Rows this reads were made when the thank-you went 30 minutes after the end, before
+  // `webinarStartsAt` was stamped (Oct 28, 2026): that is their offset, whatever the delay is now.
   if (phase === "webinar-thank-you") return end.getTime() + 30 * 60_000 - start.getTime();
   return null;
 }
@@ -77,9 +79,9 @@ interface PhaseTiming {
 }
 
 /**
- * When the thank-you goes, as the sequence is (re)built. Before the webinar runs, 30 minutes after the
- * scheduled end. Once it has run (room open, or closed since the start) that time may be past or later
- * than the real end, and a rebuild must not drop or delay it, so it goes 30 minutes from now; the
+ * When the thank-you goes, as the sequence is (re)built. Before the webinar runs, THANK_YOU_AFTER_CLOSE_MS
+ * after the scheduled end. Once it has run (room open, or closed since the start) that time may be past or
+ * later than the real end, and a rebuild must not drop or delay it, so it goes that long from now; the
  * sender still holds it while the room is open (review MED, Oct 28, 2026).
  */
 function thankYouTime(startTime: Date, endTime: Date, anchorStatus: string | null | undefined, now: number): Date {
@@ -429,7 +431,7 @@ export async function clearPendingWebinarSequence(
 
 // ── The thank-you follows the room, not the clock (owner, Oct 28, 2026) ───────
 //
-// The thank-you used to go out 30 minutes after the SCHEDULED end, so a webinar
+// The thank-you used to go out a fixed time after the SCHEDULED end, so a webinar
 // that overran told its audience "thank you for joining" while it was still on
 // air, and one that ended early waited for the scheduled time. Now:
 //  - while the room is open, the sender holds the thank-you and looks again
@@ -439,7 +441,8 @@ export async function clearPendingWebinarSequence(
 //    thank-you to THANK_YOU_AFTER_CLOSE_MS after the close.
 
 export const THANK_YOU_HOLD_MS = 10 * 60_000;
-export const THANK_YOU_AFTER_CLOSE_MS = 30 * 60_000;
+// 5 minutes since Nov 25, 2026 (owner: "let it go after the room closed in 5 mins"); it was 30.
+export const THANK_YOU_AFTER_CLOSE_MS = 5 * 60_000;
 /** A close counts as the webinar's end only from its scheduled start (a soundcheck closed before the
  *  start must not thank anyone, review MED) up to this long after its scheduled end: the overrun hard
  *  cap, so a close at the very end of a long overrun still moves the thank-you (Nov 5, 2026). */

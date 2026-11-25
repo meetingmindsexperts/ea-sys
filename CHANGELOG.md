@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinars: the thank-you 5 minutes after the close, and a compact session page (November 25, 2026)
+
+Owner, after the β-Thalassemia webinar on Nov 24.
+
+- The automatic thank-you email goes **5 minutes** after the room closes (`THANK_YOU_AFTER_CLOSE_MS`; it was 30).
+  It still follows the room, not the clock: held while the room is open, moved to the close plus 5 minutes when
+  it closes. A queued row from before the stamp keeps being read at its old 30-minute offset, so an older webinar's
+  row is never mistaken for another date.
+- The attendee's session page: while the stream is live, the "Live now" strip is gone (the page's Live badge and
+  the player's own LIVE already say it); it stays while people wait, and on a Zoom join, where it holds the Join
+  button. The header card is compact: less margin and padding above the title, a smaller title (text-lg on a
+  phone), and smaller date and time.
+- Docs: WEBINAR_EVENTS, WEBINAR_STREAMING, WEBINAR_TROUBLESHOOTING and the user guide say 5 minutes.
+
 ### Analytics: the traffic figures follow the same rules (November 24, 2026)
 
 - `GET /api/analytics/traffic`: an attendee account with an organisation (an internal-domain registrant) now reads

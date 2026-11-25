@@ -2068,7 +2068,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // cron worker has successfully fetched it from Zoom. Until then, the
     // template renders a "coming soon" fallback via recordingBlock.
     // The organiser's switch (Oct 28, 2026): while the recording is not shown to attendees the email
-    // neither links it nor promises it, since the thank-you goes out on its own at end + 30 min.
+    // neither links it nor promises it, since the thank-you goes out on its own 5 minutes after the room closes.
     const recordingShown = webinarRecordingShown(event.settings);
     const sessionPageUrl = `${appUrl}/e/${event.slug}/session/${anchorSessionId}`;
     // One rule for which replay (webinar/replay.ts, Nov 10, 2026): the organiser's uploaded replay

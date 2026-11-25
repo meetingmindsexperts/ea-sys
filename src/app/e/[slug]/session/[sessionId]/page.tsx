@@ -269,8 +269,9 @@ function mainContentClass(isWebinarEvent: boolean, backgroundUrl: string | null 
   if (!isWebinarEvent) return "mx-auto max-w-[1920px] space-y-6 px-4 py-6 lg:px-6";
   // An uploaded background shows in full (owner, Oct 7, 2026):
   // no frosted panel over it; the cards keep their own white.
-  if (backgroundUrl) return "mx-4 my-6 max-w-[1920px] space-y-6 px-4 py-6 lg:mx-6 lg:px-6 min-[1968px]:mx-auto";
-  return "mx-4 my-6 max-w-[1920px] space-y-6 rounded-2xl lg:mx-6 min-[1968px]:mx-auto bg-white/85 px-4 py-6 shadow-sm backdrop-blur-sm lg:px-6";
+  // Compact top (owner, Nov 25, 2026: less margin and padding above the title).
+  if (backgroundUrl) return "mx-4 my-3 max-w-[1920px] space-y-6 px-4 py-3 sm:my-4 lg:mx-6 lg:px-6 min-[1968px]:mx-auto";
+  return "mx-4 my-3 max-w-[1920px] space-y-6 rounded-2xl sm:my-4 lg:mx-6 min-[1968px]:mx-auto bg-white/85 px-4 py-4 shadow-sm backdrop-blur-sm lg:px-6";
 }
 
 function joinCtaTitle(isLive: boolean, playsStream: boolean): string {
@@ -790,17 +791,17 @@ export default function PublicSessionPage() {
         {/* Session title + metadata; on a webinar the uploaded logo sits to
             its left (owner, Oct 6, 2026). Over a background image it gets its
             own white card, since the page panel no longer covers the image. */}
-        <div className={cn("flex items-center gap-4 sm:gap-6", backgroundUrl && "rounded-xl bg-white px-5 py-4 shadow-sm")}>
+        <div className={cn("flex items-center gap-4 sm:gap-6", backgroundUrl && "rounded-xl bg-white px-4 py-3 shadow-sm")}>
           {branding?.logoUrl && (
             // eslint-disable-next-line @next/next/no-img-element -- an uploaded image of any size (see EventBannerBand)
             <img
               src={branding.logoUrl}
               alt={event?.name ?? "Event logo"}
-              className="h-14 w-auto max-w-[40%] shrink-0 object-contain sm:h-20"
+              className="h-12 w-auto max-w-[40%] shrink-0 object-contain sm:h-16"
             />
           )}
         <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             {isLive && (
               <Badge className="bg-green-100 text-green-800 border-green-200 gap-1">
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -834,18 +835,18 @@ export default function PublicSessionPage() {
             )}
           </div>
 
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">
+          <h1 className="text-lg font-bold leading-snug text-foreground sm:text-xl md:text-2xl">
             {session?.name || joinInfo?.sessionName || "Session"}
           </h1>
 
           {session && (
-            <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-muted-foreground">
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground sm:text-sm">
               <span className="flex items-center gap-1.5">
-                <Calendar className="h-4 w-4" />
+                <Calendar className="h-3.5 w-3.5" />
                 {formatDateInTz(new Date(session.startTime), event?.timezone ?? DEFAULT_EVENT_TIMEZONE)}
               </span>
               <span className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4" />
+                <Clock className="h-3.5 w-3.5" />
                 {formatTimeInTz(new Date(session.startTime), event?.timezone ?? DEFAULT_EVENT_TIMEZONE)} &ndash;{" "}
                 {formatTimeInTz(new Date(session.endTime), event?.timezone ?? DEFAULT_EVENT_TIMEZONE)}
                 {(() => {
@@ -855,13 +856,13 @@ export default function PublicSessionPage() {
               </span>
               {session.location && (
                 <span className="flex items-center gap-1.5">
-                  <MapPin className="h-4 w-4" />
+                  <MapPin className="h-3.5 w-3.5" />
                   {session.location}
                 </span>
               )}
               {session.capacity && (
                 <span className="flex items-center gap-1.5">
-                  <Users className="h-4 w-4" />
+                  <Users className="h-3.5 w-3.5" />
                   {session.capacity} seats
                 </span>
               )}
@@ -1673,6 +1674,10 @@ function StickyCta({
     // partner's key exists and so before there is an address to play. The banner said "This webinar
     // will open in Zoom" there (review of c1b4ae83, seen in the before/after screenshots).
     const ctaStream = playsStream || joinInfo.mode === "stream";
+    // Live on the stream, the strip only repeated the page's Live badge and the player's own LIVE
+    // (owner, Nov 25, 2026: "we are showing live now at the top and on the video"). It stays while
+    // people wait, and on a Zoom join, where it holds the Join button.
+    if (ctaStream && isLive) return null;
 
     const renderJoinAction = () => {
       // The room is not open yet: the lobby poll admits them when it opens.
