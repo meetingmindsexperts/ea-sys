@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM: People beside the deal's activity, and a History that scrolls (November 25, 2026)
+
+Owner, from a deal page: put History "in a container like 400px and overflow y scroll", give the People card "more
+prominence", and swap People with Add a follow-up.
+
+- **People** moves from the side column into the main one, right under Activity, with the primary border. On a wide
+  screen people sit two across; a cut-off email shows in full on hover.
+- **Add a follow-up** moves to the top of the side column, so it is on screen without scrolling on a laptop.
+- **History** is at most 400px tall and scrolls inside its card, on the deal, account and contact pages (they share
+  it). A short history keeps its own height. The list takes keyboard focus so it scrolls without a mouse.
+- **Review of 5ad00de99** (0 BLOCKER, 0 HIGH, 2 MED, 7 LOW). Fixed: two across only from extra-wide screens (from
+  tablet width it squeezed names and emails), and the follow-up first in the side column (at the bottom it fell below
+  the fold on a 1366x768 laptop); also the date field's minimum width and two comments that described the old layout.
+  Left as they are: the History list is a tab stop even when short, and the 400px cap also applies on the account and
+  contact pages, where History is the last card.
+
 ### RSVP: the page's words are the organiser's (November 25, 2026)
 
 Owner, from an organiser's screen of the 4th GCC Hematology Hub dinner RSVP: remove "Hello NAME, please let us know your

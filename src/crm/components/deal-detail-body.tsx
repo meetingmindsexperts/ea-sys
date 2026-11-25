@@ -4,9 +4,10 @@
  * Deal detail — the body of the dedicated deal page (/crm/deals/[dealId]).
  *
  * Record-page layout: an identity header with the deal's key stats (value, stage,
- * expected close, owner), then a two-column body — the main work area (activity,
- * follow-ups, products, history) and a sticky rail of secondary facts, the close
- * action and the people on the deal. `onClosed` navigates away after archive/close.
+ * expected close, owner), then a two-column body: the main work area (activity,
+ * the people on the deal, products, documents, history) and a sticky rail with
+ * Add a follow-up first, then the facts and the close action (Nov 25, 2026).
+ * `onClosed` navigates away after archive/close.
  *
  * Notes are the reason this view exists: a human saying "I called them, they want
  * Gold, decision after the board meets" — the one thing no automated sync produces.
@@ -329,6 +330,35 @@ export function DealDetailBody({
       <RecordGrid
         sidebar={
           <>
+            {/* ── Follow-up: first in the rail, so it is on screen without scrolling (side column since Nov 25, 2026, swapped with People) ── */}
+            {canWrite && (
+              <RecordCard icon={CalendarDays} title="Add a follow-up">
+                <div className="space-y-2">
+                  <Input
+                    aria-label="Follow-up"
+                    placeholder="Chase Abbott about the Gold package"
+                    value={taskTitle}
+                    onChange={(e) => setTaskTitle(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <Input
+                      type="date"
+                      aria-label="Due date"
+                      className="min-w-[9.5rem] flex-1"
+                      value={taskDue}
+                      onChange={(e) => setTaskDue(e.target.value)}
+                    />
+                    <Button onClick={handleAddTask} disabled={!taskTitle.trim() || createTask.isPending}>
+                      Add
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    A due date also sets the reminder: you&apos;ll get an email when it&apos;s due.
+                  </p>
+                </div>
+              </RecordCard>
+            )}
+
             <RecordCard icon={Info} title="Details">
               <Facts>
                 <Fact label="Account">
@@ -403,34 +433,6 @@ export function DealDetailBody({
               </RecordCard>
             )}
 
-            {/* ── Follow-up (side column since Nov 25, 2026: it swapped places with People) ── */}
-            {canWrite && (
-              <RecordCard icon={CalendarDays} title="Add a follow-up">
-                <div className="space-y-2">
-                  <Input
-                    aria-label="Follow-up"
-                    placeholder="Chase Abbott about the Gold package"
-                    value={taskTitle}
-                    onChange={(e) => setTaskTitle(e.target.value)}
-                  />
-                  <div className="flex gap-2">
-                    <Input
-                      type="date"
-                      aria-label="Due date"
-                      className="min-w-0 flex-1"
-                      value={taskDue}
-                      onChange={(e) => setTaskDue(e.target.value)}
-                    />
-                    <Button onClick={handleAddTask} disabled={!taskTitle.trim() || createTask.isPending}>
-                      Add
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    A due date also sets the reminder: you&apos;ll get an email when it&apos;s due.
-                  </p>
-                </div>
-              </RecordCard>
-            )}
           </>
         }
       >
@@ -477,8 +479,8 @@ export function DealDetailBody({
 }
 
 /**
- * The people on a deal — list + add picker (rendered inside the sidebar "People"
- * card). The picker is over CRM contacts (reps, procurement, marketing), NOT the
+ * The people on a deal: list + add picker (rendered inside the main column's
+ * "People" card). The picker is over CRM contacts (reps, procurement, marketing), NOT the
  * event HCP store: putting a doctor here would be a category error.
  */
 function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolean }) {
@@ -495,7 +497,7 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
           Nobody linked yet — add the rep you&apos;re actually talking to.
         </p>
       ) : (
-        <ul className="grid gap-2 sm:grid-cols-2">
+        <ul className="grid gap-2 xl:grid-cols-2">
           {onDeal.map(({ crmContact, role: r }) => (
             <li key={crmContact.id} className="flex min-w-0 items-center justify-between gap-2 rounded-md border p-3">
               <div className="min-w-0">
@@ -505,7 +507,7 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
                 >
                   {crmContact.firstName} {crmContact.lastName}
                 </Link>
-                <p className="truncate text-xs text-muted-foreground">
+                <p className="truncate text-xs text-muted-foreground" title={crmContact.email ?? undefined}>
                   {crmContact.jobTitle ? `${crmContact.jobTitle} · ` : ""}
                   {crmContact.email}
                 </p>
