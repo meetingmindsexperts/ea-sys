@@ -77,6 +77,7 @@ import {
 import { StreamDelay } from "@/components/webinar/stream-delay";
 import { ChatModerationPanel } from "@/components/webinar/chat-moderation-panel";
 import { PartnerStreamCard, partnerSignalLabel } from "@/components/webinar/partner-stream-card";
+import { StreamRecordingPanel } from "@/components/webinar/stream-recording-panel";
 import type { PlayerTimingSample } from "@/components/zoom/live-player";
 import { useServerClock } from "@/hooks/use-server-clock";
 import {
@@ -522,6 +523,7 @@ export default function WebinarConsolePage() {
         {/* The reports that were this tab moved to the event's Analytics page (Nov 23, 2026); the
             recording stays, because the replay link is a setting the producer makes after the event. */}
         <TabsContent value="recording" className="space-y-6 mt-4">
+          {partner && <PartnerRecordingCard eventId={eventId} />}
           <RecordingCard
             // Remounts when the saved link changes, so the field shows what is stored.
             key={`recording:${data ? "loaded" : "loading"}:${data?.webinar?.replayUrl ?? ""}`}
@@ -1193,6 +1195,28 @@ function TroubleshootingLink() {
         <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
       </a>
     </div>
+  );
+}
+
+// Recording a partner's stream (Nov 25, 2026; docs/PARTNER_STREAM_RECORDING_PLAN.md step 3). The same
+// controls as the Partner stream card's Recording section, which read the same query.
+function PartnerRecordingCard({ eventId }: { eventId: string }) {
+  const canManage = useCan("webinar.manage", eventId) === "allowed";
+  if (!canManage) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <ConsoleTitle icon={CircleDot} tone="red">
+          Partner stream recording
+        </ConsoleTitle>
+        <CardDescription>
+          Our own copy of the partner&apos;s stream, for staff to download and hand to the client. Recorded only with the partner&apos;s agreement.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <StreamRecordingPanel eventId={eventId} placement="tab" />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -3773,6 +3797,9 @@ const STREAM_EVENT_LABEL: Record<WebinarStreamTimelineEntry["kind"], { label: st
   STREAM_DROPPED: { label: "Stream dropped", tone: "bg-red-500" },
   AUTO_RESTART_REQUESTED: { label: "Restart requested automatically", tone: "bg-amber-500" },
   AUTO_RESTART_FAILED: { label: "Automatic restart refused", tone: "bg-red-500" },
+  RECORDING_STARTED: { label: "Recording started", tone: "bg-red-500" },
+  RECORDING_STOPPED: { label: "Recording stopped", tone: "bg-slate-400" },
+  RECORDING_FINISHED: { label: "Recording finished", tone: "bg-slate-400" },
 };
 
 /**

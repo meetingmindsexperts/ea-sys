@@ -27,6 +27,7 @@ import { getLastZoomEndTime } from "@/lib/zoom/reports";
 import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
 import { isWebinarStreamArriving, OVERRUN_HARD_CAP_MS } from "@/lib/webinar/overrun";
 import { recordStreamEvent } from "@/lib/webinar/stream-timeline";
+import { finishRecordingOnRoomClose } from "@/services/stream-recording-service";
 
 export const SAFETY_NET_MS = 2 * 60 * 60 * 1000;
 export const MAX_ROOMS_PER_TICK = 20;
@@ -187,6 +188,14 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
           source: "worker",
         });
         await retimeThankYouAfterRoomClose(room.eventId, now);
+        // Never throws; a no-op on the many webinars that were not recorded.
+        await finishRecordingOnRoomClose({
+          organizationId: room.event.organizationId,
+          eventId: room.eventId,
+          sessionId: room.id,
+          userId: null,
+          source: "worker",
+        });
         return decision;
       });
       if (outcome !== "keep") report.closed += 1;

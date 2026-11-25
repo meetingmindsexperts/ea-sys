@@ -53,6 +53,8 @@ const { mockIsStreamArriving, mockProbeStream } = vi.hoisted(() => ({
   mockProbeStream: vi.fn(async () => "absent"),
 }));
 vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: mockIsStreamArriving, probeStream: mockProbeStream }));
+const { mockFinishRecording } = vi.hoisted(() => ({ mockFinishRecording: vi.fn(async () => undefined) }));
+vi.mock("@/services/stream-recording-service", () => ({ finishRecordingOnRoomClose: mockFinishRecording }));
 
 import { PUT as webinarPut } from "@/app/api/events/[eventId]/webinar/route";
 import { POST as roomPost } from "@/app/api/events/[eventId]/webinar/room/route";
@@ -281,6 +283,21 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
     expect(mockDb.eventSession.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: "SCHEDULED" } }),
     );
+  });
+
+  // Recording a partner's stream, step 3 (Nov 25, 2026): the webinar is over, so the recording is finished.
+  it("a close that ends the webinar finishes its recording, as the person who closed", async () => {
+    await callRoom({ open: false });
+    expect(mockFinishRecording).toHaveBeenCalledWith({
+      organizationId: "org1", eventId: "ev1", sessionId: "anchor1", userId: "u1", source: "room",
+    });
+  });
+
+  it("a rehearsal close and an open leave the recording alone", async () => {
+    mockDb.eventSession.findFirst.mockResolvedValue({ name: "Webinar", status: "LIVE", startTime: new Date(Date.now() + 86_400_000) });
+    await callRoom({ open: false });
+    await callRoom({ open: true });
+    expect(mockFinishRecording).not.toHaveBeenCalled();
   });
 
   it("a rehearsal close keeps a CANCELLED anchor cancelled (review of fb4459d0)", async () => {

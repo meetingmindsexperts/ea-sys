@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Recording a partner's stream, step 3: the console (November 25, 2026)
+
+Plan: `docs/PARTNER_STREAM_RECORDING_PLAN.md` §4.5. Still dark: the controls show only on a server with
+`STREAM_RECORDING_ENABLED` set, which waits on step 4 (the MP4).
+
+- **Webinar Console, Partner stream card and Recording tab**: a Recording section. Before the first start, the tick
+  "The partner has agreed to this recording" (stored with who and when) and **Start recording**; before the stream
+  begins, Start arms it and it records from the moment the partner connects. Then **Stop** (Start again carries on
+  the same recording with a break marked) and **Finish recording** (confirmed; it cannot be started again). A red
+  REC mark with the time and size that have reached storage, and an amber line when nothing new has arrived for
+  three minutes while the partner's video is arriving. Needs `webinar.manage`.
+- `GET/POST /api/events/{id}/webinar/partner-stream/recording` (actions `start`, `stop`, `finish`; 60 an hour per
+  event). A stream server that did not take a change is said in the answer and put right by the minute sweep.
+- Closing the room after the start, by staff or automatically, finishes the recording; a rehearsal close does not.
+- Each start, stop and finish is a line on the console's Stream timeline (Recording started, stopped, finished).
+
 ### Webinars: the post-event report also downloads as Word and CSV (November 25, 2026)
 
 Owner: the client wants to edit the post-event report PDF; "can we give CSV option too". Decided: Word and CSV.

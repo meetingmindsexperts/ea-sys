@@ -42,6 +42,7 @@ import { GET as engagementGET, POST as engagementPOST } from "@/app/api/events/[
 import { GET as livestreamGET, POST as livestreamPOST } from "@/app/api/events/[eventId]/webinar/livestream/route";
 import { GET as partnerStreamGET, POST as partnerStreamPOST, PATCH as partnerStreamPATCH } from "@/app/api/events/[eventId]/webinar/partner-stream/route";
 import { POST as partnerStreamKeyPOST } from "@/app/api/events/[eventId]/webinar/partner-stream/credentials/route";
+import { GET as streamRecordingGET, POST as streamRecordingPOST } from "@/app/api/events/[eventId]/webinar/partner-stream/recording/route";
 import { POST as resendPOST } from "@/app/api/events/[eventId]/webinar/panelists/[panelistId]/resend/route";
 import { GET as panelistsGET, POST as panelistsPOST, DELETE as panelistsDELETE } from "@/app/api/events/[eventId]/webinar/panelists/route";
 import { POST as syncSpeakersPOST } from "@/app/api/events/[eventId]/webinar/panelists/sync-speakers/route";
@@ -84,6 +85,8 @@ const CASES: HandlerCase[] = [
   { name: "POST webinar/partner-stream", handler: partnerStreamPOST, method: "POST", body: { action: "cut" } },
   { name: "PATCH webinar/partner-stream", handler: partnerStreamPATCH, method: "PATCH", body: { issuedTo: "Agency" } },
   { name: "POST webinar/partner-stream/credentials", handler: partnerStreamKeyPOST, method: "POST", body: {} },
+  { name: "GET webinar/partner-stream/recording", handler: streamRecordingGET, method: "GET" },
+  { name: "POST webinar/partner-stream/recording", handler: streamRecordingPOST, method: "POST", body: { action: "stop" } },
   { name: "GET webinar/panelists", handler: panelistsGET, method: "GET" },
   { name: "POST webinar/panelists", handler: panelistsPOST, method: "POST", body: { name: "Pat Panel", email: "pat@test.local" } },
   { name: "DELETE webinar/panelists", handler: panelistsDELETE, method: "DELETE", query: "panelistId=p1" },

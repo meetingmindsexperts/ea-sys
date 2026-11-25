@@ -31,8 +31,11 @@
  * the route's own catch. Never imports next/server. The caller has already
  * authorised the event (webinar.manage).
  *
- * NOT YET HERE (later steps of the plan): shipping the pieces to S3 (step 2),
- * the console (step 3), the MP4, download, delete and retention (step 4).
+ * Each start, stop and finish is also a line on the console's stream timeline
+ * (stream-timeline.ts), beside the audit row.
+ *
+ * NOT YET HERE (later steps of the plan): the MP4, download, delete and
+ * retention (step 4).
  * Until step 4 a FINISHING recording stays FINISHING, which is why the feature
  * is dark until then (STREAM_RECORDING_ENABLED).
  */
@@ -50,6 +53,7 @@ import {
 } from "@/lib/webinar/mediamtx-control";
 import { freeDiskBytes, RECORDING_MIN_FREE_BYTES } from "@/lib/webinar/recording-disk";
 import { sessionStream } from "@/lib/webinar/session-stream";
+import { recordStreamEvent, type StreamEventKind } from "@/lib/webinar/stream-timeline";
 import {
   isRecordingOpen,
   pausesAfterStart,
@@ -112,6 +116,8 @@ export interface StreamRecordingView {
   segmentCount: number;
   totalBytes: number;
   durationMs: number;
+  /** When the newest piece in storage ends: how the console tells pieces are still arriving. Null before the first. */
+  lastPieceAt: Date | null;
   hasArchive: boolean;
   archiveBytes: number | null;
   error: string | null;
@@ -156,6 +162,8 @@ const ROW_SELECT = {
   error: true,
   deleteAfter: true,
   session: { select: { endTime: true } },
+  // The newest piece only, for lastPieceAt. One row by the (recordingId, seq) unique.
+  segments: { orderBy: { seq: "desc" }, take: 1, select: { startedAt: true, durationMs: true } },
 } as const;
 
 interface Row {
@@ -179,6 +187,7 @@ interface Row {
   error: string | null;
   deleteAfter: Date | null;
   session: { endTime: Date };
+  segments: { startedAt: Date; durationMs: number }[];
 }
 
 function toView(row: Row): StreamRecordingView {
@@ -195,11 +204,16 @@ function toView(row: Row): StreamRecordingView {
     // Bytes of video fit a JavaScript number with room to spare (9 PB); a bigint cannot be sent as JSON.
     totalBytes: Number(row.totalBytes),
     durationMs: row.durationMs,
+    lastPieceAt: lastPieceEnd(row.segments[0]),
     hasArchive: row.archivePath !== null,
     archiveBytes: row.archiveBytes === null ? null : Number(row.archiveBytes),
     error: row.error,
     deleteAfter: row.deleteAfter,
   };
+}
+
+function lastPieceEnd(piece: { startedAt: Date; durationMs: number } | undefined): Date | null {
+  return piece ? new Date(piece.startedAt.getTime() + piece.durationMs) : null;
 }
 
 function refuse(caller: Caller, op: RecordingAction, code: StreamRecordingErrorCode): { ok: false; code: StreamRecordingErrorCode; message: string } {
@@ -210,8 +224,38 @@ function refuse(caller: Caller, op: RecordingAction, code: StreamRecordingErrorC
   return { ok: false, code, message: MESSAGES[code] };
 }
 
-/** Who started, stopped or finished a recording. Never the stream key or where the files are. */
+const TIMELINE_KIND: Record<string, StreamEventKind> = {
+  STREAM_RECORDING_STARTED: "RECORDING_STARTED",
+  STREAM_RECORDING_RESUMED: "RECORDING_STARTED",
+  STREAM_RECORDING_STOPPED: "RECORDING_STOPPED",
+  STREAM_RECORDING_FINISHED: "RECORDING_FINISHED",
+};
+
+const FINISH_REASON_TEXT: Record<string, string> = {
+  "room-closed": "The room was closed",
+  overran: "Still open 6 hours after the scheduled end",
+};
+
+/**
+ * Who started, stopped or finished a recording, as an audit row and a line on
+ * the stream timeline. Never the stream key or where the files are. A
+ * timeline line needs the organisation; the system acting on a recording it
+ * was not handed one for writes the audit row only.
+ */
 async function audit(caller: Caller, action: string, entityId: string, changes: Record<string, unknown>): Promise<void> {
+  const kind = TIMELINE_KIND[action];
+  if (kind && caller.organizationId) {
+    const reason = typeof changes.reason === "string" ? FINISH_REASON_TEXT[changes.reason] : undefined;
+    await recordStreamEvent({
+      organizationId: caller.organizationId,
+      eventId: caller.eventId,
+      sessionId: caller.sessionId,
+      kind,
+      userId: caller.userId,
+      detail: action === "STREAM_RECORDING_RESUMED" ? "Carried on after a stop" : (reason ?? null),
+      source: caller.source === "worker" ? "worker" : "rest",
+    });
+  }
   try {
     await db.auditLog.create({
       data: {
@@ -470,6 +514,23 @@ export async function finishStreamRecording(
     await audit(input, "STREAM_RECORDING_FINISHED", existing.id, { reason: input.reason });
   }
   return answer(input, "finish");
+}
+
+/**
+ * The room closing ends the webinar, so it finishes the recording (plan §4.3).
+ * Called by the producer's close and by the automatic close, only when the
+ * webinar is over (a close before the start is a rehearsal, and leaves the
+ * recording open for the day). Never throws: the room is already closed, and
+ * a recording left open is finished by the sweep at its limit.
+ */
+export async function finishRecordingOnRoomClose(
+  at: At & { organizationId: string; userId: string | null; source: "room" | "worker" },
+): Promise<void> {
+  try {
+    await finishStreamRecording({ ...at, reason: "room-closed" });
+  } catch (err) {
+    apiLogger.error({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:finish-on-room-close-failed");
+  }
 }
 
 /** What the sweep found for one recording. */

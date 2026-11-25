@@ -3776,6 +3776,65 @@ export function useUpdateWebinarPartnerStream(eventId: string) {
   });
 }
 
+/** A partner stream's recording as staff see it (Nov 25, 2026; docs/PARTNER_STREAM_RECORDING_PLAN.md step 3). */
+export interface WebinarStreamRecordingView {
+  id: string;
+  sessionId: string;
+  status: "RECORDING" | "PAUSED" | "FINISHING" | "READY" | "FAILED";
+  partnerAgreedAt: string;
+  startedAt: string;
+  lastStartedAt: string;
+  stoppedAt: string | null;
+  finishedAt: string | null;
+  segmentCount: number;
+  totalBytes: number;
+  durationMs: number;
+  /** When the newest piece in storage ends; null before the first. */
+  lastPieceAt: string | null;
+  hasArchive: boolean;
+  archiveBytes: number | null;
+  error: string | null;
+  deleteAfter: string | null;
+}
+
+export interface WebinarStreamRecordingState {
+  /** Whether a recording can be started on this server. One already made is shown either way. */
+  available: boolean;
+  recording: WebinarStreamRecordingView | null;
+}
+
+export type WebinarStreamRecordingChange = {
+  recording: WebinarStreamRecordingView;
+  /** Whether the stream server took the change; when not, the minute sweep tries again. */
+  server: { ok: true } | { ok: false; error: string };
+};
+
+/** Polled every 10 seconds while shown, so the time and size recorded follow the pieces reaching storage. */
+export function useWebinarStreamRecording(eventId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.webinar(eventId), "stream-recording"] as const,
+    queryFn: () => fetchApi<WebinarStreamRecordingState>(`/api/events/${eventId}/webinar/partner-stream/recording`),
+    enabled: enabled && !!eventId,
+    refetchInterval: 10_000,
+  });
+}
+
+/** Start (or carry on), stop for now, or finish the recording for good. */
+export function useWebinarStreamRecordingAction(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { action: "start"; partnerAgreed?: boolean } | { action: "stop" } | { action: "finish" }) =>
+      fetchApi<WebinarStreamRecordingChange>(`/api/events/${eventId}/webinar/partner-stream/recording`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
 /**
  * Show the partner's server and stream key. A mutation on purpose: every look
  * is audited, so it is asked for by a press, never cached or refetched.
@@ -4197,7 +4256,10 @@ export interface WebinarStreamTimelineEntry {
     | "STREAM_LIVE"
     | "STREAM_DROPPED"
     | "AUTO_RESTART_REQUESTED"
-    | "AUTO_RESTART_FAILED";
+    | "AUTO_RESTART_FAILED"
+    | "RECORDING_STARTED"
+    | "RECORDING_STOPPED"
+    | "RECORDING_FINISHED";
   at: string;
   user: { firstName: string; lastName: string } | null;
   detail: string | null;

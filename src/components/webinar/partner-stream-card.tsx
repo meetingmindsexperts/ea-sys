@@ -40,6 +40,7 @@ import {
 } from "@/hooks/use-api";
 import { formatDateTimeInTz, localDateTimeInTz, wallTimeInTzToIso } from "@/lib/event-time";
 import { PARTNER_ENCODER_SETTINGS, partnerHandoverText } from "@/lib/webinar/partner-handover";
+import { StreamRecordingPanel } from "@/components/webinar/stream-recording-panel";
 
 type Signal = WebinarPartnerStreamState["signal"];
 
@@ -302,6 +303,7 @@ function IssuedKey({
       />
       <KeyDetails key={`${stream.issuedTo ?? ""}:${stream.validUntil}`} eventId={eventId} timezone={timezone} stream={stream} />
       <KeyActions eventId={eventId} enabled={stream.enabled} />
+      <StreamRecordingPanel eventId={eventId} placement="card" />
       <EncoderSettings />
     </PartnerCardShell>
   );

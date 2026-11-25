@@ -9,8 +9,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockDb, mockLogger, control, streamSpy, diskSpy } = vi.hoisted(() => ({
+const { mockDb, mockLogger, control, streamSpy, diskSpy, timelineSpy } = vi.hoisted(() => ({
   diskSpy: vi.fn(),
+  timelineSpy: vi.fn(),
   control: {
     isMediamtxControlConfigured: vi.fn(),
     setPathRecording: vi.fn(),
@@ -34,8 +35,10 @@ vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/webinar/mediamtx-control", () => control);
 vi.mock("@/lib/webinar/session-stream", () => ({ sessionStream: streamSpy }));
 vi.mock("@/lib/webinar/recording-disk", () => ({ freeDiskBytes: diskSpy, RECORDING_MIN_FREE_BYTES: 6 * 1024 ** 3 }));
+vi.mock("@/lib/webinar/stream-timeline", () => ({ recordStreamEvent: timelineSpy }));
 
 import {
+  finishRecordingOnRoomClose,
   finishStreamRecording,
   getStreamRecording,
   keepRecordingInStep,
@@ -71,6 +74,7 @@ const row = (extra: Record<string, unknown> = {}) => ({
   archiveBytes: null,
   error: null,
   deleteAfter: null,
+  segments: [],
   ...extra,
 });
 
@@ -96,6 +100,7 @@ beforeEach(() => {
   mockDb.streamRecording.findMany.mockResolvedValue([]);
   mockDb.auditLog.create.mockResolvedValue({});
   diskSpy.mockResolvedValue(18 * 1024 ** 3);
+  timelineSpy.mockResolvedValue(undefined);
 });
 afterEach(() => {
   delete process.env.STREAM_RECORDING_ENABLED;
@@ -443,6 +448,70 @@ describe("getStreamRecording", () => {
   it("null when the session has none", async () => {
     reads(null);
     expect(await getStreamRecording({ eventId: "ev1", sessionId: "s1" })).toBeNull();
+  });
+
+  it("says when the newest piece in storage ends, and null before the first", async () => {
+    reads(row({ segments: [{ startedAt: new Date("2026-12-01T09:10:00Z"), durationMs: 6_000 }] }));
+    expect((await getStreamRecording({ eventId: "ev1", sessionId: "s1" }))?.lastPieceAt).toEqual(new Date("2026-12-01T09:10:06Z"));
+    reads(row());
+    expect((await getStreamRecording({ eventId: "ev1", sessionId: "s1" }))?.lastPieceAt).toBeNull();
+  });
+});
+
+// Step 3 (Nov 25, 2026): each start, stop and finish is a line on the console's stream timeline.
+describe("the stream timeline", () => {
+  it("a first start, a stop and a carry-on are each a line, with the person who pressed", async () => {
+    streamSpy.mockResolvedValue({ source: "external", streamKey: KEY, streamStatus: "ACTIVE" });
+    reads(null, row());
+    mockDb.streamRecording.create.mockResolvedValue(row());
+    await startStreamRecording({ ...caller, partnerAgreed: true, now: NOW });
+    expect(timelineSpy).toHaveBeenLastCalledWith({
+      organizationId: "org1", eventId: "ev1", sessionId: "s1", kind: "RECORDING_STARTED", userId: "u1", detail: null, source: "rest",
+    });
+    reads(row(), row({ status: "PAUSED" }));
+    await stopStreamRecording({ ...caller, now: NOW });
+    expect(timelineSpy).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "RECORDING_STOPPED" }));
+    reads(row({ status: "PAUSED" }), row());
+    await startStreamRecording({ ...caller, now: NOW });
+    expect(timelineSpy).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "RECORDING_STARTED", detail: "Carried on after a stop" }));
+  });
+
+  it("a finish says why when the system did it, and is the worker's line when the sweep did", async () => {
+    reads(row(), row({ status: "FINISHING" }));
+    await finishStreamRecording({ ...caller, userId: null, source: "worker", reason: "overran", now: NOW });
+    expect(timelineSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "RECORDING_FINISHED", userId: null, source: "worker", detail: "Still open 6 hours after the scheduled end" }),
+    );
+    reads(row(), row({ status: "FINISHING" }));
+    await finishStreamRecording({ ...caller, source: "room", reason: "room-closed", now: NOW });
+    expect(timelineSpy).toHaveBeenLastCalledWith(expect.objectContaining({ source: "rest", detail: "The room was closed" }));
+  });
+
+  it("no line without the organisation (the audit row is still written), and none for a refusal", async () => {
+    reads(row(), row({ status: "FINISHING" }));
+    await finishStreamRecording({ ...caller, organizationId: null, reason: "staff", now: NOW });
+    expect(timelineSpy).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).toHaveBeenCalled();
+    reads(null);
+    await stopStreamRecording({ ...caller, now: NOW });
+    expect(timelineSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("finishRecordingOnRoomClose", () => {
+  const at = { organizationId: "org1", eventId: "ev1", sessionId: "s1", userId: "u1", source: "room" as const };
+
+  it("finishes an open recording, saying the room was closed", async () => {
+    reads(row(), row({ status: "FINISHING" }));
+    await finishRecordingOnRoomClose(at);
+    expect(moves()).toEqual([{ where: { id: "r1", status: "RECORDING" }, data: expect.objectContaining({ status: "FINISHING" }) }]);
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ reason: "room-closed", source: "room" });
+  });
+
+  it("never throws: the room is already closed, and the sweep finishes it at its limit", async () => {
+    mockDb.streamRecording.findFirst.mockRejectedValue(new Error("db down"));
+    await expect(finishRecordingOnRoomClose(at)).resolves.toBeUndefined();
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "stream-recording:finish-on-room-close-failed");
   });
 });
 

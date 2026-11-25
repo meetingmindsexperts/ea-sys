@@ -5,7 +5,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDbOperator, mockDb, getLastZoomEndTimeSpy, retimeSpy, streamArrivingSpy } = vi.hoisted(() => ({
+const { mockDbOperator, mockDb, getLastZoomEndTimeSpy, retimeSpy, streamArrivingSpy, finishRecordingSpy } = vi.hoisted(() => ({
+  finishRecordingSpy: vi.fn(async () => undefined),
   mockDbOperator: { eventSession: { findMany: vi.fn() } },
   mockDb: { eventSession: { updateMany: vi.fn() }, externalStream: { findFirst: vi.fn(), updateMany: vi.fn() }, zoomMeeting: { findFirst: vi.fn() } },
   getLastZoomEndTimeSpy: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/lib/zoom/reports", () => ({ getLastZoomEndTime: getLastZoomEndTimeSpy }));
 vi.mock("@/lib/webinar-email-sequence", () => ({ retimeThankYouAfterRoomClose: retimeSpy }));
+vi.mock("@/services/stream-recording-service", () => ({ finishRecordingOnRoomClose: finishRecordingSpy }));
 vi.mock("@/lib/webinar/stream-probe", () => ({
   probeStream: async (key: string) => ((await streamArrivingSpy(key, { fresh: true })) ? "live" : "absent"),
 }));
@@ -178,6 +180,15 @@ describe("runWebinarRoomAutoCloseTick", () => {
     // The thank-you follows the close itself (review of 4d55a352e): from Zoom's end, 5 minutes
     // after it was already past by the time this tick closed the room, so it went at once.
     expect(retimeSpy).toHaveBeenCalledWith("ev1", new Date("2026-10-01T11:35:00Z"));
+    // Recording a partner's stream, step 3 (Nov 25, 2026): the close finishes it, as the system.
+    expect(finishRecordingSpy).toHaveBeenCalledWith({ organizationId: "org1", eventId: "ev1", sessionId: "s1", userId: null, source: "worker" });
+  });
+
+  it("a room that stays open leaves the recording alone", async () => {
+    mockDbOperator.eventSession.findMany.mockResolvedValue([room()]);
+    getLastZoomEndTimeSpy.mockResolvedValue(null);
+    await runWebinarRoomAutoCloseTick(new Date("2026-10-01T11:35:00Z"));
+    expect(finishRecordingSpy).not.toHaveBeenCalled();
   });
 
   it("ignores live sessions that are not the event's anchor room", async () => {

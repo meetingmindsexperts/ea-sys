@@ -25,6 +25,10 @@ export const STREAM_EVENT_KINDS = [
   "STREAM_DROPPED",
   "AUTO_RESTART_REQUESTED",
   "AUTO_RESTART_FAILED",
+  // Recording a partner's stream (Nov 25, 2026; docs/PARTNER_STREAM_RECORDING_PLAN.md step 3).
+  "RECORDING_STARTED",
+  "RECORDING_STOPPED",
+  "RECORDING_FINISHED",
 ] as const;
 export type StreamEventKind = (typeof STREAM_EVENT_KINDS)[number];
 
