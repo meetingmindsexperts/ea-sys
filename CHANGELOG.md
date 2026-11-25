@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinars: the post-event report also downloads as Word and CSV (November 25, 2026)
+
+Owner: the client wants to edit the post-event report PDF; "can we give CSV option too". Decided: Word and CSV.
+
+- **Analytics, Webinar section, Post-event report**: Download now offers **PDF**, **Word** (an editable copy to change
+  the wording before forwarding) and **CSV** (the same figures as one five-column table: Section, Item, Answer, Count,
+  Share; times watched in minutes). All three come from the same report and the same words
+  (`src/lib/webinar/post-event-report-text.ts`), with the PDF's rules: no attendee named, and survey comments only when
+  "Include survey comments in the download" is ticked. The console's Recording tab button stays a PDF without comments.
+- `GET /api/events/{id}/webinar/post-event-report?format=pdf|docx|csv`; an unknown format is a logged 400. The three
+  files share the PDF's limit of 30 an hour per person. The log line `post-event-report:pdf-generated` is now
+  `post-event-report:file-generated` with a `format` field.
+- The CSV cells go through `escapeCsvCell` (a question typed as `=...` never runs as a formula) and the file starts
+  with a byte order mark, so Excel reads Arabic. The Word text goes through `sanitizeXmlText`.
+
 ### Webinars: the organiser chooses the email sequence (November 25, 2026)
 
 Owner: "webinar sequence enqueue, it is automatic now, can we make it manual, let the organiser decide what is the

@@ -2,7 +2,8 @@
 
 /**
  * A webinar's post-event report on screen (Nov 23, 2026; src/lib/webinar/post-event-report.ts), with
- * the PDF of the same report one click away. Counts, shares and survey answers only, so it can be
+ * the same report one click away as a PDF, a Word copy to edit before forwarding, or a CSV of the
+ * numbers (Nov 25, 2026). Counts, shares and survey answers only, so it can be
  * forwarded to a client or a sponsor.
  */
 import { useState } from "react";
@@ -13,7 +14,7 @@ import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePostEventReport } from "@/hooks/use-api";
-import { downloadPostEventReportPdf } from "@/lib/webinar/post-event-report-download";
+import { downloadPostEventReport, type PostEventReportFormat } from "@/lib/webinar/post-event-report-download";
 import { knownTimezone, DEFAULT_EVENT_TIMEZONE } from "@/lib/event-time";
 import {
   percentOf,
@@ -45,18 +46,24 @@ export default function PostEventReportPage() {
   return <ReportView eventId={eventId} report={query.data} />;
 }
 
+const DOWNLOADS: { format: PostEventReportFormat; label: string; title: string }[] = [
+  { format: "pdf", label: "PDF", title: "The report to forward as it is" },
+  { format: "docx", label: "Word", title: "An editable copy: change the wording before you forward it" },
+  { format: "csv", label: "CSV", title: "The numbers, for a spreadsheet" },
+];
+
 function ReportView({ eventId, report: r }: { eventId: string; report: PostEventReport }) {
-  // Comments are the respondents' own words: in the PDF only when ticked here, beside the warning.
+  // Comments are the respondents' own words: in a download only when ticked here, beside the warning.
   const [withComments, setWithComments] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const download = async () => {
-    setDownloading(true);
+  const [downloading, setDownloading] = useState<PostEventReportFormat | null>(null);
+  const download = async (format: PostEventReportFormat) => {
+    setDownloading(format);
     try {
-      await downloadPostEventReportPdf(eventId, { includeComments: withComments });
+      await downloadPostEventReport(eventId, format, { includeComments: withComments });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not download the report.");
     } finally {
-      setDownloading(false);
+      setDownloading(null);
     }
   };
   const tz = knownTimezone(r.event.timezone) ?? DEFAULT_EVENT_TIMEZONE;
@@ -75,14 +82,19 @@ function ReportView({ eventId, report: r }: { eventId: string; report: PostEvent
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <Button onClick={download} disabled={downloading}>
-            {downloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-            Download PDF
-          </Button>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Download</span>
+            {DOWNLOADS.map((d) => (
+              <Button key={d.format} variant={d.format === "pdf" ? "default" : "outline"} size="sm" title={d.title} onClick={() => download(d.format)} disabled={downloading !== null}>
+                {downloading === d.format ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+                {d.label}
+              </Button>
+            ))}
+          </div>
           {r.surveys && r.surveys.length > 0 ? (
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               <input type="checkbox" checked={withComments} onChange={(e) => setWithComments(e.target.checked)} />
-              Include survey comments in the PDF
+              Include survey comments in the download
             </label>
           ) : null}
         </div>
@@ -95,8 +107,9 @@ function ReportView({ eventId, report: r }: { eventId: string; report: PostEvent
       ) : null}
       <p className="text-xs text-muted-foreground">
         Made to be forwarded: no attendee&apos;s name or email, and questions and comments without who wrote them, with
-        email addresses and phone numbers removed. A comment is still the respondent&apos;s own words, so the PDF leaves
-        comments out unless you tick the box, and you should read them before you send it on.
+        email addresses and phone numbers removed. A comment is still the respondent&apos;s own words, so a download leaves
+        comments out unless you tick the box, and you should read them before you send it on. The Word copy can be
+        edited before you forward it; the CSV holds the same numbers for a spreadsheet.
       </p>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

@@ -10,21 +10,39 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { contentDisposition } from "@/lib/download-filename";
 import { loadPostEventReport } from "@/lib/webinar/post-event-report-server";
-import { generatePostEventReportPdf } from "@/lib/webinar/post-event-report-pdf";
+import { generatePostEventReportPdf, type ReportCompany } from "@/lib/webinar/post-event-report-pdf";
+import { generatePostEventReportDocx } from "@/lib/webinar/post-event-report-docx";
+import { postEventReportCsv } from "@/lib/webinar/post-event-report-csv";
+import { DOCX_CONTENT_TYPE } from "@/lib/docx-export";
+import type { PostEventReport } from "@/lib/webinar/post-event-report";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
 const NO_STORE = { "Cache-Control": "private, no-store" };
 
+/** The files the report downloads as (Nov 25, 2026: Word to edit before forwarding, CSV for the numbers). */
+const FILE_FORMATS = ["pdf", "docx", "csv"] as const;
+type FileFormat = (typeof FILE_FORMATS)[number];
+
+function fileFormatOf(value: string | null): FileFormat | null {
+  return FILE_FORMATS.find((f) => f === value) ?? null;
+}
+
+async function reportFile(format: FileFormat, report: PostEventReport, company: ReportCompany): Promise<{ bytes: Uint8Array<ArrayBuffer>; contentType: string }> {
+  if (format === "csv") return { bytes: new TextEncoder().encode(postEventReportCsv(report)), contentType: "text/csv; charset=utf-8" };
+  if (format === "docx") return { bytes: new Uint8Array(await generatePostEventReportDocx(report, company)), contentType: DOCX_CONTENT_TYPE };
+  return { bytes: new Uint8Array(await generatePostEventReportPdf(report, company)), contentType: "application/pdf" };
+}
+
 /**
  * A webinar's post-event report (Nov 23, 2026; post-event-report.ts): registrations, attendance,
- * questions and survey results, as JSON for the page at /events/[id]/analytics/report, or with
- * ?format=pdf as the PDF to forward to a client. No names or emails, so the key is the one the
+ * questions and survey results, as JSON for the page at /events/[id]/analytics/report, or as a file to
+ * forward to a client: ?format=pdf, ?format=docx (Word, to edit first) or ?format=csv (the numbers). No names or emails, so the key is the one the
  * webinar's reports already ask, `webinar.analytics.read`; the survey results are in it only for a
- * caller who may also read them (`surveys.read`). Survey comments go into the PDF only with
+ * caller who may also read them (`surveys.read`). Survey comments go into a file only with
  * ?comments=1, which the report page sends when its box is ticked beside the warning about typed text;
  * the console's download, which shows no warning, sends nothing and gets none (review of cdec0c859).
- * Both views read every viewer's record, so both are limited per person.
+ * Every view reads every viewer's record, so each is limited per person (the three files share one limit).
  */
 export async function GET(req: Request, { params }: RouteParams) {
   let eventIdForLog: string | undefined;
@@ -38,18 +56,25 @@ export async function GET(req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "webinar.analytics.read", { route, eventId, onMissing: "hide" });
     if (!gate.ok) return gate.response;
     const search = new URL(req.url).searchParams;
-    const asPdf = search.get("format") === "pdf";
-    // The page shows the comments with its warning beside them; a PDF carries them only when asked.
-    const includeComments = !asPdf || search.get("comments") === "1";
+    const formatParam = search.get("format");
+    const format = fileFormatOf(formatParam);
+    if (formatParam !== null && !format) {
+      apiLogger.warn({ eventId, userId: session.user.id, format: formatParam }, "post-event-report:unknown-format");
+      return NextResponse.json({ error: "Unknown format: use pdf, docx or csv." }, { status: 400 });
+    }
+    const asFile = format !== null;
+    // The page shows the comments with its warning beside them; a file carries them only when asked.
+    const includeComments = !asFile || search.get("comments") === "1";
 
-    const limit = asPdf ? 30 : 120;
+    const limit = asFile ? 30 : 120;
     const { allowed, retryAfterSeconds } = checkRateLimit({
-      key: `post-event-report-${asPdf ? "pdf" : "view"}:${session.user.id}`,
+      // "pdf" kept as the files' bucket name: the PDF's count carries over a deploy.
+      key: `post-event-report-${asFile ? "pdf" : "view"}:${session.user.id}`,
       limit,
       windowMs: 3600_000,
     });
     if (!allowed) {
-      apiLogger.warn({ eventId, userId: session.user.id, retryAfterSeconds, asPdf }, "post-event-report:rate-limited");
+      apiLogger.warn({ eventId, userId: session.user.id, retryAfterSeconds, format }, "post-event-report:rate-limited");
       return NextResponse.json(
         { error: "Too many requests for this report. Try again later.", retryAfterSeconds, limit, windowSeconds: 3600 },
         { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
@@ -96,10 +121,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       const includeSurveys = can(gate.principal, "surveys.read", { event: facts });
       const report = await loadPostEventReport(event, { includeSurveys, includeComments });
 
-      if (!asPdf) return NextResponse.json(report, { headers: NO_STORE });
+      if (!format) return NextResponse.json(report, { headers: NO_STORE });
 
       const org = event.organization;
-      const pdf = await generatePostEventReportPdf(report, {
+      const file = await reportFile(format, report, {
         name: org?.name ?? "",
         companyName: org?.companyName ?? null,
         address: org?.companyAddress ?? null,
@@ -109,15 +134,15 @@ export async function GET(req: Request, { params }: RouteParams) {
         logoPath: org?.logo ?? null,
       });
       apiLogger.info(
-        { eventId, userId: session.user.id, bytes: pdf.length, includeSurveys, includeComments },
-        "post-event-report:pdf-generated",
+        { eventId, userId: session.user.id, format, bytes: file.bytes.length, includeSurveys, includeComments },
+        "post-event-report:file-generated",
       );
-      return new NextResponse(new Uint8Array(pdf), {
+      return new NextResponse(file.bytes, {
         status: 200,
         headers: {
           ...NO_STORE,
-          "Content-Type": "application/pdf",
-          "Content-Disposition": contentDisposition(`post-event-report-${event.slug}.pdf`),
+          "Content-Type": file.contentType,
+          "Content-Disposition": contentDisposition(`post-event-report-${event.slug}.${format}`),
         },
       });
     });

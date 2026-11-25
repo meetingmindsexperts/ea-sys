@@ -29,7 +29,7 @@ import {
 import { DEFAULT_EVENT_TIMEZONE } from "@/lib/event-time";
 import { webinarStatusFromTimes } from "@/lib/webinar/console-rules";
 import { WatchAnalyticsCard } from "@/components/webinar/watch-analytics-card";
-import { downloadPostEventReportPdf } from "@/lib/webinar/post-event-report-download";
+import { downloadPostEventReport } from "@/lib/webinar/post-event-report-download";
 import {
   afterSessionTitle,
   CardEmpty,
@@ -110,7 +110,7 @@ export function WebinarAnalyticsSection({ eventId, heading = true }: { eventId: 
               variant="outline"
               size="sm"
               onClick={() =>
-                downloadPostEventReportPdf(eventId, { includeComments: false }).catch((err) =>
+                downloadPostEventReport(eventId, "pdf", { includeComments: false }).catch((err) =>
                   toast.error(err instanceof Error ? err.message : "Could not download the report."),
                 )
               }

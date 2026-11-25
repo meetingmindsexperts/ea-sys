@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   canSpy: vi.fn(),
   loadSpy: vi.fn(),
   pdfSpy: vi.fn(),
+  docxSpy: vi.fn(),
   rate: { allowed: true },
 }));
 
@@ -48,6 +49,8 @@ vi.mock("@/lib/permissions/can", () => ({ can: (_p: unknown, key: string) => h.c
 vi.mock("@/lib/tenant/event-tenant", () => ({ findGatedEvent: () => h.mockDb.event.findFirst() }));
 vi.mock("@/lib/webinar/post-event-report-server", () => ({ loadPostEventReport: (...a: unknown[]) => h.loadSpy(...a) }));
 vi.mock("@/lib/webinar/post-event-report-pdf", () => ({ generatePostEventReportPdf: (...a: unknown[]) => h.pdfSpy(...a) }));
+vi.mock("@/lib/webinar/post-event-report-docx", () => ({ generatePostEventReportDocx: (...a: unknown[]) => h.docxSpy(...a) }));
+vi.mock("@/lib/webinar/post-event-report-csv", () => ({ postEventReportCsv: () => "\uFEFFSection,Item\r\n" }));
 
 import { GET } from "@/app/api/events/[eventId]/webinar/post-event-report/route";
 
@@ -71,6 +74,7 @@ beforeEach(() => {
   h.mockDb.event.findFirst.mockResolvedValue(EVENT);
   h.loadSpy.mockResolvedValue({ event: { id: "ev1" }, surveys: [] });
   h.pdfSpy.mockResolvedValue(Buffer.from("%PDF-1.3 test"));
+  h.docxSpy.mockResolvedValue(Buffer.from("PK docx"));
 });
 
 describe("the post-event report route", () => {
@@ -121,7 +125,32 @@ describe("the post-event report route", () => {
     h.rate.allowed = false;
     const limited = await GET(req("?format=pdf"), ctx);
     expect(limited.status).toBe(429);
-    expect(h.mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1", asPdf: true }), "post-event-report:rate-limited");
+    expect(h.mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1", format: "pdf" }), "post-event-report:rate-limited");
+  });
+
+  it("the Word copy and the CSV: same rules as the PDF, their own type and name, one shared limit", async () => {
+    type FileRes = { status: number; headers: Record<string, string> };
+    const docx = (await GET(req("?format=docx"), ctx)) as unknown as FileRes;
+    expect(docx.status).toBe(200);
+    expect(docx.headers["Content-Type"]).toBe("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    expect(docx.headers["Content-Disposition"]).toContain("post-event-report-my-webinar.docx");
+    expect(docx.headers["Cache-Control"]).toBe("private, no-store");
+    const csv = (await GET(req("?format=csv&comments=1"), ctx)) as unknown as FileRes;
+    expect(csv.headers["Content-Type"]).toBe("text/csv; charset=utf-8");
+    expect(csv.headers["Content-Disposition"]).toContain("post-event-report-my-webinar.csv");
+    // Comments only when asked, as for the PDF.
+    expect(h.loadSpy.mock.calls[0][1]).toMatchObject({ includeComments: false });
+    expect(h.loadSpy.mock.calls[1][1]).toMatchObject({ includeComments: true });
+    expect(h.pdfSpy).not.toHaveBeenCalled();
+    h.rate.allowed = false;
+    expect((await GET(req("?format=csv"), ctx)).status).toBe(429);
+  });
+
+  it("an unknown format is a logged 400, before anything is read", async () => {
+    const res = await GET(req("?format=xlsx"), ctx);
+    expect(res.status).toBe(400);
+    expect(h.loadSpy).not.toHaveBeenCalled();
+    expect(h.mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ format: "xlsx" }), "post-event-report:unknown-format");
   });
 
   it("a failure is a logged 500", async () => {

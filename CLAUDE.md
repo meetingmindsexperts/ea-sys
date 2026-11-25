@@ -449,7 +449,7 @@ Clients (including AI agents) should parse `retryAfterSeconds` and back off. Do 
 | Presentation types change `/api/organization/presentation-types` (per organisation; one change a request) | 120 | 1 hr |
 | Speaker presentation upload, staff `/api/events/[id]/speakers/[id]/presentations` (per user; uploads started) | 120 | 1 hr |
 | Speaker presentation, the speaker's own link `/api/public/events/[slug]/speaker-form/[token]/presentations*` (per IP / per token; every call) | 240 / 120 | 1 hr |
-| Webinar post-event report `/api/events/[id]/webinar/post-event-report` (per user; the page / the PDF) | 120 / 30 | 1 hr |
+| Webinar post-event report `/api/events/[id]/webinar/post-event-report` (per user; the page / a file: PDF, Word and CSV together) | 120 / 30 | 1 hr |
 | Remove or let back a webinar viewer `PUT /api/events/[id]/webinar/viewers/[registrationId]` (per user) | 120 | 1 hr |
 | Login FAILURES per email (every login door; successes not counted) | 10 | 15 min |
 | Login FAILURES per IP (every login door; successes not counted) | 100 | 15 min |
