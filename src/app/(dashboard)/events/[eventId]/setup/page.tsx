@@ -52,6 +52,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { inSessionLane } from "@/lib/tenant/page-lane";
 import { hubEventWhere } from "@/lib/permissions/page-event-where";
+import { isLinkedRole } from "@/lib/team-roles";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { isVenueModuleEnabled } from "@/lib/module-flags";
@@ -247,6 +248,9 @@ type StatusMap = Record<string, SetupStatus>;
 export default async function SetupPage({ params }: SetupPageProps) {
   const [{ eventId }, session] = await Promise.all([params, auth()]);
   if (!session?.user) notFound();
+  // A staff page: an attendee-side account (reviewer, submitter, registrant) never reads its
+  // statuses and counts, whatever hubEventWhere's linked-role scoping would find (review of 9b4eb396a).
+  if (isLinkedRole(session.user.role)) notFound();
   // Everything this page loads runs inside the tenant lane (src/lib/tenant/page-lane.ts).
   return inSessionLane(session, async () => {
 

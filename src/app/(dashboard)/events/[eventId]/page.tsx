@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { inSessionLane } from "@/lib/tenant/page-lane";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { hubEventWhere } from "@/lib/permissions/page-event-where";
+import { isLinkedRole } from "@/lib/team-roles";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionHeading } from "@/components/ui/typography";
 import { CopyLinkCard } from "@/components/ui/copy-link-card";
@@ -97,8 +98,10 @@ export default async function EventPage({ params }: EventPageProps) {
 
   if (!event) notFound();
 
-  const isRestricted =
-    session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
+  // An attendee-side account (reviewer, submitter, registrant) sees the event's name and dates, never
+  // its counts or the staff actions (review of 9b4eb396a: a registrant reaching this page through
+  // hubEventWhere's linked-role scoping got the registration and speaker counts).
+  const isRestricted = isLinkedRole(session.user.role);
   // The Invoices & Quotes card is a link to the Invoices page: seeing amounts
   // is not enough, the page asks for invoices.read (a Member sees amounts and
   // holds no invoices since Nov 20, 2026; review of fef1c1db: the card was
@@ -294,6 +297,7 @@ export default async function EventPage({ params }: EventPageProps) {
       </div>
 
       {/* ── Stats Grid ──────────────────────────────────────────────────────── */}
+      {!isRestricted && (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((s) => (
           <Link key={s.title} href={s.href} className="group block">
@@ -320,8 +324,10 @@ export default async function EventPage({ params }: EventPageProps) {
           </Link>
         ))}
       </div>
+      )}
 
       {/* ── Quick Actions ────────────────────────────────────────────────────── */}
+      {!isRestricted && (
       <div>
         <SectionHeading title="Quick actions" className="mb-3" />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
@@ -380,6 +386,7 @@ export default async function EventPage({ params }: EventPageProps) {
           </Card>
         </div>
       </div>
+      )}
 
       {/* ── Activity Feed + Registration Link ──────────────────────────────── */}
       {!isRestricted && (

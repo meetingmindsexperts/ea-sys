@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Event pages keep staff figures from attendee accounts (November 25, 2026)
+
+- An event's overview hides the count tiles (registrations, speakers, sessions, hotels) and the quick actions from
+  every attendee-side account (reviewer, submitter, registrant; it hid them from reviewers and submitters only),
+  and the Event Setup page answers "not found" to them before reading anything. Page confinement normally sends
+  these accounts elsewhere; this is the second wall (review of 9b4eb396a). Staff see both pages as before.
+
 ### Webinar Console: "Opened so far" on the Live now card (November 25, 2026)
 
 - The Live now card shows a third figure beside In lobby and Joined: everyone who has opened the webinar page so
