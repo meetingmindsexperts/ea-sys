@@ -797,7 +797,7 @@ export default function PublicSessionPage() {
             <img
               src={branding.logoUrl}
               alt={event?.name ?? "Event logo"}
-              className="h-12 w-auto max-w-[40%] shrink-0 object-contain sm:h-16"
+              className={cn("w-auto max-w-[40%] shrink-0 object-contain", isWebinarEvent ? "h-12 sm:h-16" : "h-14 sm:h-20")}
             />
           )}
         <div className="min-w-0">
@@ -835,12 +835,12 @@ export default function PublicSessionPage() {
             )}
           </div>
 
-          <h1 className="text-lg font-bold leading-snug text-foreground sm:text-xl md:text-2xl">
+          <h1 className={cn("font-bold text-foreground", isWebinarEvent ? "text-lg leading-snug sm:text-xl md:text-2xl" : "text-2xl md:text-3xl")}>
             {session?.name || joinInfo?.sessionName || "Session"}
           </h1>
 
           {session && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground sm:text-sm">
+            <div className={cn("flex flex-wrap items-center text-muted-foreground", isWebinarEvent ? "mt-1.5 gap-x-4 gap-y-1 text-xs sm:text-sm" : "mt-3 gap-4 text-sm")}>
               <span className="flex items-center gap-1.5">
                 <Calendar className="h-3.5 w-3.5" />
                 {formatDateInTz(new Date(session.startTime), event?.timezone ?? DEFAULT_EVENT_TIMEZONE)}
@@ -922,8 +922,12 @@ export default function PublicSessionPage() {
              scrolling; the `-mx-4 px-4` bleed plus backdrop-blur prevents
              content from showing through when the user scrolls past the
              session header. */}
+        {/* `empty:hidden`: when the strip has nothing to say (a stream that is live) its wrapper
+            takes no space, and the sticky band of a conference session does not stay pinned with
+            nothing in it (review of 4d55a352e). */}
         <div
-          className={
+          className={cn(
+            "empty:hidden",
             isWebinarEvent
               ? // Webinar (owner, Oct 6, 2026): no tinted band behind the strip,
                 // and the card's own padding trimmed so the strip stays slim.
@@ -935,8 +939,8 @@ export default function PublicSessionPage() {
                   // background image the strip reads as it does on white.
                   backgroundUrl ? "my-1 rounded-xl bg-white" : "py-1",
                 )
-              : "sticky top-0 z-10 -mx-4 px-4 py-2 bg-gradient-to-br from-slate-50/90 to-blue-50/90 backdrop-blur-sm"
-          }
+              : "sticky top-0 z-10 -mx-4 px-4 py-2 bg-gradient-to-br from-slate-50/90 to-blue-50/90 backdrop-blur-sm",
+          )}
         >
           <StickyCta
             slug={slug}

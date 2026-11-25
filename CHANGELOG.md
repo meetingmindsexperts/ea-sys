@@ -19,6 +19,11 @@ Owner, after the β-Thalassemia webinar on Nov 24.
   button. The header card is compact: less margin and padding above the title, a smaller title (text-lg on a
   phone), and smaller date and time.
 - Docs: WEBINAR_EVENTS, WEBINAR_STREAMING, WEBINAR_TROUBLESHOOTING and the user guide say 5 minutes.
+- Review of 4d55a352e: the auto-close times the thank-you from the close itself, not from Zoom's end (which it
+  only acts on 5 to 8 minutes later, so the email went at once and left no window to re-open after a mistaken
+  end); the strip's empty wrapper takes no space (and a conference session's sticky band no longer stays pinned
+  empty); the compact title and date are for webinars only; the console's close dialog says the thank-you goes
+  5 minutes after the close and waits if the room is re-opened in that time.
 
 ### Analytics: the traffic figures follow the same rules (November 24, 2026)
 

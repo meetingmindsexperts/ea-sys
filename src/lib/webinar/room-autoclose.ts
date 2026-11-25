@@ -174,7 +174,10 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
           { eventId: room.eventId, sessionId: room.id, decision, zoomEndedAt: zoomEndedAt?.toISOString() },
           "webinar-room-autoclose:closed",
         );
-        // The thank-you follows the close (Oct 28, 2026): Zoom's own end when it gave one, else now.
+        // The thank-you follows the close (Oct 28, 2026). From the moment of the close since the
+        // delay became 5 minutes (Nov 25, 2026, review of 4d55a352e): this close lands 5 to 8 minutes
+        // after Zoom's end (RESTART_GRACE_MS), so timing it from Zoom's end sent it at once and left
+        // the producer no window to re-open the room after a mistaken end.
         await recordStreamEvent({
           organizationId: room.event.organizationId,
           eventId: room.eventId,
@@ -183,8 +186,7 @@ export async function runWebinarRoomAutoCloseTick(now = new Date()): Promise<Aut
           detail: finalZoomEnd || decision === "close-zoom-ended" ? "Zoom reported the webinar ended" : "Safety net: still open long after the scheduled end",
           source: "worker",
         });
-        const realEnd = finalZoomEnd ?? (decision === "close-zoom-ended" ? zoomEndedAt : null);
-        await retimeThankYouAfterRoomClose(room.eventId, realEnd ?? now);
+        await retimeThankYouAfterRoomClose(room.eventId, now);
         return decision;
       });
       if (outcome !== "keep") report.closed += 1;

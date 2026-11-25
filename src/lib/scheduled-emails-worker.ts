@@ -115,7 +115,7 @@ async function processRow(
   // A webinar's thank-you waits while its room is open: an overrunning webinar must not thank its
   // audience while still on air (owner, Oct 28, 2026). Pushed back, unclaimed, and looked at again.
   if (row.emailType === "webinar-thank-you" && (await shouldHoldThankYou(row.eventId))) {
-    // Only if nothing moved it since the scan: a room close in between sets close + 30 minutes, which
+    // Only if nothing moved it since the scan: a room close in between sets close + THANK_YOU_AFTER_CLOSE_MS, which
     // this must not overwrite (review LOW).
     await db.scheduledEmail.updateMany({
       where: { id: row.id, status: "PENDING", ...(row.scheduledFor ? { scheduledFor: row.scheduledFor } : {}) },

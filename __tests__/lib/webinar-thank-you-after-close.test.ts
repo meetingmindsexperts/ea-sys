@@ -38,7 +38,7 @@ beforeEach(() => {
 });
 
 describe("retimeThankYouAfterRoomClose", () => {
-  it("an early end brings the thank-you forward to 30 minutes after the close", async () => {
+  it("an early end brings the thank-you forward to 5 minutes after the close", async () => {
     const closed = at("2026-11-03T10:40:00Z");
     expect(await retimeThankYouAfterRoomClose("ev1", closed)).toBe(1);
     const call = mockDb.scheduledEmail.updateMany.mock.calls[0][0];
@@ -50,7 +50,7 @@ describe("retimeThankYouAfterRoomClose", () => {
     });
   });
 
-  it("an overrun moves it later, to 30 minutes after the real end", async () => {
+  it("an overrun moves it later, to 5 minutes after the close", async () => {
     const closed = at("2026-11-03T12:20:00Z");
     await retimeThankYouAfterRoomClose("ev1", closed);
     expect(mockDb.scheduledEmail.updateMany.mock.calls[0][0].data.scheduledFor).toEqual(new Date(closed.getTime() + THANK_YOU_AFTER_CLOSE_MS));

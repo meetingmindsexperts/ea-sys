@@ -3126,7 +3126,8 @@ function GoLiveCard({
               <AlertDialogTitle>End the webinar for attendees?</AlertDialogTitle>
               <AlertDialogDescription>
                 Everyone watching sees the thank-you screen and the end-of-webinar survey. Reopening the room brings
-                back only the people who still have the page open.
+                back only the people who still have the page open. The thank-you email goes 5 minutes after you
+                close; reopen within that time and it waits.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

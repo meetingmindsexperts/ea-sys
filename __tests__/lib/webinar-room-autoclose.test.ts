@@ -140,8 +140,8 @@ describe("runWebinarRoomAutoCloseTick", () => {
     getLastZoomEndTimeSpy.mockResolvedValue(new Date("2026-10-01T13:40:00Z"));
     const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T14:00:00Z"));
     expect(r.closed).toBe(1);
-    // The thank-you follows Zoom's real end.
-    expect(retimeSpy).toHaveBeenCalledWith("ev1", new Date("2026-10-01T13:40:00Z"));
+    // The thank-you follows the close (review of 4d55a352e), not Zoom's end 20 minutes earlier.
+    expect(retimeSpy).toHaveBeenCalledWith("ev1", new Date("2026-10-01T14:00:00Z"));
   });
 
   it("a Zoom end only minutes old (the host may restart) keeps an on-air room", async () => {
@@ -175,8 +175,9 @@ describe("runWebinarRoomAutoCloseTick", () => {
       where: { id: "s1", eventId: "ev1", status: "LIVE" },
       data: { status: "COMPLETED" },
     });
-    // The thank-you follows Zoom's real end, not the tick time (Oct 28, 2026).
-    expect(retimeSpy).toHaveBeenCalledWith("ev1", new Date("2026-10-01T11:25:00Z"));
+    // The thank-you follows the close itself (review of 4d55a352e): from Zoom's end, 5 minutes
+    // after it was already past by the time this tick closed the room, so it went at once.
+    expect(retimeSpy).toHaveBeenCalledWith("ev1", new Date("2026-10-01T11:35:00Z"));
   });
 
   it("ignores live sessions that are not the event's anchor room", async () => {
