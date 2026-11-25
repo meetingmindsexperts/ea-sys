@@ -1,6 +1,6 @@
 # Recording a partner's stream
 
-Status: IN BUILD (Nov 25, 2026). Steps 1 to 3 of 8 are built and dark (`STREAM_RECORDING_ENABLED` unset);
+Status: IN BUILD (Nov 25, 2026). Steps 1 to 4 of 8 are built and dark (`STREAM_RECORDING_ENABLED` unset);
 step 0, the proof on a throwaway stream server, is done (2.1). Owner: "plan it please, partner side for now, we will use S3 for storage and
 not disk", the recording is for both attendees to watch and an archive file for us and the client,
 then "ok fine, proceed" on the proposals of section 6.
@@ -215,6 +215,21 @@ carries on through it.
   take it; step 0 checks each on a real file before anything depends on it.
 - Staff download it from the console's Recording tab through a 5 minute signed link
   (`signStoredFileDownload`), every download audited.
+- **As built (step 4, Nov 25, 2026):** `src/services/stream-recording-archive.ts` waits until the
+  buffer holds no wanted piece without a row (`piecesLeftToShip`), at least 90 seconds after the
+  finish, then joins with the exact command of step 0 (`src/lib/webinar/recording-mp4.ts`) into
+  `{storagePrefix}/recording.mp4`, written by a multipart upload of 16 MB parts
+  (`writeStoredFileStream`). Pieces still missing 30 minutes after the finish are given up on (the
+  MP4 is made from the rest, logged as an error). A storage failure is tried again each minute; an
+  ffmpeg refusal, or anything still failing 6 hours after the finish, marks it FAILED with a reason
+  staff can read. No pieces at all: READY with no file ("Nothing recorded").
+- Delete (`deleteStreamRecording`): only a READY or FAILED recording; the row first, then every
+  file in its folder in one batch, so a file left behind is the daily sweep's, never a row pointing
+  at nothing. Then the webinar can be recorded again.
+- Retention: job `stream-recording-retention`, daily 04:40 UTC, deletes recordings past
+  `deleteAfter` through the same delete, and files under `recordings/` that no recording claims
+  once a day old. **Changing a recording's date (D4 "changeable per recording") is not built yet:**
+  the console shows "Kept until"; a control to keep one longer is owed.
 
 ### 4.5 The console
 
@@ -322,7 +337,7 @@ built first and attendees watch through Vimeo until phase 2; D2 follows the rese
 | 1 | **BUILT Nov 24, 2026.** The two tables (additive migration `20261124100000`, row policies), the rules (`src/lib/webinar/stream-recording.ts`), `stream-recording-service.ts` (start, stop, finish), the control API calls (`setPathRecording`, `clearPathRecording`, the body pinned to `record` alone), and the sweep that puts settings back and closes a recording nobody finished, run from the stream watchdog job. Nothing calls start yet. | 1 |
 | 2 | **BUILT Nov 24, 2026** (4.2). The shipping job, the disk guard, the waiting-pieces and not-recording alerts, the piece length reader, the stream server's recording defaults in `mediamtx.yml`, and the two mounts. | 1 |
 | 3 | **BUILT Nov 25, 2026.** The console: agreement tick, Start, Stop, Finish (confirmed), the REC mark with the time and size in storage, the "nothing new has reached storage" warning, in the Partner stream card and the Recording tab (`stream-recording-panel.tsx`, `GET/POST .../webinar/partner-stream/recording`); each action a line on the stream timeline; the room closing (by staff or automatically) finishes the recording, a rehearsal close does not. | 1 |
-| 4 | The finishing job, `ffmpeg` in the worker image, Download, Delete, retention. | 1 |
+| 4 | **BUILT Nov 25, 2026** (4.4). The finishing job, `ffmpeg` in the worker image, Download, Delete, the retention and orphan sweep. Owed: a control to change one recording's keep date. | 1 |
 | 5 | Docs, the user guide, and a production rehearsal with a real partner-style stream of an hour. | 0.5 |
 | | **Phase 1** | **5** |
 | 6 | The replay rule's third kind, the playlist route, the notice to attendees. | 1 |
@@ -346,10 +361,9 @@ Each step is its own commit with its tests, reviewed once, as usual.
 - Set `STREAM_RECORDING_ENABLED` only AFTER the `mediamtx.yml` change is on the box. Before it,
   a recording would use the stream server's own defaults: fragmented MP4, inside the container,
   kept a day.
-- Step 4: nothing moves a recording out of `FINISHING` until the finishing job exists, which is
-  why the switch stays off until then. Deleting an event or a session removes the rows by
-  cascade and leaves the files, so step 4 also needs the sweep that clears files no row claims
-  (as the supporting documents prune does).
+- Step 4 (done): the finishing job moves a recording out of `FINISHING`. Deleting an event or a
+  session removes the rows by cascade and leaves the files; the daily retention job clears files
+  no row claims.
 - A setting made through the control API makes the stream server list that path even with
   nobody publishing. The readers in `mediamtx-control.ts` already take a path without a source
   as "nobody"; step 0 confirms it on a real server.
@@ -369,8 +383,13 @@ Handed over as exact commands when their step is reached; none is run by the age
   `docker compose -f docker-compose.prod.yml up -d --force-recreate mediamtx` and
   `docker logs ea-sys-mediamtx --since 1m`. The recordings folder appears on its own.
 - **S3**: a lifecycle rule on `recordings/` (old versions cleared, unfinished uploads cleared
-  after a day), and whether the Singapore copy includes it (D3). The box's role should already
-  reach that prefix, since it reads and writes the rest of the bucket; checked at that step.
+  after a day: the MP4 is a multipart upload, and an aborted one is cleared by the code, a crashed
+  one by this rule), and whether the Singapore copy includes it (D3). The box's role must allow
+  `s3:ListBucket` on the prefix, `s3:DeleteObject` (one batch delete per recording) and the
+  multipart calls (`s3:AbortMultipartUpload`); it reads and writes the rest of the bucket
+  already, checked at that step.
+- **The worker image grows** by ffmpeg (about 100 to 200 MB with `--no-install-recommends`). The
+  next deploy builds it; check the box's disk before (63% of 50 GB on Nov 24, 2026).
 - **Then** `STREAM_RECORDING_ENABLED=true` on the box.
 - **Phase 2 only**: the bucket as a second origin of the CloudFront distribution, readable only
   by CloudFront, a signing key, and a behaviour for the replay path; the private key into the

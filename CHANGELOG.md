@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Recording a partner's stream, step 4: the MP4, Download, Delete and retention (November 25, 2026)
+
+Plan: `docs/PARTNER_STREAM_RECORDING_PLAN.md` §4.4. Still dark until `STREAM_RECORDING_ENABLED` is set, after the
+owner's steps in §8.
+
+- New worker job `stream-recording-finish`, every minute: once every piece of a finished recording is in storage,
+  its pieces are joined into one MP4 by `ffmpeg` (a copy, no re-encoding), read from S3 and written back to S3 as it
+  comes out, with nothing on the box's disk. Pieces still missing after 30 minutes are given up on and logged; a
+  failure is retried, and marks the recording Failed when ffmpeg refuses or after 6 hours.
+- **Webinar Console, Recording**: the MP4's size, **Download** (a 5 minute link, every download audited), "Kept until"
+  the date it is deleted, and **Delete recording** (confirmed; the webinar can then be recorded again).
+- New worker job `stream-recording-retention`, daily 04:40 UTC: deletes recordings past their 12 months, and files
+  under `recordings/` that no recording claims (left by deleting an event or a session).
+- `ffmpeg` joins the worker image (`Dockerfile.worker`). Storage gains streamed writes (an S3 multipart upload that
+  aborts on failure) and batch deletes.
+- `POST /api/events/{id}/webinar/partner-stream/recording/download` (30 an hour per person) and
+  `DELETE /api/events/{id}/webinar/partner-stream/recording`; both need `webinar.manage`.
+- Not yet: changing one recording's keep date (owed).
+
 ### Email: bulk sends keep to the mail service's speed, and a refused email is sent again (November 25, 2026)
 
 **What happened.** On Nov 24, 2026 at 7:00 pm Dubai two webinar reminders came due in the same second: the 1-hour

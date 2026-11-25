@@ -50,10 +50,14 @@ WORKDIR /app
 
 # curl is needed for the Docker HEALTHCHECK (hits localhost:3099/health).
 # openssl is needed by Prisma's libssl detection.
+# ffmpeg joins a partner stream's recorded pieces into one MP4, as a copy with
+# no re-encoding (Nov 25, 2026; docs/PARTNER_STREAM_RECORDING_PLAN.md §4.4, D8).
+# Worker image only: the web image never touches video.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update -y && \
     apt-get install -y openssl curl ca-certificates && \
+    apt-get install -y --no-install-recommends ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production

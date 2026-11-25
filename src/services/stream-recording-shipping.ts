@@ -377,6 +377,31 @@ export async function shipRecordingPieces(
   return report;
 }
 
+/**
+ * How many pieces of a FINISHING recording are still to reach storage: the
+ * finishing job joins the MP4 only at zero (step 4, Nov 25, 2026). Counts
+ * every piece in the buffer the recording wants and has no row for, settled
+ * or not: a piece still being written will be wanted too. Null when it cannot
+ * be told (the session has no partner stream any more, so its buffer folder
+ * cannot be named): the caller decides then by time alone.
+ */
+export async function piecesLeftToShip(at: At): Promise<number | null> {
+  const row = await readRecording(at);
+  if (!row) return 0;
+  const stream = await sessionStream(at.sessionId, at.eventId);
+  if (!stream || stream.source !== "external") return null;
+  const files = await listPieces(at, path.join(recordingsDir(), "live", stream.streamKey));
+  const wanted = files.filter((f) => {
+    const start = pieceStart(f.name);
+    return start !== null && pieceWanted(row, start.at);
+  });
+  const done = await shippedNames(
+    row.id,
+    wanted.map((f) => f.name),
+  );
+  return wanted.filter((f) => !done.has(f.name)).length;
+}
+
 /** Wanted pieces left unshipped over two minutes: shipping is failing or not keeping up. */
 function warnIfPiling(at: At, row: Row, left: readonly PieceFile[], now: Date): void {
   if (left.length === 0) return;

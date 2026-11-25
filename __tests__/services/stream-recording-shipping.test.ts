@@ -38,7 +38,7 @@ vi.mock("@/lib/webinar/mediamtx-control", () => ({ deleteRecordingPiece: deleteS
 vi.mock("@/lib/webinar/session-stream", () => ({ sessionStream: streamSpy }));
 vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: arrivingSpy }));
 
-import { logSafe, resetShippingReports, shipRecordingPieces } from "@/services/stream-recording-shipping";
+import { logSafe, piecesLeftToShip, resetShippingReports, shipRecordingPieces } from "@/services/stream-recording-shipping";
 
 const KEY = "0123456789abcdef0123456789abcdef";
 const FOLDER = `/recordings/live/${KEY}`;
@@ -423,5 +423,28 @@ describe("shipRecordingPieces", () => {
       tx.streamRecording.update.mock.calls.map(([a]) => ({ ...a, data: { ...a.data, totalBytes: "n" } })),
     ]);
     expect(everything).not.toContain(KEY);
+  });
+});
+
+// Step 4 (Nov 25, 2026): the MP4 is joined only once nothing the recording wants is left in the buffer.
+describe("piecesLeftToShip", () => {
+  const finished = recording({ status: "FINISHING", finishedAt: new Date("2026-11-24T09:25:05Z") });
+
+  it("counts wanted pieces with no row, settled or not; a piece after the finish is not wanted", async () => {
+    mockDb.streamRecording.findFirst.mockResolvedValue(finished);
+    // P1 and P2 began before the finish; P3 (09:25:08) after it.
+    expect(await piecesLeftToShip(at)).toBe(2);
+    shippedAlready = [P1];
+    expect(await piecesLeftToShip(at)).toBe(1);
+    shippedAlready = [P1, P2];
+    expect(await piecesLeftToShip(at)).toBe(0);
+  });
+
+  it("null when the buffer cannot be named (no partner stream any more), zero with no recording", async () => {
+    mockDb.streamRecording.findFirst.mockResolvedValue(finished);
+    streamSpy.mockResolvedValue(null);
+    expect(await piecesLeftToShip(at)).toBeNull();
+    mockDb.streamRecording.findFirst.mockResolvedValue(null);
+    expect(await piecesLeftToShip(at)).toBe(0);
   });
 });

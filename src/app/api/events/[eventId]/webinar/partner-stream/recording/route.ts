@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import {
+  deleteStreamRecording,
   finishStreamRecording,
   getStreamRecording,
   startStreamRecording,
@@ -22,8 +23,9 @@ type RouteParams = { params: Promise<{ eventId: string }> };
 
 /**
  * Recording a partner's stream, from the console (Nov 25, 2026;
- * docs/PARTNER_STREAM_RECORDING_PLAN.md step 3, §4.5). Reads the recording and
- * starts, stops or finishes it; the rules and the stream server calls are all
+ * docs/PARTNER_STREAM_RECORDING_PLAN.md step 3, §4.5). Reads the recording,
+ * starts, stops or finishes it, and deletes it (step 4; the download is
+ * ./download); the rules and the stream server calls are all
  * in src/services/stream-recording-service.ts. `webinar.manage`, the key the
  * Partner stream card asks (D7). Never returns the stream key or where the
  * files are.
@@ -37,6 +39,9 @@ const STATUS: Record<StreamRecordingErrorCode, number> = {
   AGREEMENT_REQUIRED: 400,
   NOT_STARTED: 404,
   ALREADY_FINISHED: 409,
+  STILL_RECORDING: 409,
+  STILL_PREPARING: 409,
+  NO_FILE: 404,
 };
 
 const actionSchema = z.discriminatedUnion("action", [
@@ -127,5 +132,42 @@ export async function POST(req: Request, { params }: RouteParams) {
   } catch (error) {
     apiLogger.error({ err: error }, "webinar-stream-recording:change-failed");
     return NextResponse.json({ error: "Failed to change the recording" }, { status: 500 });
+  }
+}
+
+/** Delete a closed recording and its files (confirmed in the console, audited). The webinar can be recorded again after. */
+export async function DELETE(_req: Request, { params }: RouteParams) {
+  try {
+    const [session, { eventId }] = await Promise.all([auth(), params]);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const route = "events/[eventId]/webinar/partner-stream/recording:DELETE";
+    const orgGuard = requireOrgId(session, { route });
+    if ("error" in orgGuard) return orgGuard.error;
+    const gate = requirePermission(session, "webinar.manage", { route, eventId });
+    if (!gate.ok) return gate.response;
+
+    const limited = rateLimited(eventId, session.user.id);
+    if (limited) return limited;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
+      const found = await findPartnerWebinar(gate, { eventId, userId: session.user.id, route });
+      if (!found.ok) return found.response;
+      const result = await deleteStreamRecording({
+        organizationId: orgGuard.orgId,
+        eventId,
+        sessionId: found.sessionId,
+        userId: session.user.id,
+        source: "rest",
+        reason: "staff",
+      });
+      // The service has already logged a refusal.
+      if (!result.ok) return NextResponse.json({ error: result.message, code: result.code }, { status: STATUS[result.code] });
+      return NextResponse.json({ deleted: true, filesLeft: result.filesLeft });
+    });
+  } catch (error) {
+    apiLogger.error({ err: error }, "webinar-stream-recording:delete-failed");
+    return NextResponse.json({ error: "Failed to delete the recording" }, { status: 500 });
   }
 }

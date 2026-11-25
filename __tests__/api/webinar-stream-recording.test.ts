@@ -21,6 +21,8 @@ const h = vi.hoisted(() => ({
     stopStreamRecording: vi.fn(),
     finishStreamRecording: vi.fn(),
     streamRecordingAvailable: vi.fn(),
+    deleteStreamRecording: vi.fn(),
+    streamRecordingDownload: vi.fn(),
   },
 }));
 
@@ -44,12 +46,13 @@ vi.mock("@/lib/permissions/require-permission", () => ({
 }));
 vi.mock("@/services/stream-recording-service", () => h.svc);
 
-import { GET, POST } from "@/app/api/events/[eventId]/webinar/partner-stream/recording/route";
+import { GET, POST, DELETE } from "@/app/api/events/[eventId]/webinar/partner-stream/recording/route";
+import { POST as downloadPOST } from "@/app/api/events/[eventId]/webinar/partner-stream/recording/download/route";
 
 const ctx = { params: Promise.resolve({ eventId: "ev1" }) };
 const req = (body?: unknown) => ({ json: async () => body } as unknown as Request);
 
-const PARTNER_EVENT = { id: "ev1", eventType: "WEBINAR", settings: { webinar: { sessionId: "s1", source: "external" } } };
+const PARTNER_EVENT = { id: "ev1", eventType: "WEBINAR", slug: "beta-webinar", settings: { webinar: { sessionId: "s1", source: "external" } } };
 const VIEW = {
   id: "r1",
   sessionId: "s1",
@@ -166,5 +169,64 @@ describe("POST partner-stream/recording", () => {
     expect(res.status).toBe(429);
     expect(h.mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "webinar-stream-recording:rate-limited");
     expect(h.svc.stopStreamRecording).not.toHaveBeenCalled();
+  });
+});
+
+// Step 4 (Nov 25, 2026): delete and download.
+describe("DELETE partner-stream/recording", () => {
+  it("deletes as staff and says whether files were left", async () => {
+    h.svc.deleteStreamRecording.mockResolvedValue({ ok: true, filesLeft: 0 });
+    const res = await DELETE(req(), ctx);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ deleted: true, filesLeft: 0 });
+    expect(h.svc.deleteStreamRecording).toHaveBeenCalledWith({ ...CALLER, reason: "staff" });
+  });
+
+  it.each([
+    ["STILL_RECORDING", 409],
+    ["STILL_PREPARING", 409],
+    ["NOT_STARTED", 404],
+  ])("a refusal %s keeps its reason, status %i", async (code, status) => {
+    h.svc.deleteStreamRecording.mockResolvedValue({ ok: false, code, message: `because ${code}` });
+    const res = await DELETE(req(), ctx);
+    expect(res.status).toBe(status);
+    expect((await res.json()).code).toBe(code);
+  });
+
+  it("only on a partner's webinar", async () => {
+    h.mockDb.event.findFirst.mockResolvedValue({ ...PARTNER_EVENT, settings: { webinar: { sessionId: "s1" } } });
+    expect((await DELETE(req(), ctx)).status).toBe(409);
+    expect(h.svc.deleteStreamRecording).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST partner-stream/recording/download", () => {
+  it("answers the signed link, never the file, and names the event for the file name", async () => {
+    h.svc.streamRecordingDownload.mockResolvedValue({ ok: true, url: "https://bucket.example/signed", fileName: "beta-webinar-recording.mp4" });
+    const res = await downloadPOST(req(), ctx);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ url: "https://bucket.example/signed", fileName: "beta-webinar-recording.mp4" });
+    expect(h.svc.streamRecordingDownload).toHaveBeenCalledWith({ ...CALLER, eventSlug: "beta-webinar" });
+  });
+
+  it("no file is a 404 with the reason", async () => {
+    h.svc.streamRecordingDownload.mockResolvedValue({ ok: false, code: "NO_FILE", message: "no file" });
+    const res = await downloadPOST(req(), ctx);
+    expect(res.status).toBe(404);
+    expect((await res.json()).code).toBe("NO_FILE");
+  });
+
+  it("no bucket to sign for (local storage) is said, and logged", async () => {
+    h.svc.streamRecordingDownload.mockResolvedValue({ ok: true, url: null, fileName: "x.mp4" });
+    const res = await downloadPOST(req(), ctx);
+    expect(res.status).toBe(501);
+    expect(h.mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "webinar-stream-recording:download-no-signed-link");
+  });
+
+  it("is rate limited per person and says so", async () => {
+    h.rate.allowed = false;
+    const res = await downloadPOST(req(), ctx);
+    expect(res.status).toBe(429);
+    expect(h.svc.streamRecordingDownload).not.toHaveBeenCalled();
   });
 });

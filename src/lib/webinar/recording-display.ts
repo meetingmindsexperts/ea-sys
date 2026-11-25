@@ -52,7 +52,13 @@ export interface RecordingState {
  * The recording's state in words. An open recording with no video arriving is
  * armed, not recording; one whose signal is not known says so.
  */
-export function recordingState(status: RecordingDisplayStatus, signal: PartnerSignal, error: string | null): RecordingState {
+export function recordingState(
+  status: RecordingDisplayStatus,
+  signal: PartnerSignal,
+  error: string | null,
+  /** READY only: whether a file was made. None means nothing was recorded. */
+  hasArchive = true,
+): RecordingState {
   if (status === "RECORDING" && signal === "receiving") return { label: "Recording", live: true, hint: null };
   if (status === "RECORDING" && signal === "unknown") {
     return {
@@ -72,6 +78,7 @@ export function recordingState(status: RecordingDisplayStatus, signal: PartnerSi
     };
   }
   if (status === "FINISHING") return { label: "Finished", live: false, hint: "The file to download is being prepared." };
+  if (status === "READY" && !hasArchive) return { label: "Nothing recorded", live: false, hint: "The partner's stream never arrived while recording was on." };
   if (status === "READY") return { label: "Ready", live: false, hint: null };
   return { label: "Failed", live: false, hint: error ?? "The recording could not be completed. Tell a developer." };
 }

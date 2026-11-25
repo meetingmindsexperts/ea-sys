@@ -436,6 +436,75 @@ export async function signStoredFileDownload(opts: {
 }
 
 /**
+ * Write a large file as it is made, from a stream of bytes, and answer its
+ * size (Nov 25, 2026: the MP4 of a partner stream's recording). On S3 a
+ * multipart upload holding one 16 MB part in memory; locally, a file. Throws
+ * on failure, leaving nothing half-written on S3.
+ */
+export async function writeStoredFileStream(
+  source: AsyncIterable<Buffer>,
+  storedPath: string,
+  requirePrefix: string,
+  contentType: string,
+): Promise<{ bytes: number }> {
+  assertStoredPathWithin(storedPath, requirePrefix);
+  if (PROVIDER === "s3") {
+    const { s3UploadStream } = await import("./storage-s3");
+    const written = await s3UploadStream(source, storedPathToKey(storedPath), contentType);
+    apiLogger.info({ msg: "storage:file-written", storedPath, provider: "s3", bytes: written.bytes });
+    return written;
+  }
+  if (PROVIDER !== "local") throw new Error("Streamed writes need STORAGE_PROVIDER s3 or local");
+  const { createWriteStream } = await import("fs");
+  const { mkdir } = await import("fs/promises");
+  const { dirname, resolve } = await import("path");
+  const { pipeline } = await import("stream/promises");
+  const { Readable } = await import("stream");
+  const abs = resolve(process.cwd(), "public", storedPath.slice(1));
+  await mkdir(dirname(abs), { recursive: true });
+  let bytes = 0;
+  const counted = Readable.from(
+    (async function* () {
+      for await (const chunk of source) {
+        bytes += chunk.length;
+        yield chunk;
+      }
+    })(),
+  );
+  await pipeline(counted, createWriteStream(abs));
+  return { bytes };
+}
+
+/**
+ * Delete many stored files at once (a recording's pieces). NEVER throws, like
+ * deleteStoredFile: answers how many could not be deleted, and logs them by
+ * count, so the orphan sweep that runs later can finish the job.
+ */
+export async function deleteStoredFiles(storedPaths: readonly string[], requirePrefix: string): Promise<{ failed: number }> {
+  if (storedPaths.length === 0) return { failed: 0 };
+  try {
+    for (const p of storedPaths) assertStoredPathWithin(p, requirePrefix);
+    if (PROVIDER === "s3") {
+      const { s3DeleteMany } = await import("./storage-s3");
+      const failed = await s3DeleteMany(storedPaths.map(storedPathToKey));
+      if (failed.length > 0) apiLogger.warn({ msg: "storage:delete-many-partly-failed", failed: failed.length, of: storedPaths.length });
+      return { failed: failed.length };
+    }
+  } catch (err) {
+    const reason = err instanceof StorageError ? err.reason : "delete-failed";
+    apiLogger.warn({ msg: "storage:delete-many-failed", reason, of: storedPaths.length });
+    return { failed: storedPaths.length };
+  }
+  let failed = 0;
+  for (const p of storedPaths) {
+    // deleteStoredFile never throws and logs its own failure; count what is still there.
+    await deleteStoredFile(p, requirePrefix);
+    if (PROVIDER === "local" && (await headStoredFile(p, requirePrefix).catch(() => null))) failed += 1;
+  }
+  return { failed };
+}
+
+/**
  * List every stored file beneath `subdirectory`, newest-agnostic, recursive.
  *
  * Exists for the supporting-document prune worker, which has to find files that

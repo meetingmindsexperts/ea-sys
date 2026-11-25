@@ -3835,6 +3835,28 @@ export function useWebinarStreamRecordingAction(eventId: string) {
   });
 }
 
+/** A 5 minute link to download the recording's MP4. A mutation: every download is audited. */
+export function useDownloadWebinarStreamRecording(eventId: string) {
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{ url: string; fileName: string }>(`/api/events/${eventId}/webinar/partner-stream/recording/download`, { method: "POST" }),
+    // The signed link is not kept once used.
+    gcTime: 0,
+  });
+}
+
+/** Delete a closed recording and its files. */
+export function useDeleteWebinarStreamRecording(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{ deleted: true; filesLeft: number }>(`/api/events/${eventId}/webinar/partner-stream/recording`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
 /**
  * Show the partner's server and stream key. A mutation on purpose: every look
  * is audited, so it is asked for by a press, never cached or refetched.

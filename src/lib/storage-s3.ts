@@ -235,3 +235,78 @@ export async function s3SignDownload(opts: {
   );
 }
 
+
+// ── Large files written as they are made (Nov 25, 2026) ───────────────────
+//
+// The recording of a partner's stream is joined into one MP4 by ffmpeg in the
+// worker, and the file is written to the bucket as it comes out: nothing is
+// written to the box's disk, and only one part is held in memory at a time
+// (docs/PARTNER_STREAM_RECORDING_PLAN.md §4.4).
+
+/** S3's smallest part is 5 MB (except the last); 16 MB keeps a two hour file well under the 10,000 part limit. */
+export const S3_PART_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Write a stream of bytes to one key as a multipart upload. An upload that
+ * fails is aborted, so no half-written parts are left to bill.
+ */
+export async function s3UploadStream(source: AsyncIterable<Buffer>, key: string, contentType: string): Promise<{ bytes: number }> {
+  const { CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } = await import(
+    "@aws-sdk/client-s3"
+  );
+  const s3 = await getClient();
+  const created = await s3.send(new CreateMultipartUploadCommand({ Bucket: bucket(), Key: key, ContentType: contentType }));
+  const uploadId = created.UploadId;
+  if (!uploadId) throw new Error(`No upload id for key: ${key}`);
+  const parts: { ETag: string; PartNumber: number }[] = [];
+  let pending: Buffer[] = [];
+  let pendingBytes = 0;
+  let bytes = 0;
+
+  const sendPart = async () => {
+    const body = Buffer.concat(pending, pendingBytes);
+    pending = [];
+    pendingBytes = 0;
+    const PartNumber = parts.length + 1;
+    const res = await s3.send(new UploadPartCommand({ Bucket: bucket(), Key: key, UploadId: uploadId, PartNumber, Body: body }));
+    if (!res.ETag) throw new Error(`No ETag for part ${PartNumber} of key: ${key}`);
+    parts.push({ ETag: res.ETag, PartNumber });
+  };
+
+  try {
+    for await (const chunk of source) {
+      pending.push(chunk);
+      pendingBytes += chunk.length;
+      bytes += chunk.length;
+      if (pendingBytes >= S3_PART_BYTES) await sendPart();
+    }
+    // The last part may be small; an empty file still needs one part.
+    if (pendingBytes > 0 || parts.length === 0) await sendPart();
+    await s3.send(
+      new CompleteMultipartUploadCommand({ Bucket: bucket(), Key: key, UploadId: uploadId, MultipartUpload: { Parts: parts } }),
+    );
+    return { bytes };
+  } catch (err) {
+    try {
+      await s3.send(new AbortMultipartUploadCommand({ Bucket: bucket(), Key: key, UploadId: uploadId }));
+    } catch (abortErr) {
+      apiLogger.warn({ err: abortErr, msg: "storage:s3-multipart-abort-failed", key });
+    }
+    throw err;
+  }
+}
+
+/** Delete many keys, a thousand per request (S3's limit). Answers the keys S3 said it could not delete. */
+export async function s3DeleteMany(keys: readonly string[]): Promise<string[]> {
+  const { DeleteObjectsCommand } = await import("@aws-sdk/client-s3");
+  const s3 = await getClient();
+  const failed: string[] = [];
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000);
+    const res = await s3.send(
+      new DeleteObjectsCommand({ Bucket: bucket(), Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true } }),
+    );
+    for (const e of res.Errors ?? []) if (e.Key) failed.push(e.Key);
+  }
+  return failed;
+}

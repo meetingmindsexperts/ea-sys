@@ -9,7 +9,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockDb, mockLogger, control, streamSpy, diskSpy, timelineSpy } = vi.hoisted(() => ({
+const { mockDb, mockLogger, control, streamSpy, diskSpy, timelineSpy, storage } = vi.hoisted(() => ({
+  storage: { signStoredFileDownload: vi.fn(), listStoredFiles: vi.fn(), deleteStoredFiles: vi.fn() },
   diskSpy: vi.fn(),
   timelineSpy: vi.fn(),
   control: {
@@ -25,7 +26,7 @@ const { mockDb, mockLogger, control, streamSpy, diskSpy, timelineSpy } = vi.hois
   },
   streamSpy: vi.fn(),
   mockDb: {
-    streamRecording: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
+    streamRecording: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -36,10 +37,14 @@ vi.mock("@/lib/webinar/mediamtx-control", () => control);
 vi.mock("@/lib/webinar/session-stream", () => ({ sessionStream: streamSpy }));
 vi.mock("@/lib/webinar/recording-disk", () => ({ freeDiskBytes: diskSpy, RECORDING_MIN_FREE_BYTES: 6 * 1024 ** 3 }));
 vi.mock("@/lib/webinar/stream-timeline", () => ({ recordStreamEvent: timelineSpy }));
+vi.mock("@/lib/storage", () => storage);
 
 import {
+  deleteStreamRecording,
+  DOWNLOAD_LINK_SECONDS,
   finishStreamRecording,
   getStreamRecording,
+  streamRecordingDownload,
   keepRecordingInStep,
   resetStreamRecordingReports,
   startStreamRecording,
@@ -66,6 +71,7 @@ const row = (extra: Record<string, unknown> = {}) => ({
   pauses: [],
   finishedAt: null,
   serverClearedAt: null,
+  storagePrefix: "/uploads/recordings/ev1/s1/r1",
   session: { endTime: SESSION_END, status: "LIVE" },
   segmentCount: 0,
   totalBytes: BigInt(0),
@@ -101,6 +107,10 @@ beforeEach(() => {
   mockDb.auditLog.create.mockResolvedValue({});
   diskSpy.mockResolvedValue(18 * 1024 ** 3);
   timelineSpy.mockResolvedValue(undefined);
+  storage.signStoredFileDownload.mockResolvedValue("https://bucket.example/signed");
+  storage.listStoredFiles.mockResolvedValue([]);
+  storage.deleteStoredFiles.mockResolvedValue({ failed: 0 });
+  mockDb.streamRecording.deleteMany.mockResolvedValue({ count: 1 });
 });
 afterEach(() => {
   delete process.env.STREAM_RECORDING_ENABLED;
@@ -636,5 +646,84 @@ describe("keepRecordingInStep (the sweep's work for one recording)", () => {
     reads(null);
     expect(await keepRecordingInStep(at, NOW, true)).toBe("unchanged");
     expect(streamSpy).not.toHaveBeenCalled();
+  });
+});
+
+// Step 4 (Nov 25, 2026): the MP4's download link and deleting a recording.
+describe("streamRecordingDownload", () => {
+  const ready = () => row({ status: "READY", archivePath: "/uploads/recordings/ev1/s1/r1/recording.mp4", archiveBytes: BigInt(9) });
+
+  it("a 5 minute link to the MP4, saved under the event's address, audited", async () => {
+    reads(ready());
+    const result = await streamRecordingDownload({ ...caller, eventSlug: "Improving β Outcomes!" });
+    expect(result).toEqual({ ok: true, url: "https://bucket.example/signed", fileName: "Improving-Outcomes-recording.mp4" });
+    expect(storage.signStoredFileDownload).toHaveBeenCalledWith({
+      storedPath: "/uploads/recordings/ev1/s1/r1/recording.mp4",
+      requirePrefix: "/uploads/recordings/",
+      expiresSeconds: DOWNLOAD_LINK_SECONDS,
+      contentDisposition: 'attachment; filename="Improving-Outcomes-recording.mp4"',
+      contentType: "video/mp4",
+    });
+    expect(DOWNLOAD_LINK_SECONDS).toBe(300);
+    expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: "STREAM_RECORDING_DOWNLOADED", userId: "u1" });
+  });
+
+  it("no file: refused, nothing signed or audited", async () => {
+    for (const r of [row({ status: "FINISHING" }), row({ status: "READY" }), row({ status: "FAILED" })]) {
+      reads(r);
+      expect(await streamRecordingDownload({ ...caller, eventSlug: "x" })).toMatchObject({ ok: false, code: "NO_FILE" });
+    }
+    expect(storage.signStoredFileDownload).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleteStreamRecording", () => {
+  const PIECE_FILES = [
+    { storedPath: "/uploads/recordings/ev1/s1/r1/1.ts", modifiedAt: NOW, sizeBytes: 1 },
+    { storedPath: "/uploads/recordings/ev1/s1/r1/recording.mp4", modifiedAt: NOW, sizeBytes: 1 },
+  ];
+
+  it("deletes the row first, then every file in its folder, and audits it", async () => {
+    reads(row({ status: "READY", serverClearedAt: NOW }));
+    storage.listStoredFiles.mockResolvedValue(PIECE_FILES);
+    expect(await deleteStreamRecording({ ...caller, reason: "staff" })).toEqual({ ok: true, filesLeft: 0 });
+    expect(mockDb.streamRecording.deleteMany).toHaveBeenCalledWith({ where: { id: "r1", status: "READY" } });
+    expect(storage.listStoredFiles).toHaveBeenCalledWith("recordings/ev1/s1/r1");
+    expect(storage.deleteStoredFiles).toHaveBeenCalledWith(PIECE_FILES.map((f) => f.storedPath), "/uploads/recordings/");
+    expect(mockDb.streamRecording.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(storage.deleteStoredFiles.mock.invocationCallOrder[0]);
+    expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: "STREAM_RECORDING_DELETED", changes: { reason: "staff", files: 2 } });
+    // Already cleared on the stream server: not asked again.
+    expect(control.clearPathRecording).not.toHaveBeenCalled();
+  });
+
+  it("removes the stream server's setting first when that was never confirmed", async () => {
+    reads(row({ status: "FAILED", serverClearedAt: null }));
+    await deleteStreamRecording({ ...caller, reason: "staff" });
+    expect(control.clearPathRecording).toHaveBeenCalledWith(KEY);
+  });
+
+  it("an open recording is finished first, and one whose file is being made waits", async () => {
+    for (const status of ["RECORDING", "PAUSED"]) {
+      reads(row({ status }));
+      expect(await deleteStreamRecording({ ...caller, reason: "staff" })).toMatchObject({ ok: false, code: "STILL_RECORDING" });
+    }
+    reads(row({ status: "FINISHING" }));
+    expect(await deleteStreamRecording({ ...caller, reason: "staff" })).toMatchObject({ ok: false, code: "STILL_PREPARING" });
+    expect(mockDb.streamRecording.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("files that could not be deleted are reported, for the daily sweep", async () => {
+    reads(row({ status: "READY", serverClearedAt: NOW }));
+    storage.listStoredFiles.mockResolvedValue(PIECE_FILES);
+    storage.deleteStoredFiles.mockResolvedValue({ failed: 1 });
+    expect(await deleteStreamRecording({ ...caller, userId: null, source: "worker", reason: "retention" })).toEqual({ ok: true, filesLeft: 1 });
+  });
+
+  it("someone else deleted it meanwhile: nothing of theirs is touched", async () => {
+    reads(row({ status: "READY", serverClearedAt: NOW }));
+    mockDb.streamRecording.deleteMany.mockResolvedValue({ count: 0 });
+    expect(await deleteStreamRecording({ ...caller, reason: "staff" })).toMatchObject({ ok: false, code: "NOT_STARTED" });
+    expect(storage.deleteStoredFiles).not.toHaveBeenCalled();
   });
 });

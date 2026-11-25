@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, CircleDot, Flag, Loader2, Pause, Play } from "lucide-react";
+import { AlertTriangle, CircleDot, Download, Flag, Loader2, Pause, Play, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -27,6 +27,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  useDeleteWebinarStreamRecording,
+  useDownloadWebinarStreamRecording,
   useWebinarPartnerStream,
   useWebinarStreamRecording,
   useWebinarStreamRecordingAction,
@@ -182,7 +184,7 @@ function RecordingNow({
   const action = useWebinarStreamRecordingAction(eventId);
   const [confirmFinish, setConfirmFinish] = useState(false);
   const now = useServerNow();
-  const shown = recordingState(recording.status, partner.signal, recording.error);
+  const shown = recordingState(recording.status, partner.signal, recording.error, recording.hasArchive);
   const late = now === null ? null : piecesLateMinutes(recording, partner, now);
   const open = recording.status === "RECORDING" || recording.status === "PAUSED";
 
@@ -242,19 +244,94 @@ function RecordingNow({
           Closing the room after the start stops the recording, and finishes it 10 minutes later unless the room is opened again.
         </p>
       )}
+      {(recording.status === "READY" || recording.status === "FAILED") && <ClosedRecording eventId={eventId} recording={recording} />}
       <AlertDialog open={confirmFinish} onOpenChange={setConfirmFinish}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Finish the recording?</AlertDialogTitle>
             <AlertDialogDescription>
-              Nothing more is recorded for this webinar, and the file to download is prepared. A finished recording cannot be started again.
-              To pause and carry on later, press Stop instead.
+              Nothing more is recorded for this webinar, and the file to download is prepared. A finished recording cannot be started again;
+              to record again, delete it once its file is ready. To pause and carry on later, press Stop instead.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep recording</AlertDialogCancel>
             <Button onClick={() => void run("finish", "Recording finished")} disabled={action.isPending}>
               Finish recording
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function keptUntil(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** After the file is made (or could not be): its size, Download, how long it is kept, Delete. */
+function ClosedRecording({ eventId, recording }: { eventId: string; recording: WebinarStreamRecordingView }) {
+  const download = useDownloadWebinarStreamRecording(eventId);
+  const remove = useDeleteWebinarStreamRecording(eventId);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const until = keptUntil(recording.deleteAfter);
+
+  const startDownload = async () => {
+    try {
+      const { url } = await download.mutateAsync();
+      // The signed link names the file and asks the browser to save it, so the page stays where it is.
+      window.location.assign(url);
+    } catch (err) {
+      toast.error(errorText(err, "The download could not be prepared"));
+    }
+  };
+
+  const confirmRemove = async () => {
+    setConfirmDelete(false);
+    try {
+      await remove.mutateAsync();
+      toast.success("Recording deleted");
+    } catch (err) {
+      toast.error(errorText(err, "The recording was not deleted"));
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {recording.hasArchive && recording.archiveBytes !== null && (
+        <p className="text-muted-foreground">
+          MP4 file, {recordedSize(recording.archiveBytes)}
+          {until ? `. Kept until ${until}, then deleted.` : "."}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {recording.hasArchive && (
+          <Button size="sm" onClick={() => void startDownload()} disabled={download.isPending}>
+            {download.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            Download
+          </Button>
+        )}
+        <Button size="sm" variant="outline" onClick={() => setConfirmDelete(true)} disabled={remove.isPending}>
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete recording
+        </Button>
+      </div>
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete the recording?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The recording and its file are deleted for good, for everyone. Download a copy first if the client may need it. After this, the
+              webinar can be recorded again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <Button variant="destructive" onClick={() => void confirmRemove()} disabled={remove.isPending}>
+              Delete recording
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

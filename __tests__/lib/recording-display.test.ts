@@ -46,6 +46,11 @@ describe("recordingState", () => {
     expect(recordingState("FAILED", "not-receiving", null).hint).toMatch(/developer/);
   });
 
+  it("ready with no file says nothing was recorded (step 4)", () => {
+    expect(recordingState("READY", "not-receiving", null, false).label).toBe("Nothing recorded");
+    expect(recordingState("READY", "not-receiving", null, true).label).toBe("Ready");
+  });
+
   it("stopped, finished and ready are never live, even with video arriving", () => {
     for (const status of ["PAUSED", "FINISHING", "READY"] as const) expect(recordingState(status, "receiving", null).live).toBe(false);
   });

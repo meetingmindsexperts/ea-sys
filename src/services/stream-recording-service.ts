@@ -34,10 +34,10 @@
  * Each start, stop and finish is also a line on the console's stream timeline
  * (stream-timeline.ts), beside the audit row.
  *
- * NOT YET HERE (later steps of the plan): the MP4, download, delete and
- * retention (step 4).
- * Until step 4 a FINISHING recording stays FINISHING, which is why the feature
- * is dark until then (STREAM_RECORDING_ENABLED).
+ * The MP4 is made by stream-recording-archive.ts (the worker); download and
+ * delete are here (step 4), and the retention job deletes through the same
+ * deleteStreamRecording. The feature stays dark (STREAM_RECORDING_ENABLED)
+ * until the owner's steps in the plan's §8 are done.
  */
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
@@ -53,6 +53,8 @@ import {
 } from "@/lib/webinar/mediamtx-control";
 import { freeDiskBytes, RECORDING_MIN_FREE_BYTES } from "@/lib/webinar/recording-disk";
 import { sessionStream } from "@/lib/webinar/session-stream";
+import { deleteStoredFiles, listStoredFiles, signStoredFileDownload } from "@/lib/storage";
+import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { recordStreamEvent, type StreamEventKind } from "@/lib/webinar/stream-timeline";
 import {
   finishesAfterRoomClosed,
@@ -102,7 +104,10 @@ export type StreamRecordingErrorCode =
   | "NOT_PARTNER_STREAM"
   | "AGREEMENT_REQUIRED"
   | "NOT_STARTED"
-  | "ALREADY_FINISHED";
+  | "ALREADY_FINISHED"
+  | "STILL_RECORDING"
+  | "STILL_PREPARING"
+  | "NO_FILE";
 
 /** What staff see of a recording. Never the stream key, never where the files are. */
 export interface StreamRecordingView {
@@ -140,6 +145,9 @@ const MESSAGES: Record<StreamRecordingErrorCode, string> = {
   AGREEMENT_REQUIRED: "Confirm that the partner has agreed to be recorded before starting.",
   NOT_STARTED: "This webinar has no recording.",
   ALREADY_FINISHED: "This webinar's recording is already finished. Delete it to record again.",
+  STILL_RECORDING: "Finish the recording before deleting it.",
+  STILL_PREPARING: "The recording's file is still being made. Try again in a few minutes.",
+  NO_FILE: "This recording has no file to download.",
 };
 
 const ROW_SELECT = {
@@ -155,6 +163,7 @@ const ROW_SELECT = {
   pauses: true,
   finishedAt: true,
   serverClearedAt: true,
+  storagePrefix: true,
   segmentCount: true,
   totalBytes: true,
   durationMs: true,
@@ -180,6 +189,7 @@ interface Row {
   pauses: unknown;
   finishedAt: Date | null;
   serverClearedAt: Date | null;
+  storagePrefix: string;
   segmentCount: number;
   totalBytes: bigint;
   durationMs: number;
@@ -217,7 +227,7 @@ function lastPieceEnd(piece: { startedAt: Date; durationMs: number } | undefined
   return piece ? new Date(piece.startedAt.getTime() + piece.durationMs) : null;
 }
 
-function refuse(caller: Caller, op: RecordingAction, code: StreamRecordingErrorCode): { ok: false; code: StreamRecordingErrorCode; message: string } {
+function refuse(caller: Caller, op: RecordingAction | "download" | "delete", code: StreamRecordingErrorCode): { ok: false; code: StreamRecordingErrorCode; message: string } {
   // A person refused is a warning. The system finding nothing to do (the room closing on a webinar
   // that was never recorded, which is most of them, or one already finished) is not.
   const level = caller.source !== "rest" && (code === "NOT_STARTED" || code === "ALREADY_FINISHED") ? "info" : "warn";
@@ -540,6 +550,83 @@ export async function stopRecordingOnRoomClose(
   } catch (err) {
     apiLogger.error({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:stop-on-room-close-failed");
   }
+}
+
+/** How long a download link works. Enough to start a download; a link copied elsewhere soon dies. */
+export const DOWNLOAD_LINK_SECONDS = 5 * 60;
+
+/** A file name a browser saves under: letters, digits and hyphens from the event's address. */
+function downloadFileName(eventSlug: string | null): string {
+  const base = (eventSlug ?? "").replace(/[^A-Za-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+  return `${base || "webinar"}-recording.mp4`;
+}
+
+export type StreamRecordingDownload =
+  | { ok: true; url: string | null; fileName: string }
+  | { ok: false; code: StreamRecordingErrorCode; message: string };
+
+/**
+ * A 5 minute link to download the recording's MP4 (D7: webinar.manage, every
+ * download audited). `url` null on the local provider, which has no bucket to
+ * sign for (development only).
+ */
+export async function streamRecordingDownload(input: Caller & { eventSlug: string | null }): Promise<StreamRecordingDownload> {
+  const row = await readRow(input);
+  if (!row) return refuse(input, "download", "NOT_STARTED");
+  if (row.status !== "READY" || !row.archivePath) return refuse(input, "download", "NO_FILE");
+  const fileName = downloadFileName(input.eventSlug);
+  const url = await signStoredFileDownload({
+    storedPath: row.archivePath,
+    requirePrefix: UPLOAD_PREFIX.recordings,
+    expiresSeconds: DOWNLOAD_LINK_SECONDS,
+    contentDisposition: `attachment; filename="${fileName}"`,
+    contentType: "video/mp4",
+  });
+  apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "stream-recording:download-link");
+  await audit(input, "STREAM_RECORDING_DOWNLOADED", row.id, {});
+  return { ok: true, url, fileName };
+}
+
+export type StreamRecordingDeletion = { ok: true; filesLeft: number } | { ok: false; code: StreamRecordingErrorCode; message: string };
+
+/**
+ * Delete a closed recording: its row, its pieces' rows, and every file under
+ * its folder (pieces and MP4). By staff (confirmed in the console), or by the
+ * retention job once it is past `deleteAfter` (D4). An open recording is
+ * finished first; one whose file is being made waits.
+ *
+ * The row goes first, then the files: a file that cannot be deleted is left
+ * to the daily sweep for files no recording claims, never a row pointing at
+ * nothing. In the versioned bucket a deleted file's old version is cleared by
+ * the bucket's lifecycle rule (plan §8). After it, the webinar can be recorded
+ * again.
+ */
+export async function deleteStreamRecording(input: Caller & { reason: "staff" | "retention" }): Promise<StreamRecordingDeletion> {
+  const row = await readRow(input);
+  if (!row) return refuse(input, "delete", "NOT_STARTED");
+  if (isRecordingOpen(row.status)) return refuse(input, "delete", "STILL_RECORDING");
+  if (row.status === "FINISHING") return refuse(input, "delete", "STILL_PREPARING");
+
+  // The stream server's setting, if the sweep has not yet confirmed it gone: the sweep cannot find it once the row is.
+  if (!row.serverClearedAt) {
+    const key = await partnerKey(input);
+    if (key) await tellServer(input, key, row.status);
+  }
+  const { count } = await db.streamRecording.deleteMany({ where: { id: row.id, status: row.status } });
+  // Someone else deleted it, or it changed, between the read and now.
+  if (count === 0) return refuse(input, "delete", "NOT_STARTED");
+
+  const files = await listStoredFiles(row.storagePrefix.replace(/^\/uploads\//, ""));
+  const { failed } = await deleteStoredFiles(
+    files.map((f) => f.storedPath),
+    UPLOAD_PREFIX.recordings,
+  );
+  apiLogger.info(
+    { eventId: input.eventId, sessionId: input.sessionId, userId: input.userId, reason: input.reason, files: files.length, failed },
+    "stream-recording:deleted",
+  );
+  await audit(input, "STREAM_RECORDING_DELETED", row.id, { reason: input.reason, files: files.length, filesLeft: failed });
+  return { ok: true, filesLeft: failed };
 }
 
 /** What the sweep found for one recording. */

@@ -21,7 +21,7 @@ export const PARTNER_STREAM_STATUS: Record<ExternalStreamErrorCode, number> = {
   CONTROL_API_NOT_SET: 503,
 };
 
-export type PartnerWebinar = { ok: true; sessionId: string } | { ok: false; response: NextResponse };
+export type PartnerWebinar = { ok: true; sessionId: string; slug: string | null } | { ok: false; response: NextResponse };
 
 /**
  * The webinar's anchor session, when the webinar is streamed by a partner.
@@ -32,7 +32,7 @@ export async function findPartnerWebinar(
   gate: EventGate,
   log: { eventId: string; userId: string; route: string },
 ): Promise<PartnerWebinar> {
-  const event = await findGatedEvent(gate, { select: { id: true, eventType: true, settings: true } });
+  const event = await findGatedEvent(gate, { select: { id: true, eventType: true, settings: true, slug: true } });
   if (!event) {
     apiLogger.warn(log, "webinar-partner-stream:event-not-found");
     return { ok: false, response: NextResponse.json({ error: "Event not found" }, { status: 404 }) };
@@ -59,7 +59,7 @@ export async function findPartnerWebinar(
       ),
     };
   }
-  return { ok: true, sessionId };
+  return { ok: true, sessionId, slug: event.slug ?? null };
 }
 
 /** A service refusal as an HTTP answer. The service has already logged it. */
