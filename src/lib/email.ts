@@ -28,6 +28,7 @@ import { getTitleLabel } from "./utils";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
 import { formatEventDateRange, resolveTimezone } from "./event-time";
 import { getBreaker } from "./circuit-breaker";
+import { paceBulkSend, sendWithRateRetry } from "./email-send-pacing";
 import { EMAIL_DEFAULT_FONT, EMAIL_DEFAULT_TEXT_STYLE, emailFontFaceBlock } from "./email-fonts";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
@@ -903,7 +904,15 @@ export async function sendEmail(input: SendEmailParams): Promise<SendEmailResult
   }
 
   try {
-    const result = await getProvider().send(params);
+    // A bulk email waits its turn (one pacer per process, so two bulk sends share the speed), and an
+    // email the service refuses for speed was not sent, so it is sent again after a wait before it
+    // counts as failed (email-send-pacing.ts; Nov 24, 2026: 102 reminders were refused and lost).
+    const result = await sendWithRateRetry(() => getProvider().send(params), {
+      stream,
+      beforeAttempt: stream === "bulk" ? paceBulkSend : undefined,
+      onRetry: ({ attempt, waitMs }) =>
+        apiLogger.warn({ msg: "email:send-rate-refused-retrying", stream, attempt, waitMs, to: toEmails, subject: params.subject }),
+    });
     breaker.recordSuccess();
 
     apiLogger.info({

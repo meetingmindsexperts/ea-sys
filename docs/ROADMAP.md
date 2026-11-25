@@ -37,6 +37,26 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Bulk email after the Nov 24 sending-speed failures: what is left (recorded Nov 25, 2026): not started
+
+On Nov 24, 2026 two webinar reminders due in the same second went over the mail service's 14 emails a second and 102
+were refused (CHANGELOG, Nov 25). Fixed that day: bulk email is paced and a refused email is sent again
+(`src/lib/email-send-pacing.ts`). Left:
+
+1. **A send that ends with some failures cannot be retried.** The scheduled row is marked SENT with a failure count,
+   and `emails/schedule/[id]/retry` takes only FAILED rows, so the people who failed can be seen ("Failed recipients")
+   but not sent to again. The row keeps `emailedKeys`, so a retry that skips the people already emailed is the existing
+   resume path: offer Retry on a SENT row with failures (never for a webinar phase whose time has passed).
+2. **The alert about a send failure is itself an email**, sent through the same service in the same second: 10 of the
+   12 alert emails on Nov 24 were refused too. They now get the transactional retry; a burst of them is still one per
+   failed email until the dedup key catches up.
+3. **The pacer is per process.** The worker sends scheduled bulk email; the two web containers send transactional email
+   and a few bulk kinds (CRM blast, certificates sent at once). Each bulk sender keeps to 10 a second on its own, so
+   two processes together can pass 14. The retry covers it today; a shared count (Redis, or a database row) is the
+   real answer if volume grows.
+4. **Ask AWS for a higher sending rate** (owner step, SES console, Account dashboard, "Request a limit increase"), then
+   raise `EMAIL_BULK_SEND_RATE` to match.
+
 ## Webinar post-event report: who attended, by role and organisation (recorded Nov 25, 2026): not started
 
 **Asked by the owner, Nov 25, 2026:** "we need to add attendee details like role and org in the report". The report

@@ -315,6 +315,7 @@ NEXT_PUBLIC_SENTRY_DSN="..."          # Sentry DSN for client error tracking
 ANTHROPIC_API_KEY="..."               # Required for AI Agent feature
 SPEAKER_PRESENTATIONS_ENABLED="true"  # production (s3) only: speakers' presentation uploads; set AFTER the bucket steps in docs/SPEAKER_PRESENTATIONS_PLAN.md §7 (unset = hidden; always on with local storage)
 STREAM_RECORDING_ENABLED="true"       # production only: recording a partner's stream; set AFTER the owner's steps in docs/PARTNER_STREAM_RECORDING_PLAN.md §8 and after its step 4 is built (unset = no recording is ever started)
+EMAIL_BULK_SEND_RATE="10"             # bulk emails a second from one process (default 10, under the SES account's 14 a second; 0 = no pacing). src/lib/email-send-pacing.ts
 SES_EVENTS_TOPIC_ARN="arn:aws:sns:..." # production only: the SNS topic whose signed bounce and delivery reports POST /api/webhooks/ses believes (unset = the route is shut; docs/runbook-ses.md)
 ENABLE_ADMIN_ALERTS="true"            # local only: email admin alerts from a copy of the app on this machine (off by default; a deployed image always alerts)
 ```

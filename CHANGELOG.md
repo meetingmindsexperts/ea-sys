@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Email: bulk sends keep to the mail service's speed, and a refused email is sent again (November 25, 2026)
+
+**What happened.** On Nov 24, 2026 at 7:00 pm Dubai two webinar reminders came due in the same second: the 1-hour
+reminder for Improving Outcomes in β-Thalassemia (128 people) and the 24-hour reminder for MENA HemeConnect Wave 1 (194
+people). Bulk email went 25 at a time with nothing between the batches, about 320 emails in 6 seconds against an account
+limit of 14 a second. Amazon refused 102 ("Maximum sending rate exceeded"), nothing tried them again, and the row was
+marked Sent, so Retry was not offered: 23 people missed the 1-hour reminder (they got the later ones) and 79 never got
+the 24-hour one. Another 12 failures were the system's own alert emails. No confirmation, password reset or receipt was
+affected.
+
+- **Paced** (`src/lib/email-send-pacing.ts`, applied in `sendEmail`): bulk email leaves one at a time, evenly spaced, at
+  `EMAIL_BULK_SEND_RATE` a second (default 10). The pacer is one per process, so two sends running together share the
+  speed. A send to 230 people now takes about 23 seconds instead of 4. Transactional email is never paced.
+- **Sent again:** an email refused for speed was not sent, so it is sent again after a wait (1, 2, 4 and 8 seconds for
+  bulk; twice, quickly, for transactional) before it counts as failed. Logged as `email:send-rate-refused-retrying`.
+  The daily quota and a paused account are not retried.
+- **Still open** (ROADMAP): a send that ends with some failures is marked Sent and cannot be retried from the screen;
+  the alert emails about a send failure go through the same service at the same moment.
+
 ### Recording a partner's stream, step 3: the console (November 25, 2026)
 
 Plan: `docs/PARTNER_STREAM_RECORDING_PLAN.md` §4.5. Still dark: the controls show only on a server with
