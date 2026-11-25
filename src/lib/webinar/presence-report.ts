@@ -1,7 +1,8 @@
 /**
  * The attendance report from our own webinar page (Nov 16, 2026; external
  * streams step 6, docs/EXTERNAL_STREAM_AND_PRERECORDED_PLAN.md §4.8): one line
- * per registration that opened the webinar page, with when they first came,
+ * per registration that opened the webinar page, with who they are (role,
+ * specialty, organisation, country: attendee-profile.ts), when they first came,
  * when they were last seen, how many times they joined, and the minutes they
  * watched while the room was open (presence-watch.ts).
  *
@@ -12,6 +13,7 @@
  */
 import { toCsv } from "@/lib/csv-escape";
 import { localDateTimeInTz } from "@/lib/event-time";
+import { ATTENDEE_PROFILE_HEADERS } from "@/lib/webinar/attendee-profile";
 import {
   breakdown,
   deviceLabel,
@@ -24,6 +26,8 @@ import {
 export interface PresenceReportRow {
   name: string;
   email: string | null;
+  /** Role, specialty, organisation and country, as attendee-profile.ts reads them (Nov 25, 2026). */
+  profile: readonly [string, string, string, string];
   serialId: number | null;
   firstJoinedAt: Date;
   lastSeenAt: Date;
@@ -110,6 +114,7 @@ export function presenceReportCsv(rows: readonly PresenceReportRow[], timezone: 
   const header = [
     "Name",
     "Email",
+    ...ATTENDEE_PROFILE_HEADERS,
     "Registration #",
     `First on the page (${timezone})`,
     `Last on the page (${timezone})`,
@@ -127,6 +132,7 @@ export function presenceReportCsv(rows: readonly PresenceReportRow[], timezone: 
   const lines = rows.map((r) => [
     r.name,
     r.email,
+    ...r.profile,
     r.serialId ? String(r.serialId).padStart(3, "0") : null,
     inZone(r.firstJoinedAt, timezone),
     inZone(r.lastSeenAt, timezone),

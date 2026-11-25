@@ -12,6 +12,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { syncWebinarAttendance } from "@/lib/webinar-attendance";
 import { escapeCsvCell } from "@/lib/csv-escape";
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
+import { ATTENDEE_PROFILE_HEADERS, ATTENDEE_PROFILE_SELECT, attendeeProfileCells } from "@/lib/webinar/attendee-profile";
 import { zoomAttendanceFigures } from "@/lib/webinar/zoom-attendance-kpis";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -120,7 +122,8 @@ export async function GET(req: Request, { params }: RouteParams) {
           attentivenessScore: true,
           registrationId: true,
           registration: {
-            select: { serialId: true },
+            // The attendee's role, specialty, organisation and country ride along for the CSV only (Nov 25, 2026).
+            select: { serialId: true, attendee: { select: ATTENDEE_PROFILE_SELECT } },
           },
         },
       }),
@@ -147,9 +150,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     }));
 
     if (exportCsv) {
+      // Who each attendee is, from the registration Zoom's row was matched to; blank for a Zoom guest with none.
+      // The organisation's own labels for Role and Specialty; never fails the export (it answers the defaults).
+      const personFields = await loadOrganizationPersonFields(orgGuard.orgId);
+      const profileById = new Map(attendances.map((a) => [a.id, attendeeProfileCells(a.registration?.attendee, personFields)]));
       const header = [
         "Name",
         "Email",
+        ...ATTENDEE_PROFILE_HEADERS,
         "Join Time",
         "Leave Time",
         "Duration (min)",
@@ -162,6 +170,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           [
             r.name,
             r.email,
+            ...(profileById.get(r.id) ?? ["", "", "", ""]),
             r.joinTime,
             r.leaveTime,
             Math.round(r.durationSeconds / 60),

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinars: the attendance files say who each attendee is (November 25, 2026)
+
+Asked by the webinar team: role, specialty, organisation and country in the attendance report.
+
+- **Analytics, Webinar section**: both attendance CSVs, "Attendance on our page" and Zoom's attendance, gain four
+  columns after Email: **Role**, **Specialty**, **Organization**, **Country**, as on the registrations export (Role and
+  Specialty by the organisation's own label for the stored answer; a specialty typed under "Others" is shown as
+  typed). Blank for a Zoom guest with no registration, and
+  for a field the person left empty. Still behind the permission to export webinar attendance.
+- One reading for both files: `src/lib/webinar/attendee-profile.ts`. The screen's tables are unchanged, and the
+  post-event report (the file forwarded to clients) still names no attendee; counts by role and organisation there
+  stay on the roadmap.
+
 ### Recording a partner's stream, step 5: the docs and the owner's runbook (November 25, 2026)
 
 - **User guide**, Webinars, A partner streams into our webinar: "Recording the partner's stream" (agreeing, Start,

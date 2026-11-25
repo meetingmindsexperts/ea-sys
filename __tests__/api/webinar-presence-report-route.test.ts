@@ -9,7 +9,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const h = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  mockDb: { event: { findFirst: vi.fn() }, webinarPresence: { findMany: vi.fn(), groupBy: vi.fn(), count: vi.fn() }, registration: { findMany: vi.fn(async () => []) } },
+  mockDb: {
+    event: { findFirst: vi.fn() },
+    webinarPresence: { findMany: vi.fn(), groupBy: vi.fn(), count: vi.fn() },
+    registration: { findMany: vi.fn(async () => []) },
+    organization: { findUnique: vi.fn() },
+  },
   permSpy: vi.fn(),
   exportSpy: vi.fn(),
   rate: { allowed: true },
@@ -68,7 +73,10 @@ const ROW = {
   stallSeconds: 0,
   reconnectCount: 0,
   watchedMinutes: [],
-  registration: { serialId: 7, attendee: { firstName: "Aisha", lastName: "Khan", email: "aisha@x.com" } },
+  registration: {
+    serialId: 7,
+    attendee: { firstName: "Aisha", lastName: "Khan", email: "aisha@x.com", role: "PHYSICIAN", specialty: "Hematology", organization: "SKMC", country: "United Arab Emirates" },
+  },
 };
 
 beforeEach(() => {
@@ -78,6 +86,8 @@ beforeEach(() => {
   h.permSpy.mockReturnValue({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "ev1" } });
   h.mockDb.event.findFirst.mockResolvedValue({ id: "ev1", settings: { webinar: { sessionId: "s1" } }, timezone: "Asia/Dubai" });
   h.mockDb.webinarPresence.findMany.mockResolvedValue([ROW]);
+  // Nothing saved: the organisation's fields are today's defaults.
+  h.mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
 });
 
 describe("the page attendance report", () => {
@@ -98,7 +108,12 @@ describe("the page attendance report", () => {
     const where = h.mockDb.webinarPresence.findMany.mock.calls[0][0].where;
     expect(where).toEqual({ sessionId: "s1", eventId: "ev1" });
     const lines = (await res.text()).split("\n");
-    expect(lines[1]).toBe("Aisha Khan,aisha@x.com,007,2026-12-20 13:55,2026-12-20 15:02,2,50,,,,,,0,0,0");
+    // Role by its label (the stored key is PHYSICIAN), then specialty, organisation and country (Nov 25, 2026).
+    expect(lines[0].startsWith("Name,Email,Role,Specialty,Organization,Country,Registration #,")).toBe(true);
+    expect(lines[1]).toBe("Aisha Khan,aisha@x.com,Physician,Hematology,SKMC,United Arab Emirates,007,2026-12-20 13:55,2026-12-20 15:02,2,50,,,,,,0,0,0");
+    expect(h.mockDb.webinarPresence.findMany.mock.calls[0][0].select.registration.select.attendee.select).toMatchObject({
+      role: true, specialty: true, customSpecialty: true, organization: true, country: true,
+    });
     expect(h.exportSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityType: "WebinarPresence", rowCount: 1, format: "csv" }));
   });
 

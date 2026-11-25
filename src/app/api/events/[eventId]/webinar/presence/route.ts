@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
+import { loadOrganizationPersonFields } from "@/lib/person-field-rules";
+import { ATTENDEE_PROFILE_SELECT, attendeeProfileCells } from "@/lib/webinar/attendee-profile";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { checkRateLimit } from "@/lib/security";
@@ -39,7 +41,8 @@ const REPORT_MAX_ROWS = 20_000;
  *   ?view=summary   everyone who ever opened the page: counts and minutes, no names
  *   ?view=analytics devices, browsers, systems, how they watched, how the stream played
  *                   and how many were watching each minute (Nov 23, 2026), no names
- *   ?export=csv     one line per registration with name, email and minutes watched;
+ *   ?export=csv     one line per registration with name, email, role, specialty,
+ *                   organisation, country and minutes watched;
  *                   it carries emails, so it asks `webinar.attendance.export`, the
  *                   key of the Zoom attendance CSV, with the same limit and audit
  */
@@ -238,16 +241,19 @@ async function presenceReport(
       reconnectCount: true,
       watchedMinutes: true,
       registration: {
-        select: { serialId: true, attendee: { select: { firstName: true, lastName: true, email: true } } },
+        select: { serialId: true, attendee: { select: { firstName: true, lastName: true, email: true, ...ATTENDEE_PROFILE_SELECT } } },
       },
     },
     orderBy: { firstJoinedAt: "asc" },
     take: REPORT_MAX_ROWS,
   });
   warnIfCapped(at.eventId, found.length);
+  // The organisation's own labels for Role and Specialty; never fails the export (it answers the defaults).
+  const personFields = await loadOrganizationPersonFields(at.organizationId);
   const rows: PresenceReportRow[] = found.map((r) => ({
     name: `${r.registration.attendee?.firstName ?? ""} ${r.registration.attendee?.lastName ?? ""}`.trim() || "Attendee",
     email: r.registration.attendee?.email ?? null,
+    profile: attendeeProfileCells(r.registration.attendee, personFields),
     serialId: r.registration.serialId,
     firstJoinedAt: r.firstJoinedAt,
     lastSeenAt: r.lastSeenAt,

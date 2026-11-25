@@ -55,6 +55,7 @@ describe("the report", () => {
   const row = (extra: Record<string, unknown> = {}) => ({
     name: "Aisha Khan",
     email: "aisha@x.com",
+    profile: ["Physician", "Hematology", "Cleveland Clinic, Abu Dhabi", "United Arab Emirates"] as const,
     serialId: 7,
     firstJoinedAt: new Date("2026-12-20T09:55:00Z"),
     lastSeenAt: new Date("2026-12-20T11:02:00Z"),
@@ -106,12 +107,18 @@ describe("the report", () => {
   it("the CSV: times in the event's timezone (named in the header), minutes rounded, number padded", () => {
     const csv = presenceReportCsv([row()], "Asia/Dubai").split("\n");
     expect(csv[0]).toBe(
-      "Name,Email,Registration #,First on the page (Asia/Dubai),Last on the page (Asia/Dubai),Times joined,Minutes watched," +
+      "Name,Email,Role,Specialty,Organization,Country,Registration #,First on the page (Asia/Dubai),Last on the page (Asia/Dubai),Times joined,Minutes watched," +
         "Watching (Asia/Dubai),Watched via,Device,Browser,System,Times buffering,Seconds buffering,Reconnects",
     );
     expect(csv[1]).toBe(
-      'Aisha Khan,aisha@x.com,007,2026-12-20 13:55,2026-12-20 15:02,2,50,"13:55-14:05, 14:30-14:31",Our stream,Phone,Safari,iOS,3,14,1',
+      'Aisha Khan,aisha@x.com,Physician,Hematology,"Cleveland Clinic, Abu Dhabi",United Arab Emirates,007,2026-12-20 13:55,2026-12-20 15:02,2,50,"13:55-14:05, 14:30-14:31",Our stream,Phone,Safari,iOS,3,14,1',
     );
+  });
+
+  // An organisation name is typed by the public, like a name.
+  it("an organisation typed as a formula is neutralised too", () => {
+    const csv = presenceReportCsv([row({ profile: ["", "", "=cmd|' /C calc'!A0", ""] })], "Asia/Dubai");
+    expect(csv.split("\n")[1]).toContain("'=cmd");
   });
 
   it("a name typed as a formula is neutralised", () => {
