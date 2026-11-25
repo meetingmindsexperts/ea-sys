@@ -187,7 +187,7 @@ export function registerAllMcpTools(
 
   server.tool(
     "create_event",
-    "Create a new event in the organization. Required: name, startDate (ISO 8601), endDate (ISO 8601). Optional: slug (auto-generated from name), code (invoice-number prefix, 1-20 chars A-Z0-9-; auto-derived from name as word-initials if omitted, e.g. 'Heart Failure Forum 2026' → 'HFF2026'), description, timezone (default Asia/Dubai), venue, address, city, country, eventType (CONFERENCE/WEBINAR/HYBRID — WEBINAR auto-provisions its session + email sequence, and a Zoom webinar unless webinarSource is external), webinarSource (WEBINAR only: zoom or external; it cannot be changed later. Pass it when the person said how the webinar is streamed; if the tool answers WEBINAR_SOURCE_REQUIRED, ask the person and call again. Never pick one for them), tag, specialty, status (DRAFT/PUBLISHED/LIVE/COMPLETED/CANCELLED — default DRAFT).",
+    "Create a new event in the organization. Required: name, startDate (ISO 8601), endDate (ISO 8601). Optional: slug (auto-generated from name), code (invoice-number prefix, 1-20 chars A-Z0-9-; auto-derived from name as word-initials if omitted, e.g. 'Heart Failure Forum 2026' → 'HFF2026'), description, timezone (default Asia/Dubai), venue, address, city, country, eventType (CONFERENCE/WEBINAR/HYBRID — WEBINAR auto-provisions its session and a Zoom webinar unless webinarSource is external; its reminder, live and thank-you emails are NOT sent until someone presses Schedule in the Webinar Console's Email Sequence card, so tell the person to do that), webinarSource (WEBINAR only: zoom or external; it cannot be changed later. Pass it when the person said how the webinar is streamed; if the tool answers WEBINAR_SOURCE_REQUIRED, ask the person and call again. Never pick one for them), tag, specialty, status (DRAFT/PUBLISHED/LIVE/COMPLETED/CANCELLED — default DRAFT).",
     {
       name: z.string().min(2).max(255),
       startDate: z.string().describe("ISO 8601 datetime string"),
@@ -358,7 +358,7 @@ export function registerAllMcpTools(
       query: z.string(), domains: z.array(z.enum(["registrations", "speakers", "abstracts", "contacts"])).optional(), limit: z.number().optional(),
     }},
     // ─── Webinar + sponsor reads ───
-    { name: "get_webinar_info", description: "Get webinar configuration: settings.webinar + anchor session + linked ZoomMeeting (join URL, passcode, recording status).", params: {} },
+    { name: "get_webinar_info", description: "Get webinar configuration: settings.webinar + anchor session + linked ZoomMeeting (join URL, passcode, recording status) + sequenceScheduled (false means no reminder, live or thank-you email will be sent until someone presses Schedule in the Webinar Console).", params: {} },
     { name: "list_webinar_attendance", description: "Webinar attendance KPIs (registered / attended / rate / avg watch time) + top N attendee rows sorted by duration.", params: {
       limit: z.number().optional(),
     }},

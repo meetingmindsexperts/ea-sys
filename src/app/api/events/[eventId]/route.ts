@@ -49,6 +49,7 @@ import {
   syncZoomMeetingTimes,
 } from "@/services/session-service";
 import { rescheduleWebinarSequenceForEvent } from "@/lib/webinar-email-sequence";
+import { sequenceSyncOf, type SequenceSync } from "@/lib/webinar-sequence-plan";
 import {
   applyScheduleShift,
   deadlineChangedInPatch,
@@ -880,7 +881,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // must not sit inside the transaction, and both are failure-isolated: the
     // schedule already moved, so a failure is REPORTED, never a 500.
     let scheduleShiftSync:
-      | { zoomSynced: number; zoomFailed: string[]; sequenceSync?: "rescheduled" | "failed" }
+      | { zoomSynced: number; zoomFailed: string[]; sequenceSync?: SequenceSync }
       | undefined;
     if (scheduleShift) {
       const zoomFailed: string[] = [];
@@ -899,7 +900,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         if (r === "synced") zoomSynced += 1;
         else zoomFailed.push(zs.sessionId);
       }
-      let sequenceSync: "rescheduled" | "failed" | undefined;
+      let sequenceSync: SequenceSync | undefined;
       const isWebinar = (eventType ?? existingEvent.eventType) === "WEBINAR";
       const cancelled = (status ?? existingEvent.status) === "CANCELLED";
       if (isWebinar && webinarAnchorId && !cancelled) {
@@ -910,7 +911,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           const r = await runWithTenant(orgGuard.orgId, () =>
             rescheduleWebinarSequenceForEvent(eventId, session.user.id),
           );
-          sequenceSync = r.ok ? "rescheduled" : "failed";
+          sequenceSync = sequenceSyncOf(r);
           if (!r.ok) {
             apiLogger.warn({ msg: "event-update:schedule-shift-sequence-not-rescheduled", eventId, result: r });
           }

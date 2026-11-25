@@ -1,6 +1,8 @@
 /** The organiser's webinar email sequence (Nov 25, 2026): src/lib/webinar-sequence-plan.ts. */
 import { describe, it, expect } from "vitest";
 import {
+  phasesSwitchedOn,
+  sequenceSyncOf,
   PHASE_RULES,
   SEQUENCE_PHASES,
   cloneSequencePlan,
@@ -82,5 +84,25 @@ describe("describePhaseTime", () => {
     expect(describePhaseTime("webinar-reminder-15m", 15)).toBe("15 minutes before the start");
     expect(describePhaseTime("webinar-live-now", 0)).toBe("when it starts");
     expect(describePhaseTime("webinar-thank-you", 5)).toBe("5 minutes after the room closes");
+  });
+});
+
+describe("review of 3e967af29", () => {
+  it("a save may bring back only the phases it switched on, against the saved plan or in this edit", () => {
+    const before = { ...defaultPhaseChoices(), "webinar-live-now": { enabled: false, minutes: 0 } };
+    const after = { ...defaultPhaseChoices(), "webinar-thank-you": { enabled: true, minutes: 20 } };
+    expect(phasesSwitchedOn(before, after)).toEqual(["webinar-live-now"]);
+    expect(phasesSwitchedOn(defaultPhaseChoices(), after)).toEqual([]);
+    expect(phasesSwitchedOn(defaultPhaseChoices(), after, ["webinar-reminder-1h"])).toEqual(["webinar-reminder-1h"]);
+    // A switch turned on and then off again in the edit brings nothing back.
+    const off = { ...after, "webinar-reminder-1h": { enabled: false, minutes: 60 } };
+    expect(phasesSwitchedOn(defaultPhaseChoices(), off, ["webinar-reminder-1h"])).toEqual([]);
+  });
+
+  it("a date move on an unscheduled webinar is reported as such, not as rescheduled", () => {
+    expect(sequenceSyncOf({ ok: true, skipped: "not-scheduled" })).toBe("not-scheduled");
+    expect(sequenceSyncOf({ ok: true, skipped: null })).toBe("rescheduled");
+    expect(sequenceSyncOf({ ok: true, skipped: "no-future-phases" })).toBe("rescheduled");
+    expect(sequenceSyncOf({ ok: false, skipped: "no-anchor-session" })).toBe("failed");
   });
 });

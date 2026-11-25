@@ -93,9 +93,9 @@ export async function provisionWebinar(
     const externalSource = webinarVideoSource(event.settings) === "external";
 
     // Idempotency: if sessionId already set and points to a live session, no-op.
-    // Still re-runs the sequence enqueue — that helper is itself idempotent, so
-    // this lets users delete & re-enqueue the sequence by hitting "Re-run
-    // provisioner" if they manually cleared sequence rows.
+    // Still re-runs the sequence enqueue, which is itself idempotent. Since Nov 25, 2026 it creates
+    // rows only for a webinar whose sequence is scheduled (its plan confirmed in the console); a
+    // webinar that is not queues nothing until someone presses Schedule.
     if (existingWebinar.sessionId) {
       const existingSession = await db.eventSession.findFirst({
         where: { id: existingWebinar.sessionId, eventId: event.id },
@@ -385,6 +385,9 @@ export async function provisionWebinar(
     // would undo a handout added or removed while we provisioned (a lost file,
     // or an entry pointing at a deleted one). The locked current value keeps it.
     delete cleanWebinar.handouts;
+    // The email sequence plan belongs to the console's sequence route (review of 3e967af29): the
+    // snapshot's copy would undo a Schedule pressed while we provisioned.
+    delete cleanWebinar.sequence;
     await updateEventSettings(event.id, (cur) => {
       const merged = { ...asWebinarObject(cur), ...cleanWebinar };
       delete merged.provisioningAt;

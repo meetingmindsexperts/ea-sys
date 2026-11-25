@@ -43,6 +43,22 @@ keep their emails.
 - The reminders' wording is unchanged ("tomorrow", "in 1 hour", "in 15 minutes"): the card says to change it in
   Email Templates when a time changes.
 
+- **Review of 3e967af29** (0 BLOCKER, 1 HIGH, 5 MED, 9 LOW), fixed the same day:
+  - The console says at the top when a webinar's emails are not scheduled, with a button to the card; the assistant's
+    `create_event` says the emails wait for Schedule, and `get_webinar_info` answers `sequenceScheduled`.
+  - The card's button is always available: Schedule, then Save and reschedule after a change, or Reschedule as it
+    stands. A time is checked when you leave its box, not on every key (typing 30 used to give 50). Schedule no longer
+    needs a Zoom webinar attached. No flash of the old values after a save.
+  - A save brings back a cancelled email only when its switch was turned on in that save (it used to bring back every
+    cancelled email on any save). The API's POST still brings back all of them.
+  - Re-run provisioner no longer overwrites a plan saved while it ran. An older webinar gets its plan written down the
+    first time it is rescheduled, so a date typed into the past cannot leave it unscheduled. A reminder an organiser
+    composed by hand no longer counts as a schedule. A date move on an unscheduled webinar reports `not-scheduled`,
+    not "rescheduled". The sequence routes refuse a conference (400 `NOT_A_WEBINAR`). The audit row records the plan
+    before and after.
+  - Not done: naming the emails a save dropped because their time had passed (L2), and the route matrix harness's
+    settings read (L5).
+
 ### Webinar Console: remove a viewer (November 25, 2026)
 
 Owner: "remove someone from viewing the session if they misbehave", decided as **block this webinar only**, and

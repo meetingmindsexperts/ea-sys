@@ -631,10 +631,10 @@ POST webinar/chat
 
 POST webinar/sequence
   caller      conf        assigned    webinar     foreign
-  SUPER_ADMIN 500 r       500 r       500 r       404
+  SUPER_ADMIN 400 r       400 r       500 r       404
   OPERATOR    403         403         403         403
-  ADMIN       500 r       500 r       500 r       404
-  ORGANIZER   500 r       500 r       500 r       404
+  ADMIN       400 r       400 r       500 r       404
+  ORGANIZER   400 r       400 r       500 r       404
   MEMBER      403         403         403         403
   ONSITE      403         403         403         403
   WEBINARS    404         404         500 r       404
@@ -650,10 +650,10 @@ POST webinar/sequence
 
 PUT webinar/sequence
   caller      conf        assigned    webinar     foreign
-  SUPER_ADMIN 500 r       500 r       500 r       404
+  SUPER_ADMIN 400 r       400 r       500 r       404
   OPERATOR    403         403         403         403
-  ADMIN       500 r       500 r       500 r       404
-  ORGANIZER   500 r       500 r       500 r       404
+  ADMIN       400 r       400 r       500 r       404
+  ORGANIZER   400 r       400 r       500 r       404
   MEMBER      403         403         403         403
   ONSITE      403         403         403         403
   WEBINARS    404         404         500 r       404

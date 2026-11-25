@@ -5,7 +5,17 @@ import { readWebinarSettings } from "@/lib/webinar";
 import { isWebinarStreamArriving, OVERRUN_HARD_CAP_MS } from "@/lib/webinar/overrun";
 import { WEBINAR_EMAIL_TYPES, executeBulkEmail } from "@/lib/bulk-email";
 import { NOTIFIED_ROLES } from "@/lib/team-roles";
-import { PHASE_RULES, SEQUENCE_PHASES, readSequencePlan, type PhaseAnchor, type SequencePhase, type SequencePlan } from "@/lib/webinar-sequence-plan";
+import {
+  PHASE_RULES,
+  SEQUENCE_PHASES,
+  defaultPhaseChoices,
+  readSequencePlan,
+  storedSequencePlan,
+  type PhaseAnchor,
+  type SequencePhase,
+  type SequencePlan,
+} from "@/lib/webinar-sequence-plan";
+import { mergeSettingsInTransaction } from "@/lib/event-settings";
 
 // Minimum lead time before a phase fires. A "reminder-24h" scheduled for 5 min
 // from now is useless, so if we're too close to an anchor time we skip that phase.
@@ -112,6 +122,16 @@ function computePhases(startTime: Date, endTime: Date, anchorStatus: string | nu
   return phases.filter((p) => p.scheduledFor.getTime() > now + MIN_LEAD_MS);
 }
 
+/** A row the sequence made: no subject, message or recipient list of an organiser's own. */
+const SEQUENCE_MINTED = { customSubject: null, customMessage: null, recipientIds: { isEmpty: true } } as const;
+
+/** A phase an explicit save may bring back after someone cancelled it (review of 3e967af29). */
+type ReviveOpts = { revivePhases?: readonly SequencePhase[] };
+
+function revives(opts: ReviveOpts | undefined, phase: string): boolean {
+  return opts?.revivePhases?.includes(phase as SequencePhase) ?? false;
+}
+
 /**
  * Whether this webinar's sequence is scheduled (Nov 25, 2026): the organiser confirmed a plan, or,
  * with none stored, the webinar already holds sequence rows (every webinar from before the change,
@@ -125,8 +145,10 @@ export async function isSequenceScheduled(
 ): Promise<boolean> {
   const plan = readSequencePlan(eventSettings);
   if (plan.stored) return plan.confirmed;
+  // Only rows the sequence itself made (review of 3e967af29): a reminder an organiser composed by hand
+  // through the schedule API is their own send, not a sign that they chose the sequence.
   const row = await client.scheduledEmail.findFirst({
-    where: { eventId, emailType: { in: [...SEQUENCE_PHASES] } },
+    where: { eventId, emailType: { in: [...SEQUENCE_PHASES] }, ...SEQUENCE_MINTED },
     select: { id: true },
   });
   return row !== null;
@@ -175,7 +197,7 @@ export interface EnqueueSequenceResult {
  * `force: true` (Aug 4, 2026 — the retime-reschedule fix) skips that guard so
  * the sequence can be re-created after a schedule change; phases that already
  * fired (SENT/PROCESSING), were deliberately CANCELLED by an operator (unless
- * `resurrectCancelled`), or FAILED mid-send with some emails delivered are
+ * `revivePhases`), or FAILED mid-send with some emails delivered are
  * still excluded so no recipient ever gets a phase twice for the same date and
  * no operator decision is silently undone. A row scheduled more than
  * RESEND_AFTER_MOVE_MS from the phase's new time belongs to the old date and
@@ -185,7 +207,7 @@ export interface EnqueueSequenceResult {
 async function enqueueSequenceInner(
   eventId: string,
   actorUserId?: string,
-  opts?: { force?: boolean; resurrectCancelled?: boolean; tx?: Prisma.TransactionClient },
+  opts?: { force?: boolean; tx?: Prisma.TransactionClient } & ReviveOpts,
 ): Promise<EnqueueSequenceResult> {
   const client = opts?.tx ?? db;
   const event = await client.event.findUnique({
@@ -245,7 +267,8 @@ async function enqueueSequenceInner(
     //    MCP) — an automatic retime must not undo that decision (review M1)
     //    for the SAME date; a cancel made for a date the webinar has since
     //    left by more than 12 hours does not carry over (owner, Oct 28, 2026).
-    //    The console's explicit Re-enqueue passes resurrectCancelled.
+    //    An explicit save names the phases it may bring back (revivePhases: the ones it switched
+    //    on; the API's POST, all of them).
     //  - FAILED with some emails already delivered: the row carries the
     //    emailedKeys resume state; a fresh row would re-email the delivered
     //    portion (review M2). Operators resume it via Retry instead.
@@ -265,7 +288,7 @@ async function enqueueSequenceInner(
         .filter((r) => !isSequenceRowForOtherDate(r, anchorSession))
         .filter((r) => {
           if (r.status === "SENT" || r.status === "PROCESSING") return true;
-          if (r.status === "CANCELLED") return !opts?.resurrectCancelled;
+          if (r.status === "CANCELLED") return !revives(opts, r.emailType);
           return r.emailedKeys.length > 0; // FAILED
         })
         .map((r) => r.emailType),
@@ -329,7 +352,7 @@ async function enqueueSequenceInner(
 export async function enqueueWebinarSequenceForEvent(
   eventId: string,
   actorUserId?: string,
-  opts?: { force?: boolean; resurrectCancelled?: boolean; tx?: Prisma.TransactionClient },
+  opts?: { force?: boolean; tx?: Prisma.TransactionClient } & ReviveOpts,
 ): Promise<EnqueueSequenceResult> {
   if (opts?.tx) {
     return enqueueSequenceInner(eventId, actorUserId, opts);
@@ -379,21 +402,23 @@ export async function sendWebinarConfirmationForRegistration(args: {
  * Reschedule the webinar sequence off the anchor session's CURRENT times:
  * clears re-creatable rows, then re-enqueues under force. The one call every
  * retime path uses — session-service on an anchor retime, the event PUT
- * cascade, and the console's Re-enqueue button — so they can't drift.
+ * cascade, and the console's Schedule button — so they can't drift.
  *
  * SERIALIZED per event (review H-1): clear + create run inside ONE
  * tenantTransaction holding a transaction-scoped advisory lock keyed on the
  * eventId. ScheduledEmail has no unique on (eventId, emailType), so two
  * interleaved reschedules (Settings cascade racing an Agenda retime, a
- * double-clicked Re-enqueue) would otherwise each create a full phase set —
+ * double-clicked Schedule) would otherwise each create a full phase set —
  * every reminder firing twice to the whole audience. pg_advisory_xact_lock is
  * the pooler-safe variant: the lock and the statements share one backend for
  * the transaction's lifetime (unlike session-scoped locks, which pgbouncer's
  * transaction mode can strand on another backend — the P3 lesson).
  *
- * `resurrectCancelled` is the console Re-enqueue's explicit-operator-action
- * semantics: it may re-create phases an operator cancelled; the automatic
- * retime hooks never do (review M1).
+ * `revivePhases` is an explicit save's semantics: it may re-create the phases it
+ * names after an operator cancelled them; the automatic retime hooks never do
+ * (review M1). The console names only the phases switched on in that save, so
+ * changing another email's time never brings back a cancelled one (review of
+ * 3e967af29); the API's POST names all of them, as the old Re-enqueue did.
  *
  * A failure between clear and create leaves ZERO pending rows (loud, visible
  * in the console's sequence card) rather than rows at the wrong time — and
@@ -402,7 +427,7 @@ export async function sendWebinarConfirmationForRegistration(args: {
 export async function rescheduleWebinarSequenceForEvent(
   eventId: string,
   actorUserId?: string,
-  opts?: { resurrectCancelled?: boolean },
+  opts?: ReviveOpts,
 ): Promise<EnqueueSequenceResult & { cleared: number }> {
   const out = await tenantTransaction(async (tx) => {
     // ::text cast — pg_advisory_xact_lock returns `void`, which Prisma 6.19's
@@ -416,13 +441,27 @@ export async function rescheduleWebinarSequenceForEvent(
     if (!(await isSequenceScheduled(eventId, event?.settings, tx))) {
       return { ok: true, created: 0, skipped: "not-scheduled" as const, cleared: 0 };
     }
-    const cleared = await clearPendingWebinarSequence(eventId, {
-      resurrectCancelled: opts?.resurrectCancelled,
-      tx,
-    });
+    // An older webinar is scheduled because it holds rows, and the clear below can delete every one of
+    // them (a date moved into the past by a typo creates none back). Its plan is written down here, the
+    // usual five as it always had, so the answer no longer hangs on rows this call deletes (review of
+    // 3e967af29).
+    if (!readSequencePlan(event?.settings).stored) {
+      await mergeSettingsInTransaction(
+        tx,
+        "Event",
+        eventId,
+        (current) => {
+          const webinar = current.webinar && typeof current.webinar === "object" ? (current.webinar as Record<string, unknown>) : {};
+          return { ...current, webinar: { ...webinar, sequence: storedSequencePlan(defaultPhaseChoices(), true) } };
+        },
+        { notFoundError: "EVENT_NOT_FOUND" },
+      );
+      apiLogger.info({ eventId }, "webinar-sequence:legacy-plan-recorded");
+    }
+    const cleared = await clearPendingWebinarSequence(eventId, { revivePhases: opts?.revivePhases, tx });
     const result = await enqueueWebinarSequenceForEvent(eventId, actorUserId, {
       force: true,
-      resurrectCancelled: opts?.resurrectCancelled,
+      revivePhases: opts?.revivePhases,
       tx,
     });
     return { ...result, cleared };
@@ -443,25 +482,23 @@ export async function rescheduleWebinarSequenceForEvent(
  *    scheduled send, not ours to delete;
  *  - PENDING always; FAILED only when nothing was delivered yet (a partial
  *    send's emailedKeys resume state must survive for Retry); CANCELLED only
- *    under the console's explicit resurrectCancelled.
+ *    for a phase an explicit save names (revivePhases).
  * Returns count of rows deleted.
  */
 export async function clearPendingWebinarSequence(
   eventId: string,
-  opts?: { resurrectCancelled?: boolean; tx?: Prisma.TransactionClient },
+  opts?: ReviveOpts & { tx?: Prisma.TransactionClient },
 ): Promise<number> {
   const client = opts?.tx ?? db;
   const result = await client.scheduledEmail.deleteMany({
     where: {
       eventId,
       emailType: { in: [...WEBINAR_SEQUENCE_PHASES] },
-      customSubject: null,
-      customMessage: null,
-      recipientIds: { isEmpty: true },
+      ...SEQUENCE_MINTED,
       OR: [
         { status: "PENDING" },
         { status: "FAILED", emailedKeys: { isEmpty: true } },
-        ...(opts?.resurrectCancelled ? [{ status: "CANCELLED" as const }] : []),
+        ...(opts?.revivePhases?.length ? [{ status: "CANCELLED" as const, emailType: { in: [...opts.revivePhases] } }] : []),
       ],
     },
   });

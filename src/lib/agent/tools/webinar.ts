@@ -15,6 +15,7 @@ import {
 import { getSponsorTiers, getSponsors } from "@/lib/sponsors";
 import { saveSponsors } from "@/services/sponsor-service";
 import type { ToolExecutor } from "./_shared";
+import { isSequenceScheduled } from "@/lib/webinar-email-sequence";
 
 const listZoomMeetings: ToolExecutor = async (_input, ctx) => {
   try {
@@ -261,11 +262,18 @@ const getWebinarInfo: ToolExecutor = async (_input, ctx) => {
       });
     }
 
+    // Whether the reminders will go (review of 3e967af29): a new or cloned webinar sends none until
+    // the organiser presses Schedule in the console.
+    const sequenceScheduled = await isSequenceScheduled(event.id, event.settings);
     return {
       event: { id: event.id, name: event.name, eventType: event.eventType },
       webinar,
       anchorSession,
       zoomMeeting,
+      sequenceScheduled,
+      ...(sequenceScheduled
+        ? {}
+        : { sequenceNote: "The webinar's reminder, live and thank-you emails are not scheduled: nothing goes until someone presses Schedule in the Webinar Console's Email Sequence card." }),
     };
     });
   } catch (err) {

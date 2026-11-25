@@ -28,7 +28,7 @@ vi.mock("@/lib/webinar-email-sequence", () => ({ rescheduleWebinarSequenceForEve
 vi.mock("@/lib/bulk-email", () => ({ WEBINAR_EMAIL_TYPES: ["webinar-confirmation", "webinar-thank-you"] }));
 
 import { GET, POST, PUT } from "@/app/api/events/[eventId]/webinar/sequence/route";
-import { defaultPhaseChoices } from "@/lib/webinar-sequence-plan";
+import { defaultPhaseChoices, SEQUENCE_PHASES } from "@/lib/webinar-sequence-plan";
 
 const ctx = () => ({ params: Promise.resolve({ eventId: "ev1" }) });
 const put = (body: unknown) => PUT(new Request("http://t/x", { method: "PUT", body: JSON.stringify(body) }), ctx());
@@ -37,7 +37,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN", organizationId: "org1" } });
   permSpy.mockReturnValue({ ok: true, principal: { organizationId: "org1", baseRole: "ADMIN", fromApiKey: false }, eventWhere: { id: "ev1" } });
-  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", settings: { webinar: { sessionId: "s1" } } });
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", eventType: "WEBINAR", settings: { webinar: { sessionId: "s1" } } });
   mockDb.scheduledEmail.findMany.mockResolvedValue([]);
   mockDb.auditLog.create.mockReturnValue(Promise.resolve({}));
   settingsSpy.mockResolvedValue({});
@@ -62,7 +62,8 @@ describe("PUT", () => {
     const patch = settingsSpy.mock.calls[0][1] as (cur: Record<string, unknown>) => Record<string, unknown>;
     const next = patch({ other: 1, webinar: { sessionId: "s1", viewingMode: "hls" } });
     expect(next).toEqual({ other: 1, webinar: { sessionId: "s1", viewingMode: "hls", sequence: { confirmed: true, phases } } });
-    expect(rescheduleSpy).toHaveBeenCalledWith("ev1", "u1", { resurrectCancelled: true });
+    // Nothing was switched on against the saved plan (all five were on), so nothing cancelled comes back.
+    expect(rescheduleSpy).toHaveBeenCalledWith("ev1", "u1", { revivePhases: [] });
     expect(mockDb.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "WEBINAR_SEQUENCE_SCHEDULED" }) }));
     expect(await res.json()).toMatchObject({ created: 4 });
   });
@@ -82,10 +83,37 @@ describe("PUT", () => {
   });
 });
 
+describe("PUT: which cancelled emails may come back (review of 3e967af29)", () => {
+  it("a phase switched on against the saved plan, or turned on in this edit; never one only re-timed", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1",
+      eventType: "WEBINAR",
+      settings: { webinar: { sessionId: "s1", sequence: { confirmed: true, phases: { "webinar-reminder-1h": { enabled: false, minutes: 60 } } } } },
+    });
+    const phases = { ...defaultPhaseChoices(), "webinar-thank-you": { enabled: true, minutes: 20 } };
+    await put({ phases, switchedOn: ["webinar-live-now"] });
+    expect(rescheduleSpy).toHaveBeenCalledWith("ev1", "u1", { revivePhases: ["webinar-reminder-1h", "webinar-live-now"] });
+    const changes = mockDb.auditLog.create.mock.calls[0][0].data.changes;
+    expect(changes.before["webinar-reminder-1h"].enabled).toBe(false);
+    expect(changes.revived).toEqual(["webinar-reminder-1h", "webinar-live-now"]);
+  });
+
+  it("a conference is refused, logged, and nothing is written", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", eventType: "CONFERENCE", settings: {} });
+    const res = await put({ phases: defaultPhaseChoices() });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "NOT_A_WEBINAR" });
+    expect((await POST(new Request("http://t/x", { method: "POST" }), ctx())).status).toBe(400);
+    expect(settingsSpy).not.toHaveBeenCalled();
+    expect(rescheduleSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST (the old Re-enqueue)", () => {
   it("schedules the plan as it stands, and that confirms it", async () => {
     mockDb.event.findFirst.mockResolvedValue({
       id: "ev1",
+      eventType: "WEBINAR",
       settings: { webinar: { sessionId: "s1", sequence: { confirmed: false, phases: { "webinar-thank-you": { enabled: true, minutes: 30 } } } } },
     });
     const res = await POST(new Request("http://t/x", { method: "POST" }), ctx());
@@ -94,6 +122,7 @@ describe("POST (the old Re-enqueue)", () => {
     const next = patch({ webinar: {} });
     expect(next.webinar.sequence.confirmed).toBe(true);
     expect(next.webinar.sequence.phases["webinar-thank-you"].minutes).toBe(30);
-    expect(rescheduleSpy).toHaveBeenCalledWith("ev1", "u1", { resurrectCancelled: true });
+    // The API's explicit POST may bring back every cancelled phase, as the old Re-enqueue did.
+    expect(rescheduleSpy).toHaveBeenCalledWith("ev1", "u1", { revivePhases: SEQUENCE_PHASES });
   });
 });

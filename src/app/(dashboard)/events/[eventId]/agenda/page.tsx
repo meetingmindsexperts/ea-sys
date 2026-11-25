@@ -433,7 +433,7 @@ export default function AgendaPage() {
       }
       return res.json();
     },
-    onSuccess: (data: { zoomSync?: "synced" | "failed" | "skipped-live"; sequenceSync?: "rescheduled" | "failed" }) => {
+    onSuccess: (data: { zoomSync?: "synced" | "failed" | "skipped-live"; sequenceSync?: "rescheduled" | "not-scheduled" | "failed" }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
       setIsSessionDialogOpen(false);
       resetSessionForm();
@@ -452,7 +452,7 @@ export default function AgendaPage() {
       // emails; a failure here means they may still fire on the OLD clock.
       if (data?.sequenceSync === "failed") {
         toast.warning(
-          "Session saved, but rescheduling the webinar's reminder emails failed — they may still fire on the old schedule. Use the Webinar Console's Re-enqueue button.",
+          "Session saved, but rescheduling the webinar's reminder emails failed — they may still fire on the old schedule. Use Reschedule in the Webinar Console's Email Sequence card button.",
         );
       }
     },

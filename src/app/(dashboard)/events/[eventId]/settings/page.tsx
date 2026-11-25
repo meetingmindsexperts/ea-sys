@@ -713,7 +713,7 @@ export default function EventSettingsPage() {
             : "";
           const seqNote =
             shift.sequenceSync === "failed"
-              ? " Reminder emails may still be on the old schedule. Use the Webinar Console's Re-enqueue."
+              ? " Reminder emails may still be on the old schedule. Use Reschedule in the Webinar Console's Email Sequence card."
               : "";
           // Only on an event brought FORWARD: a closing date that would have
           // landed in the past was left where it was rather than closing
@@ -733,7 +733,7 @@ export default function EventSettingsPage() {
           const zoomNote = anchorZoomNote(cascade.zoomSync);
           const seqNote =
             cascade.sequenceSync === "failed"
-              ? " Reminder emails may still be on the old schedule — use the Webinar Console's Re-enqueue."
+              ? " Reminder emails may still be on the old schedule — use Reschedule in the Webinar Console's Email Sequence card."
               : "";
           if (zoomNote || seqNote) {
             toast.warning(`Saved. Webinar session moved, but:${zoomNote}${seqNote}`);

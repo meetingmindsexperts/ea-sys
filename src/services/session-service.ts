@@ -35,6 +35,7 @@
  */
 
 import { Prisma, type SessionType } from "@prisma/client";
+import { sequenceSyncOf, type SequenceSync } from "@/lib/webinar-sequence-plan";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -200,10 +201,10 @@ export type UpdateSessionResult =
        * (reminder-24h / 1h / live-now / thank-you) after retiming the WEBINAR
        * ANCHOR session. "failed" means the session saved but the reminder
        * emails may still fire on the OLD clock — the operator should use the
-       * console's Re-enqueue button. Absent when the times didn't change or
+       * console's Reschedule button. Absent when the times didn't change or
        * the session isn't a webinar anchor.
        */
-      sequenceSync?: "rescheduled" | "failed";
+      sequenceSync?: SequenceSync;
     }
   | { ok: false; code: SessionServiceErrorCode; message: string; meta?: Record<string, unknown> };
 
@@ -977,7 +978,7 @@ export async function updateSession(rawInput: UpdateSessionInput): Promise<Updat
   // nothing else reschedules them (organizer-reported Aug 4, 2026: emails
   // kept firing per the ORIGINAL webinar time after a retime). Failure-
   // isolated like the Zoom sync: the save already committed.
-  let sequenceSync: "rescheduled" | "failed" | undefined;
+  let sequenceSync: SequenceSync | undefined;
   if (timesChanged) {
     sequenceSync = await rescheduleSequenceIfAnchor(
       eventId,
@@ -1043,7 +1044,7 @@ async function rescheduleSequenceIfAnchor(
   sessionId: string,
   userId: string | undefined,
   hasZoomMeeting: boolean,
-): Promise<"rescheduled" | "failed" | undefined> {
+): Promise<SequenceSync | undefined> {
   try {
     const event = await db.event.findUnique({
       where: { id: eventId },
@@ -1072,7 +1073,7 @@ async function rescheduleSequenceIfAnchor(
 
     const { rescheduleWebinarSequenceForEvent } = await import("@/lib/webinar-email-sequence");
     const result = await rescheduleWebinarSequenceForEvent(eventId, userId);
-    return result.ok ? "rescheduled" : "failed";
+    return sequenceSyncOf(result);
   } catch (err) {
     apiLogger.error(
       { err, eventId, sessionId },

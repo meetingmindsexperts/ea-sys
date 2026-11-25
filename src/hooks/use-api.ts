@@ -4004,7 +4004,7 @@ export function useWebinarSequence(eventId: string) {
 export function useScheduleWebinarSequence(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (phases: Record<SequencePhase, PhaseChoice>) =>
+    mutationFn: ({ phases, switchedOn }: { phases: Record<SequencePhase, PhaseChoice>; switchedOn: SequencePhase[] }) =>
       fetchApi<{
         ok: boolean;
         deleted: number;
@@ -4012,12 +4012,11 @@ export function useScheduleWebinarSequence(eventId: string) {
         skipped: string | null;
       }>(`/api/events/${eventId}/webinar/sequence`, {
         method: "PUT",
-        body: JSON.stringify({ phases }),
+        body: JSON.stringify({ phases, switchedOn }),
         headers: { "Content-Type": "application/json" },
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.webinarSequence(eventId) });
-    },
+    // Returned, so mutateAsync resolves only once the card's data is fetched again.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.webinarSequence(eventId) }),
   });
 }
 

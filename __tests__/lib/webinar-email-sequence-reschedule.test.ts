@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { mockDb, mockApiLogger } = vi.hoisted(() => ({
   mockDb: {
-    event: { findUnique: vi.fn() },
+    event: { findUnique: vi.fn(), update: vi.fn() },
     eventSession: { findFirst: vi.fn() },
     scheduledEmail: {
       findFirst: vi.fn(),
@@ -32,8 +32,10 @@ vi.mock("@/lib/db", () => ({
   db: mockDb,
   // reschedule runs clear+create inside one tenantTransaction holding a
   // per-event advisory xact lock — passthrough with a $queryRaw stub.
+  // The raw reads are the advisory lock (its answer unused) and the settings row lock, which
+  // answers the webinar's settings.
   tenantTransaction: (fn: (tx: unknown) => unknown) =>
-    fn({ ...mockDb, $queryRaw: vi.fn().mockResolvedValue([]) }),
+    fn({ ...mockDb, $queryRaw: vi.fn().mockResolvedValue([{ settings: { webinar: { sessionId: "anchor1" } } }]) }),
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 
@@ -203,17 +205,29 @@ describe("reschedule semantics — cancelled / partial-failed phases (review M1/
     expect(where.OR.map((o) => o.status)).toEqual(["PENDING", "FAILED"]);
   });
 
-  it("the console's explicit Re-enqueue (resurrectCancelled) DOES re-create cancelled phases", async () => {
+  it("an explicit save re-creates a cancelled phase it names (revivePhases), and only that one", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      { emailType: "webinar-live-now", status: "CANCELLED", emailedKeys: [], scheduledFor: new Date("2026-09-04T10:00:00Z") },
+      { emailType: "webinar-reminder-15m", status: "CANCELLED", emailedKeys: [], scheduledFor: new Date("2026-09-04T09:45:00Z") },
+    ]);
+    const res = await rescheduleWebinarSequenceForEvent("ev1", "u1", { revivePhases: ["webinar-live-now"] });
+    expect(res.created).toBe(4);
+    expect(createdPhases()).toContain("webinar-live-now");
+    expect(createdPhases()).not.toContain("webinar-reminder-15m");
+    const where = (mockDb.scheduledEmail.deleteMany.mock.calls[0][0] as {
+      where: { OR: Array<{ status: string; emailType?: unknown }> };
+    }).where;
+    expect(where.OR.map((o) => o.status)).toEqual(["PENDING", "FAILED", "CANCELLED"]);
+    // The clear deletes only the named phase's cancelled row.
+    expect(where.OR[2].emailType).toEqual({ in: ["webinar-live-now"] });
+  });
+
+  it("a save that names nothing (a time changed) brings back no cancelled phase (review of 3e967af29)", async () => {
     mockDb.scheduledEmail.findMany.mockResolvedValue([
       { emailType: "webinar-live-now", status: "CANCELLED", emailedKeys: [], scheduledFor: new Date("2026-09-04T10:00:00Z") },
     ]);
-    const res = await rescheduleWebinarSequenceForEvent("ev1", "u1", { resurrectCancelled: true });
-    expect(res.created).toBe(5);
-    expect(createdPhases()).toContain("webinar-live-now");
-    const where = (mockDb.scheduledEmail.deleteMany.mock.calls[0][0] as {
-      where: { OR: Array<{ status: string }> };
-    }).where;
-    expect(where.OR.map((o) => o.status)).toEqual(["PENDING", "FAILED", "CANCELLED"]);
+    await rescheduleWebinarSequenceForEvent("ev1", "u1", { revivePhases: [] });
+    expect(createdPhases()).not.toContain("webinar-live-now");
   });
 
   it("a FAILED phase with partial deliveries keeps its resume state and is not re-created", async () => {
@@ -370,6 +384,30 @@ describe("the organiser's plan", () => {
     mockDb.scheduledEmail.findFirst.mockResolvedValue({ id: "old-row" });
     await rescheduleWebinarSequenceForEvent("ev1", "u1");
     expect(createdPhases()).toHaveLength(5);
+  });
+
+  it("an older webinar gets its plan written down before the clear, so losing every row cannot unschedule it (review of 3e967af29)", async () => {
+    mockDb.event.findUnique.mockResolvedValue(settings());
+    mockDb.scheduledEmail.findFirst.mockResolvedValue({ id: "old-row" });
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    const written = mockDb.event.update.mock.calls[0][0] as { data: { settings: { webinar: { sessionId: string; sequence: { confirmed: boolean; phases: Record<string, { enabled: boolean }> } } } } };
+    expect(written.data.settings.webinar.sessionId).toBe("anchor1");
+    expect(written.data.settings.webinar.sequence.confirmed).toBe(true);
+    expect(Object.values(written.data.settings.webinar.sequence.phases).every((p) => p.enabled)).toBe(true);
+    // Written before the clear.
+    expect(mockDb.event.update.mock.invocationCallOrder[0]).toBeLessThan(mockDb.scheduledEmail.deleteMany.mock.invocationCallOrder[0]);
+  });
+
+  it("a stored plan is never rewritten by a reschedule", async () => {
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    expect(mockDb.event.update).not.toHaveBeenCalled();
+  });
+
+  it("a hand-composed reminder does not make a webinar read as scheduled (review of 3e967af29)", async () => {
+    mockDb.event.findUnique.mockResolvedValue(settings());
+    await rescheduleWebinarSequenceForEvent("ev1", "u1");
+    const where = mockDb.scheduledEmail.findFirst.mock.calls[0][0].where;
+    expect(where).toMatchObject({ customSubject: null, customMessage: null, recipientIds: { isEmpty: true } });
   });
 
   it("a switched-off email is never created, and each kept one goes at the organiser's time", async () => {

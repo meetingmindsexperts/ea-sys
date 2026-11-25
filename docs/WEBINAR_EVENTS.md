@@ -226,7 +226,7 @@ are the defaults.
 | `webinar-reminder-1h` | 1 h before start |
 | `webinar-reminder-15m` | 15 min before start, when the session page starts letting attendees in (Oct 28, 2026) |
 | `webinar-live-now` | At start time |
-| `webinar-thank-you` | 5 min after the room closes (30 min until Nov 25, 2026; held while it is open, for up to 2.5 h after the scheduled end; a close before the scheduled start, such as a soundcheck or rehearsal, does not count; a Re-enqueue after the webinar has run keeps it). Without a room close, 5 min after the scheduled end (Oct 28, 2026) |
+| `webinar-thank-you` | 5 min after the room closes (30 min until Nov 25, 2026; held while it is open, for up to 2.5 h after the scheduled end; a close before the scheduled start, such as a soundcheck or rehearsal, does not count; a Reschedule after the webinar has run keeps it). Without a room close, 5 min after the scheduled end (Oct 28, 2026) |
 
 Variables: `{{joinUrl}}`, `{{passcode}}`, `{{webinarDate}}`, `{{webinarTime}}`, `{{recordingUrl}}` + conditional `{{passcodeBlock}}` / `{{recordingBlock}}` HTML fragments.
 
@@ -240,7 +240,7 @@ Variables: `{{joinUrl}}`, `{{passcode}}`, `{{webinarDate}}`, `{{webinarTime}}`, 
 > email can't be changed, so the fix applies to all sends after deploy — the
 > reminder/live-now emails build the URL at fire time.)
 
-**Enqueueing** — `enqueueWebinarSequenceForEvent()` creates 4 future `ScheduledEmail` rows (the immediate confirmation is sent directly from the register route). Past-dated phases are dropped; re-enqueue is idempotent.
+**Enqueueing** — `enqueueWebinarSequenceForEvent()` creates a `ScheduledEmail` row per phase the organiser switched on (the immediate confirmation is sent directly from the register route), and only once the sequence is scheduled (Nov 25, 2026; `isSequenceScheduled`). Past-dated phases are dropped; the call is idempotent.
 
 ### Retime cascade + email reschedule (Aug 4, 2026 — organizer-reported)
 
@@ -264,11 +264,15 @@ Retiming the webinar now moves EVERYTHING, from every surface:
   holding a per-event `pg_advisory_xact_lock` (pooler-safe — session-scoped
   advisory locks are NOT safe through pgbouncer transaction mode). Semantics:
   a phase that already **SENT/PROCESSING is never re-created** (no duplicate
-  reminders); an operator-**CANCELLED** phase stays cancelled (only the
-  console's explicit Re-enqueue passes `resurrectCancelled`); a **FAILED**
+  reminders); an operator-**CANCELLED** phase stays cancelled (only an explicit
+  save names phases it may bring back, `revivePhases`: the console names the
+  switches turned on in that save, the API's POST all five); a **FAILED**
   phase with partial deliveries keeps its row (resume state for Retry);
   manually-composed rows (custom subject/message or explicit recipients) are
-  never touched — only the 4 auto-minted phase rows move.
+  never touched — only the auto-minted phase rows move. An older webinar
+  scheduled only by its rows gets its plan written down (the usual five,
+  confirmed) the first time it is rescheduled, so a clear that removes every
+  row never leaves it unscheduled (review of 3e967af29).
 
 ### Single-room guard + stale-link auto-heal (same round)
 
@@ -805,7 +809,7 @@ Walk through the failure modes:
 
    **Mitigation (not implemented)**: wrap the whole provisioner in a DB transaction, creating the session and the settings.webinar update atomically. Not currently worth it because the provisioner is fire-and-forget from event creation; failures are rare and visible in logs.
 
-3. **Crash after persisting settings.webinar, before enqueueing email sequence**: next provisioner run is idempotent no-op; email sequence re-enqueue is safe because `enqueueWebinarSequenceForEvent` checks for existing `webinar-*` rows first.
+3. **Crash after persisting settings.webinar, before enqueueing email sequence**: next provisioner run is idempotent no-op; the email sequence enqueue is safe because `enqueueWebinarSequenceForEvent` checks for existing `webinar-*` rows first (and, since Nov 25, 2026, queues nothing for a webinar whose sequence is not scheduled). The provisioner never writes `settings.webinar.sequence`: it drops the snapshot's copy, as it does `handouts`.
 
 The real guarantee is: **the user can always click "Re-run provisioner"** and the system will converge toward a valid state. Idempotency is the crash-safety net.
 

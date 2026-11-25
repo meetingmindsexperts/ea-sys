@@ -100,8 +100,37 @@ export const sequencePlanSchema = z
         ) as unknown as Record<SequencePhase, z.ZodType<PhaseChoice>>,
       )
       .strict(),
+    /**
+     * The phases whose switch the organiser turned on in this edit (review of 3e967af29). Only these,
+     * and the phases switched on against the saved plan, may come back after someone cancelled them.
+     */
+    switchedOn: z.array(z.enum(SEQUENCE_PHASES)).max(SEQUENCE_PHASES.length).optional(),
   })
   .strict();
+
+/**
+ * The phases a save switched on, the only ones it may bring back after someone cancelled them (review
+ * of 3e967af29): changing the thank-you's delay must not re-send a "We're live" an operator cancelled.
+ */
+export function phasesSwitchedOn(
+  before: Record<SequencePhase, PhaseChoice>,
+  after: Record<SequencePhase, PhaseChoice>,
+  toggledOn: readonly SequencePhase[] = [],
+): SequencePhase[] {
+  return SEQUENCE_PHASES.filter((p) => after[p].enabled && (!before[p].enabled || toggledOn.includes(p)));
+}
+
+/**
+ * What a date move did to the emails, as the screens and the assistant report it (review of 3e967af29):
+ * a webinar whose emails are not scheduled had nothing to move, which is neither "rescheduled" nor
+ * "failed".
+ */
+export type SequenceSync = "rescheduled" | "not-scheduled" | "failed";
+
+export function sequenceSyncOf(result: { ok: boolean; skipped: string | null }): SequenceSync {
+  if (!result.ok) return "failed";
+  return result.skipped === "not-scheduled" ? "not-scheduled" : "rescheduled";
+}
 
 /** The stored form of a confirmed plan. */
 export function storedSequencePlan(phases: Record<SequencePhase, PhaseChoice>, confirmed: boolean) {

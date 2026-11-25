@@ -348,6 +348,17 @@ export default function WebinarConsolePage() {
         </div>
       </div>
 
+      {/* Seen on opening the console, whatever the tab (review of 3e967af29): the card that says it
+          sits at the bottom of the Setup tab's right rail. */}
+      <SequenceNotScheduledNotice
+        eventId={eventId}
+        ended={status === "ended"}
+        onOpen={() => {
+          setPickedTab("setup");
+          requestAnimationFrame(() => document.getElementById("email-sequence")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+        }}
+      />
+
       {/* Sticky status bar — pinned to the top of the scroll area so the room
           state + primary action never scroll away (the bar's own bg carries a
           backdrop blur so content sliding under it stays legible). */}
@@ -494,7 +505,7 @@ export default function WebinarConsolePage() {
               {/* Handouts in the right rail (owner, Oct 6, 2026). */}
               <HandoutsCard eventId={eventId} handouts={data?.webinar?.handouts ?? []} />
               {/* A partner's webinar sends the same emails: they link our session page, never Zoom. */}
-              <EmailSequenceCard eventId={eventId} hasZoom={hasZoom || partner} />
+              <EmailSequenceCard eventId={eventId} />
             </div>
           </div>
         </TabsContent>
@@ -1296,18 +1307,53 @@ function unitFor(minutes: number): TimeUnit {
  * the organiser decide"). Pre-filled with the five usual emails; nothing goes out until Schedule is
  * pressed. A webinar that already had a sequence queued keeps it and can change it here.
  */
-function EmailSequenceCard({
-  eventId,
-  hasZoom,
-}: {
-  eventId: string;
-  hasZoom: boolean;
-}) {
+/**
+ * Said at the top of the console while the webinar's emails are not scheduled (review of 3e967af29):
+ * a new or cloned webinar sends no reminder until someone presses Schedule, and the card that says so
+ * is the last one in the Setup tab.
+ */
+function SequenceNotScheduledNotice({ eventId, ended, onOpen }: { eventId: string; ended: boolean; onOpen: () => void }) {
+  const { data } = useWebinarSequence(eventId);
+  if (ended || !data?.plan || data.plan.scheduled) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      <span>
+        The webinar&apos;s emails are not scheduled yet: no reminder, &ldquo;We&apos;re live&rdquo; or thank-you email will be sent until you press
+        Schedule in the Email Sequence card.
+      </span>
+      <Button size="sm" variant="outline" className="bg-white" onClick={onOpen}>
+        <Mail className="mr-2 h-4 w-4" />
+        Open Email Sequence
+      </Button>
+    </div>
+  );
+}
+
+/** The card's button: Schedule the first time, then Save and reschedule, or Reschedule as it stands. */
+function scheduleButtonLabel(scheduled: boolean, changed: boolean): string {
+  if (!scheduled) return "Schedule";
+  return changed ? "Save and reschedule" : "Reschedule";
+}
+
+/** What was typed in a time box, read as minutes inside the phase's bounds; null while not a number. */
+function typedMinutes(phase: SequencePhase, typed: string, unit: TimeUnit): number | null {
+  const raw = Number(typed);
+  if (typed.trim() === "" || !Number.isFinite(raw)) return null;
+  const rule = PHASE_RULES[phase];
+  return Math.min(rule.max, Math.max(rule.min, Math.round(raw * UNIT_MINUTES[unit])));
+}
+
+function EmailSequenceCard({ eventId }: { eventId: string }) {
   const { data, isLoading } = useWebinarSequence(eventId);
   const schedule = useScheduleWebinarSequence(eventId);
   const canManage = useCan("webinar.manage", eventId) === "allowed";
   const [draft, setDraft] = useState<Record<SequencePhase, PhaseChoice> | null>(null);
   const [units, setUnits] = useState<Partial<Record<SequencePhase, TimeUnit>>>({});
+  // What is being typed in a time box, checked against its bounds only when the box is left or the
+  // plan saved (review of 3e967af29: checking every keystroke turned "30" into 50).
+  const [typing, setTyping] = useState<Partial<Record<SequencePhase, string>>>({});
+  // Switches turned on in this edit: only these may bring back an email someone cancelled.
+  const [switchedOn, setSwitchedOn] = useState<SequencePhase[]>([]);
 
   const saved = data?.plan?.phases ?? defaultPhaseChoices();
   const phases = draft ?? saved;
@@ -1315,12 +1361,45 @@ function EmailSequenceCard({
   const changed = draft !== null && JSON.stringify(draft) !== JSON.stringify(saved);
 
   const setPhase = (phase: SequencePhase, next: Partial<PhaseChoice>) =>
-    setDraft({ ...phases, [phase]: { ...phases[phase], ...next } });
+    setDraft((cur) => {
+      const base = cur ?? saved;
+      return { ...base, [phase]: { ...base[phase], ...next } };
+    });
+
+  const unitOf = (phase: SequencePhase): TimeUnit =>
+    PHASE_RULES[phase].anchor === "before-start" ? (units[phase] ?? unitFor(phases[phase].minutes)) : "minutes";
+
+  /** The plan with whatever is still being typed taken in. */
+  const withTyping = (): Record<SequencePhase, PhaseChoice> => {
+    const next = { ...phases };
+    for (const phase of SEQUENCE_PHASES) {
+      const text = typing[phase];
+      const minutes = text === undefined ? null : typedMinutes(phase, text, unitOf(phase));
+      if (minutes !== null) next[phase] = { ...next[phase], minutes };
+    }
+    return next;
+  };
+
+  const finishTyping = (phase: SequencePhase) => {
+    const text = typing[phase];
+    if (text === undefined) return;
+    const minutes = typedMinutes(phase, text, unitOf(phase));
+    if (minutes !== null) setPhase(phase, { minutes });
+    setTyping((cur) => {
+      const rest = { ...cur };
+      delete rest[phase];
+      return rest;
+    });
+  };
 
   const handleSchedule = async () => {
     try {
-      const result = await schedule.mutateAsync(phases);
+      // Resolves once the card's data is fetched again, so the draft is dropped onto the saved plan
+      // and never shows the old values for a moment (review of 3e967af29).
+      const result = await schedule.mutateAsync({ phases: withTyping(), switchedOn });
       setDraft(null);
+      setTyping({});
+      setSwitchedOn([]);
       if (result.skipped === "no-anchor-session") {
         toast.error("No anchor session. Run the provisioner first");
       } else if (result.skipped === "no-future-phases") {
@@ -1338,7 +1417,7 @@ function EmailSequenceCard({
   const rows = data?.rows ?? [];
 
   return (
-    <Card>
+    <Card id="email-sequence" className="scroll-mt-24">
       <CardHeader>
         <ConsoleTitle icon={Mail} tone="emerald">
           Email Sequence
@@ -1360,14 +1439,17 @@ function EmailSequenceCard({
             {SEQUENCE_PHASES.map((phase) => {
               const rule = PHASE_RULES[phase];
               const choice = phases[phase];
-              const unit = rule.anchor === "before-start" ? (units[phase] ?? unitFor(choice.minutes)) : "minutes";
-              const shown = Math.round((choice.minutes / UNIT_MINUTES[unit]) * 100) / 100;
+              const unit = unitOf(phase);
+              const shown = typing[phase] ?? String(Math.round((choice.minutes / UNIT_MINUTES[unit]) * 100) / 100);
               return (
                 <div key={phase} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
                   <Switch
                     checked={choice.enabled}
                     disabled={!canManage}
-                    onCheckedChange={(on) => setPhase(phase, { enabled: on })}
+                    onCheckedChange={(on) => {
+                      setPhase(phase, { enabled: on });
+                      if (on && !switchedOn.includes(phase)) setSwitchedOn([...switchedOn, phase]);
+                    }}
                     aria-label={`Send the ${rule.label} email`}
                   />
                   <div className="min-w-[9rem] flex-1">
@@ -1383,15 +1465,18 @@ function EmailSequenceCard({
                       value={shown}
                       disabled={!canManage || !choice.enabled}
                       aria-label={`${rule.label}: time`}
-                      onChange={(e) => {
-                        const raw = Number(e.target.value);
-                        if (!Number.isFinite(raw)) return;
-                        const minutes = Math.min(rule.max, Math.max(rule.min, Math.round(raw * UNIT_MINUTES[unit])));
-                        setPhase(phase, { minutes });
-                      }}
+                      onChange={(e) => setTyping({ ...typing, [phase]: e.target.value })}
+                      onBlur={() => finishTyping(phase)}
                     />
                     {rule.anchor === "before-start" ? (
-                      <Select value={unit} onValueChange={(v) => setUnits({ ...units, [phase]: v as TimeUnit })} disabled={!canManage || !choice.enabled}>
+                      <Select
+                        value={unit}
+                        onValueChange={(v) => {
+                          finishTyping(phase);
+                          setUnits({ ...units, [phase]: v as TimeUnit });
+                        }}
+                        disabled={!canManage || !choice.enabled}
+                      >
                         <SelectTrigger className="h-8 w-[6.5rem]" aria-label={`${rule.label}: unit`}>
                           <SelectValue />
                         </SelectTrigger>
@@ -1423,18 +1508,27 @@ function EmailSequenceCard({
         {canManage && !isLoading && (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {changed && (
-              <Button variant="ghost" size="sm" onClick={() => setDraft(null)} disabled={schedule.isPending}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setDraft(null);
+                  setTyping({});
+                  setSwitchedOn([]);
+                }}
+                disabled={schedule.isPending}
+              >
                 Discard changes
               </Button>
             )}
             <Button
               size="sm"
               onClick={() => void handleSchedule()}
-              disabled={schedule.isPending || !hasZoom || (scheduled && !changed)}
-              title={!hasZoom ? "Attach a Zoom webinar first" : undefined}
+              disabled={schedule.isPending}
+              title={scheduled && !changed ? "Clear the queued emails and queue them again for the webinar's current time" : undefined}
             >
               {schedule.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCw className="mr-2 h-4 w-4" />}
-              {scheduled ? "Save and reschedule" : "Schedule"}
+              {scheduleButtonLabel(scheduled, changed || Object.keys(typing).length > 0)}
             </Button>
           </div>
         )}
