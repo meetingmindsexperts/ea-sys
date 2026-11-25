@@ -2042,8 +2042,8 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
           Live now
         </ConsoleTitle>
         <CardDescription>
-          Registrants currently on the webinar page (heartbeat in the last 60s):
-          lobby-page presence, distinct from the post-event attendance report.
+          Registrants currently on the webinar page (heartbeat in the last 60s), and everyone who has opened it
+          so far: lobby-page presence, distinct from the post-event attendance report.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -2051,7 +2051,7 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
           <CardLoading />
         ) : null}
         {!isLoading && (!data || data.total === 0) ? (
-          <CardEmpty message="No attendees on the page right now." />
+          <CardEmpty message={data?.opened ? `No attendees on the page right now. ${data.opened} opened it so far.` : "No attendees on the page right now."} />
         ) : null}
         {!isLoading && data && data.total !== 0 ? (
           <>
@@ -2063,6 +2063,11 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
               <div className="flex-1 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 text-center">
                 <p className="text-2xl font-bold text-emerald-700">{data.joined}</p>
                 <p className="text-xs text-muted-foreground">Joined</p>
+              </div>
+              {/* Everyone who has opened the page tonight, here now or not (owner, Nov 25, 2026). */}
+              <div className="flex-1 rounded-lg border p-3 text-center" title="Everyone who has opened the webinar page so far, counted once each">
+                <p className="text-2xl font-bold">{data.opened}</p>
+                <p className="text-xs text-muted-foreground">Opened so far</p>
               </div>
             </div>
             <div className="max-h-72 divide-y overflow-y-auto rounded-lg border">

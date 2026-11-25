@@ -96,7 +96,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       // the card renders a clean empty state.
       if (summaryOnly) return NextResponse.json(presenceReportSummary([]));
       if (analyticsOnly) return NextResponse.json(watchAnalytics([]));
-      return NextResponse.json({ lobby: 0, joined: 0, total: 0, rows: [] });
+      return NextResponse.json({ lobby: 0, joined: 0, total: 0, opened: 0, rows: [] });
     }
 
     if (exportCsv || summaryOnly || analyticsOnly) {
@@ -113,7 +113,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const cutoff = new Date(Date.now() - PRESENT_WINDOW_MS);
-    const rows = await db.webinarPresence.findMany({
+    // Everyone who has opened the page so far, beside who is on it now (owner, Nov 25, 2026):
+    // one row per registration and session, so a count of rows is a count of people.
+    const [rows, opened] = await Promise.all([db.webinarPresence.findMany({
       // eventId binds the roster to THIS org-verified event (multi-tenancy sweep).
       where: { sessionId: anchorSessionId, eventId, lastSeenAt: { gte: cutoff } },
       select: {
@@ -131,7 +133,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       },
       orderBy: { lastSeenAt: "desc" },
       take: 1000,
-    });
+    }), db.webinarPresence.count({ where: { sessionId: anchorSessionId, eventId } })]);
 
     const mapped = rows.map((r) => ({
       id: r.id,
@@ -147,7 +149,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const joined = mapped.filter((r) => r.phase === "joined").length;
     const lobby = mapped.length - joined;
 
-    return NextResponse.json({ lobby, joined, total: mapped.length, rows: mapped });
+    return NextResponse.json({ lobby, joined, total: mapped.length, opened, rows: mapped });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar:presence-fetch-failed");

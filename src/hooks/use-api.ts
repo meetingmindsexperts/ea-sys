@@ -4074,6 +4074,8 @@ export interface WebinarPresenceData {
   lobby: number;
   joined: number;
   total: number;
+  /** Everyone who has opened the webinar page so far, on it now or not. */
+  opened: number;
   rows: WebinarPresenceRow[];
 }
 

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Webinar Console: "Opened so far" on the Live now card (November 25, 2026)
+
+- The Live now card shows a third figure beside In lobby and Joined: everyone who has opened the webinar page so
+  far, counted once each, on it now or not (85 on the β-Thalassemia webinar against 50 to 58 watching at a
+  time). With nobody on the page, the empty card still says how many opened it. `GET .../webinar/presence` answers
+  `opened`.
+
 ### Webinars: the thank-you 5 minutes after the close, and a compact session page (November 25, 2026)
 
 Owner, after the β-Thalassemia webinar on Nov 24.

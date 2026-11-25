@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const h = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  mockDb: { event: { findFirst: vi.fn() }, webinarPresence: { findMany: vi.fn(), groupBy: vi.fn() } },
+  mockDb: { event: { findFirst: vi.fn() }, webinarPresence: { findMany: vi.fn(), groupBy: vi.fn(), count: vi.fn() } },
   permSpy: vi.fn(),
   exportSpy: vi.fn(),
   rate: { allowed: true },
@@ -143,5 +143,21 @@ describe("the page attendance report", () => {
     expect((await GET(req("?export=csv"), ctx)).status).toBe(409);
     expect(h.mockLogger.warn).toHaveBeenCalledWith(expect.anything(), "webinar-presence:export-no-anchor-session");
     expect(await (await GET(req("?view=summary"), ctx)).json()).toEqual({ opened: 0, joined: 0, totalWatchedSeconds: 0, avgWatchedSeconds: 0 });
+  });
+});
+
+// Owner, Nov 25, 2026: the Live now card shows everyone who opened the page so far beside who is here now.
+describe("the live roster", () => {
+  it("counts everyone who opened the page, beside the people on it now", async () => {
+    h.mockDb.webinarPresence.count.mockResolvedValue(85);
+    const body = await (await GET(req(""), ctx)).json();
+    expect(body).toMatchObject({ total: 1, opened: 85 });
+    expect(h.mockDb.webinarPresence.count).toHaveBeenCalledWith({ where: { sessionId: "s1", eventId: "ev1" } });
+    expect(h.mockDb.webinarPresence.findMany.mock.calls[0][0].where).toMatchObject({ sessionId: "s1", eventId: "ev1", lastSeenAt: expect.any(Object) });
+  });
+
+  it("no webinar session yet: nothing opened", async () => {
+    h.mockDb.event.findFirst.mockResolvedValue({ id: "ev1", settings: {}, timezone: "Asia/Dubai" });
+    expect(await (await GET(req(""), ctx)).json()).toEqual({ lobby: 0, joined: 0, total: 0, opened: 0, rows: [] });
   });
 });
