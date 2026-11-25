@@ -108,7 +108,11 @@ describe("the Zoom attendance CSV", () => {
   it("the screen's rows do not carry them: they are read for the file only, and the labels are not loaded", async () => {
     const res = (await GET(req(""), ctx)) as unknown as { json(): Promise<{ rows: Record<string, unknown>[] }> };
     const { rows } = await res.json();
-    expect(Object.keys(rows[0])).not.toEqual(expect.arrayContaining(["role", "organization", "profile"]));
+    // The exact keys (review of fe509d869): one field added to the screen, or the database row spread into
+    // it, would hand these to people who may see the screen but not download the file.
+    expect(Object.keys(rows[0]).sort()).toEqual(
+      ["attentivenessScore", "durationSeconds", "email", "id", "joinTime", "leaveTime", "name", "registrationId", "registrationSerialId"].sort(),
+    );
     expect(h.mockDb.organization.findUnique).not.toHaveBeenCalled();
   });
 

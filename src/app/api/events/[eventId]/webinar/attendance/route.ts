@@ -122,7 +122,9 @@ export async function GET(req: Request, { params }: RouteParams) {
           attentivenessScore: true,
           registrationId: true,
           registration: {
-            // The attendee's role, specialty, organisation and country ride along for the CSV only (Nov 25, 2026).
+            // The attendee's role, specialty, organisation and country (Nov 25, 2026). Read on every GET and
+            // USED by the CSV only: the screen's rows below are built field by field and never carry them
+            // (the screen needs only webinar.analytics.read; a test pins its exact keys).
             select: { serialId: true, attendee: { select: ATTENDEE_PROFILE_SELECT } },
           },
         },

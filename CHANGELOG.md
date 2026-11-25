@@ -11,13 +11,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Asked by the webinar team: role, specialty, organisation and country in the attendance report.
 
 - **Analytics, Webinar section**: both attendance CSVs, "Attendance on our page" and Zoom's attendance, gain four
-  columns after Email: **Role**, **Specialty**, **Organization**, **Country**, as on the registrations export (Role and
-  Specialty by the organisation's own label for the stored answer; a specialty typed under "Others" is shown as
-  typed). Blank for a Zoom guest with no registration, and
+  columns after Email: **Role**, **Specialty**, **Organization**, **Country**, named as on the registrations export
+  (Role and Specialty by the organisation's own label for the stored answer). One difference from that export: a
+  specialty typed under "Others" is shown as typed here, where the registrations export says "Others". Blank for a
+  Zoom guest with no registration, and
   for a field the person left empty. Still behind the permission to export webinar attendance.
 - One reading for both files: `src/lib/webinar/attendee-profile.ts`. The screen's tables are unchanged, and the
   post-event report (the file forwarded to clients) still names no attendee; counts by role and organisation there
   stay on the roadmap.
+
+Review of fe509d869 (0 BLOCKER, 0 HIGH, 0 MED, 6 LOW): the test that the screen never carries these fields now pins
+the screen's exact keys; a comment and this entry's wording corrected; the user guide says Zoom's columns come from
+the registration matched by the email Zoom reports. Left: the export permission's description still says "contact
+details", and the registrations export still shows "Others" for a typed specialty.
 
 ### Recording a partner's stream, step 5: the docs and the owner's runbook (November 25, 2026)
 
