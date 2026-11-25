@@ -787,30 +787,6 @@ export default function InfraPage() {
               )}
             </CardContent>
           </Card>
-
-          {/* Email failures */}
-          <Card id="email-failures" className="scroll-mt-4">
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><MailWarning className="h-4 w-4 text-primary" /> Email failures <span className="text-xs font-normal text-muted-foreground">(last 7 days)</span></CardTitle></CardHeader>
-            <CardContent>
-              <StatusNote status={snap.emailFailures.status} error={snap.emailFailures.error} unconfiguredHint="No email log." />
-              {snap.emailFailures.status === "ok" && (snap.emailFailures.rows.length === 0 ? (
-                <p className="text-sm text-emerald-600 flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> No send failures in the last 7 days.</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {snap.emailFailures.rows.map((e, i) => (
-                    <div key={i} className="text-sm border-b pb-1.5 last:border-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium truncate">{e.to}</span>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">{ago(e.at)}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground truncate">{e.subject}</div>
-                      {e.error && <div className="text-xs text-red-600 truncate">{e.error}</div>}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
           </div>
 
           {/* Medium cards, two-up */}
@@ -975,8 +951,12 @@ export default function InfraPage() {
               this page, and it refreshes hourly rather than every 60s. */}
           {isOperator && <TrafficCard />}
 
-          {/* Recent errors — full width */}
-          <Card id="errors" className="scroll-mt-4">
+          {/* The two logs side by side (owner, Nov 25, 2026): what went wrong in the system, and
+              which emails did not go. Both lists scroll inside the same height, so the pair stays level
+              however many rows either has. One column on a narrow screen. */}
+          <div className="grid gap-4 lg:grid-cols-2">
+          {/* Recent errors */}
+          <Card id="errors" className="scroll-mt-4 min-w-0">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <ScrollText className="h-4 w-4 text-primary" /> Recent errors &amp; warnings
@@ -1007,6 +987,31 @@ export default function InfraPage() {
               ))}
             </CardContent>
           </Card>
+
+          {/* Email failures */}
+          <Card id="email-failures" className="scroll-mt-4 min-w-0">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><MailWarning className="h-4 w-4 text-primary" /> Email failures <span className="text-xs font-normal text-muted-foreground">(last 7 days)</span></CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.emailFailures.status} error={snap.emailFailures.error} unconfiguredHint="No email log." />
+              {snap.emailFailures.status === "ok" && (snap.emailFailures.rows.length === 0 ? (
+                <p className="text-sm text-emerald-600 flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> No send failures in the last 7 days.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                  {snap.emailFailures.rows.map((e, i) => (
+                    <div key={i} className="text-sm border-b pb-1.5 last:border-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium truncate">{e.to}</span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">{ago(e.at)}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{e.subject}</div>
+                      {e.error && <div className="text-xs text-red-600 truncate">{e.error}</div>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          </div>
         </div>
         </>
       )}
