@@ -108,3 +108,29 @@ function time(iso: string | null): number {
   const t = Date.parse(iso);
   return Number.isNaN(t) ? 0 : t;
 }
+
+/**
+ * What the producer is told when the room (or switching "Start and stop with the room" on while it
+ * is open) acted on the recording (Nov 26, 2026). "off" says nothing. Shared by the Go live card
+ * and the Recording section, so the two never word it differently.
+ */
+export const ROOM_RECORDING_MESSAGE: Record<
+  "off" | "started" | "server-not-told" | "too-early" | "finished" | "not-started",
+  { tone: "success" | "info" | "warning"; text: string } | null
+> = {
+  off: null,
+  started: { tone: "success", text: "Recording started with the room" },
+  "server-not-told": {
+    tone: "warning",
+    text: "Recording started with the room, but the stream server did not take it yet. It is tried again within a minute; watch the time and size grow.",
+  },
+  "too-early": {
+    tone: "info",
+    text: "Not recording yet: the room was opened more than 30 minutes before the start. Recording starts on its own 30 minutes before.",
+  },
+  finished: {
+    tone: "info",
+    text: "Not recorded: this webinar's recording is already finished. Delete it to record again, or turn off Start and stop with the room.",
+  },
+  "not-started": { tone: "warning", text: "The recording did not start with the room. Check the Recording section and press Start." },
+};

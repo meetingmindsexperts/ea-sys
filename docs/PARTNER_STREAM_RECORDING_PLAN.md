@@ -259,6 +259,12 @@ In the **Partner stream** card and the **Recording** tab:
   the 30 minutes before the start are reached, up to 15 minutes after the start, and only while
   the webinar has no recording at all, so it never carries on one staff stopped
   (`startRecordingForEarlyRoom`). The partner's testing before the room opens is not recorded.
+  After the review of 392f9a92f: switching it on while the room is already open starts the
+  recording at once when there is none yet; the MP4's temporary file is always closed (a failed
+  upload kept its disk space taken); ffmpeg stopped by a full or failing disk is a retry, not a
+  verdict on the pieces; a rehearsal close with nothing recording logs nothing; the producer is told
+  when the stream server did not take the start, or when the recording is already finished; the
+  switch stays visible on a closed recording so it can be turned off.
 
 - Before the webinar: the tick "The partner has agreed to this recording" (D5), and Start, which
   before the stream begins arms the recording: it records from the moment the partner connects.

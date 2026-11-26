@@ -135,7 +135,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         const set = await setRecordWithRoom({ ...caller, on: input.on, partnerAgreed: input.partnerAgreed });
         // The service has already logged a refusal.
         if (!set.ok) return NextResponse.json({ error: set.message, code: set.code }, { status: STATUS[set.code] });
-        return NextResponse.json({ recordWithRoom: set.recordWithRoom });
+        return NextResponse.json({ recordWithRoom: set.recordWithRoom, recording: set.recording });
       }
       return answer(await finishStreamRecording({ ...caller, reason: "staff" }));
     });

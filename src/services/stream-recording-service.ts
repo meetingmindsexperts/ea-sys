@@ -572,7 +572,7 @@ export async function stopRecordingOnRoomClose(
 // ── Recording with the room (Nov 26, 2026) ─────────────────────────────────
 
 export type RecordWithRoomResult =
-  | { ok: true; recordWithRoom: { agreedAt: Date } | null }
+  | { ok: true; recordWithRoom: { agreedAt: Date } | null; recording: RoomOpenRecording }
   | { ok: false; code: StreamRecordingErrorCode; message: string };
 
 /** The webinar's "record with the room" choice as staff see it: when the agreement was confirmed, or null when off. */
@@ -587,6 +587,11 @@ export function recordWithRoomView(settings: unknown): { agreedAt: Date } | null
  * when the room starts it. Off is always allowed, with the owner's switch off
  * too. Changes nothing about a recording already made: Stop and Finish stay
  * as they are.
+ *
+ * Switched on while the room is ALREADY open (review of 392f9a92f, MED): the
+ * room opening has passed, so the recording is started now, as the opening
+ * would have, when the webinar has none yet. One that staff stopped is left
+ * stopped ("Start again" is theirs to press).
  */
 export async function setRecordWithRoom(
   input: StartCaller & { on: boolean; partnerAgreed?: boolean; now?: Date },
@@ -625,7 +630,18 @@ export async function setRecordWithRoom(
   } catch (err) {
     apiLogger.error({ err, eventId: input.eventId }, "stream-recording:audit-failed");
   }
-  return { ok: true, recordWithRoom: stored ? { agreedAt } : null };
+  const recording = stored ? await startIfRoomAlreadyOpen(input, agreedAt) : "off";
+  return { ok: true, recordWithRoom: stored ? { agreedAt } : null, recording };
+}
+
+async function startIfRoomAlreadyOpen(input: StartCaller, now: Date): Promise<RoomOpenRecording> {
+  const [session, existing, event] = await Promise.all([
+    db.eventSession.findFirst({ where: { id: input.sessionId, eventId: input.eventId }, select: { status: true } }),
+    readRow(input),
+    db.event.findFirst({ where: { id: input.eventId, organizationId: input.organizationId }, select: { settings: true } }),
+  ]);
+  if (session?.status !== "LIVE" || existing || !event) return "off";
+  return startRecordingOnRoomOpen({ ...input, settings: event.settings, now });
 }
 
 function refuseSetting(caller: Caller, op: "record-with-room", code: StreamRecordingErrorCode): { ok: false; code: StreamRecordingErrorCode; message: string } {
@@ -633,8 +649,12 @@ function refuseSetting(caller: Caller, op: "record-with-room", code: StreamRecor
   return { ok: false, code, message: code === "AGREEMENT_REQUIRED" ? "Confirm that the partner has agreed to be recorded first." : MESSAGES[code] };
 }
 
-/** What opening the room did to the recording, for the producer's message. */
-export type RoomOpenRecording = "off" | "started" | "too-early" | "not-started";
+/**
+ * What opening the room did to the recording, for the producer's message. "server-not-told": the
+ * recording is on in our records but the stream server did not take it yet (the sweep retries);
+ * "finished": the webinar's recording is already finished, so nothing more can be recorded.
+ */
+export type RoomOpenRecording = "off" | "started" | "server-not-told" | "too-early" | "finished" | "not-started";
 
 /**
  * The room was opened: with "record with the room" on, start the recording,
@@ -666,7 +686,8 @@ export async function startRecordingOnRoomOpen(
       now,
     });
     // A refusal (disk low, recording already finished, switch off) is logged by the start.
-    return result.ok ? "started" : "not-started";
+    if (!result.ok) return result.code === "ALREADY_FINISHED" ? "finished" : "not-started";
+    return result.server && !result.server.ok ? "server-not-told" : "started";
   } catch (err) {
     apiLogger.error({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:start-on-room-open-failed");
     return "not-started";
@@ -737,6 +758,9 @@ export async function stopRecordingOnRehearsalClose(
 ): Promise<void> {
   if (!readRecordWithRoom(at.settings)) return;
   try {
+    // The ordinary day-before test has no recording: nothing to stop, and nothing to warn about (review of 392f9a92f).
+    const existing = await readRow(at);
+    if (existing?.status !== "RECORDING") return;
     await stopStreamRecording({ ...at, source: "room", reason: "rehearsal-closed" });
   } catch (err) {
     apiLogger.error({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:stop-on-rehearsal-close-failed");

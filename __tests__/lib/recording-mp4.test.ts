@@ -169,6 +169,36 @@ describe("joinPiecesToMp4 failures", () => {
     expect(readdirSync(tmp)).toEqual([]);
   });
 
+  // Review of 392f9a92f (HIGH): a write refused before it reads (the upload's first call) left the file open,
+  // so its disk space stayed taken after the folder was removed.
+  it("the file handed to the write is always closed, even when the write never reads it", async () => {
+    let given: { destroyed: boolean } | null = null;
+    const fake = fakeFfmpeg(writesFile("MP4"));
+    await joinPiecesToMp4({
+      count: 1,
+      readPiece: async () => Buffer.from("x"),
+      write: async (mp4) => {
+        given = mp4 as unknown as { destroyed: boolean };
+        throw new Error("CreateMultipartUpload refused");
+      },
+      spawn: fake.spawn,
+    }).catch(() => undefined);
+    expect(given!.destroyed).toBe(true);
+  });
+
+  it("a full or failing disk stops ffmpeg as a write failure, tried again, not ffmpeg's verdict on the pieces", async () => {
+    const fake = fakeFfmpeg((c) => {
+      c.stdin.resume();
+      c.stdin.on("end", () => {
+        c.stderr.write("Error writing trailer: No space left on device");
+        c.stdout.end();
+        c.exit(1);
+      });
+    });
+    const err = await joinPiecesToMp4({ count: 1, readPiece: async () => Buffer.from("x"), write: collect, spawn: fake.spawn }).catch((e) => e);
+    expect((err as Mp4JoinError).kind).toBe("write");
+  });
+
   it("a write that stalls past the time allowed is a timeout, and its signal is aborted", async () => {
     let given: AbortSignal | null = null;
     const fake = fakeFfmpeg(writesFile("MP4"));

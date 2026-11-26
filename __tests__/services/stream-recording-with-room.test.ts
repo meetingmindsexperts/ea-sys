@@ -148,8 +148,10 @@ describe("setRecordWithRoom", () => {
 
   it("on stores who confirmed the agreement and when, beside the webinar's other settings, and audits it", async () => {
     const now = new Date(AGREED);
+    mockDb.eventSession.findFirst.mockResolvedValue({ startTime: START, status: "SCHEDULED" });
     const res = await setRecordWithRoom({ ...caller, on: true, partnerAgreed: true, now });
-    expect(res).toEqual({ ok: true, recordWithRoom: { agreedAt: now } });
+    expect(res).toEqual({ ok: true, recordWithRoom: { agreedAt: now }, recording: "off" });
+    expect(mockDb.streamRecording.create).not.toHaveBeenCalled();
     expect(settingsSpy).toHaveBeenCalledWith("ev1", expect.any(Function), { organizationId: "org1" });
     expect(storedWebinar()).toEqual({ sessionId: "s1", chat: { on: true }, recordWithRoom: { agreedAt: AGREED, agreedByUserId: "u1" } });
     expect(mockDb.auditLog.create).toHaveBeenCalledWith({
@@ -160,9 +162,26 @@ describe("setRecordWithRoom", () => {
   it("off removes it, and is allowed with the owner's switch off", async () => {
     delete process.env.STREAM_RECORDING_ENABLED;
     const res = await setRecordWithRoom({ ...caller, on: false });
-    expect(res).toEqual({ ok: true, recordWithRoom: null });
+    expect(res).toEqual({ ok: true, recordWithRoom: null, recording: "off" });
     expect(storedWebinar({ webinar: { sessionId: "s1", recordWithRoom: { agreedAt: AGREED } } })).toEqual({ sessionId: "s1" });
     expect(mockDb.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "STREAM_RECORDING_WITH_ROOM_OFF" }) });
+  });
+
+  // Review of 392f9a92f (MED): switched on with the room already open, the opening has passed.
+  it("on with the room already open starts the recording now, with the agreement just given", async () => {
+    const now = new Date(START.getTime() - 5 * MIN);
+    // Read by the "already open" check, then by the start.
+    reads(null, null, row());
+    const res = await setRecordWithRoom({ ...caller, on: true, partnerAgreed: true, now });
+    expect(res).toMatchObject({ ok: true, recording: "started" });
+    expect(mockDb.streamRecording.create.mock.calls[0][0].data).toMatchObject({ status: "RECORDING", startedByUserId: "u1" });
+  });
+
+  it("on with the room open leaves a recording staff stopped as it is", async () => {
+    reads(row({ status: "PAUSED" }));
+    const res = await setRecordWithRoom({ ...caller, on: true, partnerAgreed: true, now: START });
+    expect(res).toMatchObject({ ok: true, recording: "off" });
+    expect(mockDb.streamRecording.updateMany).not.toHaveBeenCalled();
   });
 
   it("on is refused on a server not set up for recording, and on a webinar with no partner stream", async () => {
@@ -208,6 +227,16 @@ describe("startRecordingOnRoomOpen", () => {
     expect(await startRecordingOnRoomOpen({ ...opener, settings: withRoom(), now: inWindow })).toBe("started");
   });
 
+  it("a stream server that did not take it is said, not hidden behind a success", async () => {
+    control.setPathRecording.mockResolvedValue({ ok: false, code: "UNREACHABLE" });
+    expect(await startRecordingOnRoomOpen({ ...opener, settings: withRoom(), now: START })).toBe("server-not-told");
+  });
+
+  it("a recording already finished is said as such", async () => {
+    reads(row({ status: "READY" }));
+    expect(await startRecordingOnRoomOpen({ ...opener, settings: withRoom(), now: START })).toBe("finished");
+  });
+
   it("a refusal (the disk short of room) is said as not started, never thrown", async () => {
     diskSpy.mockResolvedValue(1024);
     expect(await startRecordingOnRoomOpen({ ...opener, settings: withRoom(), now: START })).toBe("not-started");
@@ -225,13 +254,23 @@ describe("stopRecordingOnRehearsalClose", () => {
   const closer = { organizationId: "org1", eventId: "ev1", sessionId: "s1", userId: "u1" };
 
   it("with the room driving it: a close before the start pauses the recording, never finishes it", async () => {
-    reads(row(), row({ status: "PAUSED" }));
+    // Read by the close's own check, then by the stop.
+    reads(row(), row(), row({ status: "PAUSED" }));
     await stopRecordingOnRehearsalClose({ ...closer, settings: withRoom() });
     const moved = mockDb.streamRecording.updateMany.mock.calls.map(([a]) => a.data.status);
     expect(moved).toEqual(["PAUSED"]);
     expect(mockDb.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ action: "STREAM_RECORDING_STOPPED", changes: expect.objectContaining({ reason: "rehearsal-closed" }) }),
     });
+  });
+
+  it("no recording (the ordinary day-before test) or a stopped one: nothing is stopped and nothing warned", async () => {
+    reads(null);
+    await stopRecordingOnRehearsalClose({ ...closer, settings: withRoom() });
+    reads(row({ status: "PAUSED" }));
+    await stopRecordingOnRehearsalClose({ ...closer, settings: withRoom() });
+    expect(mockDb.streamRecording.updateMany).not.toHaveBeenCalled();
+    expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 
   it("a recording staff started by hand is left as it is", async () => {

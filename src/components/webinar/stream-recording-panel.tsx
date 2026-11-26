@@ -47,6 +47,7 @@ import {
   recordedLength,
   recordedSize,
   recordingState,
+  ROOM_RECORDING_MESSAGE,
   type PartnerSignal,
 } from "@/lib/webinar/recording-display";
 
@@ -151,8 +152,11 @@ function WithRoomSwitch({ eventId, on, agreed }: { eventId: string; on: boolean;
   const set = useSetWebinarRecordWithRoom(eventId);
   const change = async (next: boolean) => {
     try {
-      await set.mutateAsync({ on: next, partnerAgreed: next ? agreed : undefined });
+      const res = await set.mutateAsync({ on: next, partnerAgreed: next ? agreed : undefined });
       toast.success(next ? "Recording will follow the room" : "Recording no longer follows the room");
+      // Switched on with the room already open: it was started now (review of 392f9a92f).
+      const said = ROOM_RECORDING_MESSAGE[res.recording];
+      if (said) toast[said.tone](said.text);
     } catch (err) {
       toast.error(errorText(err, "The change did not go through"));
     }
@@ -308,8 +312,9 @@ function RecordingNow({
           Closing the room after the start stops the recording, and finishes it 10 minutes later unless the room is opened again.
         </p>
       )}
-      {/* The recording exists, so the partner's agreement is on record: the switch needs no tick here. */}
-      {open && (available || withRoom) && <WithRoomSwitch eventId={eventId} on={withRoom} agreed />}
+      {/* The recording exists, so the partner's agreement is on record: the switch needs no tick here. Shown on a
+          closed recording too, so it can be turned off (review of 392f9a92f). */}
+      {(available || withRoom) && <WithRoomSwitch eventId={eventId} on={withRoom} agreed />}
       {(recording.status === "READY" || recording.status === "FAILED") && <ClosedRecording eventId={eventId} recording={recording} />}
       <AlertDialog open={confirmFinish} onOpenChange={setConfirmFinish}>
         <AlertDialogContent>

@@ -3647,7 +3647,7 @@ export function useToggleWebinarRoom(eventId: string) {
         /** A partner's webinar, on opening: whether their video is arriving, and if not, why. */
         partnerSignal?: "receiving" | "not-receiving" | "switched-off" | "unknown";
         /** A partner's stream recorded with the room, on opening: whether the recording started (Nov 26, 2026). */
-        recording?: "started" | "too-early" | "not-started";
+        recording?: Exclude<WebinarRoomOpenRecording, "off">;
       }>(
         `/api/events/${eventId}/webinar/room`,
         { method: "POST", body: JSON.stringify({ open }), headers: { "Content-Type": "application/json" } },
@@ -3839,12 +3839,15 @@ export function useWebinarStreamRecordingAction(eventId: string) {
   });
 }
 
+/** What the room (or switching "record with the room" on while it is open) did to the recording. */
+export type WebinarRoomOpenRecording = "off" | "started" | "server-not-told" | "too-early" | "finished" | "not-started";
+
 /** Switch "record with the room" on (the partner's agreement confirmed) or off. */
 export function useSetWebinarRecordWithRoom(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: { on: boolean; partnerAgreed?: boolean }) =>
-      fetchApi<{ recordWithRoom: { agreedAt: string } | null }>(`/api/events/${eventId}/webinar/partner-stream/recording`, {
+      fetchApi<{ recordWithRoom: { agreedAt: string } | null; recording: WebinarRoomOpenRecording }>(`/api/events/${eventId}/webinar/partner-stream/recording`, {
         method: "POST",
         body: JSON.stringify({ action: "with-room", ...body }),
         headers: { "Content-Type": "application/json" },

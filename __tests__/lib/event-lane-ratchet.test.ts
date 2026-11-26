@@ -159,8 +159,8 @@ const CALLER_LANED: Record<string, [count: number, why: string]> = {
   "src/services/speaker-service.ts": [1, "A service called by REST routes and agent tools, each inside the organisation's lane before the call."],
   "src/services/sponsor-service.ts": [1, "The sponsors route (inside its lane since Nov 17, 2026), the agent tool and the Blueprint seed."],
   "src/services/stream-recording-service.ts": [
-    2,
-    "Record with the room (Nov 26, 2026): setRecordWithRoom's settings merge is called only by the recording route, inside its runWithTenant; startRecordingForEarlyRoom's event read only by the minute sweep, inside the room's own runWithTenant.",
+    3,
+    "Record with the room (Nov 26, 2026): setRecordWithRoom's settings merge and its read of the event (to start a room already open) are called only by the recording route, inside its runWithTenant; startRecordingForEarlyRoom's event read only by the minute sweep, inside the room's own runWithTenant.",
   ],
   "src/services/survey-service.ts": [3, "Runs on a `tx` that every caller takes from tenantTransaction, inside a lane."],
 };

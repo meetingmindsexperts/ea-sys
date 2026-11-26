@@ -60,8 +60,15 @@ export const JOIN_TIMEOUT_MS = 20 * 60 * 1000;
 
 /** The temporary folders' name, so ones a stopped worker left behind can be found and removed. */
 const TMP_PREFIX = "ea-recording-";
-/** A temporary folder older than this belongs to no join still running. */
-const LEFTOVER_AGE_MS = 2 * JOIN_TIMEOUT_MS;
+/**
+ * A temporary folder older than this belongs to no join still running: no join outlives its
+ * timeout, and joins run one at a time in the one worker (review of 392f9a92f: twice the timeout
+ * kept a crashed join's file, about a recording's size, through 40 minutes of retries).
+ */
+const LEFTOVER_AGE_MS = JOIN_TIMEOUT_MS;
+
+/** ffmpeg's words for a disk that is full or failing: the write's fault, worth trying again, never the pieces'. */
+const DISK_FAULT = /No space left on device|Input\/output error|Disk quota exceeded/i;
 
 /** How much of ffmpeg's error output is kept for the log and the recording's error. */
 const STDERR_KEEP = 2000;
@@ -212,15 +219,26 @@ async function runJoin<T>(
     if (failure) throw failure;
     // Stopped from outside (the out-of-memory killer, a worker shutting down): worth trying again, not ffmpeg's verdict.
     if (exit.signal) throw new Mp4JoinError(`ffmpeg was stopped by ${exit.signal}`, "killed");
-    if (exit.code !== 0) throw new Mp4JoinError(`ffmpeg stopped with code ${exit.code}: ${stderr.trim() || "no message"}`, "ffmpeg");
+    if (exit.code !== 0) {
+      // Since ffmpeg writes the file itself (Nov 26, 2026), a full or failing disk also stops it: not a verdict on
+      // the pieces, so it is a write failure, tried again (review of 392f9a92f).
+      const kind = DISK_FAULT.test(stderr) ? "write" : "ffmpeg";
+      throw new Mp4JoinError(`ffmpeg stopped with code ${exit.code}: ${stderr.trim() || "no message"}`, kind);
+    }
 
     // The file is complete only now: the index is written last and moved to the front.
     let result: T;
+    const file = createReadStream(outPath);
     try {
-      result = await opts.write(createReadStream(outPath), abort.signal);
+      result = await opts.write(file, abort.signal);
     } catch (err) {
       // A timeout during the write aborted it; that is the failure to report.
       throw failure ?? new Mp4JoinError(`The MP4 could not be written: ${(err as Error).message}`, "write");
+    } finally {
+      // Always closed (review of 392f9a92f, HIGH): a write that fails before reading (the upload refused at its
+      // first call) never touches the stream, and its open descriptor would keep the removed file's disk space
+      // taken until the worker restarts.
+      file.destroy();
     }
     if (failure) throw failure;
     return result;

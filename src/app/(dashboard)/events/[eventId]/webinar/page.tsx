@@ -75,6 +75,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { StreamDelay } from "@/components/webinar/stream-delay";
+import { ROOM_RECORDING_MESSAGE } from "@/lib/webinar/recording-display";
 import { ChatModerationPanel } from "@/components/webinar/chat-moderation-panel";
 import { PartnerStreamCard, partnerSignalLabel } from "@/components/webinar/partner-stream-card";
 import { StreamRecordingPanel } from "@/components/webinar/stream-recording-panel";
@@ -133,6 +134,7 @@ import {
   type WebinarConsoleData,
   type WebinarSequenceRow,
   type WebinarPanelist,
+  type WebinarRoomOpenRecording,
 } from "@/hooks/use-api";
 import { PHASE_RULES, SEQUENCE_PHASES, defaultPhaseChoices, describePhaseTime, type PhaseChoice, type SequencePhase } from "@/lib/webinar-sequence-plan";
 import { toast } from "sonner";
@@ -3484,11 +3486,10 @@ function GoLiveCard({
 
 /** What the producer is told on opening a partner's room, by what the stream server said. Nothing when it is arriving. */
 /** What opening the room did to a partner's stream recorded with the room (Nov 26, 2026). */
-function announceRecordingOnOpen(recording: "started" | "too-early" | "not-started" | undefined) {
-  if (recording === "started") toast.success("Recording started with the room");
-  if (recording === "too-early")
-    toast.info("Not recording yet: the room was opened more than 30 minutes before the start. Recording starts on its own 30 minutes before.");
-  if (recording === "not-started") toast.warning("The recording did not start with the room. Check the Recording section and press Start.");
+function announceRecordingOnOpen(recording: WebinarRoomOpenRecording | undefined) {
+  const said = recording ? ROOM_RECORDING_MESSAGE[recording] : null;
+  if (!said) return;
+  toast[said.tone](said.text);
 }
 
 const PARTNER_SIGNAL_ON_OPEN: Record<"receiving" | "not-receiving" | "switched-off" | "unknown", string | null> = {
