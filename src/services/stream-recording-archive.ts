@@ -7,7 +7,9 @@
  * Waits until every piece the recording wants is in storage (the shipping job
  * moves the last ones within a minute or two of the finish), then joins them
  * through ffmpeg into `{storagePrefix}/recording.mp4` (recording-mp4.ts) and
- * marks the recording READY. Pieces still not in storage half an hour after
+ * marks the recording READY. The join writes the MP4 to the worker's disk
+ * first (a plain MP4, since Nov 26, 2026), so it waits while the disk has no
+ * room for it beside the stream server's buffer margin. Pieces still not in storage half an hour after
  * the finish are given up on: the MP4 is made from what arrived, and the gap
  * is logged as an error.
  *
@@ -23,7 +25,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { deleteStoredFile, readStoredFile, StorageError, writeStoredFileStream } from "@/lib/storage";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
-import { joinPiecesToMp4, Mp4JoinError, type SpawnFfmpeg } from "@/lib/webinar/recording-mp4";
+import { freeDiskBytes, RECORDING_MIN_FREE_BYTES } from "@/lib/webinar/recording-disk";
+import { joinPiecesToMp4, Mp4JoinError, removeLeftoverJoinFolders, type SpawnFfmpeg } from "@/lib/webinar/recording-mp4";
 import { piecesLeftToShip } from "@/services/stream-recording-shipping";
 
 /** The last piece settles for 20 seconds and the shipping job runs each minute: nothing is joined sooner. */
@@ -40,6 +43,19 @@ export type ArchiveOutcome = "skipped" | "waiting" | "ready" | "empty" | "retry"
 interface At {
   eventId: string;
   sessionId: string;
+}
+
+/**
+ * How many bytes the disk is short of for making this MP4, or 0 when it has
+ * room: the file is about the size of its pieces, and the stream server's
+ * buffer keeps its own margin (RECORDING_MIN_FREE_BYTES) on the same disk.
+ * Free space that cannot be read is not a reason to wait (it is logged by
+ * freeDiskBytes): waiting would end in FAILED six hours later for no cause.
+ */
+export function archiveDiskShortBy(pieceBytes: bigint, free: number | null): number {
+  if (free === null) return 0;
+  const need = Number(pieceBytes) + RECORDING_MIN_FREE_BYTES;
+  return Math.max(0, need - free);
 }
 
 /** Where a recording's MP4 is stored. */
@@ -86,7 +102,7 @@ async function audit(row: { id: string; organizationId: string | null }, at: At,
 export async function buildRecordingArchive(at: At, now: Date, opts: { spawn?: SpawnFfmpeg } = {}): Promise<ArchiveOutcome> {
   const row = await db.streamRecording.findFirst({
     where: { sessionId: at.sessionId, eventId: at.eventId, status: "FINISHING" },
-    select: { id: true, organizationId: true, storagePrefix: true, finishedAt: true },
+    select: { id: true, organizationId: true, storagePrefix: true, finishedAt: true, totalBytes: true },
   });
   if (!row || !row.finishedAt) return "skipped";
   const sinceFinish = now.getTime() - row.finishedAt.getTime();
@@ -109,6 +125,18 @@ export async function buildRecordingArchive(at: At, now: Date, opts: { spawn?: S
       await audit(row, at, "STREAM_RECORDING_READY", { pieces: 0 });
     }
     return "empty";
+  }
+
+  await removeLeftoverJoinFolders();
+  const shortBy = archiveDiskShortBy(row.totalBytes, await freeDiskBytes());
+  if (shortBy > 0) {
+    const giveUp = sinceFinish >= ARCHIVE_GIVE_UP_MS;
+    apiLogger.error({ eventId: at.eventId, sessionId: at.sessionId, shortBy, giveUp }, "stream-recording-archive:disk-short");
+    if (!giveUp) return "retry";
+    if (await setOutcome(row, { status: "FAILED", error: "The server had no disk space to make the recording's file." })) {
+      await audit(row, at, "STREAM_RECORDING_FAILED", { kind: "disk" });
+    }
+    return "failed";
   }
 
   const archivePath = archivePathFor(row.storagePrefix);

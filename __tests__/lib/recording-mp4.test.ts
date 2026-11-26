@@ -1,16 +1,19 @@
 /**
  * Joining a recording's pieces into one MP4 (Nov 25, 2026; step 4). With the
- * real ffmpeg where this machine has it (the proof that the command makes an
- * MP4 from a real piece, through pipes only), and with a stand-in for every
- * way it can fail: a failed write must stop ffmpeg, never leave it blocked.
+ * real ffmpeg where this machine has it (the proof that the command makes a
+ * plain MP4 that states its length: Nov 26, 2026, a fragmented one showed 4
+ * seconds of 12 minutes in QuickTime), and with a stand-in for every way it can
+ * fail: a failure must stop ffmpeg, never leave it blocked, and never leave
+ * its temporary file behind.
  */
 import { describe, it, expect, vi } from "vitest";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { FFMPEG_ARGS, joinPiecesToMp4, Mp4JoinError, type SpawnFfmpeg } from "@/lib/webinar/recording-mp4";
+import { ffmpegArgs, joinPiecesToMp4, Mp4JoinError, removeLeftoverJoinFolders, type SpawnFfmpeg } from "@/lib/webinar/recording-mp4";
 
 const PIECE = readFileSync(path.join(__dirname, "../fixtures/stream-recording/piece.mpegts"));
 const HAS_FFMPEG = spawnSync("ffmpeg", ["-version"]).status === 0;
@@ -21,11 +24,23 @@ async function collect(src: AsyncIterable<Buffer>): Promise<Buffer> {
   return Buffer.concat(parts);
 }
 
+/** A fresh folder for a join's temporary folder, so a test can see it was removed. */
+const freshTmp = () => mkdtempSync(path.join(tmpdir(), "mp4-test-"));
+
+/** The length an MP4 states in its movie header (mvhd), in seconds; 0 when it states none. */
+function statedSeconds(mp4: Buffer): number {
+  const at = mp4.indexOf(Buffer.from("mvhd"));
+  if (at < 0) return 0;
+  const version = mp4[at + 4];
+  if (version === 1) return Number(mp4.readBigUInt64BE(at + 4 + 4 + 16 + 4)) / mp4.readUInt32BE(at + 4 + 4 + 16);
+  return mp4.readUInt32BE(at + 4 + 4 + 8 + 4) / mp4.readUInt32BE(at + 4 + 4 + 8);
+}
+
 /** A stand-in ffmpeg: what it does with its input is up to the test. */
 function fakeFfmpeg(behave: (child: FakeChild) => void): { spawn: SpawnFfmpeg; child: () => FakeChild } {
   let made: FakeChild | null = null;
-  const spawn: SpawnFfmpeg = () => {
-    made = new FakeChild();
+  const spawn: SpawnFfmpeg = (args) => {
+    made = new FakeChild(args[args.length - 1]);
     queueMicrotask(() => behave(made!));
     return made as never;
   };
@@ -33,6 +48,9 @@ function fakeFfmpeg(behave: (child: FakeChild) => void): { spawn: SpawnFfmpeg; c
 }
 
 class FakeChild extends EventEmitter {
+  constructor(readonly outPath: string) {
+    super();
+  }
   stdin = new PassThrough();
   stdout = new PassThrough();
   stderr = new PassThrough();
@@ -54,12 +72,16 @@ class FakeChild extends EventEmitter {
 }
 
 describe("joinPiecesToMp4 with the real ffmpeg", () => {
-  it.skipIf(!HAS_FFMPEG)("makes a fragmented MP4 from a real piece, through pipes only", async () => {
-    const mp4 = await joinPiecesToMp4({ count: 1, readPiece: async () => PIECE, write: collect });
+  it.skipIf(!HAS_FFMPEG)("makes a plain MP4 that states its length, index first, and leaves no file behind", async () => {
+    const tmp = freshTmp();
+    const mp4 = await joinPiecesToMp4({ count: 2, readPiece: async () => PIECE, write: collect, tmpDir: tmp });
     expect(mp4.length).toBeGreaterThan(PIECE.length / 2);
-    // An MP4 begins with its ftyp box; a fragmented one carries a moof.
     expect(mp4.subarray(4, 8).toString("latin1")).toBe("ftyp");
-    expect(mp4.includes(Buffer.from("moof"))).toBe(true);
+    // Not fragmented, and the index (moov) before the video (mdat), so a player knows the length at once.
+    expect(mp4.includes(Buffer.from("moof"))).toBe(false);
+    expect(mp4.indexOf(Buffer.from("moov"))).toBeLessThan(mp4.indexOf(Buffer.from("mdat")));
+    expect(statedSeconds(mp4)).toBeGreaterThan(0);
+    expect(readdirSync(tmp)).toEqual([]);
   });
 
   // Review of 593a7f31a (BLOCKER): ffmpeg stopped while a piece was being read, the write then waited for room
@@ -87,27 +109,52 @@ describe("joinPiecesToMp4 with the real ffmpeg", () => {
 });
 
 describe("joinPiecesToMp4 failures", () => {
-  it("runs the command proven in step 0", () => {
-    expect(FFMPEG_ARGS).toContain("frag_keyframe+empty_moov+default_base_moof");
-    expect(FFMPEG_ARGS.slice(-2)).toEqual(["mp4", "pipe:1"]);
+  it("asks for a plain MP4 with its index at the front, written to the file it is given", () => {
+    const args = ffmpegArgs("/tmp/x/recording.mp4");
+    expect(args).toContain("+faststart");
+    expect(args.join(" ")).not.toMatch(/frag_keyframe|empty_moov|pipe:1/);
+    expect(args.slice(-4)).toEqual(["-f", "mp4", "-y", "/tmp/x/recording.mp4"]);
   });
 
-  it("feeds the pieces in order and answers what the write answered", async () => {
-    const seen: string[] = [];
-    const fake = fakeFfmpeg((c) => {
-      c.stdin.on("data", (d: Buffer) => seen.push(d.toString()));
-      c.stdin.on("end", () => {
-        c.stdout.end(Buffer.from("MP4"));
-        c.exit(0);
-      });
+  /** ffmpeg that writes `body` to its output file once its input ends. */
+  const writesFile = (body: string, seen?: string[]) => (c: FakeChild) => {
+    c.stdin.on("data", (d: Buffer) => seen?.push(d.toString()));
+    c.stdin.on("end", () => {
+      writeFileSync(c.outPath, body);
+      c.stdout.end();
+      c.exit(0);
     });
-    const out = await joinPiecesToMp4({ count: 3, readPiece: async (i) => Buffer.from(`p${i}`), write: collect, spawn: fake.spawn });
+  };
+
+  it("feeds the pieces in order, sends the finished file, answers what the write answered, and removes the file", async () => {
+    const seen: string[] = [];
+    const tmp = freshTmp();
+    const fake = fakeFfmpeg(writesFile("MP4", seen));
+    const out = await joinPiecesToMp4({ count: 3, readPiece: async (i) => Buffer.from(`p${i}`), write: collect, spawn: fake.spawn, tmpDir: tmp });
     expect(seen.join("")).toBe("p0p1p2");
     expect(out.toString()).toBe("MP4");
+    expect(fake.child().outPath.startsWith(tmp)).toBe(true);
+    expect(readdirSync(tmp)).toEqual([]);
   });
 
-  it("a failed write stops ffmpeg and is a write failure", async () => {
-    const fake = fakeFfmpeg(() => undefined);
+  it("the file is sent only after ffmpeg has finished it", async () => {
+    let exitedFirst = false;
+    const fake = fakeFfmpeg(writesFile("MP4"));
+    await joinPiecesToMp4({
+      count: 1,
+      readPiece: async () => Buffer.from("x"),
+      write: async (mp4) => {
+        exitedFirst = fake.child().exitCode === 0;
+        return collect(mp4);
+      },
+      spawn: fake.spawn,
+    });
+    expect(exitedFirst).toBe(true);
+  });
+
+  it("a failed write is a write failure, and the file is removed", async () => {
+    const tmp = freshTmp();
+    const fake = fakeFfmpeg(writesFile("MP4"));
     const err = await joinPiecesToMp4({
       count: 1,
       readPiece: async () => Buffer.from("x"),
@@ -115,9 +162,28 @@ describe("joinPiecesToMp4 failures", () => {
         throw new Error("bucket refused");
       },
       spawn: fake.spawn,
+      tmpDir: tmp,
     }).catch((e) => e);
     expect((err as Mp4JoinError).kind).toBe("write");
-    expect(fake.child().kill).toHaveBeenCalled();
+    expect((err as Error).message).toMatch(/bucket refused/);
+    expect(readdirSync(tmp)).toEqual([]);
+  });
+
+  it("a write that stalls past the time allowed is a timeout, and its signal is aborted", async () => {
+    let given: AbortSignal | null = null;
+    const fake = fakeFfmpeg(writesFile("MP4"));
+    const err = await joinPiecesToMp4({
+      count: 1,
+      readPiece: async () => Buffer.from("x"),
+      write: (_mp4, signal) => {
+        given = signal;
+        return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+      },
+      spawn: fake.spawn,
+      timeoutMs: 30,
+    }).catch((e) => e);
+    expect((err as Mp4JoinError).kind).toBe("timeout");
+    expect(given!.aborted).toBe(true);
   });
 
   it("a piece that cannot be read stops ffmpeg and is a read failure", async () => {
@@ -143,9 +209,11 @@ describe("joinPiecesToMp4 failures", () => {
         c.exit(1);
       });
     });
-    const err = await joinPiecesToMp4({ count: 1, readPiece: async () => Buffer.from("x"), write: collect, spawn: fake.spawn }).catch((e) => e);
+    const tmp = freshTmp();
+    const err = await joinPiecesToMp4({ count: 1, readPiece: async () => Buffer.from("x"), write: collect, spawn: fake.spawn, tmpDir: tmp }).catch((e) => e);
     expect((err as Mp4JoinError).kind).toBe("ffmpeg");
     expect((err as Error).message).toMatch(/code 1: Invalid data found/);
+    expect(readdirSync(tmp)).toEqual([]);
   });
 
   it("no ffmpeg on the machine is ffmpeg's failure", async () => {
@@ -199,5 +267,22 @@ describe("joinPiecesToMp4 failures", () => {
     const err = await joinPiecesToMp4({ count: 1, readPiece: async () => Buffer.from("x"), write: collect, spawn: fake.spawn, timeoutMs: 20 }).catch((e) => e);
     expect((err as Mp4JoinError).kind).toBe("timeout");
     expect(fake.child().kill).toHaveBeenCalled();
+  });
+});
+
+describe("removeLeftoverJoinFolders", () => {
+  it("removes only a join's own folders, and only old ones", async () => {
+    const dir = freshTmp();
+    const now = Date.now();
+    const old = new Date(now - 3 * 60 * 60_000);
+    for (const name of ["ea-recording-old", "ea-recording-new", "someone-else"]) mkdirSync(path.join(dir, name));
+    utimesSync(path.join(dir, "ea-recording-old"), old, old);
+    utimesSync(path.join(dir, "someone-else"), old, old);
+    expect(await removeLeftoverJoinFolders(now, dir)).toBe(1);
+    expect(readdirSync(dir).sort()).toEqual(["ea-recording-new", "someone-else"]);
+  });
+
+  it("a folder it cannot list is not an error", async () => {
+    expect(await removeLeftoverJoinFolders(Date.now(), path.join(tmpdir(), "no-such-folder-here"))).toBe(0);
   });
 });

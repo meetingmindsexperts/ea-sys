@@ -2,46 +2,66 @@
  * Joining a recording's pieces into one MP4 (Nov 25, 2026;
  * docs/PARTNER_STREAM_RECORDING_PLAN.md §4.4, step 4). The pieces are MPEG-TS
  * as the stream server wrote them; ffmpeg copies them into an MP4 without
- * re-encoding, reading from a pipe and writing to a pipe, so nothing touches
- * the box's disk: each piece is read from storage in turn and fed in, and the
- * MP4 goes back to storage as it comes out.
+ * re-encoding: each piece is read from storage in turn and fed in through a
+ * pipe, the MP4 is written to a file in a temporary folder of its own, and that
+ * file is then sent to storage and removed.
  *
- * The MP4 is the "fragmented" kind (`frag_keyframe+empty_moov`), the only kind
- * that can be written front to back without seeking back to the start. Proven
- * in step 0 (§2.1): it plays and seeks in a browser across a pause and a
- * reconnect, and a pause is closed up, not frozen through.
+ * A PLAIN MP4 with its index at the front (`+faststart`), since the rehearsal of
+ * Nov 26, 2026. Until then it was the "fragmented" kind (`frag_keyframe+
+ * empty_moov`), written front to back through a pipe so nothing touched the
+ * disk; but a fragmented MP4 written that way states no length, and QuickTime
+ * and the Mac's Finder then showed the first fragment's 4 seconds of a 12
+ * minute recording. A plain MP4 needs a file ffmpeg can go back into, so the
+ * disk is touched for as long as the join takes: about the size of the
+ * recording, roughly 1.2 GB an hour at 2.5 Mbps, checked before the join
+ * (`archiveDiskShortBy` in stream-recording-archive.ts). A pause is closed up
+ * in the plain kind as in the fragmented one (checked with ffmpeg that day).
  *
  * ffmpeg is in the worker image only (D8); this module runs in the worker.
  */
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createReadStream } from "node:fs";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
-/** The exact command proven in step 0. */
-export const FFMPEG_ARGS = [
-  "-hide_banner",
-  "-loglevel",
-  "error",
-  "-f",
-  "mpegts",
-  "-i",
-  "pipe:0",
-  "-c",
-  "copy",
-  // ADTS AAC (as MPEG-TS carries it) to the form MP4 needs.
-  "-bsf:a",
-  "aac_adtstoasc",
-  "-movflags",
-  "frag_keyframe+empty_moov+default_base_moof",
-  "-f",
-  "mp4",
-  "pipe:1",
-] as const;
+/** The command: a copy, the audio put in the form MP4 needs, the index moved to the front once written. */
+export function ffmpegArgs(outPath: string): string[] {
+  return [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-f",
+    "mpegts",
+    "-i",
+    "pipe:0",
+    "-c",
+    "copy",
+    // ADTS AAC (as MPEG-TS carries it) to the form MP4 needs.
+    "-bsf:a",
+    "aac_adtstoasc",
+    // The index (moov) at the front, so a player knows the length and can start before the whole file arrives.
+    "-movflags",
+    "+faststart",
+    "-f",
+    "mp4",
+    "-y",
+    outPath,
+  ];
+}
 
 /**
- * Longest a join may take. A copy of a two hour webinar is about a minute of
- * one CPU; most of the time is reading and writing storage. Past this,
- * something is stuck: ffmpeg is stopped and the join fails, to be tried again.
+ * Longest a join may take, sending the file to storage included. A copy of a
+ * two hour webinar is about a minute of one CPU; most of the time is reading
+ * and writing storage. Past this, something is stuck: ffmpeg is stopped and
+ * the join fails, to be tried again.
  */
 export const JOIN_TIMEOUT_MS = 20 * 60 * 1000;
+
+/** The temporary folders' name, so ones a stopped worker left behind can be found and removed. */
+const TMP_PREFIX = "ea-recording-";
+/** A temporary folder older than this belongs to no join still running. */
+const LEFTOVER_AGE_MS = 2 * JOIN_TIMEOUT_MS;
 
 /** How much of ffmpeg's error output is kept for the log and the recording's error. */
 const STDERR_KEEP = 2000;
@@ -62,11 +82,37 @@ export class Mp4JoinError extends Error {
 }
 
 /**
- * Feed `count` pieces, read one at a time by `readPiece`, through ffmpeg, and
- * hand its output to `write` as it comes. Resolves with what `write` answered
- * once ffmpeg has exited cleanly and the write is complete. Rejects with an
- * Mp4JoinError otherwise, and stops ffmpeg first, so a failed write never
- * leaves it blocked on a full pipe.
+ * Remove temporary folders a join left behind when the worker was stopped in
+ * the middle of one (a deploy recreates the container, which clears them too).
+ * Never throws: a folder that cannot be removed now is tried on the next join.
+ */
+export async function removeLeftoverJoinFolders(now = Date.now(), dir = tmpdir()): Promise<number> {
+  let removed = 0;
+  let names: string[];
+  try {
+    names = (await readdir(dir)).filter((n) => n.startsWith(TMP_PREFIX));
+  } catch {
+    return 0;
+  }
+  for (const name of names) {
+    const full = path.join(dir, name);
+    try {
+      if (now - (await stat(full)).mtimeMs < LEFTOVER_AGE_MS) continue;
+      await rm(full, { recursive: true, force: true });
+      removed += 1;
+    } catch {
+      // Gone already, or not ours to remove: left for the next join.
+    }
+  }
+  return removed;
+}
+
+/**
+ * Feed `count` pieces, read one at a time by `readPiece`, through ffmpeg into
+ * an MP4 file, then hand that file to `write`. Resolves with what `write`
+ * answered once ffmpeg has exited cleanly and the write is complete. Rejects
+ * with an Mp4JoinError otherwise, and stops ffmpeg first. The temporary
+ * folder is removed whatever happens.
  *
  * NOTHING HERE MAY WAIT ON SOMETHING THAT CAN NO LONGER HAPPEN (review of
  * 593a7f31a, BLOCKER): a write to the stdin of an ffmpeg that has stopped
@@ -81,13 +127,35 @@ export async function joinPiecesToMp4<T>(opts: {
   write: (mp4: AsyncIterable<Buffer>, signal: AbortSignal) => Promise<T>;
   spawn?: SpawnFfmpeg;
   timeoutMs?: number;
+  /** Where the temporary folder is made; the system's own by default. */
+  tmpDir?: string;
 }): Promise<T> {
-  const child = (opts.spawn ?? defaultSpawn)(FFMPEG_ARGS);
+  const folder = await mkdtemp(path.join(opts.tmpDir ?? tmpdir(), TMP_PREFIX));
+  try {
+    return await runJoin(opts, path.join(folder, "recording.mp4"));
+  } finally {
+    await rm(folder, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function runJoin<T>(
+  opts: {
+    count: number;
+    readPiece: (index: number, signal: AbortSignal) => Promise<Buffer>;
+    write: (mp4: AsyncIterable<Buffer>, signal: AbortSignal) => Promise<T>;
+    spawn?: SpawnFfmpeg;
+    timeoutMs?: number;
+  },
+  outPath: string,
+): Promise<T> {
+  const child = (opts.spawn ?? defaultSpawn)(ffmpegArgs(outPath));
   const abort = new AbortController();
   let stderr = "";
   child.stderr.on("data", (d: Buffer) => {
     stderr = (stderr + d.toString("utf8")).slice(-STDERR_KEEP);
   });
+  // Nothing comes out of stdout (the MP4 goes to the file); drained so it can never fill.
+  child.stdout.resume();
 
   let failure: Mp4JoinError | null = null;
   const fail = (err: Mp4JoinError) => {
@@ -139,18 +207,23 @@ export async function joinPiecesToMp4<T>(opts: {
     if (!stdinGone()) child.stdin.end();
   })();
 
-  const written = opts.write(child.stdout as AsyncIterable<Buffer>, abort.signal).catch((err: Error) => {
-    fail(new Mp4JoinError(`The MP4 could not be written: ${err.message}`, "write"));
-    return null;
-  });
-
   try {
-    const [, result, exit] = await Promise.all([feed, written, exited]);
+    const [, exit] = await Promise.all([feed, exited]);
     if (failure) throw failure;
     // Stopped from outside (the out-of-memory killer, a worker shutting down): worth trying again, not ffmpeg's verdict.
     if (exit.signal) throw new Mp4JoinError(`ffmpeg was stopped by ${exit.signal}`, "killed");
     if (exit.code !== 0) throw new Mp4JoinError(`ffmpeg stopped with code ${exit.code}: ${stderr.trim() || "no message"}`, "ffmpeg");
-    return result as T;
+
+    // The file is complete only now: the index is written last and moved to the front.
+    let result: T;
+    try {
+      result = await opts.write(createReadStream(outPath), abort.signal);
+    } catch (err) {
+      // A timeout during the write aborted it; that is the failure to report.
+      throw failure ?? new Mp4JoinError(`The MP4 could not be written: ${(err as Error).message}`, "write");
+    }
+    if (failure) throw failure;
+    return result;
   } finally {
     clearTimeout(timer);
   }

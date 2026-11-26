@@ -21,6 +21,8 @@ const h = vi.hoisted(() => ({
   storage: { readStoredFile: vi.fn(), writeStoredFileStream: vi.fn(), deleteStoredFile: vi.fn() },
   piecesLeft: vi.fn(),
   join: vi.fn(),
+  freeDisk: vi.fn(),
+  leftovers: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: h.db }));
 vi.mock("@/lib/logger", () => ({ apiLogger: h.logger }));
@@ -29,6 +31,11 @@ vi.mock("@/services/stream-recording-shipping", () => ({ piecesLeftToShip: h.pie
 vi.mock("@/lib/webinar/recording-mp4", async (orig) => ({
   ...(await orig<typeof import("@/lib/webinar/recording-mp4")>()),
   joinPiecesToMp4: h.join,
+  removeLeftoverJoinFolders: h.leftovers,
+}));
+vi.mock("@/lib/webinar/recording-disk", async (orig) => ({
+  ...(await orig<typeof import("@/lib/webinar/recording-disk")>()),
+  freeDiskBytes: h.freeDisk,
 }));
 
 import { Mp4JoinError } from "@/lib/webinar/recording-mp4";
@@ -36,13 +43,22 @@ import {
   ARCHIVE_GIVE_UP_MS,
   ARCHIVE_MIN_WAIT_MS,
   ARCHIVE_WAIT_MAX_MS,
+  archiveDiskShortBy,
   buildRecordingArchive,
 } from "@/services/stream-recording-archive";
+import { RECORDING_MIN_FREE_BYTES } from "@/lib/webinar/recording-disk";
 
 const at = { eventId: "ev1", sessionId: "s1" };
 const NOW = new Date("2026-12-01T12:00:00Z");
 const PREFIX = "/uploads/recordings/ev1/s1/r1";
-const finishedAgo = (ms: number) => ({ id: "r1", organizationId: "org1", storagePrefix: PREFIX, finishedAt: new Date(NOW.getTime() - ms) });
+const PIECE_BYTES = BigInt(2_000_000_000);
+const finishedAgo = (ms: number) => ({
+  id: "r1",
+  organizationId: "org1",
+  storagePrefix: PREFIX,
+  finishedAt: new Date(NOW.getTime() - ms),
+  totalBytes: PIECE_BYTES,
+});
 const PIECES = [{ storedPath: `${PREFIX}/1.ts` }, { storedPath: `${PREFIX}/2.ts` }];
 
 beforeEach(() => {
@@ -53,6 +69,8 @@ beforeEach(() => {
   h.db.auditLog.create.mockResolvedValue({});
   h.piecesLeft.mockResolvedValue(0);
   h.join.mockResolvedValue({ bytes: 5_000_000 });
+  h.freeDisk.mockResolvedValue(20 * 1024 ** 3);
+  h.leftovers.mockResolvedValue(0);
 });
 
 describe("buildRecordingArchive", () => {
@@ -153,5 +171,47 @@ describe("buildRecordingArchive", () => {
     h.db.streamRecording.findFirst.mockResolvedValue(null);
     expect(await buildRecordingArchive(at, NOW)).toBe("skipped");
     expect(h.db.streamRecording.findFirst.mock.calls[0][0].where).toMatchObject({ status: "FINISHING" });
+  });
+});
+
+// The rehearsal of Nov 26, 2026: the MP4 is now made on the worker's disk first (a plain MP4, so players know its length).
+describe("buildRecordingArchive: room on the disk for the MP4", () => {
+  it("waits, and says so in the log, while the disk cannot hold the file beside the buffer's margin", async () => {
+    h.freeDisk.mockResolvedValue(Number(PIECE_BYTES) + RECORDING_MIN_FREE_BYTES - 1);
+    expect(await buildRecordingArchive(at, NOW)).toBe("retry");
+    expect(h.join).not.toHaveBeenCalled();
+    expect(h.db.streamRecording.updateMany).not.toHaveBeenCalled();
+    expect(h.logger.error).toHaveBeenCalledWith(expect.objectContaining({ shortBy: 1, giveUp: false }), "stream-recording-archive:disk-short");
+  });
+
+  it("joins once the file and the margin fit", async () => {
+    h.freeDisk.mockResolvedValue(Number(PIECE_BYTES) + RECORDING_MIN_FREE_BYTES);
+    expect(await buildRecordingArchive(at, NOW)).toBe("ready");
+    expect(h.leftovers).toHaveBeenCalled();
+  });
+
+  it("still short six hours after the finish: FAILED with the reason, audited", async () => {
+    h.db.streamRecording.findFirst.mockResolvedValue(finishedAgo(ARCHIVE_GIVE_UP_MS));
+    h.freeDisk.mockResolvedValue(1024);
+    expect(await buildRecordingArchive(at, NOW)).toBe("failed");
+    expect(h.join).not.toHaveBeenCalled();
+    expect(h.db.streamRecording.updateMany).toHaveBeenCalledWith({
+      where: { id: "r1", status: "FINISHING" },
+      data: { status: "FAILED", error: "The server had no disk space to make the recording's file." },
+    });
+    expect(h.db.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: "STREAM_RECORDING_FAILED", changes: expect.objectContaining({ kind: "disk" }) }) }),
+    );
+  });
+
+  it("free space that cannot be read does not hold the join up", async () => {
+    h.freeDisk.mockResolvedValue(null);
+    expect(await buildRecordingArchive(at, NOW)).toBe("ready");
+  });
+
+  it("archiveDiskShortBy: the shortfall in bytes, or 0", () => {
+    expect(archiveDiskShortBy(BigInt(100), RECORDING_MIN_FREE_BYTES + 100)).toBe(0);
+    expect(archiveDiskShortBy(BigInt(100), RECORDING_MIN_FREE_BYTES + 40)).toBe(60);
+    expect(archiveDiskShortBy(BigInt(100), null)).toBe(0);
   });
 });
