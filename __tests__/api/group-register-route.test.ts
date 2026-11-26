@@ -15,6 +15,8 @@ const { mockDb, createGroupMock, notifyMock, sendVerifyMock } = vi.hoisted(() =>
     // Written by the shared public-credential guard (review M7).
     loginEvent: { create: vi.fn() },
     event: { findFirst: vi.fn() },
+    // A webinar's own session, the clock of registration-closure.ts.
+    eventSession: { findFirst: vi.fn() },
     // Nothing saved: today's rules for Title, Role and Specialty.
     organization: { findUnique: vi.fn().mockResolvedValue({ settings: {} }) },
   },
@@ -126,6 +128,34 @@ describe("POST /group-register — gates", () => {
     const res = await POST(req(BODY), params);
     expect(res.status).toBe(403);
     expect((await res.json()).code).toBe("REGISTRATION_CLOSED");
+  });
+
+  it("403 REGISTRATION_CLOSED once the organiser's close date has passed", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      ...EVENT,
+      settings: { ...EVENT.settings, registrationClosesAt: "2026-01-01T00:00:00.000Z" },
+    });
+    const res = await POST(req(BODY), params);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "REGISTRATION_CLOSED", reason: "closing-date-passed" });
+  });
+
+  it("403 REGISTRATION_CLOSED on a webinar whose room has closed (registration-closure.ts)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      ...EVENT,
+      eventType: "WEBINAR",
+      endDate: new Date("2026-11-25T16:15:00Z"),
+      settings: { ...EVENT.settings, webinar: { sessionId: "s1" } },
+    });
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      status: "COMPLETED",
+      startTime: new Date("2026-11-25T15:00:00Z"),
+      endTime: new Date("2026-11-25T16:15:00Z"),
+    });
+    const res = await POST(req(BODY), params);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "REGISTRATION_CLOSED", reason: "webinar-over" });
+    expect(mockDb.eventSession.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "s1", eventId: "ev1" } }));
   });
 
   it("400 COORDINATOR_MEMBER_MISSING — attending but not in the member list", async () => {

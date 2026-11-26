@@ -25,6 +25,8 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { findPublicEvent } from "@/lib/tenant/event-tenant";
 import { eventIsFull } from "@/lib/public-availability";
+import { registrationClosedReason } from "@/lib/registration-closure";
+import { loadAnchorSessionClock } from "@/lib/registration-closure-server";
 import { isAgendaPublished } from "@/lib/agenda-display";
 import { buildEventMetadata, toPlainText, truncate } from "@/lib/public-event-metadata";
 import { formatEventDateRange, localDateInTz } from "@/lib/event-time";
@@ -147,14 +149,17 @@ async function loadEvent(id: string) {
   ]);
   // A webinar's real clock is its anchor session (a console retime moves the
   // session, not Event.startDate), as the public API and calendar links use.
-  const anchorId = event?.eventType === "WEBINAR" ? (event.settings as { webinar?: { sessionId?: string } } | null)?.webinar?.sessionId : undefined;
-  const anchor = anchorId
-    ? await db.eventSession.findFirst({ where: { id: anchorId, eventId: id }, select: { startTime: true, endTime: true } })
-    : null;
+  const anchor = event ? await loadAnchorSessionClock(event) : null;
+  // Closed by registration-closure.ts, read before the dates are swapped for the session's.
+  const closedReason = event ? registrationClosedReason(event, anchor) : null;
   // Only the attendee-facing brand leaves (public-brand.ts): the settings JSON
   // also holds encrypted credentials.
   const branded = event && { ...event, organization: readPublicBrand(event.organization.settings, event.organization) };
-  return { event: branded && anchor ? { ...branded, startDate: anchor.startTime, endDate: anchor.endTime } : branded, sessions };
+  return {
+    event: branded && anchor ? { ...branded, startDate: anchor.startTime, endDate: anchor.endTime } : branded,
+    sessions,
+    closedReason,
+  };
 }
 
 type Speaker = { id: string; name: string; jobTitle: string | null; organization: string | null; photo: string | null };
@@ -183,7 +188,7 @@ export default async function EventOverviewPage({ params }: Props) {
     apiLogger.error({ err, slug, eventId: scope.id, msg: "event-overview:load-failed" });
     throw err;
   }
-  const { event } = loaded;
+  const { event, closedReason } = loaded;
   if (!event) {
     apiLogger.warn({ slug, eventId: scope.id, msg: "event-overview:event-vanished" });
     notFound();
@@ -198,7 +203,8 @@ export default async function EventOverviewPage({ params }: Props) {
   const { state, offer } = publicRegistration(
     {
       endDate: event.endDate,
-      registrationOpen: settings.registrationOpen !== false,
+      registrationOpen: closedReason === null,
+      webinarOver: closedReason === "webinar-over",
       eventFull: eventIsFull(event),
       eventType: event.eventType,
       settings,

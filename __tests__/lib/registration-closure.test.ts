@@ -1,0 +1,90 @@
+import { describe, expect, it } from "vitest";
+import {
+  readRegistrationClosesAt,
+  registrationClosedMessage,
+  registrationClosedReason,
+  settingsClosedReason,
+  type AnchorSessionClock,
+} from "@/lib/registration-closure";
+
+const NOW = new Date("2026-11-25T16:30:00Z");
+const start = new Date("2026-11-25T15:00:00Z");
+const end = new Date("2026-11-25T16:15:00Z");
+
+function webinar(settings: Record<string, unknown> = {}, endDate = end) {
+  return { eventType: "WEBINAR", settings, endDate };
+}
+const conference = (settings: Record<string, unknown> = {}, endDate = end) => ({ eventType: "CONFERENCE", settings, endDate });
+const clock = (status: string, over: Partial<AnchorSessionClock> = {}): AnchorSessionClock => ({
+  status,
+  startTime: start,
+  endTime: end,
+  ...over,
+});
+
+describe("registrationClosedReason", () => {
+  it("is open by default", () => {
+    expect(registrationClosedReason(conference({}, new Date("2026-12-01T00:00:00Z")), null, NOW)).toBeNull();
+  });
+
+  it("closes when the switch is off, before anything else", () => {
+    expect(registrationClosedReason(webinar({ registrationOpen: false }), clock("COMPLETED"), NOW)).toBe("switched-off");
+  });
+
+  it("closes from the organiser's close date on, and not before", () => {
+    const at = { registrationClosesAt: "2026-11-25T16:30:00.000Z" };
+    expect(registrationClosedReason(conference(at, new Date("2026-12-01")), null, NOW)).toBe("closing-date-passed");
+    expect(registrationClosedReason(conference(at, new Date("2026-12-01")), null, new Date("2026-11-25T16:29:59Z"))).toBeNull();
+  });
+
+  it("ignores a close date that is not a date", () => {
+    expect(readRegistrationClosesAt({ registrationClosesAt: "soon" })).toBeNull();
+    expect(readRegistrationClosesAt({ registrationClosesAt: null })).toBeNull();
+    expect(readRegistrationClosesAt({ registrationClosesAt: "" })).toBeNull();
+    expect(readRegistrationClosesAt(null)).toBeNull();
+  });
+
+  it("closes a webinar once its room has closed (Nov 25: the room closed at 16:19 UTC)", () => {
+    expect(registrationClosedReason(webinar(), clock("COMPLETED"), NOW)).toBe("webinar-over");
+  });
+
+  it("keeps a webinar open while it is live, even past its scheduled end (an overrun)", () => {
+    expect(registrationClosedReason(webinar(), clock("LIVE"), NOW)).toBeNull();
+  });
+
+  it("does not treat a rehearsal close the day before as the end", () => {
+    const dayBefore = new Date("2026-11-24T12:00:00Z");
+    expect(registrationClosedReason(webinar(), clock("COMPLETED"), dayBefore)).toBeNull();
+  });
+
+  it("closes a webinar past its scheduled end when the room is not live (never opened)", () => {
+    expect(registrationClosedReason(webinar(), clock("SCHEDULED"), NOW)).toBe("webinar-over");
+  });
+
+  it("goes by the event's end for a webinar with no session of its own", () => {
+    expect(registrationClosedReason(webinar(), null, NOW)).toBe("webinar-over");
+    expect(registrationClosedReason(webinar(), null, new Date("2026-11-25T16:00:00Z"))).toBeNull();
+  });
+
+  it("never closes a conference just because it ended (only the switch or a date close it)", () => {
+    expect(registrationClosedReason(conference(), null, NOW)).toBeNull();
+  });
+});
+
+describe("settingsClosedReason", () => {
+  it("reads only the switch and the date", () => {
+    expect(settingsClosedReason({}, NOW)).toBeNull();
+    expect(settingsClosedReason({ registrationOpen: false }, NOW)).toBe("switched-off");
+    expect(settingsClosedReason({ registrationOpen: true, registrationClosesAt: "2026-11-25T00:00:00Z" }, NOW)).toBe(
+      "closing-date-passed",
+    );
+  });
+});
+
+describe("registrationClosedMessage", () => {
+  it("says the webinar has ended, and closed otherwise", () => {
+    expect(registrationClosedMessage("webinar-over")).toMatch(/webinar has ended/);
+    expect(registrationClosedMessage("switched-off")).toBe("Registration is closed for this event.");
+    expect(registrationClosedMessage("closing-date-passed")).toBe("Registration is closed for this event.");
+  });
+});

@@ -6,6 +6,7 @@ import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 import { publicOrgScopeForHost } from "@/lib/public-event";
 import { catalogueBaseWhere, groupTopics, readCatalogueSettings, type CatalogueSettings, type Topic } from "@/lib/catalogue";
 import { eventIsFull } from "@/lib/public-availability";
+import { loadRegistrationClosedReasons } from "@/lib/registration-closure-server";
 import { publicRegistration, ratesByType, type PublicOffer, type RegistrationState, type TypeRate } from "@/lib/event-overview";
 
 /**
@@ -136,8 +137,9 @@ export async function loadCardRegistration(
   now: Date,
 ): Promise<Map<string, CardRegistration>> {
   if (eventIds.length === 0) return new Map();
-  const rows = await inScopeLane(orgScope, () =>
-    db.event.findMany({
+  // The anchor sessions are read in the same lane (EventSession has a row policy).
+  const { rows, closedReasons } = await inScopeLane(orgScope, async () => {
+    const found = await db.event.findMany({
       where: { ...orgScope, id: { in: eventIds } },
       select: {
         id: true, endDate: true, eventType: true, settings: true, maxAttendees: true, seatCount: true,
@@ -155,14 +157,17 @@ export async function loadCardRegistration(
           },
         },
       },
-    }),
-  );
+    });
+    return { rows: found, closedReasons: await loadRegistrationClosedReasons(found, now) };
+  });
   return new Map(
     rows.map((e) => {
       const settings = (e.settings ?? {}) as Record<string, unknown>;
+      const closedReason = closedReasons.get(e.id) ?? null;
       const input = {
         endDate: e.endDate,
-        registrationOpen: settings.registrationOpen !== false,
+        registrationOpen: closedReason === null,
+        webinarOver: closedReason === "webinar-over",
         eventFull: eventIsFull(e),
         eventType: e.eventType,
         settings,

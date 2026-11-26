@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Registration closes itself after a webinar, and on a date the organiser sets (November 26, 2026)
+
+Owner: "self-closing form and organiser sets a date to auto close in Settings, Registration". Six people registered for
+MENA HemeConnect Wave 1 after its room closed on Nov 25 and were each sent a join link to a closed room, because
+nothing closed registration at the end, and the rates' own end dates have no field on the Tickets page.
+
+- **One rule**, `src/lib/registration-closure.ts` (`registrationClosedReason`; the server half that loads the
+  webinar's session is `registration-closure-server.ts`). Closed when "Registration Open" is off, when the new close
+  date has passed, or (a webinar only) when it is over by the room's own rule, `webinarRoomEnded`: never while live,
+  past the scheduled end, or closed by the producer from the scheduled start on. A webinar with no session of its own
+  goes by the event's end. Owner: close outright, whatever the recording switch says.
+- **Every public door asks it**: the register and group register routes (403 `REGISTRATION_CLOSED`, now with a
+  `reason`), the public event API (`registrationOpen`, plus `registrationClosedReason`), the event page and catalogue
+  cards (a webinar that is over reads "ended"), the desk QR and the abstract sign-up's rates (both the switch and the
+  date; neither serves a webinar). Seven files had each read the switch on their own; a test now fails when a file
+  reads it from a settings object (`registration-closure-readers.test.ts`).
+- **Settings, Registration: "Close registration on"**, a date and time in the event's timezone under the switch
+  (`settings.registrationClosesAt`), with a Clear button and a note once the time has passed. A clone does not copy it.
+- The register pages say **"This webinar has ended"** when that is why. Staff signed in to `/e/{slug}/register` see,
+  above the form links, that public registration is closed and why (before, nothing said so even with the switch off).
+  Staff adding a registration from the dashboard are not affected.
+
 ### CRM: an email on a conversation with no deal now tells someone (November 25, 2026)
 
 Owner: "investigate why CRM notifications is not working", then "yes, build the owner fallback". Production showed the

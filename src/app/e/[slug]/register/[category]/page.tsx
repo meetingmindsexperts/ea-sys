@@ -59,6 +59,7 @@ import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { isExhibitorBadge } from "@/lib/badge-layout";
 import { deskQrReopensClosedRate, deskQrTakesCode, readDeskQrClaims } from "@/lib/desk-qr-rules";
 import { promoStopMessages, resolveSubmitPromo, type PromoCheckOutcome } from "@/lib/promo-entry";
+import type { RegistrationClosedReason } from "@/lib/registration-closure";
 
 function toSlug(name: string): string {
   return name
@@ -132,6 +133,8 @@ interface Event {
   bannerImageMobile?: string | null;
   footerHtml: string | null;
   registrationOpen?: boolean;
+  /** Why it is closed (registration-closure.ts), for the wording; null when open. */
+  registrationClosedReason?: RegistrationClosedReason | null;
   supportEmail: string | null;
   registrationTermsHtml: string | null;
   registrationWelcomeHtml: string | null;
@@ -1057,6 +1060,7 @@ function CategoryRegistrationContent() {
   // Closed when the master switch is off (Settings → Registration) OR this tier
   // has no purchasable option. The master switch wins regardless of tier state.
   const isClosed = event.registrationOpen === false || purchasableOptions.length === 0;
+  const webinarOver = event.registrationClosedReason === "webinar-over";
   // Event-wide cap reached. Virtual attendance never consumes the cap, so a
   // HYBRID event stays open (with an in-person-full notice) — the register
   // POST still enforces the cap atomically for in-person picks.
@@ -1132,14 +1136,10 @@ function CategoryRegistrationContent() {
                   <AlertCircle className="h-7 w-7 text-slate-400" />
                 </div>
                 <p className="font-medium text-slate-700">
-                  {fullBlocksAll && !isClosed
-                    ? "This event is fully booked"
-                    : `${formLabel} registration is currently closed`}
+                  {closedCardText(formLabel, { webinarOver, full: fullBlocksAll && !isClosed }).title}
                 </p>
                 <p className="text-sm text-slate-400 mt-1">
-                  {fullBlocksAll && !isClosed
-                    ? "The event has reached its maximum number of attendees."
-                    : "Check back later or contact the organizer."}
+                  {closedCardText(formLabel, { webinarOver, full: fullBlocksAll && !isClosed }).line}
                 </p>
                 {/* Disabled CTA — reads "Registration Closed" whenever this tier
                     (standard / onsite / early-bird) is toggled off, instead of
@@ -1980,6 +1980,13 @@ function CategoryRegistrationContent() {
       )}
     </div>
   );
+}
+
+/** The closed card's two lines: a webinar that is over, a full event, or this form closed. */
+function closedCardText(formLabel: string, why: { webinarOver: boolean; full: boolean }): { title: string; line: string } {
+  if (why.webinarOver) return { title: "This webinar has ended", line: "Registration closed when the webinar ended." };
+  if (why.full) return { title: "This event is fully booked", line: "The event has reached its maximum number of attendees." };
+  return { title: `${formLabel} registration is currently closed`, line: "Check back later or contact the organizer." };
 }
 
 export default function CategoryRegistrationPage() {

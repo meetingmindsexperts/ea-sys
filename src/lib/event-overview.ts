@@ -50,7 +50,10 @@ export type RegistrationState = "open" | "closed" | "sold-out" | "ended";
 
 type RegistrationInput = {
   endDate: Date;
+  /** False when registration-closure.ts says closed (the switch, the close date, a webinar that is over). */
   registrationOpen: boolean;
+  /** A webinar that is over (registration-closure.ts): reads as ended, not closed. */
+  webinarOver?: boolean;
   eventFull: boolean;
   eventType: string | null;
   settings: unknown;
@@ -90,7 +93,7 @@ function availabilityView(input: RegistrationInput, now: Date) {
  * every price at the rate is 0.
  */
 export function publicRegistration(input: RegistrationInput, now: Date): { state: RegistrationState; offer: PublicOffer | null } {
-  if (input.endDate < now) return { state: "ended", offer: null };
+  if (input.endDate < now || input.webinarOver) return { state: "ended", offer: null };
   const { types, target, codeRequiredTiers, mainRegisterTiers } = availabilityView(input, now);
   const allTiers = types.flatMap((t) => t.pricingTiers);
   // A HYBRID event at its in-person cap is still open for virtual attendance,

@@ -31,6 +31,8 @@ import type { SeatCounter } from "@/lib/registration-seat";
 import { claimSpareDtcmCode } from "@/lib/dtcm-pool";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { completedAtOnCreate } from "@/lib/registration-completion";
+import { registrationClosedMessage } from "@/lib/registration-closure";
+import { loadRegistrationClosedReason } from "@/lib/registration-closure-server";
 import { resolveSupportingDocument, supportingDocumentLabel } from "@/lib/supporting-document";
 import {
   readIdentityEvidencePolicy,
@@ -343,14 +345,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(event.organizationId, async () => {
-    // Master registration switch (Settings → Registration). Enforced server-side
-    // so a closed event can't be registered via a direct POST, regardless of UI
-    // or which individual tiers are active. Default OPEN when the field is absent.
-    const eventSettings = (event.settings || {}) as Record<string, unknown>;
-    if (eventSettings.registrationOpen === false) {
-      apiLogger.warn({ msg: "public/register:registration-closed", slug, eventId: event.id });
+    // Closed (registration-closure.ts: the switch, the close date, a webinar that is over).
+    // Enforced server-side so a closed event can't be registered via a direct POST,
+    // regardless of UI or which individual tiers are active.
+    const closedReason = await loadRegistrationClosedReason(event);
+    if (closedReason) {
+      apiLogger.warn({ msg: "public/register:registration-closed", slug, eventId: event.id, reason: closedReason });
       return NextResponse.json(
-        { error: "Registration is closed for this event.", code: "REGISTRATION_CLOSED" },
+        { error: registrationClosedMessage(closedReason), code: "REGISTRATION_CLOSED", reason: closedReason },
         { status: 403 },
       );
     }

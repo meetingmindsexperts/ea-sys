@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
+import { settingsClosedReason } from "@/lib/registration-closure";
 import { renderQrPng } from "@/lib/barcode";
 import { isExhibitorBadge } from "@/lib/badge-layout";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
@@ -118,9 +119,13 @@ function complimentaryRate(types: TypeRow[]): TierRow | null {
   return null;
 }
 
-/** The event's master registration switch; the public register route refuses everything while it is off. */
+/**
+ * Closed by the organiser (registration-closure.ts: the switch or the close date); the public
+ * register route refuses everything then. Only the settings half: a webinar has no desk, so the
+ * webinar-over part of the rule never applies here.
+ */
 function registrationClosed(settings: unknown): boolean {
-  return !!settings && typeof settings === "object" && (settings as Record<string, unknown>).registrationOpen === false;
+  return settingsClosedReason(settings) !== null;
 }
 
 /**
@@ -310,7 +315,7 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
       if (registrationClosed(event.settings)) {
         apiLogger.warn({ msg: "desk-qr:registration-closed", eventId, userId });
         return NextResponse.json(
-          { error: "Registration is switched off for this event (Settings → Registration).", code: "REGISTRATION_CLOSED" },
+          { error: "Registration is closed for this event (Settings → Registration: switched off, or past its close date).", code: "REGISTRATION_CLOSED" },
           { status: 400 },
         );
       }

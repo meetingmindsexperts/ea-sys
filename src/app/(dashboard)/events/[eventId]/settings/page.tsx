@@ -18,6 +18,8 @@ import { GroupRateLinks } from "@/components/events/group-rate-links";
 import { EventSlugField } from "@/components/events/event-slug-field";
 import { isWebinar } from "@/lib/webinar";
 import { localDateTimeInTz, resolveTimezone, tzLabel, wallTimeInTzToIso } from "@/lib/event-time";
+import { readRegistrationClosesAt, REGISTRATION_CLOSES_AT_SETTING } from "@/lib/registration-closure";
+import { RegistrationCloseDate } from "./registration-close-date";
 import { readPresenterRegistrationSettings } from "@/lib/presenter-registration-settings";
 import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
 import { DEFAULT_TRAVEL_GRANT_CTA_LABEL, TRAVEL_GRANT_CTA_LABEL_MAX } from "@/lib/travel-grant/constants";
@@ -357,6 +359,9 @@ export default function EventSettingsPage() {
     showInCatalogue: false,
   });
 
+  // "Close registration on" (registration-closure.ts), as a wall-clock time in the event's timezone; "" = none.
+  const [registrationClosesAt, setRegistrationClosesAt] = useState("");
+
   // Optional attendee fields the forms show (registration-form-fields.ts); all shown until unticked.
   const [formFields, setFormFields] = useState<FormFieldVisibility>(ALL_FORM_FIELDS_SHOWN);
   // This event's own choice for Title, Role and Specialty; none saved = as the organisation (person-fields.ts).
@@ -579,6 +584,8 @@ export default function EventSettingsPage() {
         // and compounded. See src/lib/datetime-local.ts for the full write-up.
         const tz = resolveTimezone(data.timezone);
         setEventTimezone(tz);
+        const closesAt = readRegistrationClosesAt(settings);
+        setRegistrationClosesAt(closesAt ? localDateTimeInTz(closesAt, tz) : "");
 
         setAbstractSettings({
           allowAbstractSubmissions: settings.allowAbstractSubmissions ?? true,
@@ -919,6 +926,7 @@ export default function EventSettingsPage() {
               [EVENT_PERSON_FIELD_CHOICES_SETTING]: personFieldChoices,
             }),
             abstractDeadline: wallTimeInTzToIso(abstractSettings.abstractDeadline, eventTimezone),
+            [REGISTRATION_CLOSES_AT_SETTING]: wallTimeInTzToIso(registrationClosesAt, eventTimezone),
             // Sent raw; readAbstractLimits clamps and falls back, so a blank or
             // silly value can never brick submissions.
             abstractLimits: {
@@ -1558,6 +1566,12 @@ export default function EventSettingsPage() {
                 }
               />
             </div>
+            <RegistrationCloseDate
+              value={registrationClosesAt}
+              onChange={setRegistrationClosesAt}
+              timezone={eventTimezone}
+              webinar={isWebinar(event)}
+            />
 
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">

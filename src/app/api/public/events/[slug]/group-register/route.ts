@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { findPublicEvent } from "@/lib/tenant/event-tenant";
+import { registrationClosedMessage } from "@/lib/registration-closure";
+import { loadRegistrationClosedReason } from "@/lib/registration-closure-server";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
@@ -191,7 +193,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         allowIdFallback: true,
         statuses: ["PUBLISHED", "LIVE"],
       }, {
-      select: { id: true, name: true, organizationId: true, settings: true, slug: true },
+      select: { id: true, name: true, organizationId: true, settings: true, slug: true, eventType: true, endDate: true },
     });
     if (!event) {
       apiLogger.warn({ msg: "public/group-register:event-not-found", slug });
@@ -243,12 +245,12 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 403 },
         );
       }
-      // Master registration switch applies to groups too.
-      const eventSettings = (event.settings || {}) as Record<string, unknown>;
-      if (eventSettings.registrationOpen === false) {
-        apiLogger.warn({ msg: "public/group-register:registration-closed", slug, eventId: event.id });
+      // The same closed rule as the single form (registration-closure.ts) applies to groups too.
+      const closedReason = await loadRegistrationClosedReason(event);
+      if (closedReason) {
+        apiLogger.warn({ msg: "public/group-register:registration-closed", slug, eventId: event.id, reason: closedReason });
         return NextResponse.json(
-          { error: "Registration is closed for this event.", code: "REGISTRATION_CLOSED" },
+          { error: registrationClosedMessage(closedReason), code: "REGISTRATION_CLOSED", reason: closedReason },
           { status: 403 },
         );
       }

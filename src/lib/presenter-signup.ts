@@ -44,6 +44,7 @@ import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
 import { escapeHtml } from "@/lib/html";
 import { IDENTITY_EVIDENCE_SELECT, readIdentityEvidencePolicy } from "@/lib/identity-evidence";
 import { SUPPORTING_DOCUMENT_POLICY_SELECT, resolveSupportingDocument } from "@/lib/supporting-document";
+import { settingsClosedReason } from "@/lib/registration-closure";
 import {
   asksForEvidence,
   checkTypeEvidence,
@@ -206,7 +207,9 @@ export async function resolvePresenterRateSelection(
       })),
     })),
     {
-      registrationOpen: settings.registrationOpen !== false,
+      // The organiser's switch and close date (registration-closure.ts). Only the settings half:
+      // an abstract sign-up never runs on a webinar (abstract-intake.ts), so "webinar over" cannot apply.
+      registrationOpen: settingsClosedReason(eventSettings, now) === null,
       codeRequiredTiers: readCodeRequiredTiers(eventSettings),
       mainRegisterTiers: settings.mainRegisterTiers,
     },

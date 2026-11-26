@@ -12,6 +12,8 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { abstractSubmissionsOpen } from "@/lib/webinar";
 import { UNLIMITED_SEAT_SENTINEL, eventIsFull, tierAvailability } from "@/lib/public-availability";
 import { isAgendaPublished } from "@/lib/agenda-display";
+import { registrationClosedReason } from "@/lib/registration-closure";
+import { loadAnchorSessionClock } from "@/lib/registration-closure-server";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -218,22 +220,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     // buttons — the SESSION carries the authoritative clock (a console retime
     // updates the session, not Event.startDate), so calendar artifacts must
     // come from it, not the event dates.
-    let webinarSession: { startsAt: string; endsAt: string } | null = null;
-    if (event.eventType === "WEBINAR") {
-      const anchorSessionId = (settings.webinar as { sessionId?: string } | undefined)?.sessionId;
-      if (anchorSessionId) {
-        const anchor = await db.eventSession.findFirst({
-          where: { id: anchorSessionId, eventId: event.id },
-          select: { startTime: true, endTime: true },
-        });
-        if (anchor) {
-          webinarSession = {
-            startsAt: anchor.startTime.toISOString(),
-            endsAt: anchor.endTime.toISOString(),
-          };
-        }
-      }
-    }
+    // The same session is the closed rule's clock (registration-closure.ts: a webinar that is over).
+    const anchor = await loadAnchorSessionClock(event);
+    const webinarSession: { startsAt: string; endsAt: string } | null = anchor
+      ? { startsAt: anchor.startTime.toISOString(), endsAt: anchor.endTime.toISOString() }
+      : null;
+    const closedReason = registrationClosedReason(event, anchor);
 
     return NextResponse.json({
       webinarSession,
@@ -263,11 +255,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       // clamped server-side; disabled events expose the disabled default.
       groupRegistration: readGroupRegistrationSettings(event.settings),
       agendaPublished: isAgendaPublished(settings),
-      // Master registration switch (Settings → Registration). Default OPEN when
-      // the field is absent so existing events aren't accidentally closed.
-      // When false, the public register flow shows "Registration Closed"
-      // regardless of individual tier (standard/onsite) states.
-      registrationOpen: settings.registrationOpen !== false,
+      // Closed by registration-closure.ts (the switch in Settings → Registration,
+      // its close date, or a webinar that is over). When false, the public
+      // register flow shows "Registration Closed" regardless of individual tier
+      // (standard/onsite) states; the reason picks the wording.
+      registrationOpen: closedReason === null,
+      registrationClosedReason: closedReason,
       // "Show Remaining Tickets" (Settings → Registration). Opt-IN (=== true,
       // hidden by default): the register page only renders "N seats left" when
       // the organizer explicitly enabled it AND the tier/type has a real seat

@@ -91,6 +91,7 @@ the fix needs someone with access to the server.</p>
 <table>
   <tr><th>Attendees say</th><th>Usually</th><th>What to do</th></tr>
   <tr><td>"Registration is closed" on a webinar you just made</td><td>The registration rates start switched off on every new event</td><td>Registration Types page: switch the rate on (see <a href="#b1">B1</a>).</td></tr>
+  <tr><td>"This webinar has ended" on the registration page</td><td>Registration closes on its own once the webinar is over (since Nov 26, 2026)</td><td>Expected. Add a late attendee by hand from Registrations (see <a href="#b1">B1</a>).</td></tr>
   <tr><td>Stuck in the waiting room after the start time</td><td>The room was not opened</td><td>Webinar Console, Setup tab, Go live card: "Open the room / Go live" (see <a href="#c1">C1</a>).</td></tr>
   <tr><td>"Waiting for stream to start..." with the room open</td><td>The video is not reaching us: Zoom not started, still in Zoom's practice session, or the stream not started</td><td>See <a href="#c3">C3</a> (our Zoom) or <a href="#d4">D4</a> (partner).</td></tr>
 </table>
@@ -155,8 +156,8 @@ the fix needs someone with access to the server.</p>
 <table>
   <tr><th>What the attendee sees</th><th>Why</th><th>What to do</th></tr>
   <tr id="b1"><td><span class="id">B1</span>"Registration is closed", a "Closed" button, or "Registration Closed" with "Registration is not currently open for ..."</td>
-    <td>Every new event starts with its registration rates switched off. Or "Registration Open" is off, or no rate is ticked for the main Register link.</td>
-    <td>Registration Types page: tick the box at the left of the rate's row (or "Edit tier", "Active"), and set the price. Check "Main registration link": with nothing ticked the general link always shows "Registration Closed". Event Settings, Registration tab: "Registration Open", then "Save registration settings".</td></tr>
+    <td>Every new event starts with its registration rates switched off. Or "Registration Open" is off, or the "Close registration on" time in Settings has passed, or no rate is ticked for the main Register link. "This webinar has ended" means the webinar is over: its room was closed, or its scheduled end passed while the room was not live. Registration then closes on its own (owner, Nov 26, 2026; it never closes while the room is live, even in an overrun).</td>
+    <td>Registration Types page: tick the box at the left of the rate's row (or "Edit tier", "Active"), and set the price. Check "Main registration link": with nothing ticked the general link always shows "Registration Closed". Event Settings, Registration tab: "Registration Open" and "Close registration on" (clear it, or choose a later time), then "Save registration settings". After the webinar there is no switch to reopen the form: add a late attendee from the Registrations page, which is not affected.</td></tr>
   <tr><td><span class="id">B2</span>"{Rate} registration is currently closed", or on submitting "Pricing tier not found or inactive"</td><td>That rate or its registration type is switched off.</td><td>As B1.</td></tr>
   <tr><td><span class="id">B3</span>On submitting: "Registration sales have not started" / "Registration sales have ended"</td><td>The rate's sales dates.</td><td>There is no field for these dates on the Registration Types page. <span class="dev">Developer</span></td></tr>
   <tr><td><span class="id">B4</span>"Fully booked", "Registration Full", "Sold out"</td><td>The event's "Maximum Attendees" or a type's or rate's "Seat Limit" is reached.</td><td>Raise the limit (event Settings, Registration tab; or the Registration Types page) and save.</td></tr>

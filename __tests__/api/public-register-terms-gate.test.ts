@@ -32,6 +32,8 @@ const { mockDb, mockApiLogger, mockTenantTransaction } = vi.hoisted(() => ({
     // The organisation's settings: none saved means today's nine (step 1c).
     organization: { findUnique: vi.fn(async () => ({ settings: {} })) },
     event: { findFirst: vi.fn() },
+    // A webinar's own session, the clock of registration-closure.ts.
+    eventSession: { findFirst: vi.fn() },
     ticketType: { findFirst: vi.fn() },
     // No rates on the type: the no-rate guard (Oct 16, 2026) lets it through.
     pricingTier: { findFirst: vi.fn(), findMany: vi.fn(async () => []) },
@@ -202,5 +204,59 @@ describe("public register — terms consent is enforced server-side", () => {
 
     expect(mockTenantTransaction).toHaveBeenCalled();
     expect(status).not.toBe(400);
+  });
+});
+
+// The same door's closed rule (registration-closure.ts, Nov 26, 2026), with a body that passes.
+describe("public register: closed registration is refused before any rate is read", () => {
+  function eventWith(over: Record<string, unknown>) {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: EVENT_ID, name: "Test Event", slug: "my-event", status: "PUBLISHED", eventType: "CONFERENCE",
+      settings: {}, organizationId: "org-1", maxAttendees: null, seatCount: 0, taxRate: null, taxLabel: null,
+      endDate: new Date("2099-01-01T00:00:00Z"), organization: { name: "MMG" }, ...over,
+    });
+  }
+
+  it("refuses while the switch is off", async () => {
+    eventWith({ settings: { registrationOpen: false } });
+    const { status, body } = await post({ agreeTerms: true });
+    expect(status).toBe(403);
+    expect(body).toMatchObject({ code: "REGISTRATION_CLOSED", reason: "switched-off" });
+    expect(mockDb.ticketType.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("refuses once the organiser's close date has passed", async () => {
+    eventWith({ settings: { registrationClosesAt: "2026-01-01T00:00:00.000Z" } });
+    const { status, body } = await post({ agreeTerms: true });
+    expect(status).toBe(403);
+    expect(body).toMatchObject({ code: "REGISTRATION_CLOSED", reason: "closing-date-passed" });
+  });
+
+  it("refuses a webinar whose room has closed, saying it has ended (Nov 25: six registered after the close)", async () => {
+    eventWith({ eventType: "WEBINAR", endDate: new Date("2026-11-25T16:15:00Z"), settings: { webinar: { sessionId: "s1" } } });
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      status: "COMPLETED",
+      startTime: new Date("2026-11-25T15:00:00Z"),
+      endTime: new Date("2026-11-25T16:15:00Z"),
+    });
+    const { status, body } = await post({ agreeTerms: true });
+    expect(status).toBe(403);
+    expect(body).toMatchObject({ code: "REGISTRATION_CLOSED", reason: "webinar-over" });
+    expect(body.error).toMatch(/webinar has ended/);
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "public/register:registration-closed", reason: "webinar-over" }),
+    );
+  });
+
+  it("lets a webinar register while its room is live", async () => {
+    eventWith({ eventType: "WEBINAR", endDate: new Date("2099-01-01T00:00:00Z"), settings: { webinar: { sessionId: "s1" } } });
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      status: "LIVE",
+      startTime: new Date("2026-11-25T15:00:00Z"),
+      endTime: new Date("2026-11-25T16:15:00Z"),
+    });
+    const { status } = await post({ agreeTerms: true });
+    expect(status).not.toBe(403);
+    expect(mockDb.ticketType.findFirst).toHaveBeenCalled();
   });
 });

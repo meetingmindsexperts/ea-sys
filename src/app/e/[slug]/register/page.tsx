@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { canEverywhere, principalFromUser } from "@/lib/permissions/can";
+import type { RegistrationClosedReason } from "@/lib/registration-closure";
 
 function toSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -70,6 +71,8 @@ interface Event {
   bannerImageMobile?: string | null;
   footerHtml: string | null;
   registrationOpen?: boolean;
+  /** Why it is closed (registration-closure.ts), for the wording; null when open. */
+  registrationClosedReason?: RegistrationClosedReason | null;
   /** Tier-name slugs the main link may land on, in order (Settings → Registration). */
   mainRegisterTiers?: string[];
   /** Sponsor-link rates (code-required-tiers.ts): the main link never lands on one. */
@@ -124,6 +127,24 @@ function mainLinkTarget(event: Event) {
     mainRegisterTiers: event.mainRegisterTiers,
     codeRequiredTiers: event.codeRequiredTiers,
   });
+}
+
+/** What staff see above the links while the public form is closed (registration-closure.ts). */
+function organiserClosedNote(reason: RegistrationClosedReason | null): string {
+  return `Public registration is closed: ${closedWhy(reason)}. These links show attendees a closed page; you can still add registrations from the dashboard.`;
+}
+
+function closedWhy(reason: RegistrationClosedReason | null): string {
+  if (reason === "webinar-over") return "the webinar is over";
+  if (reason === "closing-date-passed") return "its close date in Settings, Registration has passed";
+  return "Registration Open is off in Settings, Registration";
+}
+
+/** The closed page's line: a webinar that is over, a full event, or closed. */
+function closedNoticeText(name: string, why: { webinarOver: boolean; full: boolean }): string {
+  if (why.webinarOver) return `${name} has ended, so registration is closed. Please contact the organizer for more information.`;
+  if (why.full) return `${name} has reached its maximum number of attendees. Please contact the organizer for more information.`;
+  return `Registration is not currently open for ${name}. Please contact the organizer for more information.`;
 }
 
 export default function RegisterOverviewPage() {
@@ -215,16 +236,13 @@ export default function RegisterOverviewPage() {
 
     // No active DELEGATE tiers (every tier: early-bird / standard /
     // onsite — closed) → branded "Registration Closed" page.
+    const webinarOver = event.registrationClosedReason === "webinar-over";
     const closedTitle = eventFullBlocks && registrationOpen ? "Registration Full" : "Registration Closed";
     return (
       <PublicEventNotice
         event={event}
-        title={closedTitle}
-        description={
-          eventFullBlocks && registrationOpen
-            ? `${event.name} has reached its maximum number of attendees. Please contact the organizer for more information.`
-            : `Registration is not currently open for ${event.name}. Please contact the organizer for more information.`
-        }
+        title={webinarOver ? "This webinar has ended" : closedTitle}
+        description={closedNoticeText(event.name, { webinarOver, full: eventFullBlocks && registrationOpen })}
       >
         {/* Disabled CTA: always reads as closed (or full), whichever tiers
             (standard / onsite / early-bird) are toggled. */}
@@ -300,6 +318,11 @@ export default function RegisterOverviewPage() {
           <p className="text-slate-500 text-sm mt-1">
             Copy and share these links with attendees. Each link opens a separate registration form.
           </p>
+          {event && event.registrationOpen === false ? (
+            <p role="status" className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {organiserClosedNote(event.registrationClosedReason ?? null)}
+            </p>
+          ) : null}
         </div>
 
         {tierGroups.length === 0 ? (

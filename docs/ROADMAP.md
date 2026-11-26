@@ -107,7 +107,13 @@ rows until someone groups them), and beside them `specialty`, `country` and `job
 files read them from there, with their words in `post-event-report-text.ts`; faculty stay out, as for every other
 figure in the report.
 
-## Registration that closes itself: after a webinar, and on a date the organiser sets (recorded Nov 26, 2026): not started
+## Registration that closes itself: after a webinar, and on a date the organiser sets (recorded Nov 26, 2026): BUILT Nov 26, 2026
+
+**Built the same day** (owner: close outright after a webinar, whatever the recording switch says): one rule in
+`src/lib/registration-closure.ts`, asked by every public door; "Close registration on" in Settings, Registration. See
+CHANGELOG, Nov 26, 2026. Not built: the rates' own `salesEnd` on the Tickets page (a separate, per-rate choice), and
+"Register to watch the recording" after a webinar (the owner chose to close outright). The record below is kept as
+the reason.
 
 **What happened:** MENA HemeConnect Wave 1 closed its room at 8:19 pm Dubai on Nov 25, 2026, and six people
 registered after it (five that evening, one the next morning). The form stayed open because nothing closes
