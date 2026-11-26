@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   closesTheDesk,
   readRegistrationClosesAt,
+  registrationCloseReminder,
   registrationClosesAtSchema,
   registrationClosedMessage,
   registrationClosedReason,
@@ -107,6 +108,38 @@ describe("registrationClosesAtSchema", () => {
     expect(registrationClosesAtSchema.safeParse("").success).toBe(true);
     for (const bad of ["1 Dec", "2026-12-01", 1764565200000, true]) {
       expect(registrationClosesAtSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+});
+
+describe("registrationCloseReminder (the Overview's note)", () => {
+  const later = new Date("2026-12-05T00:00:00Z");
+  const live = (settings: Record<string, unknown> = {}, endDate = later, status = "PUBLISHED") => ({
+    eventType: "CONFERENCE",
+    settings,
+    endDate,
+    status,
+  });
+
+  it("reminds a published conference with no close date", () => {
+    expect(registrationCloseReminder(live(), NOW)).toBe("no-close-date");
+    expect(registrationCloseReminder(live({}, later, "LIVE"), NOW)).toBe("no-close-date");
+  });
+
+  it("is quiet once a close date is set, or the switch is off", () => {
+    expect(registrationCloseReminder(live({ registrationClosesAt: "2026-12-01T05:00:00.000Z" }), NOW)).toBeNull();
+    expect(registrationCloseReminder(live({ registrationOpen: false }), NOW)).toBeNull();
+  });
+
+  it("warns when the event has ended and the form is still open, even with a close date after the end", () => {
+    expect(registrationCloseReminder(live({}, end), NOW)).toBe("ended-still-open");
+    expect(registrationCloseReminder(live({ registrationClosesAt: "2027-01-01T00:00:00.000Z" }, end), NOW)).toBe("ended-still-open");
+  });
+
+  it("says nothing for a webinar (it closes itself) or an event the public cannot reach", () => {
+    expect(registrationCloseReminder({ ...live(), eventType: "WEBINAR" }, NOW)).toBeNull();
+    for (const status of ["DRAFT", "COMPLETED", "CANCELLED"]) {
+      expect(registrationCloseReminder(live({}, end, status), NOW)).toBeNull();
     }
   });
 });

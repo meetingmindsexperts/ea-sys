@@ -90,6 +90,27 @@ export function registrationClosedReason(
 }
 
 /**
+ * The reminder the event Overview shows staff (owner, Nov 26, 2026: "add a reminder for the organiser
+ * to close registration or set up a closing date and time"). Null when there is nothing to remind:
+ * a webinar (it closes itself), an event the public cannot reach (draft, completed, cancelled), or
+ * registration already closed by the switch or a passed date.
+ *  - "ended-still-open": the event has ended and its public form still takes registrations.
+ *  - "no-close-date": a live event with no close date set.
+ */
+export type RegistrationCloseReminder = "ended-still-open" | "no-close-date";
+
+export function registrationCloseReminder(
+  event: ClosureEvent & { status: string },
+  now: Date = new Date(),
+): RegistrationCloseReminder | null {
+  if (event.eventType === "WEBINAR") return null;
+  if (event.status !== "PUBLISHED" && event.status !== "LIVE") return null;
+  if (settingsClosedReason(event.settings, now)) return null;
+  if (event.endDate.getTime() < now.getTime()) return "ended-still-open";
+  return readRegistrationClosesAt(event.settings) ? null : "no-close-date";
+}
+
+/**
  * Whether this reason also closes the onsite desk's walk-in QR. The close date closes online
  * sign-up only (owner, Nov 26, 2026: "online registration closes Dec 1, the event is Dec 5", and
  * walk-ins still register at the venue by the desk QR, as it already does for a rate whose sales

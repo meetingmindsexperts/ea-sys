@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/use-api";
 import { apiFetch } from "@/lib/api-fetch";
 import { useRuntimeFlags } from "@/components/runtime-flags";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AbstractThemesSettings } from "@/components/abstracts/abstract-themes-settings";
 import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-settings";
 import { ZoomSettingsCard } from "@/components/zoom/zoom-settings-card";
@@ -271,8 +271,13 @@ import {
   type NotificationSettingKey,
 } from "@/lib/notification-settings";
 
+/** Tabs a link may open the page on (`?tab=registration`, from the Overview's reminder). */
+const LINKABLE_TABS = ["general", "registration", "abstracts", "branding", "email-branding", "email-templates"];
+
 export default function EventSettingsPage() {
   const params = useParams();
+  const requestedTab = useSearchParams().get("tab");
+  const openTab = requestedTab && LINKABLE_TABS.includes(requestedTab) ? requestedTab : "general";
   // senderDomain: the one domain this deployment may send from (sender hint).
   const { procurementEnabled, senderDomain } = useRuntimeFlags();
   const router = useRouter();
@@ -1150,7 +1155,7 @@ export default function EventSettingsPage() {
         />
       </div>
 
-      <Tabs defaultValue="general" className="space-y-6">
+      <Tabs defaultValue={openTab} className="space-y-6">
         <TabsList>
           <TabsTrigger value="zoom" className="flex items-center gap-2">
             <Video className="h-4 w-4" />

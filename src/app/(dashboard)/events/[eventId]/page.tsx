@@ -30,6 +30,8 @@ import { EventActions } from "./event-actions";
 import { ActivityFeed } from "@/components/activity-feed";
 import { formatDateRange } from "@/lib/utils";
 import { webinarVideoSource } from "@/lib/webinar/video-source";
+import { registrationCloseReminder } from "@/lib/registration-closure";
+import { RegistrationCloseReminderNotice } from "@/components/events/registration-close-reminder";
 
 const statusConfig: Record<string, { label: string; cls: string }> = {
   DRAFT:     { label: "Draft",     cls: "bg-white/15 text-white border-white/25" },
@@ -65,6 +67,7 @@ export default async function EventPage({ params }: EventPageProps) {
       where: hubEventWhere(session, eventId, "events/[eventId]:page"),
       select: {
         id: true,
+        organizationId: true,
         name: true,
         slug: true,
         description: true,
@@ -192,6 +195,15 @@ export default async function EventPage({ params }: EventPageProps) {
     }
   }
 
+  // Close registration, or set a close date (registration-closure.ts): for staff who can fix it in Settings.
+  const closeReminder =
+    !isRestricted &&
+    can(principalFromSession(session), "events.update", {
+      event: { organizationId: event.organizationId, eventType: event.eventType ?? "" },
+    })
+      ? registrationCloseReminder(event)
+      : null;
+
   const sc = statusConfig[event.status] ?? statusConfig.DRAFT;
   const location = [event.venue, event.city, event.country].filter(Boolean).join(", ");
 
@@ -295,6 +307,9 @@ export default async function EventPage({ params }: EventPageProps) {
           </div>
         </div>
       </div>
+
+      {/* Close registration, or set a close date (staff who can edit the event only). */}
+      {closeReminder ? <RegistrationCloseReminderNotice reminder={closeReminder} eventId={eventId} /> : null}
 
       {/* ── Stats Grid ──────────────────────────────────────────────────────── */}
       {!isRestricted && (

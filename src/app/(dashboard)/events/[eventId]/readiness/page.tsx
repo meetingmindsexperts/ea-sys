@@ -137,6 +137,7 @@ export default function EventReadinessPage() {
           <Check><strong>Timezone</strong> — set it deliberately (defaults to Asia/Dubai). It drives sales windows and session times.</Check>
           <Check>Publish the event (status Published or Live) — a Draft event rejects public registrations and abstract submissions.</Check>
           <Check>Keep <strong>&ldquo;Registration Open&rdquo; OFF</strong> in Settings &rarr; Registration until you&rsquo;re ready to launch — it defaults to open once tiers are active.</Check>
+          <Check>Set <strong>&ldquo;Close registration on&rdquo;</strong> in Settings &rarr; Registration (a date and time in the event&rsquo;s timezone) so online registration closes by itself, or plan to switch Registration Open off when it should end. The desk&rsquo;s walk-in QR keeps working after the date. The event Overview reminds you while no date is set. A webinar closes its own registration once it is over.</Check>
         </ul>
       </Section>
 

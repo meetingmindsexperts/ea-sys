@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### A reminder to close registration, on the event Overview (November 26, 2026)
+
+Owner: "add a reminder somewhere for the organiser to close registration or set up a closing date and time".
+
+- The event **Overview** shows staff who may edit the event a note while a published conference has no close date
+  ("Registration has no closing date"), and a warning once the event has ended with its public form still open.
+  Both link to Settings, Registration (`?tab=registration` now opens the Settings page on that tab). Webinars get no
+  note: they close themselves. The rule is `registrationCloseReminder` in `src/lib/registration-closure.ts`.
+- The **Readiness** checklist has a line for the close date, and the user guide describes the note.
+
 ### Registration closes itself after a webinar, and on a date the organiser sets (November 26, 2026)
 
 Owner: "self-closing form and organiser sets a date to auto close in Settings, Registration". Six people registered for
