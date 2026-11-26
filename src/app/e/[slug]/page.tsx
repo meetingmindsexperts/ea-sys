@@ -219,6 +219,16 @@ export default async function EventOverviewPage({ params }: Props) {
   const accreditations = readAccreditations(settings);
   const accreditors = [...new Set(accreditations.map(accreditorLabel).filter((a): a is string => !!a))];
   const audiences = [...new Set(event.ticketTypes.map((t) => t.name.trim()).filter(Boolean))];
+  const audienceList = audiences.length > 0 && (
+    <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+      {audiences.map((a) => (
+        <li key={a} className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+          {a}
+        </li>
+      ))}
+    </ul>
+  );
 
   // Faculty and programme only once the organiser has published the agenda,
   // the same rule the public agenda follows.
@@ -362,17 +372,13 @@ export default async function EventOverviewPage({ params }: Props) {
             </Section>
           )}
 
-          {audiences.length > 0 && (
-            <Section id="who" eyebrow="Who can register" title="Registration types">
-              <ul className="grid gap-2 sm:grid-cols-2">
-                {audiences.map((a) => (
-                  <li key={a} className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800">
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
-                    {a}
-                  </li>
-                ))}
-              </ul>
-            </Section>
+          {/* From lg the list sits in the right column, above the registration card. */}
+          {audienceList && (
+            <div className="lg:hidden">
+              <Section id="who" eyebrow="Who can register" title="Registration types">
+                {audienceList}
+              </Section>
+            </div>
           )}
 
           {speakers.length > 0 && (
@@ -453,7 +459,12 @@ export default async function EventOverviewPage({ params }: Props) {
           )}
         </main>
 
-        <aside className="hidden lg:block">
+        <aside className="hidden space-y-8 lg:block">
+          {audienceList && (
+            <Section id="who-side" eyebrow="Who can register" title="Registration types">
+              {audienceList}
+            </Section>
+          )}
           <div className="sticky top-6">
             <RegistrationCard state={state} offerText={offer ? offerLabel(offer) : null} registerHref={registerHref} dates={dates} />
           </div>
