@@ -56,6 +56,8 @@ import { sessionStream } from "@/lib/webinar/session-stream";
 import { deleteStoredFiles, listStoredFiles, signStoredFileDownload } from "@/lib/storage";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { recordStreamEvent, type StreamEventKind } from "@/lib/webinar/stream-timeline";
+import { updateEventSettings } from "@/lib/event-settings";
+import { readWebinarSettings } from "@/lib/webinar";
 import {
   finishesAfterRoomClosed,
   isRecordingOpen,
@@ -63,8 +65,11 @@ import {
   pausesAfterStop,
   recordingDeleteAfter,
   recordingOverran,
+  readRecordWithRoom,
   recordingStoragePrefix,
   recordingTransition,
+  roomOpenedTooEarlyToRecord,
+  type RecordWithRoom,
   serverSetting,
   type RecordingAction,
   type RecordingStatus,
@@ -245,8 +250,15 @@ const TIMELINE_KIND: Record<string, StreamEventKind> = {
 const REASON_TEXT: Record<string, string> = {
   "room-closed": "The room was closed",
   "room-closed-stop": "The room was closed: finished in 10 minutes unless the room is opened again",
+  "rehearsal-closed-stop": "The room was closed before the start: a rehearsal",
+  "room-opened": "The room was opened",
   overran: "Still open 6 hours after the scheduled end",
 };
+
+function timelineDetail(action: string, byRoom: boolean, reason: string | undefined): string | null {
+  if (action !== "STREAM_RECORDING_RESUMED") return reason ?? null;
+  return byRoom ? "Carried on: the room was opened" : "Carried on after a stop";
+}
 
 /**
  * Who started, stopped or finished a recording, as an audit row and a line on
@@ -265,7 +277,7 @@ async function audit(caller: Caller, action: string, entityId: string, changes: 
       sessionId: caller.sessionId,
       kind,
       userId: caller.userId,
-      detail: action === "STREAM_RECORDING_RESUMED" ? "Carried on after a stop" : (reason ?? null),
+      detail: timelineDetail(action, changes.reason === "room-opened", reason),
       source: caller.source === "worker" ? "worker" : "rest",
     });
   }
@@ -418,7 +430,7 @@ async function answer(caller: Caller, op: RecordingAction): Promise<StreamRecord
   return { ok: true, recording: toView(row), server };
 }
 
-async function createRecording(input: StartCaller, now: Date): Promise<Row | null> {
+async function createRecording(input: StartCaller & { agreement?: RecordWithRoom }, now: Date): Promise<Row | null> {
   const id = randomUUID();
   try {
     return await db.streamRecording.create({
@@ -428,8 +440,9 @@ async function createRecording(input: StartCaller, now: Date): Promise<Row | nul
         eventId: input.eventId,
         organizationId: input.organizationId,
         status: "RECORDING",
-        partnerAgreedAt: now,
-        partnerAgreedByUserId: input.userId,
+        // Started by the room opening: the agreement is the one confirmed when "record with the room" was switched on.
+        partnerAgreedAt: input.agreement?.agreedAt ?? now,
+        partnerAgreedByUserId: input.agreement ? input.agreement.agreedByUserId : input.userId,
         startedAt: now,
         startedByUserId: input.userId,
         lastStartedAt: now,
@@ -451,7 +464,9 @@ async function createRecording(input: StartCaller, now: Date): Promise<Row | nul
  * stream begins this arms the recording: the stream server records from the
  * moment the partner connects.
  */
-export async function startStreamRecording(input: StartCaller & { partnerAgreed?: boolean; now?: Date }): Promise<StreamRecordingResult> {
+export async function startStreamRecording(
+  input: StartCaller & { partnerAgreed?: boolean; now?: Date; agreement?: RecordWithRoom; reason?: "room-opened" },
+): Promise<StreamRecordingResult> {
   if (!streamRecordingAvailable()) return refuse(input, "start", "NOT_AVAILABLE");
   if (!(await partnerKey(input))) return refuse(input, "start", "NOT_PARTNER_STREAM");
   const now = input.now ?? new Date();
@@ -468,8 +483,8 @@ export async function startStreamRecording(input: StartCaller & { partnerAgreed?
     const created = await createRecording(input, now);
     // Null: lost the race to another Start. Theirs is the same recording, and the answer reads it.
     if (created) {
-      apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "stream-recording:started");
-      await audit(input, "STREAM_RECORDING_STARTED", created.id, { partnerAgreed: true });
+      apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId, reason: input.reason }, "stream-recording:started");
+      await audit(input, "STREAM_RECORDING_STARTED", created.id, { partnerAgreed: true, ...(input.reason ? { reason: input.reason } : {}) });
     }
     return answer(input, "start");
   }
@@ -477,8 +492,8 @@ export async function startStreamRecording(input: StartCaller & { partnerAgreed?
   if (!step.changed) return answer(input, "start");
   // The list is written from the row read above; the status in the same where clause means nobody changed it meanwhile.
   if (await move(existing, { status: "RECORDING", lastStartedAt: now, pauses: pausesAfterStart(existing.pauses, now) })) {
-    apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId }, "stream-recording:resumed");
-    await audit(input, "STREAM_RECORDING_RESUMED", existing.id, {});
+    apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId, reason: input.reason }, "stream-recording:resumed");
+    await audit(input, "STREAM_RECORDING_RESUMED", existing.id, input.reason ? { reason: input.reason } : {});
     return answer(input, "start");
   }
   // Someone moved it first. If they closed it, this Start did not happen and says so, instead of
@@ -493,7 +508,9 @@ export async function startStreamRecording(input: StartCaller & { partnerAgreed?
  * Stop recording for now. Start again continues the same recording, with a
  * break marked. `reason` "room-closed" when the room closing stopped it.
  */
-export async function stopStreamRecording(input: Caller & { now?: Date; reason?: "room-closed" }): Promise<StreamRecordingResult> {
+export async function stopStreamRecording(
+  input: Caller & { now?: Date; reason?: "room-closed" | "rehearsal-closed" },
+): Promise<StreamRecordingResult> {
   const existing = await readRow(input);
   const step = recordingTransition(existing?.status ?? null, "stop");
   if (!step.ok || !existing) return refuse(input, "stop", step.ok ? "NOT_STARTED" : step.code);
@@ -549,6 +566,180 @@ export async function stopRecordingOnRoomClose(
     await stopStreamRecording({ ...at, reason: "room-closed" });
   } catch (err) {
     apiLogger.error({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:stop-on-room-close-failed");
+  }
+}
+
+// ── Recording with the room (Nov 26, 2026) ─────────────────────────────────
+
+export type RecordWithRoomResult =
+  | { ok: true; recordWithRoom: { agreedAt: Date } | null }
+  | { ok: false; code: StreamRecordingErrorCode; message: string };
+
+/** The webinar's "record with the room" choice as staff see it: when the agreement was confirmed, or null when off. */
+export function recordWithRoomView(settings: unknown): { agreedAt: Date } | null {
+  const choice = readRecordWithRoom(settings);
+  return choice ? { agreedAt: choice.agreedAt } : null;
+}
+
+/**
+ * Switch "record with the room" on or off. On needs the partner's agreement,
+ * stored with who confirmed it and when; it becomes the recording's agreement
+ * when the room starts it. Off is always allowed, with the owner's switch off
+ * too. Changes nothing about a recording already made: Stop and Finish stay
+ * as they are.
+ */
+export async function setRecordWithRoom(
+  input: StartCaller & { on: boolean; partnerAgreed?: boolean; now?: Date },
+): Promise<RecordWithRoomResult> {
+  const op = "record-with-room" as const;
+  if (input.on) {
+    if (!streamRecordingAvailable()) return refuseSetting(input, op, "NOT_AVAILABLE");
+    if (!(await partnerKey(input))) return refuseSetting(input, op, "NOT_PARTNER_STREAM");
+    if (input.partnerAgreed !== true) return refuseSetting(input, op, "AGREEMENT_REQUIRED");
+  }
+  const agreedAt = input.now ?? new Date();
+  const stored = input.on ? { agreedAt: agreedAt.toISOString(), agreedByUserId: input.userId } : null;
+  await updateEventSettings(
+    input.eventId,
+    (current) => {
+      const webinar = current.webinar && typeof current.webinar === "object" ? { ...(current.webinar as Record<string, unknown>) } : {};
+      if (stored) webinar.recordWithRoom = stored;
+      else delete webinar.recordWithRoom;
+      return { ...current, webinar };
+    },
+    { organizationId: input.organizationId },
+  );
+  apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId, userId: input.userId, on: input.on }, "stream-recording:record-with-room-set");
+  try {
+    await db.auditLog.create({
+      data: {
+        organizationId: input.organizationId,
+        eventId: input.eventId,
+        ...(input.userId ? { userId: input.userId } : {}),
+        action: input.on ? "STREAM_RECORDING_WITH_ROOM_ON" : "STREAM_RECORDING_WITH_ROOM_OFF",
+        entityType: "Event",
+        entityId: input.eventId,
+        changes: { sessionId: input.sessionId, source: input.source, ...(input.on ? { partnerAgreed: true } : {}) },
+      },
+    });
+  } catch (err) {
+    apiLogger.error({ err, eventId: input.eventId }, "stream-recording:audit-failed");
+  }
+  return { ok: true, recordWithRoom: stored ? { agreedAt } : null };
+}
+
+function refuseSetting(caller: Caller, op: "record-with-room", code: StreamRecordingErrorCode): { ok: false; code: StreamRecordingErrorCode; message: string } {
+  apiLogger.warn({ eventId: caller.eventId, sessionId: caller.sessionId, userId: caller.userId, code }, `stream-recording:${op}-refused`);
+  return { ok: false, code, message: code === "AGREEMENT_REQUIRED" ? "Confirm that the partner has agreed to be recorded first." : MESSAGES[code] };
+}
+
+/** What opening the room did to the recording, for the producer's message. */
+export type RoomOpenRecording = "off" | "started" | "too-early" | "not-started";
+
+/**
+ * The room was opened: with "record with the room" on, start the recording,
+ * or carry on a stopped one. Not when the room opens more than 30 minutes
+ * before the scheduled start (a rehearsal). Never throws: the room is already
+ * open, and a recording that did not start is said in the answer and the log.
+ */
+export async function startRecordingOnRoomOpen(
+  at: At & { organizationId: string; userId: string | null; settings: unknown; now?: Date },
+): Promise<RoomOpenRecording> {
+  const choice = readRecordWithRoom(at.settings);
+  if (!choice) return "off";
+  const now = at.now ?? new Date();
+  try {
+    const session = await db.eventSession.findFirst({ where: { id: at.sessionId, eventId: at.eventId }, select: { startTime: true } });
+    if (session && roomOpenedTooEarlyToRecord(session.startTime, now)) {
+      apiLogger.info({ eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:room-opened-too-early-to-record");
+      return "too-early";
+    }
+    const result = await startStreamRecording({
+      organizationId: at.organizationId,
+      eventId: at.eventId,
+      sessionId: at.sessionId,
+      userId: at.userId,
+      source: "room",
+      partnerAgreed: true,
+      agreement: choice,
+      reason: "room-opened",
+      now,
+    });
+    // A refusal (disk low, recording already finished, switch off) is logged by the start.
+    return result.ok ? "started" : "not-started";
+  } catch (err) {
+    apiLogger.error({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:start-on-room-open-failed");
+    return "not-started";
+  }
+}
+
+/**
+ * A room opened too early to be recorded (more than 30 minutes before the
+ * start) and left open into the webinar: the minute sweep starts its
+ * recording once the 30 minutes before the start are reached
+ * (stream-recording-sweep.ts finds the rooms). Read again here, inside the
+ * room's tenant, so a list a minute old never acts: only while the room is
+ * still open, the choice still on, the room still not opened again inside the
+ * window, and the webinar has NO recording yet. A recording staff stopped is
+ * theirs to carry on, never the sweep's.
+ */
+export async function startRecordingForEarlyRoom(at: At & { organizationId: string }, now: Date): Promise<boolean> {
+  const [event, session, existing] = await Promise.all([
+    db.event.findFirst({ where: { id: at.eventId, organizationId: at.organizationId }, select: { settings: true } }),
+    db.eventSession.findFirst({ where: { id: at.sessionId, eventId: at.eventId }, select: { startTime: true, status: true } }),
+    readRow(at),
+  ]);
+  if (!event || !session || existing || session.status !== "LIVE") return false;
+  if (!earlyRoomDue(event.settings, session.startTime, now)) return false;
+  const choice = readRecordWithRoom(event.settings);
+  if (!choice) return false;
+  const result = await startStreamRecording({
+    organizationId: at.organizationId,
+    eventId: at.eventId,
+    sessionId: at.sessionId,
+    userId: null,
+    source: "worker",
+    partnerAgreed: true,
+    agreement: choice,
+    reason: "room-opened",
+    now,
+  });
+  if (result.ok) apiLogger.info({ eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:started-for-early-room");
+  return result.ok;
+}
+
+/**
+ * Whether a room left open since too early is now due its recording: opened
+ * before the window, and the window reached, until 15 minutes after the start
+ * (after that, no recording means someone deleted one on purpose).
+ */
+export function earlyRoomDue(settings: unknown, startTime: Date, now: Date): boolean {
+  if (!readRecordWithRoom(settings)) return false;
+  const opened = readWebinarSettings(settings)?.roomOpenedAt;
+  const openedAt = opened ? new Date(opened) : null;
+  if (!openedAt || Number.isNaN(openedAt.getTime())) return false;
+  if (!roomOpenedTooEarlyToRecord(startTime, openedAt)) return false;
+  if (roomOpenedTooEarlyToRecord(startTime, now)) return false;
+  return now.getTime() <= startTime.getTime() + EARLY_ROOM_LATEST_MS;
+}
+
+/** How long after the start the sweep still starts a recording for a room opened too early. */
+export const EARLY_ROOM_LATEST_MS = 15 * 60 * 1000;
+
+/**
+ * The room was closed before the scheduled start (a rehearsal): with "record
+ * with the room" on, the recording is stopped, never finished, so it carries
+ * on when the room is opened for the webinar. A recording staff started by
+ * hand is left as it is (plan §4.3). Never throws.
+ */
+export async function stopRecordingOnRehearsalClose(
+  at: At & { organizationId: string; userId: string | null; settings: unknown },
+): Promise<void> {
+  if (!readRecordWithRoom(at.settings)) return;
+  try {
+    await stopStreamRecording({ ...at, source: "room", reason: "rehearsal-closed" });
+  } catch (err) {
+    apiLogger.error({ err, eventId: at.eventId, sessionId: at.sessionId }, "stream-recording:stop-on-rehearsal-close-failed");
   }
 }
 

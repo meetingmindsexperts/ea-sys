@@ -164,3 +164,12 @@ describe("withWebinarSource: the copy's video source (Nov 24, 2026)", () => {
   });
 });
 
+
+describe("record with the room is never cloned (Nov 26, 2026)", () => {
+  it("the partner's agreement belongs to that webinar: the copy starts with it off", () => {
+    const out = cloneEventSettings({
+      webinar: { source: "external", viewingMode: "hls", recordWithRoom: { agreedAt: "2026-11-26T10:00:00.000Z", agreedByUserId: "u1" } },
+    });
+    expect(out.webinar).toEqual({ source: "external", viewingMode: "hls" });
+  });
+});

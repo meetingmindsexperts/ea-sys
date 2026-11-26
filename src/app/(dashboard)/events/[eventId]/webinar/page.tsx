@@ -3351,6 +3351,7 @@ function GoLiveCard({
       announceStreamResult(res.stream, res.open);
       const partnerWarning = res.partnerSignal ? PARTNER_SIGNAL_ON_OPEN[res.partnerSignal] : null;
       if (partnerWarning) toast.warning(partnerWarning);
+      announceRecordingOnOpen(res.recording);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update the room");
     }
@@ -3482,6 +3483,14 @@ function GoLiveCard({
 }
 
 /** What the producer is told on opening a partner's room, by what the stream server said. Nothing when it is arriving. */
+/** What opening the room did to a partner's stream recorded with the room (Nov 26, 2026). */
+function announceRecordingOnOpen(recording: "started" | "too-early" | "not-started" | undefined) {
+  if (recording === "started") toast.success("Recording started with the room");
+  if (recording === "too-early")
+    toast.info("Not recording yet: the room was opened more than 30 minutes before the start. Recording starts on its own 30 minutes before.");
+  if (recording === "not-started") toast.warning("The recording did not start with the room. Check the Recording section and press Start.");
+}
+
 const PARTNER_SIGNAL_ON_OPEN: Record<"receiving" | "not-receiving" | "switched-off" | "unknown", string | null> = {
   receiving: null,
   "not-receiving": "The partner's video is not arriving yet. Attendees see \"Waiting for stream to start\" until it does.",

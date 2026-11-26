@@ -23,6 +23,8 @@ const h = vi.hoisted(() => ({
     streamRecordingAvailable: vi.fn(),
     deleteStreamRecording: vi.fn(),
     streamRecordingDownload: vi.fn(),
+    setRecordWithRoom: vi.fn(),
+    recordWithRoomView: vi.fn(),
   },
 }));
 
@@ -80,6 +82,7 @@ beforeEach(() => {
   h.mockDb.event.findFirst.mockResolvedValue(PARTNER_EVENT);
   h.svc.streamRecordingAvailable.mockReturnValue(true);
   h.svc.getStreamRecording.mockResolvedValue(null);
+  h.svc.recordWithRoomView.mockReturnValue(null);
   for (const fn of ["startStreamRecording", "stopStreamRecording", "finishStreamRecording"] as const) {
     h.svc[fn].mockResolvedValue({ ok: true, recording: VIEW, server: { ok: true, changed: true } });
   }
@@ -91,7 +94,7 @@ describe("GET partner-stream/recording", () => {
     const res = await GET(req(), ctx);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ available: true, recording: VIEW });
+    expect(body).toEqual({ available: true, recording: VIEW, recordWithRoom: null });
     expect(JSON.stringify(body)).not.toMatch(/streamKey|storagePrefix|storedPath|archivePath/);
     expect(h.svc.getStreamRecording).toHaveBeenCalledWith({ eventId: "ev1", sessionId: "s1" });
   });
@@ -99,7 +102,7 @@ describe("GET partner-stream/recording", () => {
   it("shows a recording already made with the switch off, so it can still be finished", async () => {
     h.svc.streamRecordingAvailable.mockReturnValue(false);
     h.svc.getStreamRecording.mockResolvedValue(VIEW);
-    expect(await (await GET(req(), ctx)).json()).toEqual({ available: false, recording: VIEW });
+    expect(await (await GET(req(), ctx)).json()).toEqual({ available: false, recording: VIEW, recordWithRoom: null });
   });
 
   it("a webinar on our own Zoom has none: refused before the service is asked", async () => {
@@ -108,6 +111,36 @@ describe("GET partner-stream/recording", () => {
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe("NOT_PARTNER_SOURCE");
     expect(h.svc.getStreamRecording).not.toHaveBeenCalled();
+  });
+});
+
+describe("record with the room (Nov 26, 2026)", () => {
+  it("GET says whether it is on, read from the webinar's own settings", async () => {
+    const agreedAt = new Date("2026-11-26T10:00:00Z");
+    h.svc.recordWithRoomView.mockReturnValue({ agreedAt });
+    const body = await (await GET(req(), ctx)).json();
+    expect(body.recordWithRoom).toEqual({ agreedAt });
+    expect(h.svc.recordWithRoomView).toHaveBeenCalledWith(PARTNER_EVENT.settings);
+  });
+
+  it("switching it on passes the partner's agreement as given, with the organisation", async () => {
+    h.svc.setRecordWithRoom.mockResolvedValue({ ok: true, recordWithRoom: { agreedAt: new Date("2026-11-26T10:00:00Z") } });
+    const res = await POST(req({ action: "with-room", on: true, partnerAgreed: true }), ctx);
+    expect(res.status).toBe(200);
+    expect(h.svc.setRecordWithRoom).toHaveBeenCalledWith({ ...CALLER, on: true, partnerAgreed: true });
+  });
+
+  it("a refusal keeps its reason and status", async () => {
+    h.svc.setRecordWithRoom.mockResolvedValue({ ok: false, code: "AGREEMENT_REQUIRED", message: "agree first" });
+    const res = await POST(req({ action: "with-room", on: true }), ctx);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "agree first", code: "AGREEMENT_REQUIRED" });
+  });
+
+  it("without on/off it is refused before anything is asked", async () => {
+    const res = await POST(req({ action: "with-room" }), ctx);
+    expect(res.status).toBe(400);
+    expect(h.svc.setRecordWithRoom).not.toHaveBeenCalled();
   });
 });
 

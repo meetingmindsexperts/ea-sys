@@ -140,6 +140,11 @@ export interface WebinarSettings {
   /** ISO time the producer pressed Stop stream; cleared by Start stream and by opening the room. While
    *  set, the stream watchdog leaves the stream alone: a deliberate stop is not a drop (Nov 5, 2026). */
   streamStoppedAt?: string | null;
+  /** A partner's stream is recorded with the room (Nov 26, 2026): opening the room starts or carries
+   *  on the recording, closing it stops it. Present means on; holds when the partner's agreement was
+   *  confirmed and by whom. Written only by the recording route (stream-recording-service.ts
+   *  `setRecordWithRoom`), read with `readRecordWithRoom` (stream-recording.ts). Never cloned. */
+  recordWithRoom?: { agreedAt: string; agreedByUserId: string | null };
 }
 
 export function readWebinarSettings(

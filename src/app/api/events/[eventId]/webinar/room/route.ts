@@ -17,7 +17,12 @@ import { isStreamArriving, probeStream } from "@/lib/webinar/stream-probe";
 import { updateEventSettings } from "@/lib/event-settings";
 import { retimeThankYouAfterRoomClose } from "@/lib/webinar-email-sequence";
 import { recordStreamEvent } from "@/lib/webinar/stream-timeline";
-import { stopRecordingOnRoomClose } from "@/services/stream-recording-service";
+import {
+  startRecordingOnRoomOpen,
+  stopRecordingOnRehearsalClose,
+  stopRecordingOnRoomClose,
+  type RoomOpenRecording,
+} from "@/services/stream-recording-service";
 
 type PartnerSignalOnOpen = "receiving" | "not-receiving" | "switched-off" | "unknown";
 
@@ -200,6 +205,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         source: "room",
       });
     }
+    const recordingAt = { organizationId: orgGuard.orgId, eventId, sessionId: webinar.sessionId, userId: session.user.id, settings: event.settings };
+    // A partner's stream recorded with the room (Nov 26, 2026): opening starts or carries on the recording, and a
+    // close before the start stops it (a close after the start is the stop above). Both never throw.
+    let recording: RoomOpenRecording = "off";
+    if (validated.data.open) recording = await startRecordingOnRoomOpen(recordingAt);
+    else if (nextStatus !== "COMPLETED") await stopRecordingOnRehearsalClose(recordingAt);
 
     // Custom-stream mode: tell Zoom to start pushing when the room opens and
     // to stop when it closes. Failure-isolated: the room state is already
@@ -228,6 +239,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           sessionId: webinar.sessionId,
           status: nextStatus,
           ...(partnerSignal ? { partnerSignal } : {}),
+          ...(recording !== "off" ? { recording } : {}),
         });
       }
       // The producer may have started the stream and checked it in the

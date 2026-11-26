@@ -21,7 +21,9 @@ export const PARTNER_STREAM_STATUS: Record<ExternalStreamErrorCode, number> = {
   CONTROL_API_NOT_SET: 503,
 };
 
-export type PartnerWebinar = { ok: true; sessionId: string; slug: string | null } | { ok: false; response: NextResponse };
+export type PartnerWebinar =
+  | { ok: true; sessionId: string; slug: string | null; settings: unknown }
+  | { ok: false; response: NextResponse };
 
 /**
  * The webinar's anchor session, when the webinar is streamed by a partner.
@@ -59,7 +61,7 @@ export async function findPartnerWebinar(
       ),
     };
   }
-  return { ok: true, sessionId, slug: event.slug ?? null };
+  return { ok: true, sessionId, slug: event.slug ?? null, settings: event.settings };
 }
 
 /** A service refusal as an HTTP answer. The service has already logged it. */

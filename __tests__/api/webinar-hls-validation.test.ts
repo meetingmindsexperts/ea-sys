@@ -53,8 +53,16 @@ const { mockIsStreamArriving, mockProbeStream } = vi.hoisted(() => ({
   mockProbeStream: vi.fn(async () => "absent"),
 }));
 vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: mockIsStreamArriving, probeStream: mockProbeStream }));
-const { mockStopRecording } = vi.hoisted(() => ({ mockStopRecording: vi.fn(async () => undefined) }));
-vi.mock("@/services/stream-recording-service", () => ({ stopRecordingOnRoomClose: mockStopRecording }));
+const { mockStopRecording, mockStartWithRoom, mockStopRehearsal } = vi.hoisted(() => ({
+  mockStopRecording: vi.fn(async () => undefined),
+  mockStartWithRoom: vi.fn(async (): Promise<string> => "off"),
+  mockStopRehearsal: vi.fn(async () => undefined),
+}));
+vi.mock("@/services/stream-recording-service", () => ({
+  stopRecordingOnRoomClose: mockStopRecording,
+  startRecordingOnRoomOpen: mockStartWithRoom,
+  stopRecordingOnRehearsalClose: mockStopRehearsal,
+}));
 
 import { PUT as webinarPut } from "@/app/api/events/[eventId]/webinar/route";
 import { POST as roomPost } from "@/app/api/events/[eventId]/webinar/room/route";
@@ -87,6 +95,7 @@ beforeEach(() => {
   mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OK);
   mockIsStreamArriving.mockResolvedValue(false);
   mockControlLiveStream.mockResolvedValue({ ok: true, action: "start", streamKey: "sk-1" });
+  mockStartWithRoom.mockResolvedValue("off");
 });
 
 describe("PUT /webinar — hls mode requires a configured live stream", () => {
@@ -299,6 +308,35 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
     await callRoom({ open: false });
     await callRoom({ open: true });
     expect(mockStopRecording).not.toHaveBeenCalled();
+  });
+
+  // Record with the room (Nov 26, 2026): the service decides from the webinar's settings; the route hands them over.
+  it("opening asks the service to start the recording with the room, with the webinar's settings, as the opener", async () => {
+    await callRoom({ open: true });
+    expect(mockStartWithRoom).toHaveBeenCalledWith({
+      organizationId: "org1", eventId: "ev1", sessionId: "anchor1", userId: "u1",
+      settings: { webinar: { sessionId: "anchor1", viewingMode: "hls" } },
+    });
+    expect(mockStopRehearsal).not.toHaveBeenCalled();
+  });
+
+  it("a rehearsal close asks for the rehearsal stop; a close that ends the webinar does not", async () => {
+    await callRoom({ open: false });
+    expect(mockStopRehearsal).not.toHaveBeenCalled();
+    mockDb.eventSession.findFirst.mockResolvedValue({ name: "Webinar", status: "LIVE", startTime: new Date(Date.now() + 86_400_000) });
+    await callRoom({ open: false });
+    expect(mockStopRehearsal).toHaveBeenCalledTimes(1);
+    expect(mockStartWithRoom).not.toHaveBeenCalled();
+  });
+
+  it("a partner's open says what became of the recording; off says nothing", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
+    mockDb.externalStream.findFirst.mockResolvedValue({ streamKey: "px-1", streamStatus: "ACTIVE", enabled: true });
+    mockProbeStream.mockResolvedValue("live");
+    mockStartWithRoom.mockResolvedValue("started");
+    expect(await (await callRoom({ open: true })).json()).toMatchObject({ recording: "started" });
+    mockStartWithRoom.mockResolvedValue("off");
+    expect(await (await callRoom({ open: true })).json()).not.toHaveProperty("recording");
   });
 
   it("a rehearsal close keeps a CANCELLED anchor cancelled (review of fb4459d0)", async () => {

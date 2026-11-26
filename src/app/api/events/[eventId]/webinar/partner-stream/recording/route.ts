@@ -10,6 +10,8 @@ import {
   deleteStreamRecording,
   finishStreamRecording,
   getStreamRecording,
+  recordWithRoomView,
+  setRecordWithRoom,
   startStreamRecording,
   stopStreamRecording,
   streamRecordingAvailable,
@@ -25,7 +27,8 @@ type RouteParams = { params: Promise<{ eventId: string }> };
  * Recording a partner's stream, from the console (Nov 25, 2026;
  * docs/PARTNER_STREAM_RECORDING_PLAN.md step 3, §4.5). Reads the recording,
  * starts, stops or finishes it, and deletes it (step 4; the download is
- * ./download); the rules and the stream server calls are all
+ * ./download); and switches "record with the room" on or off (Nov 26, 2026:
+ * opening the room starts the recording, closing it stops it); the rules and the stream server calls are all
  * in src/services/stream-recording-service.ts. `webinar.manage`, the key the
  * Partner stream card asks (D7). Never returns the stream key or where the
  * files are.
@@ -48,6 +51,7 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start"), partnerAgreed: z.boolean().optional() }),
   z.object({ action: z.literal("stop") }),
   z.object({ action: z.literal("finish") }),
+  z.object({ action: z.literal("with-room"), on: z.boolean(), partnerAgreed: z.boolean().optional() }),
 ]);
 
 function rateLimited(eventId: string, userId: string): NextResponse | null {
@@ -90,7 +94,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       const recording = await getStreamRecording({ eventId, sessionId: found.sessionId });
       // `available` is whether a recording can be started here; one already made is shown either way,
       // so it can still be finished with the switch off.
-      return NextResponse.json({ available: streamRecordingAvailable(), recording });
+      return NextResponse.json({ available: streamRecordingAvailable(), recording, recordWithRoom: recordWithRoomView(found.settings) });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar-stream-recording:read-failed");
@@ -127,6 +131,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       const input = validated.data;
       if (input.action === "start") return answer(await startStreamRecording({ ...caller, partnerAgreed: input.partnerAgreed }));
       if (input.action === "stop") return answer(await stopStreamRecording(caller));
+      if (input.action === "with-room") {
+        const set = await setRecordWithRoom({ ...caller, on: input.on, partnerAgreed: input.partnerAgreed });
+        // The service has already logged a refusal.
+        if (!set.ok) return NextResponse.json({ error: set.message, code: set.code }, { status: STATUS[set.code] });
+        return NextResponse.json({ recordWithRoom: set.recordWithRoom });
+      }
       return answer(await finishStreamRecording({ ...caller, reason: "staff" }));
     });
   } catch (error) {

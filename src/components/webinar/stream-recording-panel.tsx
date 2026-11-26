@@ -10,6 +10,10 @@
  * Shown only on a server set up for recording, unless a recording already
  * exists (it can always be finished). Download and Delete come with the MP4
  * (step 4).
+ *
+ * "Record with the room" (Nov 26, 2026): with it on, opening the room starts
+ * or carries on the recording and closing it stops it, so staff need not
+ * press Start at the right moment (stream-recording-service.ts).
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -17,6 +21,7 @@ import { AlertTriangle, CircleDot, Download, Flag, Loader2, Pause, Play, Trash2 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -29,6 +34,7 @@ import {
 import {
   useDeleteWebinarStreamRecording,
   useDownloadWebinarStreamRecording,
+  useSetWebinarRecordWithRoom,
   useWebinarPartnerStream,
   useWebinarStreamRecording,
   useWebinarStreamRecordingAction,
@@ -106,6 +112,7 @@ export function StreamRecordingPanel({ eventId, placement }: { eventId: string; 
     return <p className="text-sm text-red-600">{errorText(state.error, "Could not load the recording.")}</p>;
   }
   const { available, recording } = state.data;
+  const withRoom = state.data.recordWithRoom ?? null;
   if (!recording && !available) {
     if (placement === "card") return null;
     return <p className="text-sm text-muted-foreground">Recording a partner&apos;s stream is not set up on this server yet.</p>;
@@ -125,18 +132,65 @@ export function StreamRecordingPanel({ eventId, placement }: { eventId: string; 
           eventId={eventId}
           recording={recording}
           available={available}
+          withRoom={withRoom !== null}
           partner={{ signal, lastConnectionAt: stream?.lastPublishAt ?? null }}
         />
       ) : (
-        <StartFirst eventId={eventId} keyIssued={stream !== null} receiving={signal === "receiving"} />
+        <StartFirst eventId={eventId} keyIssued={stream !== null} receiving={signal === "receiving"} withRoom={withRoom} />
       )}
     </section>
   );
 }
 
-function StartFirst({ eventId, keyIssued, receiving }: { eventId: string; keyIssued: boolean; receiving: boolean }) {
+/** What "record with the room" does, in one line. */
+const WITH_ROOM_TEXT =
+  "Opening the room starts the recording, or carries it on; closing it stops it. A room opened more than 30 minutes before the start is a rehearsal and is not recorded.";
+
+/** The "record with the room" switch. Turning it on confirms the partner's agreement, so it is offered only once that is given. */
+function WithRoomSwitch({ eventId, on, agreed }: { eventId: string; on: boolean; agreed: boolean }) {
+  const set = useSetWebinarRecordWithRoom(eventId);
+  const change = async (next: boolean) => {
+    try {
+      await set.mutateAsync({ on: next, partnerAgreed: next ? agreed : undefined });
+      toast.success(next ? "Recording will follow the room" : "Recording no longer follows the room");
+    } catch (err) {
+      toast.error(errorText(err, "The change did not go through"));
+    }
+  };
+  return (
+    <div className="flex items-start gap-3">
+      <Switch
+        id="stream-recording-with-room"
+        checked={on}
+        onCheckedChange={(v) => void change(v)}
+        disabled={set.isPending || (!on && !agreed)}
+        className="mt-0.5"
+      />
+      <div className="space-y-0.5">
+        <Label htmlFor="stream-recording-with-room" className="font-normal leading-snug">
+          Start and stop with the room
+        </Label>
+        <p className="text-xs text-muted-foreground">{WITH_ROOM_TEXT}</p>
+      </div>
+    </div>
+  );
+}
+
+function StartFirst({
+  eventId,
+  keyIssued,
+  receiving,
+  withRoom,
+}: {
+  eventId: string;
+  keyIssued: boolean;
+  receiving: boolean;
+  withRoom: { agreedAt: string } | null;
+}) {
   const action = useWebinarStreamRecordingAction(eventId);
-  const [agreed, setAgreed] = useState(false);
+  const [ticked, setTicked] = useState(false);
+  // Switching "record with the room" on confirmed the agreement already.
+  const agreed = ticked || withRoom !== null;
 
   const start = async () => {
     try {
@@ -153,17 +207,24 @@ function StartFirst({ eventId, keyIssued, receiving }: { eventId: string; keyIss
   return (
     <div className="space-y-3 text-sm">
       <p className="text-muted-foreground">
-        Not recorded. Start before the stream begins to record from the moment the partner connects.
+        {withRoom
+          ? "Not recorded yet. Recording starts when the room is opened."
+          : "Not recorded. Start before the stream begins to record from the moment the partner connects, or let the room start it."}
       </p>
-      <div className="flex items-start gap-2">
-        <Checkbox id="stream-recording-agreed" checked={agreed} onCheckedChange={(v) => setAgreed(v === true)} />
-        <Label htmlFor="stream-recording-agreed" className="font-normal leading-snug">
-          The partner has agreed to this recording
-        </Label>
-      </div>
-      <Button size="sm" onClick={() => void start()} disabled={!agreed || action.isPending}>
+      {withRoom ? (
+        <p className="text-xs text-muted-foreground">The partner&apos;s agreement was confirmed {agreedOn(withRoom.agreedAt)}.</p>
+      ) : (
+        <div className="flex items-start gap-2">
+          <Checkbox id="stream-recording-agreed" checked={ticked} onCheckedChange={(v) => setTicked(v === true)} />
+          <Label htmlFor="stream-recording-agreed" className="font-normal leading-snug">
+            The partner has agreed to this recording
+          </Label>
+        </div>
+      )}
+      <WithRoomSwitch eventId={eventId} on={withRoom !== null} agreed={agreed} />
+      <Button size="sm" variant={withRoom ? "outline" : "default"} onClick={() => void start()} disabled={!agreed || action.isPending}>
         {action.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CircleDot className="mr-2 h-4 w-4 text-red-500" />}
-        Start recording
+        {withRoom ? "Start recording now" : "Start recording"}
       </Button>
     </div>
   );
@@ -173,12 +234,15 @@ function RecordingNow({
   eventId,
   recording,
   available,
+  withRoom,
   partner,
 }: {
   eventId: string;
   recording: WebinarStreamRecordingView;
   /** Whether this server can record: with it off, a stopped recording can be finished but not started again. */
   available: boolean;
+  /** Whether the room starts and stops this recording. */
+  withRoom: boolean;
   partner: { signal: PartnerSignal; lastConnectionAt: string | null };
 }) {
   const action = useWebinarStreamRecordingAction(eventId);
@@ -244,6 +308,8 @@ function RecordingNow({
           Closing the room after the start stops the recording, and finishes it 10 minutes later unless the room is opened again.
         </p>
       )}
+      {/* The recording exists, so the partner's agreement is on record: the switch needs no tick here. */}
+      {open && (available || withRoom) && <WithRoomSwitch eventId={eventId} on={withRoom} agreed />}
       {(recording.status === "READY" || recording.status === "FAILED") && <ClosedRecording eventId={eventId} recording={recording} />}
       <AlertDialog open={confirmFinish} onOpenChange={setConfirmFinish}>
         <AlertDialogContent>
@@ -264,6 +330,11 @@ function RecordingNow({
       </AlertDialog>
     </div>
   );
+}
+
+function agreedOn(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "earlier" : `on ${d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
 }
 
 function keptUntil(iso: string | null): string | null {

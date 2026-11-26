@@ -110,6 +110,41 @@ export function finishesAfterRoomClosed(
   return now.getTime() - recording.stoppedAt.getTime() >= ROOM_CLOSED_FINISH_GRACE_MS;
 }
 
+/**
+ * Recording with the room (Nov 26, 2026; owner: "when the organiser goes live,
+ * that time recording"). With it on, opening the room starts the recording, or
+ * carries on a stopped one, and closing it stops it.
+ *
+ * A room opened earlier than this before the scheduled start is a rehearsal (a
+ * stream test the day before) and is not recorded: its pictures would
+ * otherwise begin the webinar's file. Thirty minutes covers a room opened
+ * early to let attendees in.
+ */
+export const RECORD_WITH_ROOM_EARLIEST_MS = 30 * 60 * 1000;
+
+export interface RecordWithRoom {
+  agreedAt: Date;
+  agreedByUserId: string | null;
+}
+
+/** The webinar's "record with the room" choice from its settings, or null when off (or unreadable). */
+export function readRecordWithRoom(settings: unknown): RecordWithRoom | null {
+  if (!settings || typeof settings !== "object") return null;
+  const webinar = (settings as Record<string, unknown>).webinar;
+  if (!webinar || typeof webinar !== "object") return null;
+  const raw = (webinar as Record<string, unknown>).recordWithRoom;
+  if (!raw || typeof raw !== "object") return null;
+  const { agreedAt, agreedByUserId } = raw as Record<string, unknown>;
+  const at = typeof agreedAt === "string" ? new Date(agreedAt) : null;
+  if (!at || Number.isNaN(at.getTime())) return null;
+  return { agreedAt: at, agreedByUserId: typeof agreedByUserId === "string" ? agreedByUserId : null };
+}
+
+/** Whether a room opened at `now` is too early before `startTime` to be recorded with the room. */
+export function roomOpenedTooEarlyToRecord(startTime: Date, now: Date): boolean {
+  return now.getTime() < startTime.getTime() - RECORD_WITH_ROOM_EARLIEST_MS;
+}
+
 /** How long a recording is kept (the owner, Nov 24, 2026: 12 months, changeable per recording). */
 export const RECORDING_RETENTION_MONTHS = 12;
 

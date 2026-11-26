@@ -3646,6 +3646,8 @@ export function useToggleWebinarRoom(eventId: string) {
         stream?: { ok: true; alreadyLive?: true } | { ok: false; error: string };
         /** A partner's webinar, on opening: whether their video is arriving, and if not, why. */
         partnerSignal?: "receiving" | "not-receiving" | "switched-off" | "unknown";
+        /** A partner's stream recorded with the room, on opening: whether the recording started (Nov 26, 2026). */
+        recording?: "started" | "too-early" | "not-started";
       }>(
         `/api/events/${eventId}/webinar/room`,
         { method: "POST", body: JSON.stringify({ open }), headers: { "Content-Type": "application/json" } },
@@ -3801,6 +3803,8 @@ export interface WebinarStreamRecordingState {
   /** Whether a recording can be started on this server. One already made is shown either way. */
   available: boolean;
   recording: WebinarStreamRecordingView | null;
+  /** "Record with the room" (Nov 26, 2026): when the partner's agreement for it was confirmed, or null when off. */
+  recordWithRoom: { agreedAt: string } | null;
 }
 
 export type WebinarStreamRecordingChange = {
@@ -3827,6 +3831,22 @@ export function useWebinarStreamRecordingAction(eventId: string) {
       fetchApi<WebinarStreamRecordingChange>(`/api/events/${eventId}/webinar/partner-stream/recording`, {
         method: "POST",
         body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+/** Switch "record with the room" on (the partner's agreement confirmed) or off. */
+export function useSetWebinarRecordWithRoom(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { on: boolean; partnerAgreed?: boolean }) =>
+      fetchApi<{ recordWithRoom: { agreedAt: string } | null }>(`/api/events/${eventId}/webinar/partner-stream/recording`, {
+        method: "POST",
+        body: JSON.stringify({ action: "with-room", ...body }),
         headers: { "Content-Type": "application/json" },
       }),
     onSuccess: () => {

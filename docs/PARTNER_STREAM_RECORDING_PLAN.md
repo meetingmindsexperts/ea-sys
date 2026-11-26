@@ -207,12 +207,23 @@ carries on through it.
 
 - Job `stream-recording-finish`: when every piece is in S3, the pieces are read from S3 in order,
   passed through `ffmpeg` as a copy (no re-encoding), and the MP4 is written back to S3 as it
-  comes out. Nothing is written to the box.
+  comes out. Nothing is written to the box. (Changed Nov 26, 2026: the MP4 is made on the worker's
+  disk first, see below.)
 - The cost is small because nothing is re-encoded: an estimate of about a minute of one CPU for a
   two hour webinar, measured in step 0. The box averaged 6% CPU over the week before this plan.
-- `ffmpeg` in the worker image only (D8), added at this step; step 2 did not need it (4.2). The MP4 is the "fragmented" kind, the only kind
-  that can be written without a disk. Browsers, VLC, QuickTime and Vimeo's upload are expected to
-  take it; step 0 checks each on a real file before anything depends on it.
+- `ffmpeg` in the worker image only (D8), added at this step; step 2 did not need it (4.2). The MP4 was first the "fragmented" kind, the
+  only kind that can be written without a disk.
+- **Changed after the rehearsal (Nov 26, 2026):** a fragmented MP4 written through a pipe states no
+  length (its movie header says 0), and QuickTime and the Mac's Finder showed a 12 minute recording
+  as 4 seconds, the first fragment; Chrome and VLC worked out the length and played all of it. The
+  MP4 is now a plain one with its index at the front (`-movflags +faststart`), which ffmpeg can only
+  write to a file it can go back into: it is made in a temporary folder on the worker's disk, sent
+  to S3 and removed (`recording-mp4.ts`). That costs about the recording's size on the disk while
+  it is made (about 1.2 GB an hour at 2.5 Mbps), so the join waits while the disk cannot hold it
+  beside the 6 GB the stream server's buffer keeps (`archiveDiskShortBy`, logged as
+  `stream-recording-archive:disk-short`; FAILED after 6 hours). A pause is closed up exactly as in
+  the fragmented kind (checked with ffmpeg that day). A folder a stopped worker left behind is
+  removed by the next join.
 - Staff download it from the console's Recording tab through a 5 minute signed link
   (`signStoredFileDownload`), every download audited.
 - **As built (step 4, Nov 25, 2026):** `src/services/stream-recording-archive.ts` waits until the
@@ -234,6 +245,20 @@ carries on through it.
 ### 4.5 The console
 
 In the **Partner stream** card and the **Recording** tab:
+
+- **Start and stop with the room (Nov 26, 2026, after the rehearsal; owner: "when the organiser
+  goes live, that time recording", and no attendee notice with it).** A switch beside the
+  agreement tick; turning it on needs the tick and stores who confirmed it and when in
+  `settings.webinar.recordWithRoom` (never cloned). Then opening the room starts the recording, or
+  carries on a stopped one (`startRecordingOnRoomOpen`, from the room route; the recording's
+  agreement is the stored one, its starter the person who opened the room), a close after the
+  start stops it as before, and a close before the start (a rehearsal) pauses it
+  (`stopRecordingOnRehearsalClose`; a recording started by hand is still left alone then). A room
+  opened more than 30 minutes before the start is a rehearsal and records nothing
+  (`RECORD_WITH_ROOM_EARLIEST_MS`); if it is left open, the minute sweep starts the recording once
+  the 30 minutes before the start are reached, up to 15 minutes after the start, and only while
+  the webinar has no recording at all, so it never carries on one staff stopped
+  (`startRecordingForEarlyRoom`). The partner's testing before the room opens is not recorded.
 
 - Before the webinar: the tick "The partner has agreed to this recording" (D5), and Start, which
   before the stream begins arms the recording: it records from the moment the partner connects.
