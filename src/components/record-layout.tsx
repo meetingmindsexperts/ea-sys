@@ -134,7 +134,9 @@ export function RecordCard({
     <section
       className={cn(
         "overflow-hidden rounded-xl border bg-card",
-        primary && "border-primary/30 bg-gradient-to-b from-primary/[0.04] to-card shadow-md shadow-primary/10",
+        // bg-linear-to-b, not bg-gradient-to-b: tailwind-merge reads the latter as a
+        // background colour and drops bg-card, so the tint was drawn over the page.
+        primary && "border-primary/30 bg-linear-to-b from-primary/[0.04] to-card shadow-md shadow-primary/10",
         className,
       )}
     >

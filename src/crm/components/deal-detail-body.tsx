@@ -443,7 +443,7 @@ export function DealDetailBody({
           icon={Users}
           title="People"
           tone="primary"
-          action={<Badge className="bg-primary/15 text-primary tabular-nums hover:bg-primary/15">{contactCount}</Badge>}
+          action={<Badge className={cn("tabular-nums", ON_TINT_TEXT, "bg-primary/15")}>{contactCount}</Badge>}
         >
           <DealContacts deal={deal} canWrite={canWrite} />
         </RecordCard>
@@ -484,6 +484,19 @@ export function DealDetailBody({
  * "People" card). The picker is over CRM contacts (reps, procurement, marketing), NOT the
  * event HCP store: putting a doctor here would be a category error.
  */
+/**
+ * Text on a primary tint. The primary colour itself is about 2:1 against its own
+ * tint, under the 4.5:1 that small text needs (review of 598af1505); sky-700 is the
+ * shade the CRM's OPEN status already uses on a sky tint.
+ */
+const ON_TINT_TEXT = "text-sky-700 dark:text-sky-300";
+
+/** Two letters for the person's token: trimmed, and whole characters, so an emoji or accent is never split. */
+function personInitials(firstName: string, lastName: string): string {
+  const first = (name: string) => Array.from(name.trim())[0] ?? "";
+  return `${first(firstName)}${first(lastName)}`.toUpperCase() || "?";
+}
+
 function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolean }) {
   const [addOpen, setAddOpen] = useState(false);
   const remove = useRemoveDealContact(deal.id);
@@ -506,9 +519,9 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
             >
               <span
                 aria-hidden="true"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary"
+                className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold", ON_TINT_TEXT)}
               >
-                {`${crmContact.firstName.charAt(0)}${crmContact.lastName.charAt(0)}`.toUpperCase() || "?"}
+                {personInitials(crmContact.firstName, crmContact.lastName)}
               </span>
               <div className="min-w-0 flex-1">
                 <Link
@@ -525,7 +538,7 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
               <div className="flex shrink-0 items-center gap-2">
                 <Badge
                   variant="outline"
-                  className={cn("text-[10px]", r === "PRIMARY" && "border-primary/40 bg-primary/10 text-primary")}
+                  className={cn("text-[10px]", r === "PRIMARY" && cn("border-primary/40 bg-primary/10", ON_TINT_TEXT))}
                 >
                   {DEAL_CONTACT_ROLE_LABELS[r]}
                 </Badge>
