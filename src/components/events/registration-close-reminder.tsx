@@ -1,12 +1,32 @@
 /**
  * The event Overview's reminder to close registration (owner, Nov 26, 2026: "add a reminder for the
  * organiser to close registration or set up a closing date and time"). Which one, if any, is
- * `registrationCloseReminder` in registration-closure.ts; this only words it. Shown to staff who
- * may edit the event, since the fix is in Settings. A webinar never gets one: it closes itself.
+ * `registrationCloseReminder` in registration-closure.ts; this words it and decides who sees it
+ * (closeReminderFor: whoever may change the event's settings, since the fix is there). A webinar never gets one: it closes itself.
  */
 import Link from "next/link";
 import { AlertTriangle, CalendarClock } from "lucide-react";
-import type { RegistrationCloseReminder } from "@/lib/registration-closure";
+import { can, type Principal } from "@/lib/permissions/can";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
+import {
+  registrationCloseReminder,
+  type ClosureEvent,
+  type RegistrationCloseReminder,
+} from "@/lib/registration-closure";
+
+/**
+ * The reminder this person should see, or null. Only someone who can make the fix: changing the
+ * switch or the date is an `events.settings` change (field-permissions.ts), not `events.update`
+ * (review of bd05639aa). `staffUserIds` lets a grant scoped to assigned events count.
+ */
+export function closeReminderFor(
+  principal: Principal,
+  event: ClosureEvent & { status: string; organizationId: string; staffUserIds: readonly string[] },
+  now: Date = new Date(),
+): RegistrationCloseReminder | null {
+  if (!can(principal, "events.settings", { event: eventFactsOf(event) })) return null;
+  return registrationCloseReminder(event, now);
+}
 
 export function RegistrationCloseReminderNotice({
   reminder,
@@ -32,7 +52,7 @@ export function RegistrationCloseReminderNotice({
           <>
             <strong>This event has ended, and public registration is still open.</strong>{" "}
             Switch Registration Open
-            off, or set a close date, so nobody registers for an event that is over.
+            off, or set the close date to a time already passed, so nobody registers for an event that is over.
           </>
         ) : (
           <>

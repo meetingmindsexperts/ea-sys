@@ -30,8 +30,7 @@ import { EventActions } from "./event-actions";
 import { ActivityFeed } from "@/components/activity-feed";
 import { formatDateRange } from "@/lib/utils";
 import { webinarVideoSource } from "@/lib/webinar/video-source";
-import { registrationCloseReminder } from "@/lib/registration-closure";
-import { RegistrationCloseReminderNotice } from "@/components/events/registration-close-reminder";
+import { closeReminderFor, RegistrationCloseReminderNotice } from "@/components/events/registration-close-reminder";
 
 const statusConfig: Record<string, { label: string; cls: string }> = {
   DRAFT:     { label: "Draft",     cls: "bg-white/15 text-white border-white/25" },
@@ -81,6 +80,8 @@ export default async function EventPage({ params }: EventPageProps) {
         // The Clone dialog starts a webinar's copy on its video source.
         eventType: true,
         settings: true,
+        // Assigned staff: the event facts a grant scoped to assigned events is checked against.
+        staffAssignments: { select: { userId: true } },
         _count: {
           select: {
             // Delegate count — exclude faculty companion registrations so the
@@ -196,13 +197,12 @@ export default async function EventPage({ params }: EventPageProps) {
   }
 
   // Close registration, or set a close date (registration-closure.ts): for staff who can fix it in Settings.
-  const closeReminder =
-    !isRestricted &&
-    can(principalFromSession(session), "events.update", {
-      event: { organizationId: event.organizationId, eventType: event.eventType ?? "" },
-    })
-      ? registrationCloseReminder(event)
-      : null;
+  const closeReminder = isRestricted
+    ? null
+    : closeReminderFor(principalFromSession(session), {
+        ...event,
+        staffUserIds: event.staffAssignments.map((a) => a.userId),
+      });
 
   const sc = statusConfig[event.status] ?? statusConfig.DRAFT;
   const location = [event.venue, event.city, event.country].filter(Boolean).join(", ");

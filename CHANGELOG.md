@@ -15,6 +15,17 @@ Owner: "add a reminder somewhere for the organiser to close registration or set 
   Both link to Settings, Registration (`?tab=registration` now opens the Settings page on that tab). Webinars get no
   note: they close themselves. The rule is `registrationCloseReminder` in `src/lib/registration-closure.ts`.
 - The **Readiness** checklist has a line for the close date, and the user guide describes the note.
+- **Review of bd05639aa** (0 BLOCKER, 0 HIGH, 1 MED, 4 LOW):
+  - MED, fixed: the note is for whoever may change the event's SETTINGS (`events.settings`, where the switch and the
+    date live), not `events.update`; a custom role with only "Edit events" saw a note it could not act on, and one
+    with only "Event settings" never saw it (`closeReminderFor` in `registration-close-reminder.tsx`, tested with
+    custom-role principals).
+  - LOW, fixed: the check passes the event's assigned staff, so a grant scoped to assigned events counts.
+  - LOW, fixed: the ended warning says "set the close date to a time already passed", which also fits someone whose
+    date is after the end.
+  - LOW, fixed: `?tab=abstracts` is no longer linkable (a webinar has no Abstracts tab); only tabs every event has.
+  - LOW, left: the note does not look at the rates, so an event with nothing on sale (every window passed, or only
+    sponsor-code rates) still says it has no closing date. Setting a date, or switching registration off, clears it.
 
 ### Registration closes itself after a webinar, and on a date the organiser sets (November 26, 2026)
 

@@ -271,8 +271,11 @@ import {
   type NotificationSettingKey,
 } from "@/lib/notification-settings";
 
-/** Tabs a link may open the page on (`?tab=registration`, from the Overview's reminder). */
-const LINKABLE_TABS = ["general", "registration", "abstracts", "branding", "email-branding", "email-templates"];
+/**
+ * Tabs a link may open the page on (`?tab=registration`, from the Overview's reminder). Only tabs
+ * every event has: Abstracts and Zoom depend on the event type (review of bd05639aa).
+ */
+const LINKABLE_TABS = ["general", "registration", "branding", "email-branding", "email-templates"];
 
 export default function EventSettingsPage() {
   const params = useParams();
