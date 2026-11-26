@@ -98,9 +98,11 @@ export function RecordHeader({
  *  Stacks work-area-first on mobile — the header stats already give the context. */
 export function RecordGrid({ sidebar, children }: { sidebar: ReactNode; children: ReactNode }) {
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-3">
-      <div className="space-y-5 lg:col-span-2">{children}</div>
-      <aside className="space-y-5 lg:sticky lg:top-6">{sidebar}</aside>
+    // grid-cols-1 + min-w-0: on a phone the one column is the screen's width. Without
+    // them the implicit column grew to its widest card and the page scrolled sideways.
+    <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
+      <div className="min-w-0 space-y-5 lg:col-span-2">{children}</div>
+      <aside className="min-w-0 space-y-5 lg:sticky lg:top-6">{sidebar}</aside>
     </div>
   );
 }
@@ -116,6 +118,7 @@ export function RecordCard({
   children,
   className,
   bodyClassName,
+  tone = "default",
 }: {
   icon?: LucideIcon;
   title?: ReactNode;
@@ -123,12 +126,26 @@ export function RecordCard({
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
+  /** "primary" lifts the one card a page wants read first: tinted header, coloured icon, deeper shadow. */
+  tone?: "default" | "primary";
 }) {
+  const primary = tone === "primary";
   return (
-    <section className={cn("overflow-hidden rounded-xl border bg-card", className)}>
+    <section
+      className={cn(
+        "overflow-hidden rounded-xl border bg-card",
+        primary && "border-primary/30 bg-gradient-to-b from-primary/[0.04] to-card shadow-md shadow-primary/10",
+        className,
+      )}
+    >
       {title && (
-        <header className="flex items-center gap-2 border-b bg-muted/30 px-4 py-2.5">
-          {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
+        <header
+          className={cn(
+            "flex items-center gap-2 border-b bg-muted/30 px-4 py-2.5",
+            primary && "border-primary/20 bg-primary/10",
+          )}
+        >
+          {Icon && <Icon className={cn("h-4 w-4", primary ? "text-primary" : "text-muted-foreground")} />}
           <h2 className="text-sm font-semibold">{title}</h2>
           {action && <div className="ml-auto flex items-center gap-1">{action}</div>}
         </header>

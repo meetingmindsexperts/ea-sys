@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### CRM: a shorter header, and People first on a deal (November 26, 2026)
+
+Owner: "make it compact and use less space at the top", and on the deal page "swap activity and people, give some color to people card, some depth".
+
+- The CRM header puts the title and its line on one row and the tabs close under it: about 74 px from title to tab line, where it was about 130. On a phone the line is hidden (`crm-shell.tsx`).
+- On a deal, People is the first card in the main column, above Activity. It uses a new `tone="primary"` on `RecordCard` (tinted header, coloured icon, deeper shadow), and each person has an initials token and a tinted Primary badge (`deal-detail-body.tsx`, `record-layout.tsx`).
+- Found while checking it: on a phone, every page built on `RecordGrid` (deal, account, contact, project, HR employee) scrolled sideways, because the single column grew to its widest card. It is now `grid-cols-1` with `min-w-0` on both columns.
+
 ### A reminder to close registration, on the event Overview (November 26, 2026)
 
 Owner: "add a reminder somewhere for the organiser to close registration or set up a closing date and time".

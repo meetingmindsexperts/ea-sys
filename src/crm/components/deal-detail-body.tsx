@@ -436,19 +436,20 @@ export function DealDetailBody({
           </>
         }
       >
-        {/* ── Activity — the primary work area, first (money-gated; null for MEMBER) ── */}
-        <CrmNotesCard attach={{ dealId: deal.id }} canWrite={canWrite} />
-
-        {/* ── People (main column since Nov 25, 2026, owner: who we are talking to
-            comes before the paperwork; it swapped places with Follow-up) ───────── */}
+        {/* ── People, first (owner, Nov 26, 2026: who we are talking to comes before
+            what was said; in the main column since Nov 25, when it swapped places
+            with Follow-up) ─────────────────────────────────────────────────────── */}
         <RecordCard
           icon={Users}
           title="People"
-          className="border-primary/40 shadow-sm"
-          action={<Badge variant="secondary" className="tabular-nums">{contactCount}</Badge>}
+          tone="primary"
+          action={<Badge className="bg-primary/15 text-primary tabular-nums hover:bg-primary/15">{contactCount}</Badge>}
         >
           <DealContacts deal={deal} canWrite={canWrite} />
         </RecordCard>
+
+        {/* ── Activity (money-gated; null for MEMBER) ──────────────────────── */}
+        <CrmNotesCard attach={{ dealId: deal.id }} canWrite={canWrite} />
 
         {/* ── Products (line items) ──────────────────────────────────────── */}
         <RecordCard icon={Package} title="Products">
@@ -499,8 +500,17 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
       ) : (
         <ul className="grid gap-2 xl:grid-cols-2">
           {onDeal.map(({ crmContact, role: r }) => (
-            <li key={crmContact.id} className="flex min-w-0 items-center justify-between gap-2 rounded-md border p-3">
-              <div className="min-w-0">
+            <li
+              key={crmContact.id}
+              className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-primary/15 bg-card p-3 shadow-sm transition-[border-color,box-shadow] hover:border-primary/40 hover:shadow"
+            >
+              <span
+                aria-hidden="true"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary"
+              >
+                {`${crmContact.firstName.charAt(0)}${crmContact.lastName.charAt(0)}`.toUpperCase() || "?"}
+              </span>
+              <div className="min-w-0 flex-1">
                 <Link
                   href={`/crm/contacts/${crmContact.id}`}
                   className="block truncate text-sm font-semibold hover:underline"
@@ -513,7 +523,10 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <Badge variant="outline" className="text-[10px]">
+                <Badge
+                  variant="outline"
+                  className={cn("text-[10px]", r === "PRIMARY" && "border-primary/40 bg-primary/10 text-primary")}
+                >
                   {DEAL_CONTACT_ROLE_LABELS[r]}
                 </Badge>
                 {canWrite && (
