@@ -953,10 +953,11 @@ export default function InfraPage() {
 
           {/* The two logs side by side (owner, Nov 25, 2026): what went wrong in the system, and
               which emails did not go. Both lists scroll inside the same height, so the pair stays level
-              however many rows either has. One column on a narrow screen. */}
-          <div className="grid gap-4 lg:grid-cols-2">
+              however many rows either has. One column on a narrow screen. The logs take 60 per cent
+              and the emails 40 (owner, Nov 26, 2026): a log line is long JSON, an email row is short. */}
+          <div className="grid gap-4 lg:grid-cols-5">
           {/* Recent errors */}
-          <Card id="errors" className="scroll-mt-4 min-w-0">
+          <Card id="errors" className="scroll-mt-4 min-w-0 lg:col-span-3">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <ScrollText className="h-4 w-4 text-primary" /> Recent errors &amp; warnings
@@ -989,7 +990,7 @@ export default function InfraPage() {
           </Card>
 
           {/* Email failures */}
-          <Card id="email-failures" className="scroll-mt-4 min-w-0">
+          <Card id="email-failures" className="scroll-mt-4 min-w-0 lg:col-span-2">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><MailWarning className="h-4 w-4 text-primary" /> Email failures <span className="text-xs font-normal text-muted-foreground">(last 7 days)</span></CardTitle></CardHeader>
             <CardContent>
               <StatusNote status={snap.emailFailures.status} error={snap.emailFailures.error} unconfiguredHint="No email log." />
