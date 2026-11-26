@@ -3,6 +3,7 @@ import { capturePartnerStreamsBeforeDelete } from "@/services/external-stream-se
 import { can } from "@/lib/permissions/can";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { REGISTRATION_CLOSES_AT_SETTING, registrationClosesAtSchema } from "@/lib/registration-closure";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { HELD_SEAT_WHERE } from "@/lib/registration-seat-db";
@@ -399,6 +400,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "Invalid support phone or office hours", details: contact.error.flatten().fieldErrors }, { status: 400 });
       }
       settings[SUPPORT_CONTACT_SETTING] = storedSupportContact(contact.data);
+    }
+
+    // "Close registration on" (registration-closure.ts) must be a full ISO instant or empty: a value the
+    // rule cannot read would be ignored, and registration would quietly stay open (review of e83813666).
+    if (settings && REGISTRATION_CLOSES_AT_SETTING in settings) {
+      const closesAt = registrationClosesAtSchema.safeParse(settings[REGISTRATION_CLOSES_AT_SETTING]);
+      if (!closesAt.success) {
+        apiLogger.warn({ msg: "events/[eventId]:PUT invalid-registration-closes-at", eventId, userId: session.user.id, issues: closesAt.error.flatten().formErrors });
+        return NextResponse.json({ error: "Invalid registration close date: send an ISO date and time, or null" }, { status: 400 });
+      }
     }
 
     // A changed slug is cleaned to letters, digits and hyphens (event-slug.ts; Nov 16, 2026: a pasted

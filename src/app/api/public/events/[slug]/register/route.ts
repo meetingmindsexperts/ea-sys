@@ -31,7 +31,7 @@ import type { SeatCounter } from "@/lib/registration-seat";
 import { claimSpareDtcmCode } from "@/lib/dtcm-pool";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { completedAtOnCreate } from "@/lib/registration-completion";
-import { registrationClosedMessage } from "@/lib/registration-closure";
+import { closesTheDesk, registrationClosedMessage } from "@/lib/registration-closure";
 import { loadRegistrationClosedReason } from "@/lib/registration-closure-server";
 import { resolveSupportingDocument, supportingDocumentLabel } from "@/lib/supporting-document";
 import {
@@ -347,9 +347,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(event.organizationId, async () => {
     // Closed (registration-closure.ts: the switch, the close date, a webinar that is over).
     // Enforced server-side so a closed event can't be registered via a direct POST,
-    // regardless of UI or which individual tiers are active.
+    // regardless of UI or which individual tiers are active. A valid desk QR passes the
+    // close date only (closesTheDesk): walk-ins still register at the venue.
     const closedReason = await loadRegistrationClosedReason(event);
-    if (closedReason) {
+    if (closedReason && desk && !closesTheDesk(closedReason)) {
+      apiLogger.info({ msg: "public/register:desk-qr-past-close-date", eventId: event.id, deskQr: desk.jti });
+    } else if (closedReason) {
       apiLogger.warn({ msg: "public/register:registration-closed", slug, eventId: event.id, reason: closedReason });
       return NextResponse.json(
         { error: registrationClosedMessage(closedReason), code: "REGISTRATION_CLOSED", reason: closedReason },

@@ -8,7 +8,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
-import { settingsClosedReason } from "@/lib/registration-closure";
+import { closesTheDesk, settingsClosedReason } from "@/lib/registration-closure";
 import { renderQrPng } from "@/lib/barcode";
 import { isExhibitorBadge } from "@/lib/badge-layout";
 import { isPresenterTierName } from "@/lib/presenter-tiers";
@@ -120,12 +120,13 @@ function complimentaryRate(types: TypeRow[]): TierRow | null {
 }
 
 /**
- * Closed by the organiser (registration-closure.ts: the switch or the close date); the public
- * register route refuses everything then. Only the settings half: a webinar has no desk, so the
- * webinar-over part of the rule never applies here.
+ * Closed to the desk too (registration-closure.ts, closesTheDesk): the switch. The close date
+ * closes online sign-up only, so the walk-in QR still works after it. Only the settings half: a
+ * webinar has no desk, so the webinar-over part of the rule never applies here.
  */
 function registrationClosed(settings: unknown): boolean {
-  return settingsClosedReason(settings) !== null;
+  const reason = settingsClosedReason(settings);
+  return reason !== null && closesTheDesk(reason);
 }
 
 /**
@@ -315,7 +316,7 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
       if (registrationClosed(event.settings)) {
         apiLogger.warn({ msg: "desk-qr:registration-closed", eventId, userId });
         return NextResponse.json(
-          { error: "Registration is closed for this event (Settings → Registration: switched off, or past its close date).", code: "REGISTRATION_CLOSED" },
+          { error: "Registration is switched off for this event (Settings → Registration).", code: "REGISTRATION_CLOSED" },
           { status: 400 },
         );
       }

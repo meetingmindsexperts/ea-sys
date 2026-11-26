@@ -157,6 +157,28 @@ beforeEach(() => {
   on(PHYSICIAN, COMP);
 });
 
+describe("the organiser's close date (registration-closure.ts)", () => {
+  it("a desk QR still registers a walk-in after it (owner, Nov 26, 2026); the switch still refuses", async () => {
+    const event = await mockDb.event.findFirst();
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...event, settings: { ...event.settings, registrationClosesAt: "2026-01-01T00:00:00.000Z" } });
+    expect((await post({ deskToken: compToken() })).status).toBe(201);
+    expect(mockApiLogger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "public/register:desk-qr-past-close-date" }));
+
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...event, settings: { ...event.settings, registrationOpen: false } });
+    const off = await post({ deskToken: compToken() });
+    expect(off.status).toBe(403);
+    expect(off.json).toMatchObject({ code: "REGISTRATION_CLOSED", reason: "switched-off" });
+  });
+
+  it("without a desk QR, the close date refuses", async () => {
+    const event = await mockDb.event.findFirst();
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...event, settings: { ...event.settings, registrationClosesAt: "2026-01-01T00:00:00.000Z" } });
+    const r = await post();
+    expect(r.status).toBe(403);
+    expect(r.json).toMatchObject({ code: "REGISTRATION_CLOSED", reason: "closing-date-passed" });
+  });
+});
+
 describe("a valid complimentary desk QR", () => {
   it("registers with no password, makes the account without one, and emails how to set it", async () => {
     const r = await post({ deskToken: compToken() });

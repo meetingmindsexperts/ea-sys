@@ -59,7 +59,7 @@ import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { isExhibitorBadge } from "@/lib/badge-layout";
 import { deskQrReopensClosedRate, deskQrTakesCode, readDeskQrClaims } from "@/lib/desk-qr-rules";
 import { promoStopMessages, resolveSubmitPromo, type PromoCheckOutcome } from "@/lib/promo-entry";
-import type { RegistrationClosedReason } from "@/lib/registration-closure";
+import { closesTheDesk, type RegistrationClosedReason } from "@/lib/registration-closure";
 
 function toSlug(name: string): string {
   return name
@@ -1059,7 +1059,11 @@ function CategoryRegistrationContent() {
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
   // Closed when the master switch is off (Settings → Registration) OR this tier
   // has no purchasable option. The master switch wins regardless of tier state.
-  const isClosed = event.registrationOpen === false || purchasableOptions.length === 0;
+  // A desk QR passes the close date (closesTheDesk): walk-ins register at the venue after online sign-up closes.
+  const closedHere =
+    event.registrationOpen === false &&
+    !(deskQr && event.registrationClosedReason && !closesTheDesk(event.registrationClosedReason));
+  const isClosed = closedHere || purchasableOptions.length === 0;
   const webinarOver = event.registrationClosedReason === "webinar-over";
   // Event-wide cap reached. Virtual attendance never consumes the cap, so a
   // HYBRID event stays open (with an in-person-full notice) — the register

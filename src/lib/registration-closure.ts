@@ -18,12 +18,16 @@
  * lists the files that may). The server side, which loads the webinar's session, is
  * `registration-closure-server.ts`. Pure and client-safe.
  */
+import { z } from "zod";
 import { webinarRoomEnded } from "@/lib/webinar-page-layout";
 
 export type RegistrationClosedReason = "switched-off" | "closing-date-passed" | "webinar-over";
 
 /** The settings key the close date is stored under. Not copied by a clone (event-clone-settings.ts). */
 export const REGISTRATION_CLOSES_AT_SETTING = "registrationClosesAt";
+
+/** What the event save accepts for the close date: a full ISO instant with its offset, or empty. */
+export const registrationClosesAtSchema = z.union([z.string().datetime({ offset: true }), z.null(), z.literal("")]);
 
 /** The anchor session's clock, as the room rule reads it. */
 export interface AnchorSessionClock {
@@ -83,6 +87,16 @@ export function registrationClosedReason(
   now: Date = new Date(),
 ): RegistrationClosedReason | null {
   return settingsClosedReason(event.settings, now) ?? (webinarRegistrationOver(event, anchor, now) ? "webinar-over" : null);
+}
+
+/**
+ * Whether this reason also closes the onsite desk's walk-in QR. The close date closes online
+ * sign-up only (owner, Nov 26, 2026: "online registration closes Dec 1, the event is Dec 5", and
+ * walk-ins still register at the venue by the desk QR, as it already does for a rate whose sales
+ * window has ended). The switch closes everything; a webinar has no desk.
+ */
+export function closesTheDesk(reason: RegistrationClosedReason): boolean {
+  return reason !== "closing-date-passed";
 }
 
 /** What a door answers when it refuses. */

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  closesTheDesk,
   readRegistrationClosesAt,
+  registrationClosesAtSchema,
   registrationClosedMessage,
   registrationClosedReason,
   settingsClosedReason,
@@ -86,5 +88,25 @@ describe("registrationClosedMessage", () => {
     expect(registrationClosedMessage("webinar-over")).toMatch(/webinar has ended/);
     expect(registrationClosedMessage("switched-off")).toBe("Registration is closed for this event.");
     expect(registrationClosedMessage("closing-date-passed")).toBe("Registration is closed for this event.");
+  });
+});
+
+describe("closesTheDesk", () => {
+  it("lets the desk QR past the close date only (owner, Nov 26, 2026)", () => {
+    expect(closesTheDesk("closing-date-passed")).toBe(false);
+    expect(closesTheDesk("switched-off")).toBe(true);
+    expect(closesTheDesk("webinar-over")).toBe(true);
+  });
+});
+
+describe("registrationClosesAtSchema", () => {
+  it("takes a full instant or empty, and refuses what the rule could not read", () => {
+    expect(registrationClosesAtSchema.safeParse("2026-12-01T05:00:00.000Z").success).toBe(true);
+    expect(registrationClosesAtSchema.safeParse("2026-12-01T09:00:00+04:00").success).toBe(true);
+    expect(registrationClosesAtSchema.safeParse(null).success).toBe(true);
+    expect(registrationClosesAtSchema.safeParse("").success).toBe(true);
+    for (const bad of ["1 Dec", "2026-12-01", 1764565200000, true]) {
+      expect(registrationClosesAtSchema.safeParse(bad).success).toBe(false);
+    }
   });
 });

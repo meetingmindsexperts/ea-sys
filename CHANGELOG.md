@@ -27,6 +27,17 @@ nothing closed registration at the end, and the rates' own end dates have no fie
 - The register pages say **"This webinar has ended"** when that is why. Staff signed in to `/e/{slug}/register` see,
   above the form links, that public registration is closed and why (before, nothing said so even with the switch off).
   Staff adding a registration from the dashboard are not affected.
+- **Review of e83813666** (0 BLOCKER, 0 HIGH, 1 MED, 4 LOW):
+  - MED, fixed (owner: the desk QR keeps working): the close date closes online sign-up only. A valid desk QR still
+    registers walk-ins after it (`closesTheDesk`; the register route logs `public/register:desk-qr-past-close-date`),
+    and the desk can still issue one. The switch still closes everything.
+  - LOW, fixed: a test lists every public door that creates a registration and fails if one does not ask the rule;
+    the reader pattern also catches `settings["registrationOpen"]` and destructuring.
+  - LOW, fixed: the event save refuses a close date that is not a full ISO instant or empty (400, logged
+    `events/[eventId]:PUT invalid-registration-closes-at`), instead of storing a value the rule would ignore.
+  - LOW, noted in WEBINAR_TROUBLESHOOTING: a room left open after the end keeps registration open until it closes.
+  - LOW, left: changing the timezone and the close date in the same save converts the date with the timezone the
+    page loaded with. The abstract, proposal and travel-grant deadlines behave the same; re-save after a timezone change.
 
 ### CRM: an email on a conversation with no deal now tells someone (November 25, 2026)
 

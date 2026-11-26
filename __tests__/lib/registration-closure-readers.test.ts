@@ -12,7 +12,16 @@ const ROOT = join(__dirname, "..", "..");
 const SRC = join(ROOT, "src");
 
 /** `settings.registrationOpen`, `eventSettings?.registrationOpen`, `(x as Y).registrationOpen`. */
-const READS_THE_SWITCH = /(settings\w*|\))\??\.registrationOpen\b/i;
+const READS_THE_SWITCH = /(settings\w*|\))\??\.registrationOpen\b|\[["']registrationOpen["']\]|\{[^}]*\bregistrationOpen\b[^}]*\}\s*=\s*\w*settings/i;
+
+/** A public file that creates a registration, directly or through a service. */
+const CREATES_A_REGISTRATION = /registration\.create\(|createGroupRegistration\(|ensureSubmitterRegistration\(|createRegistration\(/;
+
+/**
+ * How each public door asks the rule. presenter-signup.ts asks it inside resolvePresenterRateSelection
+ * (settingsClosedReason): with registration closed an author is linked, never given a registration.
+ */
+const ASKS_THE_RULE = /from "@\/lib\/(registration-closure|registration-closure-server|presenter-signup)"/;
 
 const ALLOWED: Record<string, string> = {
   "src/lib/registration-closure.ts": "the rule itself",
@@ -47,6 +56,21 @@ describe("who reads the registration switch", () => {
     ]) {
       expect(READS_THE_SWITCH.test(line)).toBe(true);
     }
+    expect(READS_THE_SWITCH.test('if (settings["registrationOpen"] === false) {')).toBe(true);
+    expect(READS_THE_SWITCH.test("const { registrationOpen } = eventSettings;")).toBe(true);
     expect(READS_THE_SWITCH.test("registrationOpen: event.registrationOpen !== false,")).toBe(false);
+  });
+});
+
+describe("every public door that creates a registration asks the rule", () => {
+  it("each file under the public API that creates one imports the rule (or presenter-signup, which asks it)", () => {
+    const publicDirs = [join(SRC, "app", "api", "public"), join(SRC, "app", "e")];
+    const doors = publicDirs.flatMap(sourceFiles).filter((path) => CREATES_A_REGISTRATION.test(readFileSync(path, "utf8")));
+    // The four known doors: a new one must show up here, so a vanished match is noticed too.
+    expect(doors.length).toBeGreaterThanOrEqual(4);
+    const missing = doors
+      .filter((path) => !ASKS_THE_RULE.test(readFileSync(path, "utf8")))
+      .map((path) => relative(ROOT, path).split("\\").join("/"));
+    expect(missing).toEqual([]);
   });
 });

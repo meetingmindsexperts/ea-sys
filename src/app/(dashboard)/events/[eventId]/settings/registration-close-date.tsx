@@ -2,7 +2,7 @@
 
 /**
  * Settings, Registration: "Close registration on" (owner, Nov 26, 2026). After this time the public
- * forms are closed exactly as if "Registration Open" were off (registration-closure.ts). Edited as a
+ * forms are closed (registration-closure.ts), except by the desk's walk-in QR (closesTheDesk). Edited as a
  * wall-clock time in the event's timezone and stored as an instant, like the abstract deadline.
  */
 import { useState } from "react";
@@ -44,8 +44,9 @@ export function RegistrationCloseDate({
         ) : null}
       </div>
       <p className="text-sm text-muted-foreground">
-        Event time ({tzLabel(new Date(), timezone)}). From this time the registration forms are closed, as if
-        Registration Open were off. Leave it empty to keep registration open until you switch it off.
+        Event time ({tzLabel(new Date(), timezone)}). From this time online registration is closed. The desk&apos;s
+        walk-in QR still works, so walk-ins can register at the venue; switch Registration Open off to close that
+        too. Leave it empty to keep registration open until you switch it off.
         {webinar ? " A webinar's registration also closes on its own once the webinar is over." : ""}
       </p>
       {passed ? (

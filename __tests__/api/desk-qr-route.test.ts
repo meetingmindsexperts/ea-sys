@@ -247,6 +247,11 @@ describe("POST a QR", () => {
     expect(mockQr).not.toHaveBeenCalled();
   });
 
+  it("keeps the walk-in QR after the organiser's close date: that date closes online sign-up only", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, settings: { ...EVENT.settings, registrationClosesAt: "2026-01-01T00:00:00.000Z" } });
+    expect(await (await get()).json()).toMatchObject({ registrationClosed: false });
+  });
+
   it("refuses a webinar and a bad body", async () => {
     mockDb.event.findFirst.mockResolvedValueOnce({ ...EVENT, eventType: "WEBINAR" });
     expect((await post({ kind: "complimentary" })).status).toBe(400);
