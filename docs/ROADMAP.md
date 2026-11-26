@@ -107,6 +107,41 @@ rows until someone groups them), and beside them `specialty`, `country` and `job
 files read them from there, with their words in `post-event-report-text.ts`; faculty stay out, as for every other
 figure in the report.
 
+## Registration that closes itself: after a webinar, and on a date the organiser sets (recorded Nov 26, 2026): not started
+
+**What happened:** MENA HemeConnect Wave 1 closed its room at 8:19 pm Dubai on Nov 25, 2026, and six people
+registered after it (five that evening, one the next morning). The form stayed open because nothing closes
+registration at the end of an event. Each got the ordinary webinar confirmation ("Save this email: it contains your
+join link", the date that had passed, "We'll send you reminders 24 hours and 1 hour before") with a Join button into
+a room that had closed. Only the one who registered before the thank-you went out at 8:25 pm got it. The recording
+was ready in Zoom, but "Show the recording to attendees" was off, so there was nothing for them to watch.
+
+**Asked by the owner, Nov 26, 2026:** two things.
+
+1. **The form closes itself once a webinar is over.** Once the anchor session is over (COMPLETED, or the room has
+   closed), the public form stops taking registrations. If the organiser has switched the recording on (`replay.ts`
+   offers one), the form could instead read "Register to watch the recording", and the confirmation email then links
+   to the replay and drops the join link and the reminder line. To decide (owner): close outright, or offer the
+   recording when there is one. A conference is not covered by this item; item 2 is how it closes.
+2. **A close date in Settings, beside the switch.** Settings, Registration, "Registration Open" gets an optional
+   "Close registration on" date and time (the event's timezone); after it, the form is closed exactly as if the switch
+   were off. Switching it on again, or clearing the date, reopens it.
+
+**What exists today:** the switch (`Event.settings.registrationOpen`; off closes the form). `TicketType` and
+`PricingTier` already have `salesStart` / `salesEnd` columns and the tickets API takes them, and the register route
+refuses a rate past its `salesEnd` ("Registration sales have ended"), but the Tickets page has no field for them, so
+no organiser can set one (all null on that event). Showing those fields is a separate, per-rate choice; this item is
+the whole-form close.
+
+**The build's real cost: there is no one rule.** About 20 files read `settings.registrationOpen` each in their own
+way: the register, group register and abstract sign-up doors, the event page, the register pages, the event API, the
+catalogue, the desk QR (`desk-qr-rules.ts`), `public-availability.ts`, the presenter and author rate rules, the clone
+and more (`grep -rln registrationOpen src`). A date checked in some of them would close the form and leave the group
+form, the catalogue's Register link or the desk QR open. So the first step is one function (`registrationClosed(event,
+now)`, the switch, the date and the webinar-over rule together) in `public-availability.ts` or beside it, every reader
+moved onto it, and a test that lists the files allowed to read `registrationOpen` directly, as the other "THE rule"
+files in CLAUDE.md do. Staff adding a registration from the dashboard stay exempt, as they are today.
+
 ## The send dialog's count is not always who the email goes to: what the Nov 23 review left (recorded Nov 23, 2026): not started
 
 "Send to all 0" no longer sends, and a Communications card whose list failed says so (`a6f25c7f`; CHANGELOG, Nov 23). Review of `a6f25c7f`: 0 BLOCKER, 1 HIGH, 2 MED, 6 LOW. The HIGH is fixed in the follow-up commit (the browser test `bulk-email-payment-filter` picked "Unpaid", which no seeded registration is, so the new rule left Send off and the gate would have gone red; it picks the status the seed holds). Also fixed: the dialog's line no longer points at scheduling and reads true for every audience; a list hidden from a role answers 404 and now reads "no access", not "could not load"; the CHANGELOG no longer overclaims for abstracts.
