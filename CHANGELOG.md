@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Emails: the speaker's profile form link works in any email to speakers (November 27, 2026)
+
+Owner: "add the profile form link to saved templates", "it can be just added in a built-in template or a custom template".
+
+- `{{profileFormLink}}` is in the token map (`src/lib/email-token-map.ts`), for a send to speakers: a saved template,
+  a built-in template sent from Communications, a typed email, and a speaker's own Send Email. Until now only the
+  speaker page's "send the form" email carried it, one speaker at a time.
+- Each speaker gets their own link. The form is made the first time an email names the token and its link never
+  changes afterwards, so a link in an earlier email keeps working. An email that does not name the token makes
+  nothing. A send to any other audience that names it is refused when it is sent or scheduled, with the reason.
+- One helper makes the form and builds the link (`src/lib/speaker-profile/form-link.ts`); the speaker page's route
+  calls it too, where it had its own copy.
+
 ### CRM: a shorter header, and People first on a deal (November 26, 2026)
 
 Owner: "make it compact and use less space at the top", and on the deal page "swap activity and people, give some color to people card, some depth".

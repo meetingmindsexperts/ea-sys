@@ -95,6 +95,7 @@ export const EMAIL_TOKEN_MAP = {
   honorarium: speakersOnly("Agreed fee, e.g. USD 1,500.00 (0.00 when none)"),
   honorariumAmount: speakersOnly("The fee amount alone"),
   honorariumCurrency: speakersOnly("The fee currency alone"),
+  profileFormLink: speakersOnly("Their own link to the profile form (photo, bio and documents)"),
 
   presenterAgreementAttachment: presenter("Invisible: attaches their personalised presenter agreement PDF"),
   presenterAgreementLink: presenter("Their link to review and accept the presenter agreement"),

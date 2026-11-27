@@ -32,7 +32,7 @@ import {
 } from "@/lib/email";
 import { formatPersonName } from "@/lib/utils";
 import { honorariumVars, readHonorarium } from "@/lib/reimbursement/constants";
-import { generateProfileFormToken } from "@/lib/speaker-profile/server";
+import { ensureProfileForm, profileFormUrl } from "@/lib/speaker-profile/form-link";
 import { askedProfileItems, profileFormAsksVars } from "@/lib/speaker-profile/constants";
 
 const TEMPLATE_SLUG = "speaker-profile-form-request";
@@ -43,10 +43,6 @@ const sendSchema = z.object({
   subject: z.string().max(500).optional(),
   message: z.string().max(10000).optional(),
 });
-
-function formLink(appUrl: string, slug: string, token: string): string {
-  return `${appUrl}/e/${slug}/speaker-form/${token}`;
-}
 
 export async function GET(_req: Request, { params }: RouteParams) {
   try {
@@ -75,7 +71,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
           status: form.status,
           submittedAt: form.submittedAt,
           createdAt: form.createdAt,
-          link: formLink(appUrl, event.slug, form.token),
+          link: profileFormUrl(appUrl, event.slug, form.token),
         },
       });
     });
@@ -143,22 +139,12 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       // Find-or-create the token (one form per speaker; the link stays stable
       // across resends so an earlier email keeps working).
-      let form = await db.speakerProfileForm.findFirst({
-        where: { speakerId, eventId },
-        select: { id: true, token: true, status: true },
+      const form = await ensureProfileForm({
+        eventId,
+        organizationId: event.organizationId,
+        speakerId,
+        createdById: session.user.id,
       });
-      if (!form) {
-        form = await db.speakerProfileForm.create({
-          data: {
-            eventId,
-            organizationId: event.organizationId,
-            speakerId,
-            token: generateProfileFormToken(),
-            createdById: session.user.id,
-          },
-          select: { id: true, token: true, status: true },
-        });
-      }
 
       const tpl = await getEventTemplate(eventId, TEMPLATE_SLUG);
       if (!tpl) {
@@ -171,7 +157,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         select: { firstName: true, lastName: true, emailSignature: true },
       });
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-      const profileFormLink = formLink(appUrl, event.slug, form.token);
+      const profileFormLink = profileFormUrl(appUrl, event.slug, form.token);
       const branding = tpl.branding;
       const subject = parsed.data.subject?.trim() || tpl.subject;
       const personalMessage = parsed.data.message?.trim() || "";

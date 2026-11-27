@@ -18,7 +18,7 @@ const { mockDb, mockAuth, mockLoad, mockResolveOrg, sendEmailSpy, notifySpy, rat
   mockDb: {
     event: { findFirst: vi.fn() },
     speaker: { findFirst: vi.fn(), update: vi.fn() },
-    speakerProfileForm: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
+    speakerProfileForm: { findFirst: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
     user: { findUnique: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
@@ -129,7 +129,7 @@ beforeEach(() => {
   });
   mockDb.speaker.findFirst.mockResolvedValue({ id: "sp1", title: "DR", firstName: "Amina", lastName: "Khan", email: "amina@x.com" });
   mockDb.speakerProfileForm.findFirst.mockResolvedValue(null);
-  mockDb.speakerProfileForm.create.mockResolvedValue({ id: "form1", token: "tok_generated", status: "PENDING" });
+  mockDb.speakerProfileForm.upsert.mockResolvedValue({ id: "form1", token: "tok_generated", status: "PENDING" });
   mockDb.user.findUnique.mockResolvedValue({ firstName: "Ops", lastName: "Casison", emailSignature: "<p>sig</p>" });
   sendEmailSpy.mockResolvedValue({ success: true });
 });
@@ -278,9 +278,12 @@ describe("organizer profile-form route — mint + send", () => {
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body.sentTo).toBe("amina@x.com");
-    expect(mockDb.speakerProfileForm.create).toHaveBeenCalledWith(
+    expect(mockDb.speakerProfileForm.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
+        where: { speakerId: "sp1" },
+        // An existing form is left as it is: the token never changes.
+        update: {},
+        create: expect.objectContaining({
           eventId: "ev1",
           organizationId: "org1",
           speakerId: "sp1",
@@ -300,11 +303,10 @@ describe("organizer profile-form route — mint + send", () => {
   });
 
   it("a resend REUSES the existing token (earlier emails keep working)", async () => {
-    mockDb.speakerProfileForm.findFirst.mockResolvedValue({ id: "form1", token: "tok_existing", status: "PENDING" });
+    mockDb.speakerProfileForm.upsert.mockResolvedValue({ id: "form1", token: "tok_existing", status: "PENDING" });
     const res = await SEND(jsonReq({}), staffParams);
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(mockDb.speakerProfileForm.create).not.toHaveBeenCalled();
     expect(body.link).toContain("tok_existing");
   });
 

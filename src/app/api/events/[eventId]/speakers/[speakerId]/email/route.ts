@@ -35,6 +35,7 @@ import {
 } from "@/lib/speaker-agreement";
 import { resolveStoredAttachments } from "@/lib/email-attachments";
 import { resolvePresenterAgreementForSend } from "@/lib/presenter-agreement-send";
+import { profileFormLinkForSend } from "@/lib/speaker-profile/form-link";
 import { resolveRsvpLinkForPerson, templateUsesRsvpLink } from "@/lib/rsvp/personal-link";
 import { MAX_MANUAL_ATTACHMENTS } from "@/lib/email-attachment-limits";
 
@@ -321,6 +322,19 @@ export async function POST(req: Request, { params }: RouteParams) {
       texts: [tpl.subject, tpl.htmlContent, tpl.textContent, customSubject, customMessage],
     });
     Object.assign(vars, presenter.vars);
+
+    // {{profileFormLink}}: the speaker's own profile form, as the bulk
+    // pipeline fills it; the form row is made only when the text names it.
+    const profileForm = await profileFormLinkForSend({
+      eventId,
+      organizationId: event.organizationId,
+      speakerId: speaker.id,
+      createdById: session.user.id,
+      appUrl: process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000",
+      eventSlug: event.slug,
+      texts: [tpl.subject, tpl.htmlContent, tpl.textContent, customSubject, customMessage],
+    });
+    Object.assign(vars, profileForm);
 
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
 

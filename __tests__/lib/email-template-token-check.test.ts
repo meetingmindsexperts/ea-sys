@@ -147,9 +147,10 @@ describe("the shared builders the senders spread (email-token-values.ts)", () =>
   it("the speaker-only tokens are set by the speaker builder, with or without a context, and a custom template may use them", () => {
     const speaker = speakerTokenValues(null, person);
     const speakerOnly = tokensOf((t) => t.audiences !== "all" && t.audiences.length === 1 && t.audiences[0] === "speakers");
-    expect(speakerOnly).toHaveLength(3);
+    // The fee's three from the builder; the profile form link from its own helper (form-link.ts).
+    expect(speakerOnly).toHaveLength(4);
     for (const k of speakerOnly) {
-      expect(speaker).toHaveProperty(k);
+      if (k !== "profileFormLink") expect(speaker).toHaveProperty(k);
       expect(templateAllowedTokenKeys("faculty-welcome")).toContain(k);
     }
   });
@@ -215,14 +216,14 @@ describe("the token map (Nov 27, 2026): what a saved template may use is what so
   // The list is a rule over the map (everyone's tokens and a speaker's), so a
   // new map entry can widen what every built-in template accepts without
   // anyone meaning it to. Pinned: adding to it is a decision (review of 5b6fbed9).
-  it("what a built-in template may also use from Communications is these 38 tokens", () => {
+  it("what a built-in template may also use from Communications is these 39 tokens", () => {
     expect([...BUILT_IN_BULK_TOKEN_KEYS].sort()).toEqual([
       "agreementAttachment", "agreementBlock", "agreementBlockText", "agreementLink", "daysUntilEvent", "entryBarcode",
       "entryBarcodeText", "eventAddress", "eventCity", "eventCountry", "eventDate", "eventDateRange", "eventName",
       "eventVenue", "firstName", "honorarium", "honorariumAmount", "honorariumCurrency", "lastName", "moderatorDetails",
       "moderatorDetailsText", "organizerEmail", "organizerName", "organizerSignature", "paymentBlock", "personalMessage",
       "presentationDetails", "presentationDetailsText", "presenterAgreementAttachment", "presenterAgreementLink",
-      "registrationId", "rsvpButton", "rsvpLink", "rsvpName", "sessionDetails", "speakerName", "ticketType",
+      "profileFormLink", "registrationId", "rsvpButton", "rsvpLink", "rsvpName", "sessionDetails", "speakerName", "ticketType",
       "title",
     ]);
   });

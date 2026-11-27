@@ -65,6 +65,7 @@ import { executeCertificateBulkSend } from "./certificates/bulk-issue";
 import { MAX_MANUAL_ATTACHMENTS, type StoredAttachmentRef } from "@/lib/email-attachment-limits";
 import { resolveStoredAttachments } from "@/lib/email-attachments";
 import { resolvePresenterAgreementForSend } from "@/lib/presenter-agreement-send";
+import { profileFormLinkForSend } from "@/lib/speaker-profile/form-link";
 import {
   buildAbstractConfirmationVars,
   buildAbstractDecisionVars,
@@ -2249,6 +2250,22 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       const ctx = await buildSpeakerEmailContext(eventId, recipient.id);
       if (!ctx) apiLogger.warn({ msg: "bulk-email:speaker-context-missing", eventId, speakerId: recipient.id, emailType });
       Object.assign(vars, speakerTokenValues(ctx, recipient));
+    }
+
+    // {{profileFormLink}}: the speaker's own profile form, in any send to
+    // speakers. The same helper a speaker's single Send Email calls; the form
+    // row is made only when the text names the token.
+    if (recipientType === "speakers") {
+      const profileForm = await profileFormLinkForSend({
+        eventId,
+        organizationId: event.organizationId,
+        speakerId: recipient.id,
+        createdById: triggeredByUserId ?? null,
+        appUrl,
+        eventSlug: event.slug || event.id,
+        texts: [tpl.subject, tpl.htmlContent, tpl.textContent, customSubject, customMessage],
+      });
+      Object.assign(vars, profileForm);
     }
 
     if (templateWantsAgreement) {

@@ -39,9 +39,9 @@ const INITIALIZER: Record<string, string[]> = {
 
 /** What may be merged into `vars` whole: a builder, or a helper that owns its tokens. */
 const MERGED: Record<string, string[]> = {
-  "src/lib/bulk-email.ts": ["abstractOwnVars", "presenter.vars", "registrationFormVars", "speakerTokenValues"],
+  "src/lib/bulk-email.ts": ["abstractOwnVars", "presenter.vars", "profileForm", "registrationFormVars", "speakerTokenValues"],
   "src/app/api/events/[eventId]/registrations/[registrationId]/email/route.ts": [],
-  "src/app/api/events/[eventId]/speakers/[speakerId]/email/route.ts": ["presenter.vars"],
+  "src/app/api/events/[eventId]/speakers/[speakerId]/email/route.ts": ["presenter.vars", "profileForm"],
 };
 
 /** The top-level entries of the object literal that follows `marker`. */

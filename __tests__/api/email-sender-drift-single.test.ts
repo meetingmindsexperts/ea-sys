@@ -41,6 +41,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     ...mockDb,
     verificationToken: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({}) },
+    speakerProfileForm: { upsert: vi.fn().mockResolvedValue({ id: "form1", token: "tok_form", status: "PENDING" }) },
     $transaction: (ops: unknown[]) => Promise.all(ops),
   },
   tenantTransaction: (cb: (tx: unknown) => unknown) => cb(mockDb),

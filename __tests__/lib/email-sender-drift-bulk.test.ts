@@ -34,6 +34,7 @@ const { mockDb, mockSendEmail, tokenRefusal, renderedVars } = vi.hoisted(() => (
     zoomMeeting: { findFirst: vi.fn() },
     verificationToken: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({}) },
     survey: { findFirst: vi.fn().mockResolvedValue(null) },
+    speakerProfileForm: { upsert: vi.fn().mockResolvedValue({ id: "form1", token: "tok_form", status: "PENDING" }) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     emailLog: { findMany: vi.fn().mockResolvedValue([]) },
   },
