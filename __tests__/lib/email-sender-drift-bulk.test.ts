@@ -18,7 +18,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockSendEmail, tokenRefusal } = vi.hoisted(() => ({
+const { mockDb, mockSendEmail, tokenRefusal, renderedVars } = vi.hoisted(() => ({
+  // The variables each email was rendered with, as the pipeline handed them over.
+  renderedVars: [] as Array<Record<string, unknown>>,
   // Off for the one case that proves what the refusal claims: those tokens really are left unset.
   tokenRefusal: { on: true },
   mockDb: {
@@ -54,7 +56,14 @@ vi.mock("@/lib/email-token-map", async (importOriginal) => {
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/email", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/email")>();
-  return { ...actual, sendEmail: (...args: unknown[]) => mockSendEmail(...args) };
+  return {
+    ...actual,
+    sendEmail: (...args: unknown[]) => mockSendEmail(...args),
+    renderAndWrap: (...args: Parameters<typeof actual.renderAndWrap>) => {
+      renderedVars.push(args[1]);
+      return actual.renderAndWrap(...args);
+    },
+  };
 });
 vi.mock("@/lib/speaker-agreement", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/speaker-agreement")>();
@@ -94,7 +103,7 @@ vi.mock("@/lib/travel-grant/server", () => ({
 
 import { executeBulkEmail } from "@/lib/bulk-email";
 import { findUnresolvedTokens } from "@/lib/template-tokens";
-import { EMAIL_TEMPLATE_SPECS, type BulkEmailAudience } from "@/lib/email-template-registry";
+import { BULK_ABSTRACT_OWN_VARIABLES, EMAIL_TEMPLATE_SPECS, type BulkEmailAudience } from "@/lib/email-template-registry";
 import { EMAIL_TOKEN_MAP, tokensSetFor } from "@/lib/email-token-map";
 
 const EVENT = {
@@ -164,6 +173,7 @@ beforeEach(() => {
   mockDb.zoomMeeting.findFirst.mockResolvedValue({ joinUrl: "https://zoom.test/j/1", passcode: "123456", recordingStatus: "AVAILABLE", recordingUrl: "https://zoom.test/rec/1" });
   mockSendEmail.mockResolvedValue({ success: true, messageId: "m1" });
   tokenRefusal.on = true;
+  renderedVars.length = 0;
 });
 
 /** Every (type, audience) the registry says the bulk pipeline sends. The webinar sequence has no dropdown entry; it goes to registrations. */
@@ -245,6 +255,47 @@ describe("bulk pipeline: a saved template naming every token of its audience ren
       expect(findUnresolvedTokens(params.textContent), `${audience}: unresolved in the text part`).toEqual([]);
     }
   });
+
+  // Naming every token above makes the abstracts send once per ABSTRACT. A
+  // template that names none of an abstract's own goes once per author.
+  it("abstracts, once per author: the author's own tokens and everyone's", async () => {
+    const own = new Set<string>(BULK_ABSTRACT_OWN_VARIABLES);
+    const body = tokensSetFor("abstracts").filter((k) => !own.has(k)).map((k) => `{{${k}}}`).join(" ");
+    mockDb.emailTemplate.findUnique.mockResolvedValue({
+      id: "tpl-1", eventId: "evt-1", slug: "my-saved-template", name: "Mine", isActive: true,
+      subject: "For {{authorName}}", htmlContent: `<p>${body}</p>`, textContent: body,
+    });
+    mockDb.abstract.findMany.mockResolvedValue([abstractRow("SUBMITTED")]);
+    const res = await executeBulkEmail({
+      eventId: "evt-1", recipientType: "abstracts", emailType: "template", filters: { templateSlug: "my-saved-template" },
+      organizerName: "Organizer", organizerEmail: "org@x.test", organizationId: "org-1", triggeredByUserId: "user-1",
+    });
+    expect(res.failureCount, JSON.stringify(res.errors)).toBe(0);
+    const params = mockSendEmail.mock.calls[0][0] as { subject: string; htmlContent: string };
+    expect(findUnresolvedTokens(params.subject, params.htmlContent)).toEqual([]);
+  });
+
+  // And the map leaves nothing out: a saved-template send hands the renderer no
+  // variable the map does not list for that audience. Without this, a token the
+  // send sets and the map lacks would be refused at scheduling though it works.
+  it.each([...AUDIENCES.map((a) => ({ audience: a, perAbstract: false })), { audience: "abstracts" as const, perAbstract: true }])(
+    "$audience (per abstract: $perAbstract): the send sets nothing the map does not list",
+    async ({ audience, perAbstract }) => {
+      mockDb.emailTemplate.findUnique.mockResolvedValue({
+        id: "tpl-1", eventId: "evt-1", slug: "my-saved-template", name: "Mine", isActive: true,
+        subject: "Hello", htmlContent: perAbstract ? "<p>{{abstractTitle}}</p>" : "<p>Hi {{firstName}}</p>", textContent: "x",
+      });
+      if (audience === "abstracts") mockDb.abstract.findMany.mockResolvedValue([abstractRow("SUBMITTED")]);
+      await executeBulkEmail({
+        eventId: "evt-1", recipientType: audience, emailType: "template", filters: { templateSlug: "my-saved-template" },
+        organizerName: "Organizer", organizerEmail: "org@x.test", organizationId: "org-1", triggeredByUserId: "user-1",
+      });
+      expect(renderedVars.length).toBeGreaterThan(0);
+      const listed = new Set<string>(tokensSetFor(audience, { withRsvp: true }));
+      const extra = [...new Set(renderedVars.flatMap((v) => Object.keys(v)))].filter((k) => !listed.has(k));
+      expect(extra).toEqual([]);
+    },
+  );
 
   // The other direction: what the map says an audience does NOT get, the send
   // really leaves unset, so refusing it when the send is scheduled

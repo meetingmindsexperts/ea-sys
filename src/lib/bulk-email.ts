@@ -1179,15 +1179,11 @@ export async function precheckBulkEmailViability(
     }
     // A token this audience's send does not set would fail every email when
     // the send fires (Nov 27, 2026: {{amount}}, 25 recipients, 46 minutes
-    // after scheduling). Say so now, by the token map.
-    const tokenRefusal = savedTemplateTokenRefusal(
-      recipientType,
-      savedTemplate.subject,
-      savedTemplate.htmlContent,
-      savedTemplate.textContent,
-      customSubject,
-      customMessage,
-    );
+    // after scheduling). Say so now, by the token map. The subject and the
+    // HTML only, which is what the send's own guard refuses on: a leftover in
+    // the text part is a warning there, and a typed note reaches an email only
+    // where the template names it.
+    const tokenRefusal = savedTemplateTokenRefusal(recipientType, savedTemplate.subject, savedTemplate.htmlContent);
     if (tokenRefusal) {
       apiLogger.warn({ msg: "bulk-email:saved-template-tokens-not-set", eventId, recipientType, templateSlug: filters.templateSlug, tokens: tokenRefusal.tokens });
       throw new BulkEmailError(tokenRefusal.message, 400, TOKENS_NOT_SET_CODE);
@@ -2242,6 +2238,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // send too (it was set only per abstract, so "Dear {{authorName}}" in a
       // saved template was refused; review of c332aea6).
       vars.authorName = formatPersonName(recipient.title, recipient.firstName, recipient.lastName);
+      // Set for every author, empty unless the confirmation below fills it: a
+      // send that goes once per author left it unset (review of 3fbc836a7).
+      vars.travelGrantBlock = "";
+      vars.travelGrantBlockText = "";
       const ab = recipient.abstract;
       if (ab) {
         Object.assign(
@@ -2270,9 +2270,6 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           });
           vars.travelGrantBlock = tg.html;
           vars.travelGrantBlockText = tg.text;
-        } else {
-          vars.travelGrantBlock = "";
-          vars.travelGrantBlockText = "";
         }
       }
     }

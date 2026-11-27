@@ -109,7 +109,7 @@ const EVENT = {
 
 const REGISTRATION = {
   id: "reg1", serialId: 7, eventId: "ev1", qrCode: "QR", attendanceMode: "IN_PERSON", status: "CONFIRMED", paymentStatus: "UNPAID",
-  originalPrice: 400, discountAmount: null, surveyCompletedAt: null, userId: null,
+  originalPrice: 400, discountAmount: null, surveyCompletedAt: null, userId: null, payments: [], groupId: null,
   attendee: { firstName: "Amal", lastName: "Baker", email: "a@b.test", additionalEmail: null, title: "DR", organization: null, jobTitle: null, city: null, country: null },
   ticketType: { name: "Standard", price: 0, currency: "USD" },
   pricingTier: { name: "Early Bird", price: 400, currency: "USD" },
@@ -208,6 +208,20 @@ describe("a saved template naming every token of its audience, sent from one per
     );
     expect(res.status, JSON.stringify(await res.json())).toBe(200);
     assertClean("registration/saved template");
+    // The balance (400 + 5% VAT), not a blank: the route hands the money to the builder.
+    expect((sendEmailSpy.mock.calls[0][0] as { htmlContent: string }).htmlContent).toContain("USD 420.00");
+  });
+
+  it("the registration record's {{personalMessage}} is the typed note with its tokens resolved, as from Communications", async () => {
+    mockDb.emailTemplate.findUnique.mockResolvedValue({
+      id: "tpl-1", eventId: "ev1", slug: "my-saved-template", name: "Mine", isActive: true,
+      subject: "Note", htmlContent: "<div>{{personalMessage}}</div>", textContent: "x",
+    });
+    await registrationPost(
+      req("http://t/api/events/ev1/registrations/reg1/email", { templateSlug: "my-saved-template", customMessage: "Hi {{firstName}} <b>bold</b>" }),
+      { params: Promise.resolve({ eventId: "ev1", registrationId: "reg1" }) },
+    );
+    expect((sendEmailSpy.mock.calls[0][0] as { htmlContent: string }).htmlContent).toContain("Hi Amal <b>bold</b>");
   });
 
   it("the speaker page", async () => {

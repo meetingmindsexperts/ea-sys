@@ -1094,11 +1094,6 @@ export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hin
     ],
   },
   {
-    label: "Sent to registrations",
-    hint: "Filled when the audience is registrations: the balance due, empty for a group member or anyone who owes nothing. A send to anyone else is refused.",
-    variables: [{ key: "amount", description: "Amount due (e.g. USD 100.00)" }],
-  },
-  {
     label: "Sent to speakers",
     hint: "Filled when the audience is speakers; empty for anyone else.",
     variables: [
@@ -1147,6 +1142,7 @@ export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hin
       { key: "ticketType", description: "Registration type" },
       { key: "registrationId", description: "Registration number" },
       { key: "entryBarcode", description: "Entry barcode image (in-person registrations)" },
+      { key: "amount", description: "Balance due, e.g. USD 100.00; empty for a group member or anyone who owes nothing (a send to another audience is refused)" },
     ],
   },
   {
@@ -1171,7 +1167,7 @@ export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hin
  * which only the payment reminder and the registration confirmation fill.
  */
 export function isUnlistedCustomTemplateToken(key: string): boolean {
-  return key.endsWith("Text") || key === "paymentBlock" || key === "subject" || key === "message";
+  return key.endsWith("Text") || ["paymentBlock", "subject", "message", "travelGrantBlock"].includes(key);
 }
 
 /**
@@ -1215,6 +1211,8 @@ export function templateAllowedTokenKeys(slug: string): string[] {
     // The subject and note typed for the send (bulk-email.ts sets both, empty when none).
     allowed.add("subject");
     allowed.add("message");
+    // Set, and empty, on a send to abstract authors: a copy of the submission confirmation carries it.
+    allowed.add("travelGrantBlock");
   }
   for (const k of [...allowed]) allowed.add(`${k}Text`);
   return [...allowed];

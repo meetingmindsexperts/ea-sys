@@ -431,9 +431,9 @@ describe("precheckBulkEmailViability — saved templates resolve at enqueue (com
 });
 
 describe("a saved template that names a token its audience's send does not set (Nov 27, 2026)", () => {
-  const send = (recipientType: "registrations" | "speakers", htmlContent: string, extra: Record<string, unknown> = {}) => {
+  const send = (recipientType: "registrations" | "speakers", htmlContent: string) => {
     vi.mocked(loadActiveEventTemplateRow).mockResolvedValue({ subject: "For {{firstName}}", htmlContent, textContent: "" } as never);
-    return precheckBulkEmailViability({ eventId: "evt-1", recipientType, emailType: "template", filters: { templateSlug: "mine" }, ...extra });
+    return precheckBulkEmailViability({ eventId: "evt-1", recipientType, emailType: "template", filters: { templateSlug: "mine" } });
   };
 
   it("is refused when scheduled, naming the token and who it is for", async () => {
@@ -441,7 +441,7 @@ describe("a saved template that names a token its audience's send does not set (
     expect(err).toBeInstanceOf(BulkEmailError);
     expect(err.code).toBe("TOKENS_NOT_SET");
     expect(err.message).toContain("{{honorarium}} is filled only when sending to speakers");
-    expect(err.message).toContain("This send goes to registrations");
+    expect(err.message).toContain("This template cannot go to registrations as it is");
   });
 
   it("goes through for the audience the token belongs to", async () => {
@@ -455,9 +455,16 @@ describe("a saved template that names a token its audience's send does not set (
     expect(err.message).toContain("{{frstName}} is not a token a saved template can use");
   });
 
-  it("reads the typed subject and note too", async () => {
-    const err = await send("registrations", "<p>{{message}}</p>", { customMessage: "See {{presenterAgreementLink}}" }).catch((e) => e);
+  it("names every audience a token belongs to", async () => {
+    const err = await send("registrations", "<p>{{presenterAgreementLink}}</p>").catch((e) => e);
     expect(err.message).toContain("{{presenterAgreementLink}} is filled only when sending to speakers or abstract authors");
+  });
+
+  it("goes by the subject and the HTML, as the send's own guard does: a leftover in the text part or a typed note is not refused here", async () => {
+    vi.mocked(loadActiveEventTemplateRow).mockResolvedValue({ subject: "Hello", htmlContent: "<p>Hi</p>", textContent: "Old: {{honorarium}}" } as never);
+    await expect(
+      precheckBulkEmailViability({ eventId: "evt-1", recipientType: "registrations", emailType: "template", filters: { templateSlug: "mine" }, customMessage: "{{honorarium}}" }),
+    ).resolves.toBeTruthy();
   });
 
   it("leaves the block tokens that are empty for another audience alone (they send today)", async () => {

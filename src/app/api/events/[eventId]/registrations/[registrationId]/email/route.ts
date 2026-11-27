@@ -487,8 +487,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       paymentBlock: "",
     };
 
-    if (type === "reminder") {
-      vars.daysUntilEvent = daysUntilEvent ?? 1;
+    // A caller may name the count; otherwise the real one, set above (no screen
+    // sends it, so every reminder from the record said "1" until Nov 27, 2026).
+    if (type === "reminder" && daysUntilEvent != null) {
+      vars.daysUntilEvent = daysUntilEvent;
     }
 
     // A saved template gets the balance due and Pay Now, or both blank, by the
@@ -621,9 +623,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     // {{organizerSignature}} — resolve instead of staying literal).
     // rsvpLink is a URL we built and rsvpButton our own escaped markup, both
     // rendered raw like the bulk pipeline does.
-    const rawHtmlKeys = new Set(["organizerSignature", "message", "rsvpLink", "rsvpButton"]);
+    const rawHtmlKeys = new Set(["organizerSignature", "message", "personalMessage", "rsvpLink", "rsvpButton"]);
     if (typeof vars.message === "string" && vars.message) {
       vars.message = renderMessageValue(vars.message, vars, { rawHtmlKeys });
+    }
+    // {{personalMessage}} renders the typed note as the bulk pipeline and the
+    // speaker page do: raw, with the tokens typed into it resolved.
+    if (customMessage) {
+      vars.personalMessage = renderMessageValue(customMessage, vars, { isHtml: true, rawHtmlKeys });
     }
     const rendered = renderAndWrap(tpl, vars, branding, rawHtmlKeys);
 

@@ -53,6 +53,9 @@ export const EMAIL_TOKEN_MAP = {
   abstractNumber: AUTHORS, abstractTitle: AUTHORS, presentationType: AUTHORS, theme: AUTHORS,
   coAuthorNames: AUTHORS, newStatus: AUTHORS, statusHeading: AUTHORS, statusMessage: AUTHORS,
   reviewNotes: AUTHORS, reviewScore: AUTHORS,
+  // Empty in a saved template (the offer rides only on the built-in
+  // confirmation), but set: a copy of that confirmation carries the token.
+  travelGrantBlock: AUTHORS, travelGrantBlockText: AUTHORS,
 } as const satisfies Record<string, EmailToken>;
 
 export type EmailTokenKey = keyof typeof EMAIL_TOKEN_MAP;
@@ -74,8 +77,9 @@ const AUDIENCE_NOUN: Record<BulkEmailAudience, string> = {
 };
 
 /**
- * What a saved template sent to `audience` names that the send will not set,
- * so every email would be refused: a sentence for the sender, or null. Asked
+ * What a saved template sent to `audience` names (pass its subject and HTML,
+ * what the send's own guard refuses on) that the send will not set, so every
+ * email would be refused: a sentence for the sender, or null. Asked
  * when the send is scheduled (precheckBulkEmailViability), not found out when
  * it fires. The RSVP tokens count as set: the RSVP check beside it owns them.
  */
@@ -93,7 +97,7 @@ export function savedTemplateTokenRefusal(
   });
   return {
     tokens,
-    message: `Email not sent: ${parts.join("; ")}. This send goes to ${AUDIENCE_NOUN[audience]}. Change the template (Communications, Email Templates) or the message, then send again.`,
+    message: `This template cannot go to ${AUDIENCE_NOUN[audience]} as it is: ${parts.join("; ")}. Change it under Communications, Email Templates, then try again.`,
   };
 }
 
