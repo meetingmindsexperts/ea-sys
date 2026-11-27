@@ -25,6 +25,7 @@
  * plain-text part) is deliberately not advertised.
  */
 import { CERT_COVER_TEMPLATE_NAMES, CERT_BUNDLE_COVER_TEMPLATE_NAME } from "@/lib/certificates/email-tokens";
+import { BUILT_IN_BULK_TOKEN_KEYS, EMAIL_TOKEN_MAP } from "@/lib/email-token-map";
 
 /**
  * System templates that no longer exist (Nov 10, 2026: the three reviewer
@@ -992,185 +993,6 @@ export const GLOBAL_EVENT_VARIABLES: ReadonlyArray<TemplateVariable> = [
 ];
 
 /**
- * What `executeBulkEmail` puts in `vars` for EVERY recipient of EVERY bulk
- * send, before the per-type overrides. A bulk-surface template may therefore
- * use any of these even when its own `variables` list does not advertise it,
- * and a CUSTOM template (which has no registry entry and is only sendable
- * through bulk) gets exactly this set plus the global event block.
- *
- * Pinned to the real object by `email-template-token-check.test.ts`, which
- * reads bulk-email.ts and fails if a key here stops being set there. Keep the
- * two in step: dropping one silently turns a working organiser template into
- * a refused send.
- */
-export const BULK_BASE_VARIABLES: readonly string[] = [
-  "title", "firstName", "lastName", "speakerName",
-  "eventName", "eventDate", "eventVenue", "eventCity", "eventCountry", "eventAddress",
-  "organizerName", "organizerEmail", "organizerSignature",
-  "personalMessage", "ticketType", "registrationId", "daysUntilEvent",
-  "presentationDetails", "presentationDetailsText",
-  "moderatorDetails", "moderatorDetailsText", "sessionDetails",
-  "agreementLink", "agreementBlock", "agreementBlockText", "agreementAttachment",
-  "entryBarcode", "entryBarcodeText", "paymentBlock",
-];
-
-/**
- * Bulk tokens filled only when the sender picks an RSVP in the send dialog.
- * Using one without choosing an RSVP is refused at enqueue with a message
- * naming the fix, so it is a legitimate thing to write into a template and
- * must not be reported as unfillable.
- */
-export const BULK_CONDITIONAL_VARIABLES: readonly string[] = ["rsvpLink", "rsvpName", "rsvpButton"];
-
-/**
- * Bulk tokens filled only when the audience is speakers (`bulk-email.ts`, the
- * speaker-context branch; since Sep 3, 2026). Missing from every list until
- * Sep 25, 2026, so a custom template using them was flagged as having unknown
- * tokens and the agent's create refused them, although a send to speakers
- * fills them. Sent to another audience they stay unfilled, and the send's
- * unresolved-token guard says so, as it does for an RSVP token with no RSVP.
- */
-export const BULK_SPEAKER_VARIABLES: readonly string[] = ["honorarium", "honorariumAmount", "honorariumCurrency"];
-
-/**
- * The presenter (abstract-author) agreement in any email (Sep 25, 2026):
- * filled on sends to speakers and to abstract authors, by
- * `resolvePresenterAgreementForSend` (presenter-agreement.ts). Another
- * audience leaves them unset and the send's unresolved-token guard says so.
- */
-export const BULK_PRESENTER_VARIABLES: readonly string[] = ["presenterAgreementAttachment", "presenterAgreementLink"];
-
-/**
- * One abstract's own tokens (Nov 20, 2026): its number, title, type, theme and
- * co-authors, and its decision as it stands. A saved template that names any
- * of them in its subject or body is sent to abstract authors once per ABSTRACT,
- * each email filled from that abstract (`abstractSendIsPerAbstract` in
- * bulk-email-audience.ts, which builds its set from this list). Sent to
- * another audience they stay unfilled and the send's unresolved-token guard
- * says so, as for the speaker tokens above. Pinned to the builders' own keys
- * by `bulk-email-abstract-audience.test.ts`.
- */
-export const BULK_ABSTRACT_OWN_VARIABLES: readonly string[] = [
-  "abstractNumber", "abstractTitle", "presentationType", "theme", "coAuthorNames",
-  "newStatus", "statusHeading", "statusMessage", "reviewNotes", "reviewScore",
-];
-
-/** Filled on every send to abstract authors, whether it goes per abstract or per author. */
-export const BULK_ABSTRACT_AUTHOR_VARIABLES: readonly string[] = ["authorName", "managementLink"];
-
-/**
- * What a CUSTOM template's editor lists, grouped by who the email goes to
- * (Sep 25, 2026). The panel used to show only the four event tokens, so an
- * organiser reading it concluded that a copy of the speaker invitation could
- * not fill {{presentationDetails}} or the agreement button, when a send to
- * speakers fills both. Every key here is one `templateAllowedTokenKeys`
- * accepts for a custom slug, pinned by test in both directions (nothing
- * listed that would be refused, nothing accepted that is left out), except
- * `CUSTOM_TEMPLATE_UNLISTED` below.
- *
- * Grouped by audience because that is what decides whether a token has a
- * value: a speaker token sent to registrations renders empty.
- */
-export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hint: string; variables: ReadonlyArray<TemplateVariable> }> = [
-  {
-    label: "Every email",
-    hint: "Filled whoever you send to.",
-    variables: [
-      { key: "firstName", description: "Recipient's first name" },
-      { key: "lastName", description: "Recipient's last name" },
-      { key: "title", description: "Title prefix (e.g. Dr.)" },
-      { key: "eventName", description: "Event name" },
-      { key: "eventDate", description: "Event start date, in the event's timezone" },
-      { key: "eventDateRange", description: "Event dates, collapsed on a single-day event" },
-      { key: "eventVenue", description: "Venue and city" },
-      { key: "eventCity", description: "Event city" },
-      { key: "eventCountry", description: "Event country" },
-      { key: "eventAddress", description: "Venue street address" },
-      { key: "daysUntilEvent", description: "Days until the event starts" },
-      { key: "personalMessage", description: "The message typed in the send dialog" },
-      { key: "organizerName", description: "Organizer name" },
-      { key: "organizerEmail", description: "Organizer email" },
-      { key: "organizerSignature", description: "Sender's personal email signature" },
-    ],
-  },
-  {
-    label: "Sent to speakers",
-    hint: "Filled when the audience is speakers; empty for anyone else.",
-    variables: [
-      { key: "speakerName", description: "Full name with title" },
-      { key: "presentationDetails", description: "Their speaking sessions, with a heading" },
-      { key: "moderatorDetails", description: "Sessions they moderate or chair, with the run-sheet" },
-      { key: "sessionDetails", description: "Their session titles, comma-separated" },
-      { key: "agreementBlock", description: "The Review & Agree button (a signed speaker sees a note instead)" },
-      { key: "agreementLink", description: "The bare agreement URL" },
-      { key: "agreementAttachment", description: "Invisible: attaches their personalised agreement file" },
-      { key: "honorarium", description: "Agreed fee, e.g. USD 1,500.00 (0.00 when none)" },
-      { key: "honorariumAmount", description: "The fee amount alone" },
-      { key: "honorariumCurrency", description: "The fee currency alone" },
-    ],
-  },
-  {
-    label: "Presenter agreement",
-    hint: "Sent to speakers or abstract authors; empty for anyone who has already accepted it.",
-    variables: [
-      { key: "presenterAgreementAttachment", description: "Invisible: attaches their personalised presenter agreement PDF" },
-      { key: "presenterAgreementLink", description: "Their link to review and accept the presenter agreement" },
-    ],
-  },
-  {
-    label: "Sent to abstract authors",
-    hint: "Filled when the audience is abstract submitters. Naming any of an abstract's own details sends one email per abstract, each with its own; drafts and withdrawn abstracts are left out.",
-    variables: [
-      { key: "authorName", description: "The author's full name with title" },
-      { key: "managementLink", description: "Their link to sign in and see their abstracts" },
-      { key: "abstractNumber", description: "The abstract's number, e.g. A-007 (one email per abstract)" },
-      { key: "abstractTitle", description: "The abstract's title (one email per abstract)" },
-      { key: "presentationType", description: "Its presentation type, e.g. Oral (one email per abstract)" },
-      { key: "theme", description: "Its theme (one email per abstract)" },
-      { key: "coAuthorNames", description: "Its co-authors, or None (one email per abstract)" },
-      { key: "newStatus", description: "Its status as it stands, e.g. ACCEPTED or NOT ACCEPTED (one email per abstract)" },
-      { key: "statusHeading", description: "A heading for that status (one email per abstract)" },
-      { key: "statusMessage", description: "A sentence for that status (one email per abstract)" },
-      { key: "reviewNotes", description: "The reviewers' notes to the author, in a box; empty when none (one email per abstract)" },
-      { key: "reviewScore", description: "The mean review score; empty when none (one email per abstract)" },
-    ],
-  },
-  {
-    label: "Sent to registrations",
-    hint: "Filled when the audience is registrations.",
-    variables: [
-      { key: "ticketType", description: "Registration type" },
-      { key: "registrationId", description: "Registration number" },
-      { key: "entryBarcode", description: "Entry barcode image (in-person registrations)" },
-      { key: "amount", description: "Balance due, e.g. USD 100.00; empty for a group member or anyone who owes nothing (a send to another audience is refused)" },
-    ],
-  },
-  {
-    label: "Sent to reviewers",
-    hint: "Filled when the audience is reviewers. A send to anyone else is refused.",
-    variables: [{ key: "reviewLink", description: "Their link to sign in and open My Reviews" }],
-  },
-  {
-    label: "With an RSVP chosen",
-    hint: "Filled only when an RSVP is picked in the send dialog.",
-    variables: [
-      { key: "rsvpLink", description: "Their personal RSVP link" },
-      { key: "rsvpName", description: "The RSVP's name" },
-      { key: "rsvpButton", description: "An RSVP button" },
-    ],
-  },
-];
-
-/**
- * Accepted in a custom template but deliberately not listed: the plain-text
- * mirrors (the text part uses them automatically) and {{paymentBlock}},
- * which only the payment reminder and the registration confirmation fill.
- */
-export function isUnlistedCustomTemplateToken(key: string): boolean {
-  return key.endsWith("Text") || ["paymentBlock", "subject", "message", "travelGrantBlock"].includes(key);
-}
-
-/**
  * Every token key a template's senders can fill, for the save-time check that
  * warns an organiser before a send is refused.
  *
@@ -1186,34 +1008,17 @@ export function isUnlistedCustomTemplateToken(key: string): boolean {
  * An unknown slug is a custom template, which is only sendable through bulk.
  */
 export function templateAllowedTokenKeys(slug: string): string[] {
-  const allowed = new Set<string>(GLOBAL_EVENT_VARIABLES.map((v) => v.key));
   const spec = isSystemTemplateSlug(slug) ? EMAIL_TEMPLATE_REGISTRY[slug] : null;
-  if (spec) {
-    for (const v of spec.variables) allowed.add(v.key);
-    for (const k of spec.rawHtmlKeys) allowed.add(k);
-  }
-  if (!spec || spec.surfaces.includes("bulk")) {
-    for (const k of BULK_BASE_VARIABLES) allowed.add(k);
-    for (const k of BULK_CONDITIONAL_VARIABLES) allowed.add(k);
-    for (const k of BULK_SPEAKER_VARIABLES) allowed.add(k);
-    for (const k of BULK_PRESENTER_VARIABLES) allowed.add(k);
-  }
-  // A saved template only: a send to abstract authors fills these for it. A
-  // system template keeps its own list, so an abstract token typed into, say,
-  // the registration confirmation is still flagged.
-  if (!spec) {
-    for (const k of BULK_ABSTRACT_OWN_VARIABLES) allowed.add(k);
-    for (const k of BULK_ABSTRACT_AUTHOR_VARIABLES) allowed.add(k);
-    // A send to registrations fills the amount due, as the payment reminder does (bulk-email.ts).
-    allowed.add("amount");
-    // A send to reviewers fills their way into My Reviews (flagged as unknown until Nov 27, 2026).
-    allowed.add("reviewLink");
-    // The subject and note typed for the send (bulk-email.ts sets both, empty when none).
-    allowed.add("subject");
-    allowed.add("message");
-    // Set, and empty, on a send to abstract authors: a copy of the submission confirmation carries it.
-    allowed.add("travelGrantBlock");
-  }
+  // A saved template: exactly the token map (email-token-map.ts), which the
+  // senders are held to by test. No guessed `...Text` mirrors: the map lists
+  // the few that exist.
+  if (!spec) return Object.keys(EMAIL_TOKEN_MAP);
+
+  const allowed = new Set<string>(GLOBAL_EVENT_VARIABLES.map((v) => v.key));
+  for (const v of spec.variables) allowed.add(v.key);
+  for (const k of spec.rawHtmlKeys) allowed.add(k);
+  // Sent from Communications it also gets what every bulk send sets.
+  if (spec.surfaces.includes("bulk")) for (const k of BUILT_IN_BULK_TOKEN_KEYS) allowed.add(k);
   for (const k of [...allowed]) allowed.add(`${k}Text`);
   return [...allowed];
 }

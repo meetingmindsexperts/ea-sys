@@ -240,14 +240,14 @@ function getEmailTypes(recipientType: RecipientType): EmailTypeOption[] {
   return bulkEmailTypeOptionsFor(recipientType);
 }
 
-/** Whose copy the preview shows, when the server says (an abstracts send). */
-function previewNote(shownFor: string | undefined, emails: number, unfilled: string[] | undefined): string | undefined {
-  if (!shownFor) return undefined;
-  const whose =
-    emails > 1
-      ? `Shown as it goes for ${shownFor}, the first of ${emails}. Each email carries its own details.`
-      : `Shown as it goes for ${shownFor}.`;
-  if (!unfilled?.length) return whose;
+/** Whose copy the preview shows (an abstracts send), and what the send would refuse, when the server says. */
+function previewNote(shownFor: string | undefined, emails: number, unfilled: string[] | undefined, refusal?: string): string | undefined {
+  const whose = shownFor && (emails > 1
+    ? `Shown as it goes for ${shownFor}, the first of ${emails}. Each email carries its own details.`
+    : `Shown as it goes for ${shownFor}.`);
+  // The send's own check, asked ahead of the send (email-token-map.ts).
+  if (refusal) return [whose, `The send would be refused. ${refusal}`].filter(Boolean).join(" ");
+  if (!whose || !unfilled?.length) return whose || undefined;
   // An email that goes once per author cannot name one abstract.
   const tokens = unfilled.map((t) => `{{${t}}}`).join(", ");
   return `${whose} This email goes once per author, so ${tokens} cannot be filled and the send would be refused. To send one email per abstract, put the text in a saved template.`;
@@ -495,7 +495,7 @@ export function BulkEmailDialog({
   );
   const certTemplateOptions = certTemplatesQuery.data?.templates ?? [];
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string; shownFor?: string; unfilled?: string[] } | null>(null);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string; shownFor?: string; unfilled?: string[]; refusal?: string } | null>(null);
 
   // Computed once on mount; server-side validation re-checks at submit time.
   const [minScheduledFor] = useState(() => computeMinScheduledFor());
@@ -689,7 +689,7 @@ export function BulkEmailDialog({
           customSubject: customSubject.trim() || undefined,
           customMessage: customMessage.trim() || undefined,
         });
-        if (!previewWindow?.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) })) {
+        if (!previewWindow?.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled, result.refusal) })) {
           setPreviewData(result);
           setPreviewOpen(true);
         }
@@ -705,7 +705,7 @@ export function BulkEmailDialog({
       const previewWindow = openEmailPreviewWindow();
       try {
         const result = await previewMutation.mutateAsync({ slug: REVIEWER_INVITATION_TYPE, reviewerId: onlyReviewerId });
-        if (!previewWindow?.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) })) {
+        if (!previewWindow?.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled, result.refusal) })) {
           setPreviewData(result);
           setPreviewOpen(true);
         }
@@ -731,6 +731,8 @@ export function BulkEmailDialog({
         slug,
         customSubject: isCustom ? customSubject.trim() || undefined : undefined,
         customMessage: isCustom ? customMessage.trim() || undefined : undefined,
+        // Who it goes to, so the preview names any token this send would refuse.
+        audience: recipientType,
         // Abstracts: the first email this send would produce, with that
         // abstract's own number, title and decision, never a sample's.
         ...(isAbstracts && {
@@ -741,7 +743,7 @@ export function BulkEmailDialog({
           },
         }),
       });
-      if (!previewWindow?.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled) })) {
+      if (!previewWindow?.show({ ...result, note: previewNote(result.shownFor, displayCount, result.unfilled, result.refusal) })) {
         setPreviewData(result);
         setPreviewOpen(true);
       }
@@ -1921,7 +1923,7 @@ export function BulkEmailDialog({
         onOpenChange={setPreviewOpen}
         subject={previewData.subject}
         htmlContent={previewData.htmlContent}
-        note={previewNote(previewData.shownFor, displayCount, previewData.unfilled)}
+        note={previewNote(previewData.shownFor, displayCount, previewData.unfilled, previewData.refusal)}
       />
     )}
     </>

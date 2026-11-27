@@ -1,6 +1,6 @@
 # Email tokens: one map per audience
 
-Planned Nov 27, 2026. IN BUILD. Section 7 holds the owner decisions (all three decided Nov 27, 2026).
+Planned and built Nov 27, 2026 (steps 0 to 3, and typed emails). Section 7 holds the owner decisions.
 
 ## 1. The problem
 
@@ -100,13 +100,14 @@ Found by the reviews of steps 0 and 1 and fixed with them: a copy of the Abstrac
 - A typed email's set is the saved template's, less three things: an abstract's own tokens (a typed email goes once per author; the refusal says to use a saved template), and `{{subject}}`, `{{message}}`, `{{personalMessage}}`, which are the typed text itself.
 - Proved the same way: 108 recorded bulk emails and 28 per-person ones, every one byte for byte the same after the change; the drift tests hold the typed set in both directions for every audience, and a typed email from a person's record to the same set.
 
-### Step 3. Delete the old lists (about half a day)
+### Step 3. The old lists are gone. BUILT Nov 27, 2026
 
-- `BULK_BASE_VARIABLES`, `BULK_SPEAKER_VARIABLES`, `BULK_PRESENTER_VARIABLES`, `BULK_ABSTRACT_*_VARIABLES`, `BULK_CONDITIONAL_VARIABLES` and `CUSTOM_TEMPLATE_VARIABLE_GROUPS` go; their readers ask the map.
-- The preview's samples for audience tokens come from the map.
-- The editor's Variables panel is drawn from the map (each token gains its description and group), and the send dialog's preview names the tokens the send would refuse, for every audience (today only for abstract authors).
-- CLAUDE.md gets its "THE rule" entry; AGENTS.md the convention.
-- Two loose ends from the step 0 review: the editor accepts a `...Text` mirror of every key, though only five exist; and "saved template" has two definitions (`!spec` in `templateAllowedTokenKeys`, `isCustomTemplateSlug` in the senders), which differ for the two retired slugs.
+- Each map entry carries its editor group and its words. `BULK_BASE_VARIABLES`, `BULK_SPEAKER_VARIABLES`, `BULK_PRESENTER_VARIABLES`, `BULK_ABSTRACT_OWN_VARIABLES`, `BULK_ABSTRACT_AUTHOR_VARIABLES`, `BULK_CONDITIONAL_VARIABLES`, the hand-written `CUSTOM_TEMPLATE_VARIABLE_GROUPS` and `isUnlistedCustomTemplateToken` are deleted from the registry. Derived from the map now: the Variables panel, an abstract's own tokens (`ABSTRACT_OWN_TOKEN_KEYS`), and what a built-in template sent from Communications may also use (`BUILT_IN_BULK_TOKEN_KEYS`).
+- `templateAllowedTokenKeys` for a saved template is exactly the map's keys. Compared before and after for all 37 built-in slugs and a saved one: the built-in ones accept the identical set, and the panel's groups, order, words and hints are identical. A saved template lost 50 guessed `...Text` mirrors (`{{firstNameText}}`) that no send ever filled, which the editor accepted and the send refused.
+- The send dialog's preview is given the audience and asks the send's own check: a token that send would refuse is left bare in the preview, never filled from the samples, and named in a note ("The send would be refused. ..."), for a saved template and a typed email, every audience. The samples themselves stay where they were (`email.ts`): what mattered was that the preview could show a value the send will not fill.
+- CLAUDE.md (Key Files) and AGENTS.md (rule 12) carry the rule.
+
+Left as it is, on purpose: `templateAllowedTokenKeys` still treats the two retired slugs as saved templates while the senders do not (hidden rows nobody edits; unifying the two definitions changes nothing a person can reach).
 
 ## 5. What it does not fix
 

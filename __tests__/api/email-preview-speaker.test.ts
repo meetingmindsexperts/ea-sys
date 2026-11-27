@@ -421,6 +421,29 @@ describe("email-preview with abstractAudience (Nov 20, 2026)", () => {
     expect(body.unfilled).toEqual(["abstractNumber", "newStatus"]);
   });
 
+  // Nov 27, 2026: the preview asks the send's own token check (email-token-map.ts).
+  // MUTATION: stop deleting the refused tokens and the fee previews as the sample "USD 1,500.00".
+  it("with the audience, a token the send would refuse is left bare and named, for a saved template and a typed email", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({ subject: "For {{lastName}}", htmlContent: "<p>Fee: {{honorarium}}</p>", textContent: "", branding: { eventName: "Ev" } } as never);
+    vi.mocked(buildEventPreviewVariables).mockImplementationOnce(((_e: unknown, _u: unknown, extra: Record<string, string>) => ({
+      lastName: "Casison", honorarium: "USD 1,500.00", ...extra,
+    })) as never);
+    const saved = await POST(req({ slug: "my-saved-template", audience: "registrations" }), params);
+    const savedBody = (await saved.json()) as { htmlContent: string; refusal?: string };
+    expect(savedBody.htmlContent).toContain("Fee: {{honorarium}}");
+    expect(savedBody.refusal).toContain("{{honorarium}} is filled only when sending to speakers");
+
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({ subject: "{{subject}}", htmlContent: "{{message}}", textContent: "", branding: { eventName: "Ev" } } as never);
+    const typed = await POST(req({ slug: "custom-notification", customSubject: "Hi", customMessage: "You owe {{amount}}", audience: "speakers" }), params);
+    expect(((await typed.json()) as { refusal?: string }).refusal).toContain("{{amount}} is filled only when sending to registrations");
+  });
+
+  it("with the audience and nothing to refuse, the answer carries no refusal", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({ subject: "For {{lastName}}", htmlContent: "<p>Fee: {{honorarium}}</p>", textContent: "", branding: { eventName: "Ev" } } as never);
+    const res = await POST(req({ slug: "my-saved-template", audience: "speakers" }), params);
+    expect(await res.json()).not.toHaveProperty("refusal");
+  });
+
   it("keeps the samples, and names no one, when the audience is empty", async () => {
     mockAbstractPreview.mockResolvedValue(null);
     const res = await POST(req({ slug: "abstract-status-update", abstractAudience: { emailType: "abstract-decision" } }), params);

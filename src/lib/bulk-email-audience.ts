@@ -156,7 +156,7 @@ export function excludedAsNoBalance(
 
 import type { AbstractStatus } from "@prisma/client";
 import { findUnresolvedTokens } from "@/lib/template-tokens";
-import { BULK_ABSTRACT_OWN_VARIABLES } from "@/lib/email-template-registry";
+import { ABSTRACT_OWN_TOKEN_KEYS } from "@/lib/email-token-map";
 
 /** Types that send one email per ABSTRACT (the rest go once per author). */
 export const PER_ABSTRACT_EMAIL_TYPES: ReadonlySet<string> = new Set([
@@ -169,7 +169,7 @@ export const PER_ABSTRACT_EMAIL_TYPES: ReadonlySet<string> = new Set([
  * score). An email that names any of them can only be written about a single
  * abstract, so it is sent once per abstract.
  */
-export const ABSTRACT_OWN_TOKENS: ReadonlySet<string> = new Set(BULK_ABSTRACT_OWN_VARIABLES);
+export const ABSTRACT_OWN_TOKENS: ReadonlySet<string> = new Set(ABSTRACT_OWN_TOKEN_KEYS);
 
 /** Does this text name any of an abstract's own tokens? */
 export function namesAbstractOwnToken(texts: ReadonlyArray<string | null | undefined>): boolean {

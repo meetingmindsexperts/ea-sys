@@ -103,8 +103,8 @@ vi.mock("@/lib/travel-grant/server", () => ({
 
 import { executeBulkEmail } from "@/lib/bulk-email";
 import { findUnresolvedTokens } from "@/lib/template-tokens";
-import { BULK_ABSTRACT_OWN_VARIABLES, EMAIL_TEMPLATE_SPECS, type BulkEmailAudience } from "@/lib/email-template-registry";
-import { EMAIL_TOKEN_MAP, tokensSetFor } from "@/lib/email-token-map";
+import { EMAIL_TEMPLATE_SPECS, type BulkEmailAudience } from "@/lib/email-template-registry";
+import { ABSTRACT_OWN_TOKEN_KEYS, EMAIL_TOKEN_MAP, tokensSetFor } from "@/lib/email-token-map";
 
 const EVENT = {
   id: "evt-1", slug: "osh", name: "OSH Monthly Meeting 2026",
@@ -259,7 +259,7 @@ describe("bulk pipeline: a saved template naming every token of its audience ren
   // Naming every token above makes the abstracts send once per ABSTRACT. A
   // template that names none of an abstract's own goes once per author.
   it("abstracts, once per author: the author's own tokens and everyone's", async () => {
-    const own = new Set<string>(BULK_ABSTRACT_OWN_VARIABLES);
+    const own = new Set<string>(ABSTRACT_OWN_TOKEN_KEYS);
     const body = tokensSetFor("abstracts").filter((k) => !own.has(k)).map((k) => `{{${k}}}`).join(" ");
     mockDb.emailTemplate.findUnique.mockResolvedValue({
       id: "tpl-1", eventId: "evt-1", slug: "my-saved-template", name: "Mine", isActive: true,

@@ -21,6 +21,9 @@ import { buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { previewAbstractEmailVars } from "@/lib/bulk-email";
 import { ABSTRACT_OWN_TOKENS } from "@/lib/bulk-email-audience";
+import { emailTokenRefusal } from "@/lib/email-token-map";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import type { BulkEmailAudience } from "@/lib/email-template-registry";
 import { findUnresolvedTokens } from "@/lib/template-tokens";
 import { buildSpeakerEmailContext } from "@/lib/speaker-agreement";
 import { buildAbstractConfirmationVars } from "@/lib/abstract-notifications";
@@ -77,7 +80,25 @@ const previewSchema = z.object({
   // lives on the template row / system defaults), so it renders through
   // buildCertCoverEmailPreview instead of the template pipeline below.
   certificateTemplateIds: z.array(z.string().min(1).max(100)).min(1).max(5).optional(),
+  // Who the email dialog's send goes to. With it, a saved template or a typed
+  // email is read against the token map as the send's own check reads it: the
+  // tokens that send would refuse are left bare, never filled from the
+  // samples, and the answer says so (Nov 27, 2026).
+  audience: z.enum(["registrations", "speakers", "reviewers", "abstracts"]).optional(),
 });
+
+/** The send's token check for this preview: a saved template by its own text, a typed email by what was typed. */
+function previewTokenRefusal(
+  audience: BulkEmailAudience,
+  slug: string,
+  template: { subject: string; htmlContent: string },
+  customSubject: string | undefined,
+  customMessage: string | undefined,
+) {
+  if (isCustomTemplateSlug(slug)) return emailTokenRefusal(audience, "saved-template", template.subject, template.htmlContent);
+  if (slug === "custom-notification") return emailTokenRefusal(audience, "typed", customSubject, customMessage);
+  return null;
+}
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -97,7 +118,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId, registrationId, abstractId, reviewerId, abstractAudience } = parsed.data;
+    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId, registrationId, abstractId, reviewerId, abstractAudience, audience } = parsed.data;
 
     // Verify event access (org-scoped for team members; org-null SUPER_ADMIN
     // passes with no org filter, so the tenant wrap below uses the RESOURCE
@@ -459,6 +480,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (perAuthorAbstractSend) {
       for (const k of ABSTRACT_OWN_TOKENS) delete mergedVars[k];
     }
+    // What the send's own check would refuse (precheckBulkEmailViability asks
+    // the same function): left bare here too, and named in the answer.
+    const refusal = audience ? previewTokenRefusal(audience, slug, loadedTemplate, customSubject, customMessage) : null;
+    for (const k of refusal?.tokens ?? []) delete mergedVars[k];
     if (slug === "webinar-thank-you" && !thankYouSurvey) {
       mergedVars.surveyBlock = "";
       mergedVars.surveyBlockText = "";
@@ -517,6 +542,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       htmlContent: wrappedHtml,
       ...(shownFor ? { shownFor } : {}),
       ...(unfilled.length ? { unfilled } : {}),
+      ...(refusal ? { refusal: refusal.message } : {}),
     });
     });
   } catch (error) {

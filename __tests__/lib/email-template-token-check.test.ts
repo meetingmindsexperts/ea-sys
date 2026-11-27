@@ -19,20 +19,9 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  BULK_BASE_VARIABLES,
-  BULK_SPEAKER_VARIABLES,
-  BULK_PRESENTER_VARIABLES,
-  CUSTOM_TEMPLATE_VARIABLE_GROUPS,
-  isUnlistedCustomTemplateToken,
-  BULK_CONDITIONAL_VARIABLES,
-  BULK_ABSTRACT_OWN_VARIABLES,
-  BULK_ABSTRACT_AUTHOR_VARIABLES,
-  EMAIL_TEMPLATE_SPECS,
-  templateAllowedTokenKeys,
-} from "@/lib/email-template-registry";
+import { EMAIL_TEMPLATE_SPECS, templateAllowedTokenKeys } from "@/lib/email-template-registry";
 import { normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
-import { EMAIL_TOKEN_MAP } from "@/lib/email-token-map";
+import { ABSTRACT_OWN_TOKEN_KEYS, CUSTOM_TEMPLATE_VARIABLE_GROUPS, EMAIL_TOKEN_MAP, type EmailToken } from "@/lib/email-token-map";
 import { everyAudienceTokenValues, speakerTokenValues } from "@/lib/email-token-values";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
 
@@ -121,39 +110,35 @@ describe("every built-in template passes its own check", () => {
   }
 });
 
-describe("BULK_BASE_VARIABLES stays in step with the real sender", () => {
-  // The list is the contract; the builders every sender spreads are the truth
-  // (email-token-values.ts, since Nov 27, 2026; before that this read the
-  // literal object out of bulk-email.ts). Dropping a key there silently turns
-  // a working organiser template into a refused send, so ask the builders.
+describe("the shared builders the senders spread (email-token-values.ts)", () => {
+  // Since Nov 27, 2026 the token map is the contract and the drift tests send
+  // every mapped token to every audience; what is pinned here is the wiring.
   const src = readFileSync(join(process.cwd(), "src/lib/bulk-email.ts"), "utf8");
   const person = { id: "reg-12345678", firstName: "Sara", lastName: "Khan", title: "DR" };
-  const base = everyAudienceTokenValues({
-    event: { name: "E", startDate: null, venue: null, address: null, city: null, country: null },
-    person,
-    organizer: { name: "O", email: "o@x.test", signature: null },
-  });
+  const tokensOf = (pred: (t: EmailToken) => boolean) =>
+    (Object.entries(EMAIL_TOKEN_MAP) as Array<[string, EmailToken]>).filter(([, t]) => pred(t)).map(([k]) => k);
 
-  it("the bulk sender spreads the shared builders", () => {
+  it("the bulk sender spreads them", () => {
     expect(src).toContain("...everyAudienceTokenValues({");
     expect(src).toContain("Object.assign(vars, speakerTokenValues(ctx, recipient));");
   });
 
-  it("every declared base key is still set for every bulk recipient", () => {
-    const missing = BULK_BASE_VARIABLES.filter((k) => !(k in base));
-    expect(missing).toEqual([]);
-  });
-
-  it("the conditional RSVP tokens are still assigned in the bulk sender", () => {
-    for (const k of BULK_CONDITIONAL_VARIABLES) {
-      expect(src).toContain(`vars.${k} =`);
-    }
+  it("the base builder returns only mapped tokens that every audience gets", () => {
+    const base = everyAudienceTokenValues({
+      event: { name: "E", startDate: null, venue: null, address: null, city: null, country: null },
+      person,
+      organizer: { name: "O", email: "o@x.test", signature: null },
+    });
+    const everyAudience = tokensOf((t) => t.audiences === "all");
+    expect(Object.keys(base).filter((k) => !everyAudience.includes(k))).toEqual([]);
   });
 
   it("the presenter tokens are filled by the bulk sender through the shared helper, and a custom template may use them", () => {
     expect(src).toContain("resolvePresenterAgreementForSend(");
     const helper = readFileSync(join(process.cwd(), "src/lib/presenter-agreement-send.ts"), "utf8");
-    for (const k of BULK_PRESENTER_VARIABLES) {
+    const presenter = tokensOf((t) => t.group === "presenter");
+    expect(presenter).toHaveLength(2);
+    for (const k of presenter) {
       expect(helper).toContain(`${k}: ""`);
       expect(templateAllowedTokenKeys("faculty-welcome")).toContain(k);
     }
@@ -161,7 +146,9 @@ describe("BULK_BASE_VARIABLES stays in step with the real sender", () => {
 
   it("the speaker-only tokens are set by the speaker builder, with or without a context, and a custom template may use them", () => {
     const speaker = speakerTokenValues(null, person);
-    for (const k of BULK_SPEAKER_VARIABLES) {
+    const speakerOnly = tokensOf((t) => t.audiences !== "all" && t.audiences.length === 1 && t.audiences[0] === "speakers");
+    expect(speakerOnly).toHaveLength(3);
+    for (const k of speakerOnly) {
       expect(speaker).toHaveProperty(k);
       expect(templateAllowedTokenKeys("faculty-welcome")).toContain(k);
     }
@@ -173,14 +160,15 @@ describe("a saved template may name an abstract's tokens (Nov 20, 2026, review o
   // to warn "sends using it will be refused" and the agent refused the save.
   it("accepts every abstract token in a custom template, and still flags them in a system template that is not about abstracts", () => {
     const custom = templateAllowedTokenKeys("abstract-not-accepted");
-    for (const k of [...BULK_ABSTRACT_OWN_VARIABLES, ...BULK_ABSTRACT_AUTHOR_VARIABLES]) expect(custom).toContain(k);
+    expect(ABSTRACT_OWN_TOKEN_KEYS).toHaveLength(10);
+    for (const k of [...ABSTRACT_OWN_TOKEN_KEYS, "authorName", "managementLink"]) expect(custom).toContain(k);
     const confirmation = templateAllowedTokenKeys("registration-confirmation");
     for (const k of ["abstractNumber", "newStatus", "reviewNotes"]) expect(confirmation).not.toContain(k);
   });
 
   it("the two author tokens are assigned for every abstracts recipient in the bulk sender", () => {
     const sender = readFileSync(join(process.cwd(), "src/lib/bulk-email.ts"), "utf8");
-    for (const k of BULK_ABSTRACT_AUTHOR_VARIABLES) expect(sender).toContain(`vars.${k} =`);
+    for (const k of ["authorName", "managementLink"]) expect(sender).toContain(`vars.${k} =`);
   });
 
   it("the email dialog names its abstracts audience to the preview and the count, a saved template as \"template\" with its slug", () => {
@@ -201,8 +189,11 @@ describe("the custom template editor's grouped Variables panel (Sep 25, 2026)", 
     expect(listed.filter((k) => !allowed.includes(k))).toEqual([]);
   });
 
-  it("leaves out nothing the token check accepts, apart from the text mirrors and the payment block", () => {
-    expect(allowed.filter((k) => !listed.includes(k) && !isUnlistedCustomTemplateToken(k))).toEqual([]);
+  it("leaves out only what the map does not advertise: the text mirrors, the Pay Now block, the typed subject and message, the travel grant block", () => {
+    expect(allowed.filter((k) => !listed.includes(k)).sort()).toEqual([
+      "agreementBlockText", "entryBarcodeText", "message", "moderatorDetailsText", "paymentBlock",
+      "presentationDetailsText", "subject", "travelGrantBlock", "travelGrantBlockText",
+    ]);
   });
 
   it("lists each token once, and shows the speaker tokens a copy of the speaker invitation carries", () => {
@@ -216,11 +207,14 @@ describe("the token map (Nov 27, 2026): what a saved template may use is what so
   const allowed = templateAllowedTokenKeys("my-saved-template");
   const mapped = Object.keys(EMAIL_TOKEN_MAP);
 
-  it("the editor accepts every token in the map", () => {
-    expect(mapped.filter((k) => !allowed.includes(k))).toEqual([]);
+  it("the editor accepts exactly the map for a saved template: no guessed text mirrors", () => {
+    expect([...allowed].sort()).toEqual([...mapped].sort());
+    expect(allowed).not.toContain("firstNameText");
   });
 
-  it("the editor accepts nothing the map does not have, apart from the automatic text mirrors", () => {
-    expect(allowed.filter((k) => !k.endsWith("Text") && !mapped.includes(k))).toEqual([]);
+  it("a built-in template sent from Communications still gets what every bulk send sets, and the text mirrors of its own blocks", () => {
+    const invitation = templateAllowedTokenKeys("speaker-invitation");
+    for (const k of ["firstName", "presentationDetails", "honorarium", "rsvpButton", "presentationDetailsText"]) expect(invitation).toContain(k);
+    for (const k of ["subject", "message", "amount", "abstractTitle", "reviewLink"]) expect(invitation).not.toContain(k);
   });
 });

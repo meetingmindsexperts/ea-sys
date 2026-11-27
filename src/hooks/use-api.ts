@@ -1949,8 +1949,10 @@ export function usePreviewEmailBySlug(eventId: string) {
       reviewerId?: string;
       /** An abstracts send: the preview is the first email it would produce. */
       abstractAudience?: { emailType: string; status?: string; recipientIds?: string[] };
+      /** Who the send goes to: the preview then names the tokens that send would refuse. */
+      audience?: "registrations" | "speakers" | "reviewers" | "abstracts";
     }) =>
-      fetchApi<{ subject: string; htmlContent: string; shownFor?: string; unfilled?: string[] }>(
+      fetchApi<{ subject: string; htmlContent: string; shownFor?: string; unfilled?: string[]; refusal?: string }>(
         `/api/events/${eventId}/email-preview`,
         {
           method: "POST",

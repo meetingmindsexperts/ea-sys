@@ -337,6 +337,16 @@ path forgot it and reported success everywhere; it happened four or five times i
 **Consequence for you:** a new variable must be set on every path that can render the template, or the
 send fails loudly on the path that forgot. That failure is the guard working. Fix the path; never the guard.
 
+**Since Nov 27, 2026 the tokens a saved template or a typed email may use are ONE table**,
+`src/lib/email-token-map.ts`: each token once, with the audiences a send sets it for and the words the
+editor lists it under. The editor's accepted list and Variables panel, the preview's warning and the
+check made when a send is scheduled (`emailTokenRefusal`, code `TOKENS_NOT_SET`) are all read from it,
+and the VALUES come from the builders in `src/lib/email-token-values.ts`, which the bulk pipeline and both
+per-person sends spread. To add such a token: one entry in the map, its value in a builder (or in the one
+sender that owns it, listed in `email-token-writers.test.ts`). The drift tests then send it to every
+audience and fail until map and senders agree in both directions. A built-in template's own tokens stay
+in its registry entry. Plan and record: `docs/EMAIL_TOKEN_MAP_PLAN.md`.
+
 ## Roles and visibility
 
 Eleven roles. Org-bound: `SUPER_ADMIN` `ADMIN` `ORGANIZER` `MEMBER` `ONSITE` `WEBINARS` `CRM_USER`
