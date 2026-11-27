@@ -23,13 +23,13 @@ export function BadgeBarcodeWidth({
 }: {
   /** As typed; "" = fill the row. */
   valueMm: string;
-  /** The width of the barcode's row on this badge. */
+  /** The width the bars print at on this badge with no width set. */
   fullWidthMm: number;
   onChange: (valueMm: string) => void;
 }) {
-  const full = Math.max(MIN_MM, Math.floor(fullWidthMm));
+  const full = Math.max(MIN_MM, Math.round(fullWidthMm));
   const typed = Number(valueMm);
-  // A width at or past the row changes nothing, so it reads as full width.
+  // A width at or past what prints today changes nothing, so it reads as full width.
   const narrowed = typed > 0 && typed < full;
   const shown = narrowed ? Math.max(MIN_MM, typed) : full;
   const share = shown / full;
@@ -42,7 +42,7 @@ export function BadgeBarcodeWidth({
           {narrowed ? `${shown} of ${full} mm` : `Full width, ${full} mm`}
         </span>
       </div>
-      {/* The row the barcode may fill, with the barcode at the chosen size. */}
+      {/* The barcode at full width, with the chosen size drawn inside it. */}
       <div
         aria-hidden
         className="flex h-14 max-w-md items-center justify-center rounded-md border border-dashed bg-white"

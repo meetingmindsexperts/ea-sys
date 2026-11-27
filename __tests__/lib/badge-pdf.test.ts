@@ -521,6 +521,36 @@ describe("organisation and country each have a text size (Nov 27, 2026)", () => 
     expect(country.x).toBeCloseTo(org.x + doc.fontSize(14).widthOfString(org.str), 6);
   });
 
+  // Review of f79e403b: handed to pdfkit with a width, a pair too long for the
+  // badge wrapped, and the country printed as a column of letter fragments
+  // down through the barcode. The pieces are cut here and drawn with no width.
+  it.each([
+    ["King Faisal Specialist Hospital and Research Centre", 10, 9],
+    ["Sheikh Shakhbout Medical City Abu Dhabi", 12, 9],
+    ["King Faisal Specialist Hospital and Research Centre", 12, 9],
+    ["Mediclinic City Hospital Dubai", 14, 9],
+  ])("a pair too long for the badge is cut to ONE line that fits: %s at %i/%i", async (organization, orgSize, countrySize) => {
+    const textSpy = vi.mocked(PDFDocument.prototype.text);
+    await render(both(orgSize, countrySize), { ...REG, attendee: { ...REG.attendee, organization } });
+    const pieces = textCalls.filter((c) => c.y >= detailTop - 0.01 && c.y < detailTop + 10);
+    expect(pieces).toHaveLength(2);
+    const [org, country] = pieces;
+    expect(org.str.startsWith(organization.slice(0, 8))).toBe(true);
+    expect(org.str.endsWith("\u2026 \u00B7 ")).toBe(true);
+    expect(country.str.startsWith("United")).toBe(true);
+    // Neither piece is given a width, so pdfkit cannot wrap it.
+    for (const call of textSpy.mock.calls.filter((c) => c[0] === org.str || c[0] === country.str)) {
+      expect(call[3]).toEqual({ lineBreak: false });
+    }
+    // The pair sits inside the badge's content width (288 less a 20pt margin each side).
+    const doc = new PDFDocument();
+    const total = doc.font("Helvetica").fontSize(orgSize).widthOfString(org.str) + doc.fontSize(countrySize).widthOfString(country.str);
+    const left = (A4_W - 288) / 2 + 20;
+    expect(total).toBeLessThanOrEqual(248 + 1e-6);
+    expect(org.x).toBeGreaterThanOrEqual(left - 1e-6);
+    expect(country.x + doc.fontSize(countrySize).widthOfString(country.str)).toBeLessThanOrEqual(left + 248 + 1e-6);
+  });
+
   it("only one of the two printing takes its own size, as one string", async () => {
     await render({ ...both(14, 9), fields: { ...DEFAULT_BADGE_LAYOUT.fields, organization: true, country: false } });
     expect(find("Meeting Minds Experts")!.str).toBe("Meeting Minds Experts");

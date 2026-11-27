@@ -100,3 +100,14 @@ describe("badge preview: the barcode width on screen (Nov 27, 2026)", () => {
     expect((await preview("bw=full")).layout.barcodeMaxWidthPt).toBeNull();
   });
 });
+
+describe("badge preview: organisation and country sizes on screen (Nov 27, 2026)", () => {
+  it("forg and fcountry each replace their own size; without them an event's old shared size is used for both", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1", badgeVerticalOffset: 0, requiresDtcmBarcode: false, settings: { badge: { fontSizes: { detail: 12 } } } });
+    expect((await preview("")).layout.fontSizes).toMatchObject({ organization: 12, country: 12 });
+    mockGenerate.mockClear();
+    expect((await preview("forg=14&fcountry=8")).layout.fontSizes).toMatchObject({ organization: 14, country: 8 });
+    mockGenerate.mockClear();
+    expect((await preview("fcountry=8")).layout.fontSizes).toMatchObject({ organization: 12, country: 8 });
+  });
+});

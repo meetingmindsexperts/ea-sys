@@ -154,12 +154,34 @@ const DETAIL_SEPARATOR = " \u00B7 ";
 /** Helvetica's ascent as a share of the type size: what puts two sizes on one baseline. */
 const HELVETICA_ASCENT = 0.718;
 
+/** How much of the line the country may keep when the pair is too long for the badge. */
+const COUNTRY_SHARE = 0.4;
+
+/** `text` cut to fit `room` at the size set on `doc`, ending in an ellipsis when cut; "" when not even that fits. */
+function fitText(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  doc: any,
+  text: string,
+  room: number,
+): string {
+  if (doc.widthOfString(text) <= room) return text;
+  let cut = text;
+  while (cut.length > 0 && doc.widthOfString(`${cut.trimEnd()}\u2026`) > room) cut = cut.slice(0, -1);
+  return cut.length > 0 ? `${cut.trimEnd()}\u2026` : "";
+}
+
 /**
  * Organisation and country at two different sizes on one line: measured, so
  * the pair is centred as a whole, and the smaller one is dropped onto the
- * larger one's baseline. The dot rides with the organisation. A pair too long
- * for the badge starts at the left edge and the country is cut with an
- * ellipsis (or left out, if the organisation alone fills the line).
+ * larger one's baseline. The dot rides with the organisation.
+ *
+ * A pair too long for the badge is cut HERE, never handed to pdfkit with a
+ * width: with a width pdfkit wraps (its ellipsis needs a height too), and the
+ * country came out as a column of letter fragments down the badge, through
+ * the barcode (review of f79e403b). The country keeps up to COUNTRY_SHARE of
+ * the line, the organisation is cut to the rest, and the country is cut only
+ * if it still does not fit. Each piece is then drawn with no width, so it is
+ * always one line.
  */
 function drawTwoSizeDetail(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -171,16 +193,22 @@ function drawTwoSizeDetail(
   width: number,
 ) {
   doc.font("Helvetica").fillColor("#000000");
-  const lead = first.text + DETAIL_SEPARATOR;
-  const leadW = doc.fontSize(first.size).widthOfString(lead);
-  const secondW = doc.fontSize(second.size).widthOfString(second.text);
-  const start = left + Math.max(0, (width - leadW - secondW) / 2);
+  const sepW = doc.fontSize(first.size).widthOfString(DETAIL_SEPARATOR);
+  let lead = first.text;
+  let tail = second.text;
+  const tailW = doc.fontSize(second.size).widthOfString(tail);
+  if (doc.fontSize(first.size).widthOfString(lead) + sepW + tailW > width) {
+    lead = fitText(doc, lead, width - sepW - Math.min(tailW, width * COUNTRY_SHARE));
+    const leadRoom = doc.widthOfString(lead) + sepW;
+    tail = fitText(doc.fontSize(second.size), tail, width - leadRoom);
+  }
   const onBaseline = (size: number) => top + (Math.max(first.size, second.size) - size) * HELVETICA_ASCENT;
+  const leadText = lead && tail ? lead + DETAIL_SEPARATOR : lead;
+  const leadW = leadText ? doc.fontSize(first.size).widthOfString(leadText) : 0;
+  const start = left + (width - leadW - (tail ? doc.fontSize(second.size).widthOfString(tail) : 0)) / 2;
 
-  doc.fontSize(first.size).text(lead, start, onBaseline(first.size), { width: left + width - start, lineBreak: false, ellipsis: true });
-  const room = left + width - (start + leadW);
-  if (room <= 0) return;
-  doc.fontSize(second.size).text(second.text, start + leadW, onBaseline(second.size), { width: room, lineBreak: false, ellipsis: true });
+  if (leadText) doc.fontSize(first.size).text(leadText, start, onBaseline(first.size), { lineBreak: false });
+  if (tail) doc.fontSize(second.size).text(tail, start + leadW, onBaseline(second.size), { lineBreak: false });
 }
 
 function drawBadge(

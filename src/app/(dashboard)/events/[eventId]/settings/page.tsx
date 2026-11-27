@@ -2278,7 +2278,7 @@ export default function EventSettingsPage() {
                 </BadgeSection>
               </div>
 
-              <div className="order-first xl:order-none xl:sticky xl:top-20 xl:self-start">
+              <div className="order-first xl:order-none xl:sticky xl:top-4 xl:self-start">
                 <BadgeLivePreview
                   url={badgePreviewUrl()}
                   exhibitorUrl={badgeLayout.exhibitorFields ? badgePreviewUrl("exhibitor") : undefined}

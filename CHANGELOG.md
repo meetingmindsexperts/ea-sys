@@ -26,6 +26,20 @@ Owner, with a picture of the card: "improve the UI" (chosen: tidy plus a live pr
   shared size (`fontSizes.detail`) reads it for both, and the save still writes `detail`, so an older image keeps
   the organisation's size.
 - The scan warning's advice now says to raise the barcode width only when that width is what narrows the barcode.
+- **Review of f79e403b2** (0 BLOCKER, 1 HIGH, 1 MED, 8 LOW):
+  - HIGH, fixed: at two different sizes, an organisation and country too long for the badge were handed to pdfkit
+    with a width, which wraps (its ellipsis needs a height as well): the country printed as a column of letter
+    fragments down the badge, through the barcode, or not at all, and the preview's short sample hid it. The pair is
+    now cut in `drawTwoSizeDetail` itself and each piece is drawn with no width, so it is always one line: the
+    country keeps up to 40% of the line, the organisation is cut to the rest with an ellipsis. Tested with four real
+    long names.
+  - MED, fixed: every redraw of the live preview started a pdf.js worker and never ended it. Each draw's task is
+    destroyed when it finishes or is overtaken, which also drops a request a newer value has replaced.
+  - LOW, fixed: a role that may edit settings but not print badges was asked (and logged) on every change, now once,
+    with its own message; a failed draw is logged to the console; the frame no longer jumps half a second before the
+    picture; the paused message no longer promises a retry; the slider's maximum is rounded, not floored; the
+    preview's switches say which is pressed; the preview sticks 16px from the top, not 80.
+  - LOW, in ROADMAP: the rest (the warning's basis, a side-by-side edge, shared rate bucket, narrow screens).
 
 ### Badges: the organiser sets the barcode's width (November 27, 2026)
 

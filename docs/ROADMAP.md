@@ -58,6 +58,14 @@ From the review of `{{profileFormLink}}` (cc58509fc, Nov 27, 2026):
 
 Found by the review of the barcode width setting (85ad14edf). `barcodeTooNarrow` compares the barcode's BOX with about 60mm, but the image is fitted keeping its shape, so on a landscape badge the bars print narrower than the box: about 71mm in the 80mm row of a 4x3in badge, and about 53mm on the 3.5x2.25in preset, which the warning reads as 72mm and passes. Once the organiser sets a width the number is exact. Fix: compare `printedBarcodeWidthPt` (`src/lib/badge-layout.ts`) instead. Not done with the setting because it would start warning on a stock size live events print on today; the owner should see a scan test first.
 
+Left by the review of the Badge card's redesign (f79e403b2, Nov 27, 2026), all LOW:
+
+- With that warning unchanged, the card now shows the two numbers side by side: "Full width, 53 mm" on the 3.5x2.25in size with no warning, and narrowing to 50 then raising it back makes the warning come and go at 53mm. Closed by the fix above.
+- On a DTCM event with the QR beside the barcode, the slider's maximum is the narrower slot, so a typed width between the slot and the full row reads "Full width" yet narrows the badge of a registration that has no QR.
+- The live preview and the "Preview one badge" PDF share one hourly allowance (600 per user), and the preview reads the SAVED "requires DTCM" switch while the slider reads the one on screen.
+- Below the wide layout (under 1280px) the preview sits above the settings and does not follow; on a tall badge on a short screen its two PDF buttons can sit under the Save bar; under about 350px the 304px preview overflows.
+- No test covers `BadgeLivePreview` or `BadgeBarcodeWidth` (they need a browser), or the save writing `detail`.
+
 ## Saved templates and {{amount}}: what the Nov 27 review left (recorded Nov 27, 2026): not started
 
 A saved template sent to registrations now fills `{{amount}}` (the balance) and `{{paymentBlock}}` through `savedTemplatePaymentVars` in `src/lib/payment-reminder.ts`, from both the bulk sender and the registration sheet. Left:
