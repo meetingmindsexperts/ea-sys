@@ -24,6 +24,13 @@ describe("profileFormLinkForSend", () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  // Review of cc58509fc: the renderer collapses these to the token, so an
+  // undetected one went out as an empty link with nothing logged.
+  it.each(["{{ profileFormLink }}", "{{<strong>profileFormLink</strong>}}", "{{profileFormLink&nbsp;}}"])("counts a token typed as %s", async (typed) => {
+    const out = await profileFormLinkForSend({ ...base, texts: [`Your form: ${typed}`] });
+    expect(out.profileFormLink).toBe("https://app.test/e/medcon/speaker-form/tok_kept");
+  });
+
   it("answers the speaker's own link when a text names it (a typed message too), keeping an existing form's token", async () => {
     const out = await profileFormLinkForSend({ ...base, texts: ["Subject", undefined, "Your form: {{profileFormLink}}"] });
     expect(out).toEqual({ profileFormLink: "https://app.test/e/medcon/speaker-form/tok_kept" });

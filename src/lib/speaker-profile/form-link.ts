@@ -7,6 +7,7 @@
  */
 import { db } from "@/lib/db";
 import { generateProfileFormToken } from "@/lib/speaker-profile/server";
+import { normalizeTemplateTokens } from "@/lib/template-tokens";
 
 export function profileFormUrl(appUrl: string, eventSlug: string, token: string): string {
   return `${appUrl}/e/${eventSlug}/speaker-form/${token}`;
@@ -20,7 +21,7 @@ export function ensureProfileForm(p: {
   eventId: string;
   organizationId: string | null;
   speakerId: string;
-  /** The staff user behind the send; null for a scheduled one. */
+  /** The staff user behind the send, when there is one. */
   createdById: string | null;
 }) {
   return db.speakerProfileForm.upsert({
@@ -41,8 +42,10 @@ const PROFILE_FORM_LINK_RE = /\{\{profileFormLink\}\}/;
 
 /**
  * {{profileFormLink}} for ONE speaker in any send. Nothing is made unless a
- * text names the token; a failure throws, so the caller fails that one
- * recipient instead of sending a dead link.
+ * text names the token, read as the renderer reads it (a token typed with
+ * spaces or split by the editor still counts, or it would render as an empty
+ * link); a failure throws, so the caller fails that one recipient instead of
+ * sending a dead link.
  */
 export async function profileFormLinkForSend(
   p: Parameters<typeof ensureProfileForm>[0] & {
@@ -52,7 +55,7 @@ export async function profileFormLinkForSend(
     texts: Array<string | null | undefined>;
   },
 ): Promise<{ profileFormLink: string }> {
-  if (!p.texts.some((t) => !!t && PROFILE_FORM_LINK_RE.test(t))) return { profileFormLink: "" };
+  if (!p.texts.some((t) => !!t && PROFILE_FORM_LINK_RE.test(normalizeTemplateTokens(t)))) return { profileFormLink: "" };
   const form = await ensureProfileForm(p);
   return { profileFormLink: profileFormUrl(p.appUrl, p.eventSlug, form.token) };
 }

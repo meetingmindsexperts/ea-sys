@@ -385,6 +385,11 @@ describe("bulk pipeline: a saved template naming every token of its audience ren
     expect((mockSendEmail.mock.calls[0][0] as { htmlContent: string }).htmlContent).toContain("Please sign: https://x.test/agree/abc");
   });
 
+  it("a typed email to speakers that names the profile form link carries the speaker's own, typed with spaces too", async () => {
+    await executeBulkEmail(typedInput("speakers", "Your form: {{ profileFormLink }}"));
+    expect((mockSendEmail.mock.calls[0][0] as { htmlContent: string }).htmlContent).toMatch(/Your form: \S+\/speaker-form\/tok_form/);
+  });
+
   it.each(AUDIENCES)("%s, typed: the send sets nothing the map does not list", async (audience) => {
     if (audience === "abstracts") mockDb.abstract.findMany.mockResolvedValue([abstractRow("SUBMITTED")]);
     await executeBulkEmail(typedInput(audience, "Hello {{firstName}}"));

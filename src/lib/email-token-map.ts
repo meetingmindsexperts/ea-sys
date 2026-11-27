@@ -22,7 +22,7 @@ import { findUnresolvedTokens, normalizeTemplateTokens } from "@/lib/template-to
 /** The editor's Variables panel groups, in order. A token's group says what it is ABOUT; `audiences` says who a send sets it for. */
 const TOKEN_GROUPS = [
   { id: "everyone", label: "Every email", hint: "Filled whoever you send to." },
-  { id: "speakers", label: "Sent to speakers", hint: "Filled when the audience is speakers; empty for anyone else." },
+  { id: "speakers", label: "Sent to speakers", hint: "Filled when the audience is speakers. For anyone else the blocks are empty, and a send naming the fee or the profile form link is refused." },
   { id: "presenter", label: "Presenter agreement", hint: "Sent to speakers or abstract authors; empty for anyone who has already accepted it." },
   {
     id: "authors",

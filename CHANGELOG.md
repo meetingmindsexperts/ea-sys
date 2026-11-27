@@ -15,9 +15,20 @@ Owner: "add the profile form link to saved templates", "it can be just added in 
   speaker page's "send the form" email carried it, one speaker at a time.
 - Each speaker gets their own link. The form is made the first time an email names the token and its link never
   changes afterwards, so a link in an earlier email keeps working. An email that does not name the token makes
-  nothing. A send to any other audience that names it is refused when it is sent or scheduled, with the reason.
+  nothing. A saved template or typed email to any other audience that names it is refused when it is sent or
+  scheduled, with the reason; a built-in template that names it and goes to another audience is refused as each
+  email is built.
 - One helper makes the form and builds the link (`src/lib/speaker-profile/form-link.ts`); the speaker page's route
   calls it too, where it had its own copy.
+- **Review of cc58509fc** (0 BLOCKER, 0 HIGH, 2 MED, 4 LOW):
+  - MED, fixed: a token typed with spaces (`{{ profileFormLink }}`) or split by the editor was not seen by the
+    helper while the renderer still read it, so the email went out with an empty link and nothing logged. The helper
+    now reads the text as the renderer does.
+  - MED, in ROADMAP: a copy of the built-in Speaker Profile Form Request still cannot be sent, because it also
+    carries `{{profileFormAsks}}`, which only the speaker page's own send fills.
+  - LOW, fixed: a test that the link reaches a typed email to speakers; the editor's hint for the speakers group said
+    "empty for anyone else" where the fee and this link are refused. LOW, in ROADMAP: the link never expires and
+    now rides on sends with CC and BCC, as the agreement and RSVP links do.
 
 ### CRM: a shorter header, and People first on a deal (November 26, 2026)
 
