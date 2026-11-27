@@ -1094,6 +1094,11 @@ export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hin
     ],
   },
   {
+    label: "Sent to registrations",
+    hint: "Filled when the audience is registrations; empty for anyone who owes nothing.",
+    variables: [{ key: "amount", description: "Amount due (e.g. USD 100.00)" }],
+  },
+  {
     label: "Sent to speakers",
     hint: "Filled when the audience is speakers; empty for anyone else.",
     variables: [
@@ -1198,6 +1203,8 @@ export function templateAllowedTokenKeys(slug: string): string[] {
   if (!spec) {
     for (const k of BULK_ABSTRACT_OWN_VARIABLES) allowed.add(k);
     for (const k of BULK_ABSTRACT_AUTHOR_VARIABLES) allowed.add(k);
+    // A send to registrations fills the amount due, as the payment reminder does (bulk-email.ts).
+    allowed.add("amount");
   }
   for (const k of [...allowed]) allowed.add(`${k}Text`);
   return [...allowed];

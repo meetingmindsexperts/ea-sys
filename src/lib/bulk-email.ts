@@ -7,6 +7,7 @@ import { apiLogger } from "./logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, observerBcc, type EmailBranding, eventLocationVars, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
 import { readRegistrationBasePrice } from "./registration-financials";
 import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import {
   buildAgreementBlock,
   buildSpeakerEmailContext,
@@ -2339,7 +2340,14 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // drift. Gated on the resolved template slug so it fires whether the send
     // is the first-class "payment-reminder" type OR a saved template on that
     // slug — the bulk path previously left both tokens empty (no link).
-    if (templateSlug === "payment-reminder" && recipientType === "registrations") {
+    // A saved (custom) template gets them too (Nov 27, 2026: a copy of the
+    // reminder was refused on {{amount}}), but only for someone who owes:
+    // a settled registration gets both blank, never a price and Pay Now.
+    const customOnRegistrations = isCustomTemplateSlug(templateSlug) && recipientType === "registrations";
+    if (customOnRegistrations && (!recipient.paymentStatus || NO_PAYMENT_DUE_STATUSES.includes(recipient.paymentStatus as (typeof NO_PAYMENT_DUE_STATUSES)[number]))) {
+      vars.amount = "";
+      vars.paymentBlock = "";
+    } else if ((templateSlug === "payment-reminder" && recipientType === "registrations") || customOnRegistrations) {
       const { amount, paymentBlock } = buildPaymentReminderVars({
         registrationId: recipient.id,
         firstName: recipient.firstName,
