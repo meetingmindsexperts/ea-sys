@@ -36,12 +36,21 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (cb: (tx: unknown) => unknown) => cb(mockDb) }));
+// $transaction and verificationToken: the presenter agreement's link is minted in one (the real resolver runs).
+vi.mock("@/lib/db", () => ({
+  db: {
+    ...mockDb,
+    verificationToken: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({}) },
+    $transaction: (ops: unknown[]) => Promise.all(ops),
+  },
+  tenantTransaction: (cb: (tx: unknown) => unknown) => cb(mockDb),
+}));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, cb: () => unknown) => cb() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/security", () => ({
   checkRateLimit: vi.fn().mockReturnValue({ allowed: true, retryAfterSeconds: 0, remaining: 1 }),
   getClientIp: () => "1.2.3.4",
+  hashVerificationToken: (t: string) => `hash:${t}`,
 }));
 vi.mock("@/lib/email", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/email")>();
@@ -87,6 +96,7 @@ import { POST as registrationPost } from "@/app/api/events/[eventId]/registratio
 import { POST as speakerPost } from "@/app/api/events/[eventId]/speakers/[speakerId]/email/route";
 import { findUnresolvedTokens } from "@/lib/template-tokens";
 import { singleSendTypesFor } from "@/lib/email-template-registry";
+import { tokensSetFor } from "@/lib/email-token-map";
 
 const EVENT = {
   id: "ev1", slug: "my-event", name: "My Event", startDate: new Date("2026-11-01T05:00:00Z"), endDate: new Date("2026-11-02T14:00:00Z"),
@@ -171,5 +181,42 @@ describe("speaker page, Send Email: every built-in type renders its default temp
     );
     expect(res.status, `${type}: ${JSON.stringify(await res.json())}`).toBe(200);
     assertClean(`speaker/${type}`);
+  });
+});
+
+/**
+ * The saved-template twin (Nov 27, 2026; docs/EMAIL_TOKEN_MAP_PLAN.md step 0):
+ * a saved template naming every token the map says its audience gets, sent
+ * from one person's record, comes out with nothing unresolved. Until that day
+ * a template that sent from Communications could be refused from the record.
+ * The RSVP tokens are left out: they need an invite, covered by the RSVP tests.
+ */
+describe("a saved template naming every token of its audience, sent from one person's record", () => {
+  function savedTemplate(audience: "registrations" | "speakers") {
+    const body = tokensSetFor(audience).map((k) => `{{${k}}}`).join(" ");
+    mockDb.emailTemplate.findUnique.mockResolvedValue({
+      id: "tpl-1", eventId: "ev1", slug: "my-saved-template", name: "Mine", isActive: true,
+      subject: "For {{firstName}}", htmlContent: `<p>${body}</p>`, textContent: body,
+    });
+  }
+
+  it("the registration record", async () => {
+    savedTemplate("registrations");
+    const res = await registrationPost(
+      req("http://t/api/events/ev1/registrations/reg1/email", { templateSlug: "my-saved-template" }),
+      { params: Promise.resolve({ eventId: "ev1", registrationId: "reg1" }) },
+    );
+    expect(res.status, JSON.stringify(await res.json())).toBe(200);
+    assertClean("registration/saved template");
+  });
+
+  it("the speaker page", async () => {
+    savedTemplate("speakers");
+    const res = await speakerPost(
+      req("http://t/api/events/ev1/speakers/sp1/email", { type: "template", templateSlug: "my-saved-template" }),
+      { params: Promise.resolve({ eventId: "ev1", speakerId: "sp1" }) },
+    );
+    expect(res.status, JSON.stringify(await res.json())).toBe(200);
+    assertClean("speaker/saved template");
   });
 });

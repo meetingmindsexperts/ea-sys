@@ -1150,6 +1150,11 @@ export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hin
     ],
   },
   {
+    label: "Sent to reviewers",
+    hint: "Filled when the audience is reviewers. A send to anyone else is refused.",
+    variables: [{ key: "reviewLink", description: "Their link to sign in and open My Reviews" }],
+  },
+  {
     label: "With an RSVP chosen",
     hint: "Filled only when an RSVP is picked in the send dialog.",
     variables: [
@@ -1205,6 +1210,8 @@ export function templateAllowedTokenKeys(slug: string): string[] {
     for (const k of BULK_ABSTRACT_AUTHOR_VARIABLES) allowed.add(k);
     // A send to registrations fills the amount due, as the payment reminder does (bulk-email.ts).
     allowed.add("amount");
+    // A send to reviewers fills their way into My Reviews (flagged as unknown until Nov 27, 2026).
+    allowed.add("reviewLink");
   }
   for (const k of [...allowed]) allowed.add(`${k}Text`);
   return [...allowed];

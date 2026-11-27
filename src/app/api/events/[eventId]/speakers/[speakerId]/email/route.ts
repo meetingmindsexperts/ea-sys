@@ -21,6 +21,7 @@ import {
   normalizeEmail,
   repointOrgContactEmail,
 } from "@/lib/email-change";
+import { everyAudienceTokenValues } from "@/lib/email-token-map";
 import {
   buildAgreementBlock,
   buildSpeakerEmailContext,
@@ -204,7 +205,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     // empty block (organizer-reported bug, July 16 2026).
     const context = await buildSpeakerEmailContext(eventId, speakerId);
 
-    const vars: Record<string, string> = {
+    const vars: Record<string, string | number> = {
+      // Every token a send from Communications sets, so a saved template sends
+      // from here too (Nov 27, 2026); this route's own values below win.
+      ...everyAudienceTokenValues({
+        eventStartDate: event.startDate,
+        eventAddress: event.address,
+        personId: speaker.id,
+        firstName: speaker.firstName,
+        lastName: speaker.lastName,
+        personalMessage: customMessage,
+      }),
       firstName: speaker.firstName,
       lastName: speaker.lastName,
       eventName: event.name,

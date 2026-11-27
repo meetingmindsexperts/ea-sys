@@ -32,6 +32,7 @@ import {
   templateAllowedTokenKeys,
 } from "@/lib/email-template-registry";
 import { normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
+import { EMAIL_TOKEN_MAP } from "@/lib/email-token-map";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
 
 const check = (slug: string, ...parts: Array<string | null | undefined>) =>
@@ -231,5 +232,18 @@ describe("the custom template editor's grouped Variables panel (Sep 25, 2026)", 
     expect(new Set(listed).size).toBe(listed.length);
     const speaker = CUSTOM_TEMPLATE_VARIABLE_GROUPS.find((g) => g.label === "Sent to speakers")!.variables.map((v) => v.key);
     for (const k of ["speakerName", "presentationDetails", "moderatorDetails", "agreementBlock", "honorarium"]) expect(speaker).toContain(k);
+  });
+});
+
+describe("the token map (Nov 27, 2026): what a saved template may use is what some send sets", () => {
+  const allowed = templateAllowedTokenKeys("my-saved-template");
+  const mapped = Object.keys(EMAIL_TOKEN_MAP);
+
+  it("the editor accepts every token in the map", () => {
+    expect(mapped.filter((k) => !allowed.includes(k))).toEqual([]);
+  });
+
+  it("the editor accepts nothing the map does not have, apart from the automatic text mirrors", () => {
+    expect(allowed.filter((k) => !k.endsWith("Text") && !mapped.includes(k))).toEqual([]);
   });
 });

@@ -26,6 +26,7 @@ import {
 } from "@/lib/email-change";
 import { buildPaymentReminderVars, savedTemplatePaymentVars } from "@/lib/payment-reminder";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { everyAudienceTokenValues } from "@/lib/email-token-map";
 import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import { excludedAsNoBalance, NO_BALANCE_PAYMENT_STATUSES } from "@/lib/bulk-email-audience";
 import { computeRegistrationRowMoney } from "@/lib/registration-export";
@@ -445,6 +446,18 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     const vars: Record<string, string | number> = {
+      // Every token a send from Communications sets, so a saved template sends
+      // from here too (Nov 27, 2026); this route's own values below win.
+      ...everyAudienceTokenValues({
+        eventStartDate: event.startDate,
+        eventAddress: event.address,
+        personId: registration.id,
+        firstName: registration.attendee.firstName,
+        lastName: registration.attendee.lastName,
+        serialId: registration.serialId,
+        ticketTypeName: registration.ticketType?.name,
+        personalMessage: customMessage,
+      }),
       title: getTitleLabel(registration.attendee.title),
       firstName: registration.attendee.firstName,
       lastName: registration.attendee.lastName,

@@ -36,7 +36,11 @@ const { mockDb, mockSendEmail } = vi.hoisted(() => ({
   mockSendEmail: vi.fn(),
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: typeof mockDb) => unknown) => fn(mockDb) }));
+// $transaction: the presenter agreement's link is minted in one (the real resolver runs).
+vi.mock("@/lib/db", () => ({
+  db: { ...mockDb, $transaction: (ops: unknown[]) => Promise.all(ops) },
+  tenantTransaction: (fn: (tx: typeof mockDb) => unknown) => fn(mockDb),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/email", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/email")>();
@@ -69,6 +73,7 @@ vi.mock("@/lib/email-barcode", () => ({
 }));
 vi.mock("@/lib/payment-reminder", () => ({
   buildPaymentReminderVars: vi.fn().mockReturnValue({ amount: "USD 105.00", paymentBlock: "<div>Pay now</div>" }),
+  savedTemplatePaymentVars: vi.fn().mockReturnValue({ amount: "USD 105.00", paymentBlock: "<div>Pay now</div>" }),
 }));
 vi.mock("@/lib/certificates/bundle", () => ({ loadCertTemplate: vi.fn() }));
 vi.mock("@/lib/certificates/bulk-issue", () => ({ executeCertificateBulkSend: vi.fn() }));
@@ -80,6 +85,7 @@ vi.mock("@/lib/travel-grant/server", () => ({
 import { executeBulkEmail } from "@/lib/bulk-email";
 import { findUnresolvedTokens } from "@/lib/template-tokens";
 import { EMAIL_TEMPLATE_SPECS, type BulkEmailAudience } from "@/lib/email-template-registry";
+import { tokensSetFor } from "@/lib/email-token-map";
 
 const EVENT = {
   id: "evt-1", slug: "osh", name: "OSH Monthly Meeting 2026",
@@ -186,6 +192,46 @@ describe("bulk pipeline: every registered (type, audience) renders its default t
       const params = call[0] as { subject: string; htmlContent: string; textContent?: string };
       expect(findUnresolvedTokens(params.subject, params.htmlContent), `${type}/${audience}: unresolved in subject or body`).toEqual([]);
       expect(findUnresolvedTokens(params.textContent), `${type}/${audience}: unresolved in the text part`).toEqual([]);
+    }
+  });
+});
+
+/**
+ * The saved-template twin (Nov 27, 2026; docs/EMAIL_TOKEN_MAP_PLAN.md step 0).
+ * The cases above pin the built-in templates; nothing pinned a SAVED template,
+ * so a copy of the payment reminder was refused on {{amount}} for a whole
+ * audience. A saved template naming EVERY token the map says a send to that
+ * audience sets must come out with nothing unresolved. The three RSVP tokens
+ * are left out: they need an RSVP picked, and the precheck refuses them without one.
+ */
+describe("bulk pipeline: a saved template naming every token of its audience renders with nothing unresolved", () => {
+  const AUDIENCES: BulkEmailAudience[] = ["registrations", "speakers", "reviewers", "abstracts"];
+
+  it.each(AUDIENCES)("%s", async (audience) => {
+    const body = tokensSetFor(audience).map((k) => `{{${k}}}`).join(" ");
+    mockDb.emailTemplate.findUnique.mockResolvedValue({
+      id: "tpl-1", eventId: "evt-1", slug: "my-saved-template", name: "Mine", isActive: true,
+      subject: "For {{firstName}}", htmlContent: `<p>${body}</p>`, textContent: body,
+    });
+    if (audience === "abstracts") mockDb.abstract.findMany.mockResolvedValue([abstractRow("SUBMITTED")]);
+
+    const res = await executeBulkEmail({
+      eventId: "evt-1",
+      recipientType: audience,
+      emailType: "template",
+      filters: { templateSlug: "my-saved-template" },
+      organizerName: "Organizer",
+      organizerEmail: "org@x.test",
+      organizationId: "org-1",
+      triggeredByUserId: "user-1",
+    });
+
+    expect(res.failureCount, `${audience}: ${JSON.stringify(res.errors)}`).toBe(0);
+    expect(mockSendEmail).toHaveBeenCalled();
+    for (const call of mockSendEmail.mock.calls) {
+      const params = call[0] as { subject: string; htmlContent: string; textContent?: string };
+      expect(findUnresolvedTokens(params.subject, params.htmlContent), `${audience}: unresolved in subject or body`).toEqual([]);
+      expect(findUnresolvedTokens(params.textContent), `${audience}: unresolved in the text part`).toEqual([]);
     }
   });
 });
