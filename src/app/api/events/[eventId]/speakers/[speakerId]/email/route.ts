@@ -9,8 +9,7 @@ import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc , eventLocationVars } from "@/lib/email";
-import { getTitleLabel } from "@/lib/utils";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc } from "@/lib/email";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import {
@@ -21,7 +20,7 @@ import {
   normalizeEmail,
   repointOrgContactEmail,
 } from "@/lib/email-change";
-import { everyAudienceTokenValues } from "@/lib/email-token-map";
+import { everyAudienceTokenValues, speakerTokenValues } from "@/lib/email-token-values";
 import {
   buildAgreementBlock,
   buildSpeakerEmailContext,
@@ -117,7 +116,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       findGatedEvent(gate, {}),
       db.speaker.findFirst({
         where: { id: speakerId, eventId },
-        include: { sessions: { include: { session: true } } },
       }),
       db.user.findUnique({
         where: { id: session.user.id },
@@ -171,16 +169,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const eventDate = event.startDate
-      ? new Date(event.startDate).toLocaleDateString("en-US", {
-          weekday: "long", year: "numeric", month: "long", day: "numeric",
-        })
-      : "TBA";
     const organizerName = user?.firstName && user?.lastName
       ? `${user.firstName} ${user.lastName}` : "Event Organizer";
     const organizerEmail = user?.email || "";
-    const sessionDetails = speaker.sessions.length > 0
-      ? speaker.sessions.map((s) => s.session.name).join(", ") : "";
 
     // Generate a hashed, one-time verification token for agreement emails
     // (shared helper — the bulk pipeline mints through the same code).
@@ -205,43 +196,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     // empty block (organizer-reported bug, July 16 2026).
     const context = await buildSpeakerEmailContext(eventId, speakerId);
 
+    // The builders the bulk pipeline uses (email-token-values.ts): the event,
+    // the person, the sender and the note, then the speaker's own title,
+    // programme and fee from the context, so a template sends from here as it
+    // does from Communications.
     const vars: Record<string, string | number> = {
-      // Every token a send from Communications sets, so a saved template sends
-      // from here too (Nov 27, 2026); this route's own values below win.
       ...everyAudienceTokenValues({
-        eventStartDate: event.startDate,
-        eventAddress: event.address,
-        personId: speaker.id,
-        firstName: speaker.firstName,
-        lastName: speaker.lastName,
-        personalMessage: customMessage,
+        event,
+        person: { id: speaker.id, firstName: speaker.firstName, lastName: speaker.lastName, title: speaker.title },
+        organizer: { name: organizerName, email: organizerEmail, signature: user?.emailSignature },
+        note: customMessage,
       }),
-      firstName: speaker.firstName,
-      lastName: speaker.lastName,
-      eventName: event.name,
-      eventDate,
-      eventVenue: event.venue || "TBA",
-      ...eventLocationVars(event),
-      organizerName,
-      organizerEmail,
-      personalMessage: customMessage || "",
-      sessionDetails,
+      ...speakerTokenValues(context, speaker),
       agreementLink,
-      // Title prefix ("Dr.", "Prof.", ...) — for invitation/agreement we use
-      // the context's pre-formatted value; for custom emails (no context)
-      // fall back to formatting the raw enum on the speaker row so the
-      // {{title}} placeholder still renders correctly.
-      title: context?.title ?? getTitleLabel(speaker.title),
-      speakerName: context?.speakerName ?? `${speaker.firstName} ${speaker.lastName}`,
-      presentationDetails: context?.presentationDetails ?? "",
-      presentationDetailsText: context?.presentationDetailsText ?? "",
-      moderatorDetails: context?.moderatorDetails ?? "",
-      moderatorDetailsText: context?.moderatorDetailsText ?? "",
-      // The organiser-agreed fee (Sep 3, 2026); "0.00" when none is agreed.
-      honorarium: context?.honorarium ?? "0.00",
-      honorariumAmount: context?.honorariumAmount ?? "0.00",
-      honorariumCurrency: context?.honorariumCurrency ?? "",
-      organizerSignature: user?.emailSignature ?? "",
     };
 
     if (type === "custom") {

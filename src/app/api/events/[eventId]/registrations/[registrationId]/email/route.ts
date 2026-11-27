@@ -9,10 +9,9 @@ import { db, tenantTransaction } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, sendRegistrationConfirmation, eventLocationVars } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
 import { resolveRsvpLinkForPerson, templateUsesRsvpLink } from "@/lib/rsvp/personal-link";
-import { getTitleLabel } from "@/lib/utils";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -26,7 +25,7 @@ import {
 } from "@/lib/email-change";
 import { buildPaymentReminderVars, savedTemplatePaymentVars } from "@/lib/payment-reminder";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
-import { everyAudienceTokenValues } from "@/lib/email-token-map";
+import { everyAudienceTokenValues } from "@/lib/email-token-values";
 import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import { excludedAsNoBalance, NO_BALANCE_PAYMENT_STATUSES } from "@/lib/bulk-email-audience";
 import { computeRegistrationRowMoney } from "@/lib/registration-export";
@@ -430,12 +429,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
     }
 
-    const eventDate = event.startDate
-      ? new Date(event.startDate).toLocaleDateString("en-US", {
-          weekday: "long", year: "numeric", month: "long", day: "numeric",
-        })
-      : "TBA";
-
     // The sender's profile signature (User.emailSignature, edited at
     // /profile) so {{organizerSignature}} resolves on this path too — it was
     // the ONE single-send route that never threaded the var, so a template
@@ -445,46 +438,28 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { emailSignature: true, firstName: true, lastName: true, email: true },
     });
 
+    // The event, the person, the sender, the note and the block tokens that
+    // stay empty until a branch below fills them: the builder the bulk
+    // pipeline uses (email-token-values.ts), so a template sends from here as
+    // it does from Communications.
     const vars: Record<string, string | number> = {
-      // Every token a send from Communications sets, so a saved template sends
-      // from here too (Nov 27, 2026); this route's own values below win.
       ...everyAudienceTokenValues({
-        eventStartDate: event.startDate,
-        eventAddress: event.address,
-        personId: registration.id,
-        firstName: registration.attendee.firstName,
-        lastName: registration.attendee.lastName,
-        serialId: registration.serialId,
-        ticketTypeName: registration.ticketType?.name,
-        personalMessage: customMessage,
+        event,
+        person: {
+          id: registration.id,
+          firstName: registration.attendee.firstName,
+          lastName: registration.attendee.lastName,
+          title: registration.attendee.title,
+          serialId: registration.serialId,
+          ticketTypeName: registration.ticketType?.name,
+        },
+        organizer: {
+          name: sender?.firstName && sender?.lastName ? `${sender.firstName} ${sender.lastName}` : "Event Organizer",
+          email: sender?.email ?? "",
+          signature: sender?.emailSignature,
+        },
+        note: customMessage,
       }),
-      title: getTitleLabel(registration.attendee.title),
-      firstName: registration.attendee.firstName,
-      lastName: registration.attendee.lastName,
-      eventName: event.name,
-      eventDate,
-      eventVenue: event.venue || "TBA",
-      eventAddress: event.address || "",
-      // The tokens the editor advertises for these templates and the bulk
-      // send fills; this route left them out, so a template using
-      // {{eventCity}} sent from Communications and was refused from the
-      // registration sheet (September 18, 2026).
-      ...eventLocationVars(event),
-      organizerName:
-        sender?.firstName && sender?.lastName ? `${sender.firstName} ${sender.lastName}` : "Event Organizer",
-      organizerEmail: sender?.email ?? "",
-      ticketType: registration.ticketType?.name || "General Admission",
-      registrationId: registration.serialId != null
-        ? String(registration.serialId).padStart(3, "0")
-        : registration.id.slice(-8).toUpperCase(),
-      organizerSignature: sender?.emailSignature ?? "",
-      // Entry-barcode token defaults — overridden below when the template
-      // uses {{entryBarcode}} and this is an in-person registration.
-      entryBarcode: "",
-      entryBarcodeText: "",
-      // Filled by the payment-reminder branch; empty otherwise so a saved
-      // template carrying the token is never refused on this path.
-      paymentBlock: "",
     };
 
     // A caller may name the count; otherwise the real one, set above (no screen

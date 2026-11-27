@@ -100,38 +100,3 @@ export function savedTemplateTokenRefusal(
     message: `This template cannot go to ${AUDIENCE_NOUN[audience]} as it is: ${parts.join("; ")}. Change it under Communications, Email Templates, then try again.`,
   };
 }
-
-/**
- * The values of the tokens EVERY audience gets that are not the person's name
- * or the event block: what the bulk pipeline has always set, here so a send
- * from one person's record sets the same (step 0; the bulk pipeline moves onto
- * it in step 2). The block tokens are empty until their own audience's branch
- * fills them. Spread it FIRST: a sender's own value wins.
- */
-export function everyAudienceTokenValues(p: {
-  eventStartDate: Date | null | undefined;
-  eventAddress: string | null | undefined;
-  personId: string;
-  firstName: string;
-  lastName: string;
-  serialId?: number | null;
-  ticketTypeName?: string | null;
-  personalMessage?: string | null;
-}) {
-  return {
-    eventAddress: p.eventAddress || "",
-    daysUntilEvent: p.eventStartDate
-      ? Math.max(1, Math.ceil((new Date(p.eventStartDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-      : 1,
-    speakerName: `${p.firstName} ${p.lastName}`,
-    personalMessage: p.personalMessage || "",
-    subject: "",
-    message: p.personalMessage || "",
-    ticketType: p.ticketTypeName || "General Admission",
-    registrationId: p.serialId != null ? String(p.serialId).padStart(3, "0") : p.personId.slice(-8).toUpperCase(),
-    presentationDetails: "", presentationDetailsText: "",
-    moderatorDetails: "", moderatorDetailsText: "", sessionDetails: "",
-    agreementLink: "", agreementBlock: "", agreementBlockText: "", agreementAttachment: "",
-    entryBarcode: "", entryBarcodeText: "", paymentBlock: "",
-  } satisfies Partial<Record<EmailTokenKey, string | number>>;
-}

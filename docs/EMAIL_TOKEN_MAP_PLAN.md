@@ -84,14 +84,16 @@ Not done in this step, and why:
 
 Found by the reviews of steps 0 and 1 and fixed with them: a copy of the Abstract Submission Confirmation carries `{{travelGrantBlock}}`, which the first cut of the map left out (it would have been refused; the token is now set, empty, for every author); a reminder sent from the registration record always said "1" day to go; `{{personalMessage}}` from the registration record was escaped and its tokens left unresolved.
 
-### Step 2. One builder per audience (about two days, the risky part)
+### Step 2. One builder for the values. BUILT Nov 27, 2026 (the typed custom email remains, below)
 
-- `src/lib/email-tokens/registration.ts`, `speaker.ts`, `abstract-author.ts`, `reviewer.ts`: each a function from already-loaded rows to that audience's tokens, typed against the map.
-- The bulk pipeline's base block and its audience branches are replaced by a call to the builder, one audience per commit, registrations first (the audience with money in it).
-- The registration sheet and the speaker page then call the same builder, and their own copies are deleted.
-- Proof that nothing changed: before each commit, a snapshot test renders a fixed set of recipients (paid, unpaid, group member, cancelled, virtual, author on hold; speaker with and without sessions) through every template type for that audience and stores the HTML; after the change the HTML must be byte for byte the same. The snapshot test is deleted when the step is done.
+- `src/lib/email-token-values.ts`: `everyAudienceTokenValues` (the event, the person, the sender, the typed note, and the block tokens that stay empty until filled) and `speakerTokenValues` (title, programme and fee from the speaker's context). The bulk pipeline, the registration record's send and the speaker page's send spread them; their own copies are deleted.
+- What a sender still assigns itself is its own: links it mints, blocks that come with an attachment, the typed subject and note, one email type's blocks. `email-token-writers.test.ts` lists them per file; a new hand assignment of a mapped token fails until it is added there.
+- Proof that nothing changed: before the change, a temporary test recorded what each sender hands to `sendEmail` (subject, HTML, text, attachment names) for every email type and audience and for saved templates, 48 bulk emails and 16 per-person ones. After it, all 48 bulk emails were byte for byte the same, and 14 of the 16 per-person ones. The two that differ are the intended one: `{{sessionDetails}}` on the speaker page now comes from the speaker's context, as from Communications (the same session rows; the test's stand-in context and stand-in speaker disagreed).
+- Narrower than first planned, on purpose: reviewers' and abstract authors' tokens have one sender (the bulk pipeline), and a registration's money tokens were already one helper (`payment-reminder.ts`), so there was nothing to merge. The compiler checks that a builder returns only mapped tokens; that every mapped token is filled is the drift tests' job.
 
-**Rule it sets:** a sender never writes `vars.someToken =` for an audience token; a test lists the files that may.
+Still to do in this step, waiting on the owner:
+
+- **A typed custom email checked when it is scheduled.** Its subject and note are rendered at different moments with different sets of tokens (the event date range is not there for the note; the amount and the RSVP name are not there for the subject), and `{{amount}}` is not set at all. To check it honestly those have to become one set first, which changes two things for people: a typed email to registrations could use `{{amount}}` and the Pay Now button, and tokens that fail in a typed subject or note today would work. The assistant's `send_bulk_email` always sends a typed email, so it is uncovered until then.
 
 ### Step 3. Delete the old lists (about half a day)
 

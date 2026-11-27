@@ -33,6 +33,7 @@ import {
 } from "@/lib/email-template-registry";
 import { normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
 import { EMAIL_TOKEN_MAP } from "@/lib/email-token-map";
+import { everyAudienceTokenValues, speakerTokenValues } from "@/lib/email-token-values";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
 
 const check = (slug: string, ...parts: Array<string | null | undefined>) =>
@@ -121,50 +122,25 @@ describe("every built-in template passes its own check", () => {
 });
 
 describe("BULK_BASE_VARIABLES stays in step with the real sender", () => {
-  // The list is the contract; bulk-email.ts is the truth. Dropping a key there
-  // silently turns a working organiser template into a refused send, so read
-  // the actual object rather than trusting the copy.
+  // The list is the contract; the builders every sender spreads are the truth
+  // (email-token-values.ts, since Nov 27, 2026; before that this read the
+  // literal object out of bulk-email.ts). Dropping a key there silently turns
+  // a working organiser template into a refused send, so ask the builders.
   const src = readFileSync(join(process.cwd(), "src/lib/bulk-email.ts"), "utf8");
-  const marker = "const vars: Record<string, string | number> = {";
-  const start = src.indexOf(marker) + marker.length - 1;
+  const person = { id: "reg-12345678", firstName: "Sara", lastName: "Khan", title: "DR" };
+  const base = everyAudienceTokenValues({
+    event: { name: "E", startDate: null, venue: null, address: null, city: null, country: null },
+    person,
+    organizer: { name: "O", email: "o@x.test", signature: null },
+  });
 
-  const topLevelKeys = (() => {
-    let depth = 0;
-    let end = -1;
-    for (let i = start; i < src.length; i++) {
-      const c = src[i];
-      if (c === "{") depth++;
-      else if (c === "}") {
-        depth--;
-        if (depth === 0) {
-          end = i;
-          break;
-        }
-      }
-    }
-    const keys: string[] = [];
-    let d = 0;
-    for (const line of src.slice(start + 1, end).split("\n")) {
-      const t = line.trim();
-      if (d === 0) {
-        const m = /^([A-Za-z_]\w*)\s*:/.exec(t) ?? /^([A-Za-z_]\w*),\s*$/.exec(t);
-        if (m) keys.push(m[1]);
-      }
-      for (const c of line) {
-        if ("{[(".includes(c)) d++;
-        else if ("}])".includes(c)) d--;
-      }
-    }
-    return keys;
-  })();
-
-  it("finds the base variable object (guards the parser itself)", () => {
-    expect(marker && src.includes(marker)).toBe(true);
-    expect(topLevelKeys.length).toBeGreaterThanOrEqual(25);
+  it("the bulk sender spreads the shared builders", () => {
+    expect(src).toContain("...everyAudienceTokenValues({");
+    expect(src).toContain("speakerTokenValues(await buildSpeakerEmailContext(eventId, recipient.id), recipient)");
   });
 
   it("every declared base key is still set for every bulk recipient", () => {
-    const missing = BULK_BASE_VARIABLES.filter((k) => !topLevelKeys.includes(k));
+    const missing = BULK_BASE_VARIABLES.filter((k) => !(k in base));
     expect(missing).toEqual([]);
   });
 
@@ -183,9 +159,10 @@ describe("BULK_BASE_VARIABLES stays in step with the real sender", () => {
     }
   });
 
-  it("the speaker-only tokens are still assigned in the bulk sender, and a custom template may use them", () => {
+  it("the speaker-only tokens are set by the speaker builder, with or without a context, and a custom template may use them", () => {
+    const speaker = speakerTokenValues(null, person);
     for (const k of BULK_SPEAKER_VARIABLES) {
-      expect(src).toContain(`vars.${k} =`);
+      expect(speaker).toHaveProperty(k);
       expect(templateAllowedTokenKeys("faculty-welcome")).toContain(k);
     }
   });

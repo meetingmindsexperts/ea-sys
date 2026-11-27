@@ -4,11 +4,12 @@ import { z } from "zod";
 import { MAX_MANUAL_CC } from "@/lib/email-address-list";
 import { db } from "./db";
 import { apiLogger } from "./logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, observerBcc, type EmailBranding, eventLocationVars, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, observerBcc, type EmailBranding, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
 import { readRegistrationBasePrice } from "./registration-financials";
 import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { savedTemplateTokenRefusal } from "@/lib/email-token-map";
+import { everyAudienceTokenValues, speakerTokenValues } from "@/lib/email-token-values";
 import {
   buildAgreementBlock,
   buildSpeakerEmailContext,
@@ -1568,18 +1569,6 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     process.env.NEXTAUTH_URL ||
     "http://localhost:3000";
 
-  const eventDate = event.startDate
-    ? new Date(event.startDate).toLocaleDateString("en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
-    : "TBA";
-  const eventVenue = event.venue || "TBA";
-  // {{eventCity}} / {{eventCountry}} — see eventLocationVars in email.ts for
-  // why these are separate tokens rather than folded into eventVenue.
-  const { eventCity, eventCountry } = eventLocationVars(event);
 
   // ── Resolve recipients ──
   let recipients: ResolvedRecipient[] = [];
@@ -1979,12 +1968,6 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     });
   }
 
-  const daysUntil = event.startDate
-    ? Math.max(
-        1,
-        Math.ceil((new Date(event.startDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-      )
-    : 1;
 
   // Event-level branding: prefer the explicit branding shipped with a rendered
   // event template (e.g. from /api/templates/preview), else build one from the
@@ -2173,53 +2156,22 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
 
   const generateEmailForRecipient = async (recipient: ResolvedRecipient) => {
     const vars: Record<string, string | number> = {
-      firstName: recipient.firstName,
-      lastName: recipient.lastName,
-      eventName: event.name,
-      eventDate,
-      eventVenue,
-      eventCity,
-      eventCountry,
-      eventAddress: event.address || "",
-      organizerName,
-      organizerEmail,
-      organizerSignature: organizerSignature ?? "",
-      personalMessage: customMessage || "",
-      ticketType: recipient.ticketType || "General Admission",
-      registrationId:
-        recipient.serialId != null
-          ? String(recipient.serialId).padStart(3, "0")
-          : recipient.id.slice(-8).toUpperCase(),
-      daysUntilEvent: daysUntil,
-      // Title formatted via the same getTitleLabel helper used by every
-      // other send-site (sendRegistrationConfirmation, buildSpeakerEmailContext).
-      // For speaker-context branches (invitation/agreement), the override
-      // below replaces this with ctx.title — same formatted shape, just
-      // sourced from the Speaker row's enriched context.
-      title: getTitleLabel(recipient.title),
-      speakerName: `${recipient.firstName} ${recipient.lastName}`,
-      presentationDetails: "",
-      presentationDetailsText: "",
-      moderatorDetails: "",
-      moderatorDetailsText: "",
-      sessionDetails: "",
-      // Agreement tokens — populated below for speaker recipients when the
-      // template uses them; empty so the placeholders disappear otherwise.
-      agreementLink: "",
-      agreementBlock: "",
-      agreementBlockText: "",
-      // Invisible marker token — always renders as nothing; its presence in
-      // the template only drives the attachment decision above.
-      agreementAttachment: "",
-      // Entry-barcode token defaults — overridden below for registrations
-      // recipients when the template uses {{entryBarcode}} and the recipient
-      // has a qrCode. Empty otherwise so the placeholder disappears.
-      entryBarcode: "",
-      entryBarcodeText: "",
-      // Filled below for the payment reminder and the registration
-      // confirmation; empty everywhere else so the token never survives to
-      // the unresolved-token refusal.
-      paymentBlock: "",
+      // The event, the person, the sender, the note and the block tokens that
+      // stay empty until a branch below fills them: one builder for every
+      // sender (email-token-values.ts).
+      ...everyAudienceTokenValues({
+        event,
+        person: {
+          id: recipient.id,
+          firstName: recipient.firstName,
+          lastName: recipient.lastName,
+          title: recipient.title,
+          serialId: recipient.serialId,
+          ticketTypeName: recipient.ticketType,
+        },
+        organizer: { name: organizerName, email: organizerEmail, signature: organizerSignature },
+        note: customMessage,
+      }),
     };
 
     if (recipientType === "reviewers") {
@@ -2275,20 +2227,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     }
 
     if (isSpeakerContextNeeded) {
-      const ctx = await buildSpeakerEmailContext(eventId, recipient.id);
-      if (ctx) {
-        vars.title = ctx.title;
-        vars.speakerName = ctx.speakerName;
-        vars.presentationDetails = ctx.presentationDetails;
-        vars.presentationDetailsText = ctx.presentationDetailsText;
-        vars.moderatorDetails = ctx.moderatorDetails;
-        vars.moderatorDetailsText = ctx.moderatorDetailsText;
-        vars.sessionDetails = ctx.sessionTitles.replace(/\n/g, ", ");
-        // The organiser-agreed fee rides every speaker send (Sep 3, 2026).
-        vars.honorarium = ctx.honorarium;
-        vars.honorariumAmount = ctx.honorariumAmount;
-        vars.honorariumCurrency = ctx.honorariumCurrency;
-      }
+      // Title, programme and fee from the speaker's context, the speaker page's send included.
+      Object.assign(vars, speakerTokenValues(await buildSpeakerEmailContext(eventId, recipient.id), recipient));
     }
 
     if (templateWantsAgreement) {
