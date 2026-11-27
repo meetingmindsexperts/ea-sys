@@ -8,6 +8,7 @@ import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderM
 import { readRegistrationBasePrice } from "./registration-financials";
 import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { savedTemplateTokenRefusal } from "@/lib/email-token-map";
 import {
   buildAgreementBlock,
   buildSpeakerEmailContext,
@@ -906,6 +907,9 @@ export function parsePaymentStatusFilter(value: string | undefined): PaymentStat
 /** Error code set on BulkEmailError for an unparsable filter value (review M7). */
 export const INVALID_FILTER_CODE = "INVALID_FILTER";
 
+/** A saved template that names a token its audience's send does not set (email-token-map.ts): refused at enqueue and at fire time alike. */
+export const TOKENS_NOT_SET_CODE = "TOKENS_NOT_SET";
+
 /** A saved (custom) template that is missing or inactive: refused at enqueue and at fire time alike. */
 export const TEMPLATE_NOT_AVAILABLE_CODE = "TEMPLATE_NOT_AVAILABLE";
 export const savedTemplateUnavailableMessage = (slug: string) =>
@@ -1172,6 +1176,21 @@ export async function precheckBulkEmailViability(
     if (!savedTemplate) {
       apiLogger.warn({ msg: "bulk-email:saved-template-unavailable", eventId, recipientType, templateSlug: filters.templateSlug });
       throw new BulkEmailError(savedTemplateUnavailableMessage(filters.templateSlug), 400, TEMPLATE_NOT_AVAILABLE_CODE);
+    }
+    // A token this audience's send does not set would fail every email when
+    // the send fires (Nov 27, 2026: {{amount}}, 25 recipients, 46 minutes
+    // after scheduling). Say so now, by the token map.
+    const tokenRefusal = savedTemplateTokenRefusal(
+      recipientType,
+      savedTemplate.subject,
+      savedTemplate.htmlContent,
+      savedTemplate.textContent,
+      customSubject,
+      customMessage,
+    );
+    if (tokenRefusal) {
+      apiLogger.warn({ msg: "bulk-email:saved-template-tokens-not-set", eventId, recipientType, templateSlug: filters.templateSlug, tokens: tokenRefusal.tokens });
+      throw new BulkEmailError(tokenRefusal.message, 400, TOKENS_NOT_SET_CODE);
     }
   }
 

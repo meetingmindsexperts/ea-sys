@@ -429,3 +429,38 @@ describe("precheckBulkEmailViability — saved templates resolve at enqueue (com
     expect(res.event.id).toBe("evt-1");
   });
 });
+
+describe("a saved template that names a token its audience's send does not set (Nov 27, 2026)", () => {
+  const send = (recipientType: "registrations" | "speakers", htmlContent: string, extra: Record<string, unknown> = {}) => {
+    vi.mocked(loadActiveEventTemplateRow).mockResolvedValue({ subject: "For {{firstName}}", htmlContent, textContent: "" } as never);
+    return precheckBulkEmailViability({ eventId: "evt-1", recipientType, emailType: "template", filters: { templateSlug: "mine" }, ...extra });
+  };
+
+  it("is refused when scheduled, naming the token and who it is for", async () => {
+    const err = await send("registrations", "<p>Your fee: {{honorarium}}</p>").catch((e) => e);
+    expect(err).toBeInstanceOf(BulkEmailError);
+    expect(err.code).toBe("TOKENS_NOT_SET");
+    expect(err.message).toContain("{{honorarium}} is filled only when sending to speakers");
+    expect(err.message).toContain("This send goes to registrations");
+  });
+
+  it("goes through for the audience the token belongs to", async () => {
+    await expect(send("speakers", "<p>Your fee: {{honorarium}}</p>")).resolves.toBeTruthy();
+    await expect(send("registrations", "<p>You owe {{amount}}</p>{{paymentBlock}}")).resolves.toBeTruthy();
+  });
+
+  it("refuses a token no send sets, as a spelling to check", async () => {
+    const err = await send("registrations", "<p>Dear {{frstName}}</p>").catch((e) => e);
+    expect(err.code).toBe("TOKENS_NOT_SET");
+    expect(err.message).toContain("{{frstName}} is not a token a saved template can use");
+  });
+
+  it("reads the typed subject and note too", async () => {
+    const err = await send("registrations", "<p>{{message}}</p>", { customMessage: "See {{presenterAgreementLink}}" }).catch((e) => e);
+    expect(err.message).toContain("{{presenterAgreementLink}} is filled only when sending to speakers or abstract authors");
+  });
+
+  it("leaves the block tokens that are empty for another audience alone (they send today)", async () => {
+    await expect(send("registrations", "<p>{{presentationDetails}} {{agreementBlock}} {{speakerName}}</p>")).resolves.toBeTruthy();
+  });
+});

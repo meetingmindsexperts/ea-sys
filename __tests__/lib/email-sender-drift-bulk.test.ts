@@ -18,7 +18,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockSendEmail } = vi.hoisted(() => ({
+const { mockDb, mockSendEmail, tokenRefusal } = vi.hoisted(() => ({
+  // Off for the one case that proves what the refusal claims: those tokens really are left unset.
+  tokenRefusal: { on: true },
   mockDb: {
     event: { findFirst: vi.fn() },
     emailTemplate: { findUnique: vi.fn().mockResolvedValue(null) },
@@ -41,6 +43,14 @@ vi.mock("@/lib/db", () => ({
   db: { ...mockDb, $transaction: (ops: unknown[]) => Promise.all(ops) },
   tenantTransaction: (fn: (tx: typeof mockDb) => unknown) => fn(mockDb),
 }));
+vi.mock("@/lib/email-token-map", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/email-token-map")>();
+  return {
+    ...actual,
+    savedTemplateTokenRefusal: (...args: Parameters<typeof actual.savedTemplateTokenRefusal>) =>
+      tokenRefusal.on ? actual.savedTemplateTokenRefusal(...args) : null,
+  };
+});
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/email", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/email")>();
@@ -85,7 +95,7 @@ vi.mock("@/lib/travel-grant/server", () => ({
 import { executeBulkEmail } from "@/lib/bulk-email";
 import { findUnresolvedTokens } from "@/lib/template-tokens";
 import { EMAIL_TEMPLATE_SPECS, type BulkEmailAudience } from "@/lib/email-template-registry";
-import { tokensSetFor } from "@/lib/email-token-map";
+import { EMAIL_TOKEN_MAP, tokensSetFor } from "@/lib/email-token-map";
 
 const EVENT = {
   id: "evt-1", slug: "osh", name: "OSH Monthly Meeting 2026",
@@ -153,6 +163,7 @@ beforeEach(() => {
   mockDb.eventSession.findFirst.mockResolvedValue({ startTime: new Date("2026-10-02T06:00:00Z"), endTime: new Date("2026-10-02T07:00:00Z") });
   mockDb.zoomMeeting.findFirst.mockResolvedValue({ joinUrl: "https://zoom.test/j/1", passcode: "123456", recordingStatus: "AVAILABLE", recordingUrl: "https://zoom.test/rec/1" });
   mockSendEmail.mockResolvedValue({ success: true, messageId: "m1" });
+  tokenRefusal.on = true;
 });
 
 /** Every (type, audience) the registry says the bulk pipeline sends. The webinar sequence has no dropdown entry; it goes to registrations. */
@@ -233,5 +244,35 @@ describe("bulk pipeline: a saved template naming every token of its audience ren
       expect(findUnresolvedTokens(params.subject, params.htmlContent), `${audience}: unresolved in subject or body`).toEqual([]);
       expect(findUnresolvedTokens(params.textContent), `${audience}: unresolved in the text part`).toEqual([]);
     }
+  });
+
+  // The other direction: what the map says an audience does NOT get, the send
+  // really leaves unset, so refusing it when the send is scheduled
+  // (savedTemplateTokenRefusal, switched off here to reach the send) stops
+  // nothing that would have gone out.
+  it.each(AUDIENCES)("%s: every token the map gives only to other audiences is left unset", async (audience) => {
+    tokenRefusal.on = false;
+    const set = new Set<string>(tokensSetFor(audience, { withRsvp: true }));
+    const others = Object.keys(EMAIL_TOKEN_MAP).filter((k) => !set.has(k));
+    mockDb.emailTemplate.findUnique.mockResolvedValue({
+      id: "tpl-1", eventId: "evt-1", slug: "my-saved-template", name: "Mine", isActive: true,
+      subject: "For {{firstName}}", htmlContent: `<p>${others.map((k) => `{{${k}}}`).join(" ")}</p>`, textContent: "x",
+    });
+    if (audience === "abstracts") mockDb.abstract.findMany.mockResolvedValue([abstractRow("SUBMITTED")]);
+
+    await executeBulkEmail({
+      eventId: "evt-1",
+      recipientType: audience,
+      emailType: "template",
+      filters: { templateSlug: "my-saved-template" },
+      organizerName: "Organizer",
+      organizerEmail: "org@x.test",
+      organizationId: "org-1",
+      triggeredByUserId: "user-1",
+    });
+
+    expect(mockSendEmail).toHaveBeenCalled();
+    const params = mockSendEmail.mock.calls[0][0] as { htmlContent: string };
+    expect(findUnresolvedTokens(params.htmlContent).sort()).toEqual([...others].sort());
   });
 });

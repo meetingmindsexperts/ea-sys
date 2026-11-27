@@ -14,6 +14,7 @@
  * entry (`variables`), pinned by the email-sender-drift tests.
  */
 import type { BulkEmailAudience } from "@/lib/email-template-registry";
+import { findUnresolvedTokens, normalizeTemplateTokens } from "@/lib/template-tokens";
 
 export interface EmailToken {
   /** The audiences a send sets it for. */
@@ -34,6 +35,8 @@ export const EMAIL_TOKEN_MAP = {
   eventCity: ALL, eventCountry: ALL, eventAddress: ALL, daysUntilEvent: ALL,
   title: ALL, firstName: ALL, lastName: ALL, speakerName: ALL,
   organizerName: ALL, organizerEmail: ALL, organizerSignature: ALL, personalMessage: ALL,
+  // The subject and note typed for this send; empty when none was typed.
+  subject: ALL, message: ALL,
   ticketType: ALL, registrationId: ALL,
   // Set for everyone, empty for an audience they mean nothing to.
   presentationDetails: ALL, presentationDetailsText: ALL,
@@ -63,6 +66,37 @@ export function tokensSetFor(audience: BulkEmailAudience, opts: { withRsvp?: boo
   });
 }
 
+const AUDIENCE_NOUN: Record<BulkEmailAudience, string> = {
+  registrations: "registrations",
+  speakers: "speakers",
+  reviewers: "reviewers",
+  abstracts: "abstract authors",
+};
+
+/**
+ * What a saved template sent to `audience` names that the send will not set,
+ * so every email would be refused: a sentence for the sender, or null. Asked
+ * when the send is scheduled (precheckBulkEmailViability), not found out when
+ * it fires. The RSVP tokens count as set: the RSVP check beside it owns them.
+ */
+export function savedTemplateTokenRefusal(
+  audience: BulkEmailAudience,
+  ...texts: Array<string | null | undefined>
+): { message: string; tokens: string[] } | null {
+  const set = new Set<string>(tokensSetFor(audience, { withRsvp: true }));
+  const tokens = findUnresolvedTokens(...texts.map((t) => normalizeTemplateTokens(t ?? ""))).filter((t) => !set.has(t));
+  if (tokens.length === 0) return null;
+  const parts = tokens.map((t) => {
+    const token: EmailToken | undefined = (EMAIL_TOKEN_MAP as Record<string, EmailToken>)[t];
+    if (!token || token.audiences === "all") return `{{${t}}} is not a token a saved template can use (check its spelling)`;
+    return `{{${t}}} is filled only when sending to ${token.audiences.map((a) => AUDIENCE_NOUN[a]).join(" or ")}`;
+  });
+  return {
+    tokens,
+    message: `Email not sent: ${parts.join("; ")}. This send goes to ${AUDIENCE_NOUN[audience]}. Change the template (Communications, Email Templates) or the message, then send again.`,
+  };
+}
+
 /**
  * The values of the tokens EVERY audience gets that are not the person's name
  * or the event block: what the bulk pipeline has always set, here so a send
@@ -87,6 +121,8 @@ export function everyAudienceTokenValues(p: {
       : 1,
     speakerName: `${p.firstName} ${p.lastName}`,
     personalMessage: p.personalMessage || "",
+    subject: "",
+    message: p.personalMessage || "",
     ticketType: p.ticketTypeName || "General Admission",
     registrationId: p.serialId != null ? String(p.serialId).padStart(3, "0") : p.personId.slice(-8).toUpperCase(),
     presentationDetails: "", presentationDetailsText: "",

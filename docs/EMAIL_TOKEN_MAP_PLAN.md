@@ -67,23 +67,24 @@ Out, on purpose:
 
 Each step is one or two commits, changes no email on its own unless stated, and ships by itself.
 
-### Step 0. The map as data, and the test that was missing (about half a day)
+### Step 0. The map as data, and the test that was missing. BUILT Nov 27, 2026
 
-- Write the map for the 47 tokens a saved template may use today, each with its audiences. Nothing reads it yet except tests.
-- New test, the saved-template twin of the drift tests: for each audience, a saved template that names every token the map gives that audience goes through `executeBulkEmail` and must come out with nothing unresolved; the same through the two per-person routes.
-- A second test: `templateAllowedTokenKeys` for a saved template equals the map's keys.
-- Expect it to fail on the three mismatches in section 1. Fix each (fill it, or correct the map).
+- `src/lib/email-token-map.ts`: each token a saved template may use, with the audiences a send sets it for.
+- The drift tests send a saved template naming every token to every audience, through the bulk pipeline and both per-person routes. `email-template-token-check.test.ts` holds the editor's accepted list to the map.
+- What they found, fixed in the same change: `{{reviewLink}}` was flagged by the editor; the registration record's send left 12 tokens unset that Communications sets, and the speaker page 7. Both now spread `everyAudienceTokenValues`.
 
-**Why first:** it catches today's class of bug from then on, and it is the safety net for steps 2 and 3.
+### Step 1. Say no when it is scheduled. BUILT Nov 27, 2026
 
-### Step 1. Say no when it is scheduled (about half a day)
+- `savedTemplateTokenRefusal` (the map's file), asked by `precheckBulkEmailViability`: a saved template, or the subject and note typed with it, that names a token its audience's send does not set is refused when the send is made or scheduled (code `TOKENS_NOT_SET`), naming the token and who it is for, or that it is not a token (a spelling). The agent's `send_bulk_email` and a scheduled send firing go through the same check.
+- The drift test proves the other direction too: every token the map gives only to other audiences is really left unset by the send, so the refusal stops nothing that would have gone out.
+- `{{subject}}` and `{{message}}` (the subject and note typed for the send) joined the map: the bulk pipeline has always set them for a saved template, and the editor flagged them.
 
-- `precheckBulkEmailViability` (already called by the send route, the schedule route and the agent) asks the map: does this saved template, or typed message, name a token this audience does not get? If so, refuse with code `TOKENS_NOT_FOR_AUDIENCE` and a sentence naming them ("`{{honorarium}}` is filled only when sending to speakers").
-- The two per-person routes ask the same.
-- The preview answers the same list, so the dialog can show it before Send. The abstract-author preview already does this for its own tokens; this makes it general.
-- The editor's Variables panel is drawn from the map (the audience grouping is now data, not a second list).
+Not done in this step, and why:
 
-**Changes for people:** a send that today is accepted and then fails for everyone is refused in the dialog instead. Nothing that sends today stops sending.
+- **A typed custom email** (no saved template) is not checked yet. Its send sets a slightly different set (no `{{amount}}`, none of an abstract's own tokens), and nothing pins that set by test. It keeps today's behaviour: refused when it fires. Do it with step 2, when the builders make the set one thing.
+- **The per-person sends** are not asked: they send at once, so the refusal already arrives in the same click.
+- **The preview's note and the editor's panel drawn from the map** moved to step 3, where the old lists go.
+- **One send that went through now does not:** `{{travelGrantBlock}}` in a saved template sent once per abstract rendered as nothing; it is now refused as not a saved-template token. No saved template on production uses it (checked Nov 27, 2026: 84 saved templates, every token they use is in the map).
 
 ### Step 2. One builder per audience (about two days, the risky part)
 
@@ -98,6 +99,7 @@ Each step is one or two commits, changes no email on its own unless stated, and 
 
 - `BULK_BASE_VARIABLES`, `BULK_SPEAKER_VARIABLES`, `BULK_PRESENTER_VARIABLES`, `BULK_ABSTRACT_*_VARIABLES`, `BULK_CONDITIONAL_VARIABLES` and `CUSTOM_TEMPLATE_VARIABLE_GROUPS` go; their readers ask the map.
 - The preview's samples for audience tokens come from the map.
+- The editor's Variables panel is drawn from the map (each token gains its description and group), and the send dialog's preview names the tokens the send would refuse, for every audience (today only for abstract authors).
 - CLAUDE.md gets its "THE rule" entry; AGENTS.md the convention.
 
 ## 5. What it does not fix

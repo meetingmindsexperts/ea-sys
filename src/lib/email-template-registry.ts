@@ -1171,7 +1171,7 @@ export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hin
  * which only the payment reminder and the registration confirmation fill.
  */
 export function isUnlistedCustomTemplateToken(key: string): boolean {
-  return key.endsWith("Text") || key === "paymentBlock";
+  return key.endsWith("Text") || key === "paymentBlock" || key === "subject" || key === "message";
 }
 
 /**
@@ -1212,6 +1212,9 @@ export function templateAllowedTokenKeys(slug: string): string[] {
     allowed.add("amount");
     // A send to reviewers fills their way into My Reviews (flagged as unknown until Nov 27, 2026).
     allowed.add("reviewLink");
+    // The subject and note typed for the send (bulk-email.ts sets both, empty when none).
+    allowed.add("subject");
+    allowed.add("message");
   }
   for (const k of [...allowed]) allowed.add(`${k}Text`);
   return [...allowed];
