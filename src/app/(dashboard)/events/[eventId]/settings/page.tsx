@@ -102,6 +102,13 @@ import {
   DEFAULT_BADGE_FONT_SIZES,
 } from "@/lib/badge-layout";
 
+/** What to do about a barcode too narrow to scan, by what made it narrow. */
+function narrowBarcodeAdvice(qrBeside: boolean, ownWidth: boolean): string {
+  if (qrBeside) return "Putting the compliance QR beside it is what costs the width — move it back below, or widen the badge.";
+  if (ownWidth) return "Raise the barcode width, or print one and test it on your scanner before the event.";
+  return "Widen the badge, or print one and test it on your scanner before the event.";
+}
+
 /** Common conference badge stock. Width x height in millimetres. */
 const BADGE_SIZE_PRESETS = [
   { label: '4" x 3"', widthMm: 101.6, heightMm: 76.2 },
@@ -540,6 +547,8 @@ export default function EventSettingsPage() {
           offsetXPt: String(resolvedBadge.offsetXPt),
           offsetYPt: String(resolvedBadge.offsetYPt),
           barcodeArrangement: resolvedBadge.barcodeArrangement,
+          barcodeWidthMm:
+            resolvedBadge.barcodeMaxWidthPt === null ? "" : String(Math.round(ptToMm(resolvedBadge.barcodeMaxWidthPt) * 10) / 10),
           allowKioskReprint: readBadgePolicy(settings).allowKioskReprint,
           kioskBackgroundUrl: readBadgePolicy(settings).kioskBackgroundUrl ?? "",
           fields: resolvedBadge.fields,
@@ -824,6 +833,8 @@ export default function EventSettingsPage() {
     offsetXPt: "0",
     offsetYPt: "0",
     barcodeArrangement: "stacked" as BadgeBarcodeArrangement,
+    // "" = the barcode fills its row, as it always has.
+    barcodeWidthMm: "",
     // Policy, not geometry — it rides in this form's state because it is one
     // card and one Save, but it is read back through readBadgePolicy.
     allowKioskReprint: false,
@@ -859,6 +870,10 @@ export default function EventSettingsPage() {
    * reader the renderer uses. Shared by the preview link and the scannability
    * warning so the two can never describe different badges.
    */
+  /** The barcode width typed on the card, in points; null = fill the row. */
+  const badgeBarcodeMaxWidthPt = () =>
+    Number(badgeLayout.barcodeWidthMm) > 0 ? mmToPt(Number(badgeLayout.barcodeWidthMm)) : null;
+
   const previewBadgeLayout = readBadgeLayout({
     settings: {
       badge: {
@@ -868,6 +883,7 @@ export default function EventSettingsPage() {
         offsetXPt: Number(badgeLayout.offsetXPt) || 0,
         offsetYPt: Number(badgeLayout.offsetYPt) || 0,
         barcodeArrangement: badgeLayout.barcodeArrangement,
+        barcodeMaxWidthPt: badgeBarcodeMaxWidthPt(),
         fields: badgeLayout.fields,
         exhibitorFields: badgeLayout.exhibitorFields,
         fontSizes: badgeFontSizesPt(),
@@ -883,6 +899,7 @@ export default function EventSettingsPage() {
       ox: String(Number(badgeLayout.offsetXPt) || 0),
       oy: String(Number(badgeLayout.offsetYPt) || 0),
       arr: badgeLayout.barcodeArrangement,
+      bw: String(badgeBarcodeMaxWidthPt() ?? "full"),
       fname: String(badgeFontSizesPt().name),
       fdetail: String(badgeFontSizesPt().detail),
       frole: String(badgeFontSizesPt().badgeType),
@@ -956,6 +973,7 @@ export default function EventSettingsPage() {
               offsetXPt: Number(badgeLayout.offsetXPt) || 0,
               offsetYPt: Number(badgeLayout.offsetYPt) || 0,
               barcodeArrangement: badgeLayout.barcodeArrangement,
+              barcodeMaxWidthPt: badgeBarcodeMaxWidthPt(),
               allowKioskReprint: badgeLayout.allowKioskReprint,
               kioskBackgroundUrl: badgeLayout.kioskBackgroundUrl || null,
               fields: badgeLayout.fields,
@@ -2223,6 +2241,26 @@ export default function EventSettingsPage() {
                     ? "Side by side puts both symbols on one row and frees the band underneath. It costs the entry barcode about 17mm of width, so a badge that was comfortably scannable stacked may not be."
                     : "This event does not collect DTCM compliance barcodes, so only the entry barcode prints and this setting changes nothing. It applies if you turn DTCM barcodes on."}
                 </p>
+                <div className="max-w-xs space-y-2">
+                  <Label htmlFor="badgeBarcodeWidthMm">Barcode width (mm)</Label>
+                  <Input
+                    id="badgeBarcodeWidthMm"
+                    type="number"
+                    min="20"
+                    step="1"
+                    placeholder="Fills the row"
+                    value={badgeLayout.barcodeWidthMm}
+                    onChange={(e) =>
+                      setBadgeLayout({ ...badgeLayout, barcodeWidthMm: e.target.value })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave it empty and the barcode fills its row. A smaller
+                    number prints a smaller barcode, centred, with its height
+                    reduced to match; a number wider than the row changes
+                    nothing.
+                  </p>
+                </div>
                 {/* Desk staff scan the BADGE for attendance, so the barcode
                     is the credential and an unreadable one is a queue at the
                     door. Shrinking the badge shrinks the bars with it, and
@@ -2246,10 +2284,10 @@ export default function EventSettingsPage() {
                       ),
                     )}
                     mm here, and desk scanners want roughly 60mm or more.{" "}
-                    {generalFormData.requiresDtcmBarcode &&
-                    badgeLayout.barcodeArrangement === "side-by-side"
-                      ? "Putting the compliance QR beside it is what costs the width — move it back below, or widen the badge."
-                      : "Widen the badge, or print one and test it on your scanner before the event."}
+                    {narrowBarcodeAdvice(
+                      generalFormData.requiresDtcmBarcode && badgeLayout.barcodeArrangement === "side-by-side",
+                      badgeBarcodeMaxWidthPt() !== null,
+                    )}
                   </div>
                 )}
               </div>

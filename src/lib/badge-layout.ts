@@ -275,6 +275,13 @@ export interface BadgeLayout {
   offsetYPt: number;
   /** Entry barcode vs DTCM QR placement. Defaults to the historical layout. */
   barcodeArrangement: BadgeBarcodeArrangement;
+  /**
+   * The widest the entry barcode may print, in points, or null to fill its
+   * row as it always has (owner, Nov 27, 2026: "give control to organizer").
+   * It can only make the barcode smaller: a number wider than the row changes
+   * nothing, so the barcode can never run into the name or the role.
+   */
+  barcodeMaxWidthPt: number | null;
   fields: BadgeFields;
   /**
    * What prints on an EXHIBITOR's badge, or null when exhibitors print like
@@ -294,6 +301,7 @@ export const DEFAULT_BADGE_LAYOUT: BadgeLayout = {
   // The historical layout. Anything else would silently re-print every
   // existing event's badge the moment this shipped.
   barcodeArrangement: "stacked",
+  barcodeMaxWidthPt: null,
   fields: DEFAULT_BADGE_FIELDS,
   exhibitorFields: null,
   fontSizes: DEFAULT_BADGE_FONT_SIZES,
@@ -345,6 +353,8 @@ function readFontSizes(raw: unknown): BadgeFontSizes {
  */
 const MIN_SIDE_PT = 80; // ~28mm — below this the barcode stops being scannable
 const MAX_OFFSET_PT = 200;
+/** About 20mm. The scan warning speaks long before this; it only stops a zero. */
+const MIN_BARCODE_W_PT = 57;
 
 const ALIGNMENTS: readonly BadgeAlign[] = ["left", "center", "right"];
 const ARRANGEMENTS: readonly BadgeBarcodeArrangement[] = ["stacked", "side-by-side"];
@@ -407,6 +417,7 @@ export function readBadgeLayout(event: {
       MAX_OFFSET_PT,
     ),
     barcodeArrangement,
+    barcodeMaxWidthPt: num(blob.barcodeMaxWidthPt) === null ? null : clamp(num(blob.barcodeMaxWidthPt)!, MIN_BARCODE_W_PT, A4_W),
     fields,
     exhibitorFields: readExhibitorFields(blob.exhibitorFields, fields),
     fontSizes: readFontSizes(blob.fontSizes),
@@ -513,6 +524,26 @@ export interface BarcodeRowGeometry {
   qrSize: number;
 }
 
+type BarcodeBox = Pick<BarcodeRowGeometry, "barcodeDx" | "barcodeDy" | "barcodeW" | "barcodeH">;
+
+/**
+ * The organiser's own barcode width, applied to the box the row gives it. The
+ * box shrinks in proportion and stays centred where the full one was, so the
+ * QR and everything else keep their places. With no width set, or one wider
+ * than the row, the box comes back untouched.
+ */
+function cappedBarcode(layout: BadgeLayout, box: BarcodeBox): BarcodeBox {
+  const cap = layout.barcodeMaxWidthPt;
+  if (cap === null || cap >= box.barcodeW) return box;
+  const barcodeH = box.barcodeH * (cap / box.barcodeW);
+  return {
+    barcodeDx: box.barcodeDx + (box.barcodeW - cap) / 2,
+    barcodeDy: box.barcodeDy + (box.barcodeH - barcodeH) / 2,
+    barcodeW: cap,
+    barcodeH,
+  };
+}
+
 export function resolveBarcodeRow(
   layout: BadgeLayout,
   hasDtcm: boolean,
@@ -530,10 +561,7 @@ export function resolveBarcodeRow(
 
   if (layout.barcodeArrangement !== "side-by-side" || !hasDtcm) {
     return {
-      barcodeDx,
-      barcodeDy,
-      barcodeW: fullW,
-      barcodeH,
+      ...cappedBarcode(layout, { barcodeDx, barcodeDy, barcodeW: fullW, barcodeH }),
       // CENTRED (owner, Aug 25 2026). It used to flush right, and my argument
       // for that was that the QR should not appear to jump sideways when the
       // arrangement is flipped. That does not survive contact with the two
@@ -550,12 +578,9 @@ export function resolveBarcodeRow(
   const qrDx = layout.widthPt - margin - qrSize;
 
   return {
-    barcodeDx,
-    barcodeDy,
     // Never negative: a badge narrow enough for the QR to eat the whole row
     // clamps to zero rather than asking pdfkit to fit a negative box.
-    barcodeW: Math.max(0, fullW - qrSize - BARCODE_QR_GAP * sx),
-    barcodeH,
+    ...cappedBarcode(layout, { barcodeDx, barcodeDy, barcodeW: Math.max(0, fullW - qrSize - BARCODE_QR_GAP * sx), barcodeH }),
     qrDx,
     // Centred against the barcode band so the two read as one row rather than
     // as a symbol with something floating beside it.

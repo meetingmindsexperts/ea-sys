@@ -86,3 +86,17 @@ describe("badge preview: exhibitor options", () => {
     expect((await preview("")).sample.badgeType).toBe("DELEGATE");
   });
 });
+
+describe("badge preview: the barcode width on screen (Nov 27, 2026)", () => {
+  beforeEach(() => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1", badgeVerticalOffset: 0, requiresDtcmBarcode: false, settings: { badge: { barcodeMaxWidthPt: 142 } } });
+  });
+
+  it("no bw keeps the saved width, a number replaces it, and an emptied box (full) fills the row again", async () => {
+    expect((await preview("")).layout.barcodeMaxWidthPt).toBe(142);
+    mockGenerate.mockClear();
+    expect((await preview("bw=100")).layout.barcodeMaxWidthPt).toBe(100);
+    mockGenerate.mockClear();
+    expect((await preview("bw=full")).layout.barcodeMaxWidthPt).toBeNull();
+  });
+});

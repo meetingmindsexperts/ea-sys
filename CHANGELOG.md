@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Badges: the organiser sets the barcode's width (November 27, 2026)
+
+Owner, with a picture of a badge's barcode: "this barcode size in badge, give control to organizer".
+
+- **Settings, Registration, Badge** has a new field, **Barcode width (mm)**. Empty (the default) prints the barcode
+  across its row, as it always has, so no event's badge changes. A smaller number prints a smaller barcode, centred,
+  with its height reduced to match. It can only make the barcode smaller: a number wider than the row changes
+  nothing, so the barcode cannot run into the name or the role.
+- Stored as `settings.badge.barcodeMaxWidthPt` and applied in the one function that places the barcode
+  (`resolveBarcodeRow` in `src/lib/badge-layout.ts`), so the print, the card's preview and the "too narrow to scan"
+  warning all follow it. The warning now says to raise the barcode width when that is what made it narrow.
+- The user guide describes it.
+
 ### Emails: the speaker's profile form link works in any email to speakers (November 27, 2026)
 
 Owner: "add the profile form link to saved templates", "it can be just added in a built-in template or a custom template".

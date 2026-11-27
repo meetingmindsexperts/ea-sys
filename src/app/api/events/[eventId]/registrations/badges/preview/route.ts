@@ -158,6 +158,9 @@ export async function GET(req: Request, { params }: RouteParams) {
               offsetYPt: numParam(searchParams.get("oy")) ?? saved.offsetYPt,
               barcodeArrangement:
                 (arrangement as BadgeBarcodeArrangement) ?? saved.barcodeArrangement,
+              // "full" is the empty box on screen: fill the row, whatever was saved.
+              barcodeMaxWidthPt:
+                searchParams.get("bw") === "full" ? null : (numParam(searchParams.get("bw")) ?? saved.barcodeMaxWidthPt),
               fields,
               exhibitorFields,
               // Type sizes fall back per FIELD, matching every other override
