@@ -353,8 +353,8 @@ function readFontSizes(raw: unknown): BadgeFontSizes {
  */
 const MIN_SIDE_PT = 80; // ~28mm — below this the barcode stops being scannable
 const MAX_OFFSET_PT = 200;
-/** About 20mm. The scan warning speaks long before this; it only stops a zero. */
-const MIN_BARCODE_W_PT = 57;
+/** 20mm, as the settings card offers it. The scan warning speaks long before this. */
+const MIN_BARCODE_W_PT = 56.69;
 
 const ALIGNMENTS: readonly BadgeAlign[] = ["left", "center", "right"];
 const ARRANGEMENTS: readonly BadgeBarcodeArrangement[] = ["stacked", "side-by-side"];
@@ -417,11 +417,17 @@ export function readBadgeLayout(event: {
       MAX_OFFSET_PT,
     ),
     barcodeArrangement,
-    barcodeMaxWidthPt: num(blob.barcodeMaxWidthPt) === null ? null : clamp(num(blob.barcodeMaxWidthPt)!, MIN_BARCODE_W_PT, A4_W),
+    barcodeMaxWidthPt: readBarcodeMaxWidth(blob.barcodeMaxWidthPt),
     fields,
     exhibitorFields: readExhibitorFields(blob.exhibitorFields, fields),
     fontSizes: readFontSizes(blob.fontSizes),
   };
+}
+
+/** Not a number, zero or negative means no width was set: the barcode prints as it always has. */
+function readBarcodeMaxWidth(raw: unknown): number | null {
+  const pt = num(raw);
+  return pt === null || pt <= 0 ? null : clamp(pt, MIN_BARCODE_W_PT, A4_W);
 }
 
 /** Present as an object means "exhibitors print differently"; anything else is off. */
@@ -519,29 +525,32 @@ export interface BarcodeRowGeometry {
   barcodeDy: number;
   barcodeW: number;
   barcodeH: number;
+  /** Set when the organiser's width narrowed the box: the image is then centred in the band's height. */
+  barcodeVCentred?: true;
   qrDx: number;
   qrDy: number;
   qrSize: number;
 }
 
-type BarcodeBox = Pick<BarcodeRowGeometry, "barcodeDx" | "barcodeDy" | "barcodeW" | "barcodeH">;
+type BarcodeBox = Pick<BarcodeRowGeometry, "barcodeDx" | "barcodeDy" | "barcodeW" | "barcodeH" | "barcodeVCentred">;
 
 /**
- * The organiser's own barcode width, applied to the box the row gives it. The
- * box shrinks in proportion and stays centred where the full one was, so the
+ * The organiser's own barcode width, applied to the box the row gives it.
+ *
+ * Only the WIDTH narrows; the band keeps its height. The renderer fits the
+ * barcode image inside the box keeping its shape, and a barcode is about five
+ * times as wide as it is tall, so a box narrowed in both directions stayed
+ * limited by its height and printed the bars about 12% narrower than the
+ * number typed (review of 85ad14ed). With the height left alone the width is
+ * what limits, so the bars print at the width typed, and the image is centred
+ * in the band instead. The box stays centred where the full one was, so the
  * QR and everything else keep their places. With no width set, or one wider
  * than the row, the box comes back untouched.
  */
 function cappedBarcode(layout: BadgeLayout, box: BarcodeBox): BarcodeBox {
   const cap = layout.barcodeMaxWidthPt;
-  if (cap === null || cap >= box.barcodeW) return box;
-  const barcodeH = box.barcodeH * (cap / box.barcodeW);
-  return {
-    barcodeDx: box.barcodeDx + (box.barcodeW - cap) / 2,
-    barcodeDy: box.barcodeDy + (box.barcodeH - barcodeH) / 2,
-    barcodeW: cap,
-    barcodeH,
-  };
+  if (cap == null || cap >= box.barcodeW) return box;
+  return { ...box, barcodeDx: box.barcodeDx + (box.barcodeW - cap) / 2, barcodeW: cap, barcodeVCentred: true };
 }
 
 export function resolveBarcodeRow(
@@ -600,6 +609,24 @@ export function resolveBarcodeRow(
  */
 export function barcodeWidthPt(layout: BadgeLayout, hasDtcm = false): number {
   return resolveBarcodeRow(layout, hasDtcm).barcodeW;
+}
+
+/**
+ * A real entry barcode's shape, width over height: `{19 digits}-{serial}` is
+ * 400 x 80 pixels at the renderer's settings (barcode.ts, scale 2, height 14).
+ */
+const ENTRY_BARCODE_ASPECT = 5;
+
+/**
+ * How wide the bars themselves print, in points: the image is fitted into its
+ * box keeping its shape, so on a landscape badge the band's height limits it
+ * and the bars are narrower than the box (about 71mm in the 80mm row of a
+ * 4x3in badge). The settings card's width control starts from this, so every
+ * step of it changes the print.
+ */
+export function printedBarcodeWidthPt(layout: BadgeLayout, hasDtcm = false): number {
+  const row = resolveBarcodeRow(layout, hasDtcm);
+  return Math.min(row.barcodeW, row.barcodeH * ENTRY_BARCODE_ASPECT);
 }
 
 /**

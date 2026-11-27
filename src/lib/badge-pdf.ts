@@ -254,6 +254,9 @@ function drawBadge(
       doc.image(png, x + row.barcodeDx, y + row.barcodeDy, {
         fit: [row.barcodeW, row.barcodeH],
         align: "center",
+        // Only when the organiser's width narrowed the box, so a badge that
+        // never set one prints exactly where it always has.
+        ...(row.barcodeVCentred ? { valign: "center" as const } : {}),
       });
     }
   }

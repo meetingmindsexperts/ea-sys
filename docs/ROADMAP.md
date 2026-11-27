@@ -54,6 +54,10 @@ From the review of `{{profileFormLink}}` (cc58509fc, Nov 27, 2026):
 8. **LOW: the editor accepts `{{profileFormLink}}` (and `{{honorarium}}`) in every built-in template sent from Communications**, eleven of them, while only the speaker ones fill it; in the others each email is refused as it is built, loudly. `BUILT_IN_BULK_TOKEN_KEYS` is one list for all of them; a per-audience list would close it.
 9. **LOW: the agreement and presenter-agreement detectors have the gap the profile form link's had** (`templateUsesAgreementBlock`, `templateUsesPresenterAgreementLink`): a token typed with spaces in a typed email is not seen and renders empty. Saved templates are normalised on save. Fix: `normalizeTemplateTokens` before the test, as `templateUsesRsvpToken` and `profileFormLinkForSend` do.
 
+## Badge: the "too narrow to scan" warning measures the box, not the bars (recorded Nov 27, 2026): not started
+
+Found by the review of the barcode width setting (85ad14edf). `barcodeTooNarrow` compares the barcode's BOX with about 60mm, but the image is fitted keeping its shape, so on a landscape badge the bars print narrower than the box: about 71mm in the 80mm row of a 4x3in badge, and about 53mm on the 3.5x2.25in preset, which the warning reads as 72mm and passes. Once the organiser sets a width the number is exact. Fix: compare `printedBarcodeWidthPt` (`src/lib/badge-layout.ts`) instead. Not done with the setting because it would start warning on a stock size live events print on today; the owner should see a scan test first.
+
 ## Saved templates and {{amount}}: what the Nov 27 review left (recorded Nov 27, 2026): not started
 
 A saved template sent to registrations now fills `{{amount}}` (the balance) and `{{paymentBlock}}` through `savedTemplatePaymentVars` in `src/lib/payment-reminder.ts`, from both the bulk sender and the registration sheet. Left:

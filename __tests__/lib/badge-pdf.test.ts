@@ -465,3 +465,25 @@ describe("exhibitors can print a different badge", () => {
     expect(find("Acme Pharma")).toBeUndefined();
   });
 });
+
+describe("the organiser's barcode width reaches the print (Nov 27, 2026)", () => {
+  const barcodeImage = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls[0] as [Buffer, number, number, { fit: [number, number]; valign?: string }];
+
+  it("an event that never set one draws the barcode in the full row, with no vertical centring asked for", async () => {
+    const spy = vi.spyOn(PDFDocument.prototype, "image");
+    await generateBadgePDF([REG], DEFAULT_BADGE_LAYOUT, false);
+    const [, , , opts] = barcodeImage(spy);
+    expect(opts.fit).toEqual([228, 40]);
+    expect(opts).not.toHaveProperty("valign");
+  });
+
+  it("a set width narrows the box the image is fitted into, keeps the band's height and centres the image in it", async () => {
+    const spy = vi.spyOn(PDFDocument.prototype, "image");
+    await generateBadgePDF([REG], { ...DEFAULT_BADGE_LAYOUT, barcodeMaxWidthPt: 142 }, false);
+    const [, x, , opts] = barcodeImage(spy);
+    expect(opts.fit).toEqual([142, 40]);
+    expect(opts.valign).toBe("center");
+    // Centred across the badge: the default badge is centred on the sheet.
+    expect(x + 142 / 2).toBeCloseTo(A4_W / 2, 6);
+  });
+});

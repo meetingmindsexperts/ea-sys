@@ -18,6 +18,18 @@ Owner, with a picture of a badge's barcode: "this barcode size in badge, give co
   (`resolveBarcodeRow` in `src/lib/badge-layout.ts`), so the print, the card's preview and the "too narrow to scan"
   warning all follow it. The warning now says to raise the barcode width when that is what made it narrow.
 - The user guide describes it.
+- **Review of 85ad14edf** (0 BLOCKER, 0 HIGH, 1 MED, 5 LOW):
+  - MED, fixed: the number typed was not the width printed. The barcode image is fitted into its box keeping its
+    shape (about five times as wide as tall), and the box was narrowed in both directions, so the band's height still
+    limited it: 60 typed on a 4x3in badge printed about 53mm, with the scan warning silent. Only the width narrows
+    now and the image is centred in the band, so the bars print at the width typed (`cappedBarcode`,
+    `barcodeVCentred`). The preview's sample barcode is nineteen digits, as a real one is; the old lettered sample
+    drew about a tenth wider than a real badge prints.
+  - LOW, fixed: 20 typed came back as 20.1 (the floor is 20mm exactly now); a stored 0 or negative means no width
+    set, not the smallest barcode; a layout object without the key no longer gives NaN geometry; a test watches what
+    the print draws. LOW, fixed with the card's redesign that follows: the warning said "raise the barcode width"
+    whenever a width was set, even when the badge itself was the limit.
+  - In ROADMAP: the scan warning measures the barcode's box, not the bars, when no width is set (older than this).
 
 ### Emails: the speaker's profile form link works in any email to speakers (November 27, 2026)
 

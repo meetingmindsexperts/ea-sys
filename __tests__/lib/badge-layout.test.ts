@@ -21,6 +21,7 @@ import {
   badgeScale,
   barcodeTooNarrow,
   barcodeWidthPt,
+  printedBarcodeWidthPt,
   mmToPt,
   ptToMm,
   readBadgeLayout,
@@ -597,13 +598,23 @@ describe("the organiser's barcode width (Nov 27, 2026)", () => {
     expect(full).toEqual({ barcodeDx: 30, barcodeDy: 95, barcodeW: 228, barcodeH: 40, qrDx: 124, qrDy: 172, qrSize: 40 });
   });
 
-  it("a smaller width shrinks the box in proportion and keeps it centred where the full one was", () => {
+  // Review of 85ad14ed: the box used to shrink in both directions, which left
+  // the fitted image limited by its height and the bars about 12% narrower
+  // than the number typed. Only the width narrows now.
+  it("a smaller width narrows the box only, centred across, and asks for the image to be centred in the band", () => {
     const row = resolveBarcodeRow(capped(114), false);
-    expect(row.barcodeW).toBe(114);
-    expect(row.barcodeH).toBe(20);
+    expect(row).toMatchObject({ barcodeW: 114, barcodeH: full.barcodeH, barcodeDy: full.barcodeDy, barcodeVCentred: true });
     expect(row.barcodeDx + row.barcodeW / 2).toBe(full.barcodeDx + full.barcodeW / 2);
-    expect(row.barcodeDy + row.barcodeH / 2).toBe(full.barcodeDy + full.barcodeH / 2);
     expect(barcodeWidthPt(capped(114))).toBe(114);
+    expect(full.barcodeVCentred).toBeUndefined();
+  });
+
+  it("the bars print at the width typed once it is under what prints today, and a wider one changes nothing", () => {
+    // 228 x 40 box, a 5:1 barcode: the band's height limits it to 200pt today.
+    expect(printedBarcodeWidthPt(DEFAULT_BADGE_LAYOUT)).toBe(200);
+    expect(printedBarcodeWidthPt(capped(212))).toBe(200);
+    expect(printedBarcodeWidthPt(capped(170))).toBe(170);
+    expect(printedBarcodeWidthPt(capped(114))).toBe(114);
   });
 
   it("a width wider than the row changes nothing: it can only make the barcode smaller", () => {
@@ -620,10 +631,10 @@ describe("the organiser's barcode width (Nov 27, 2026)", () => {
   });
 
   it("a stored value that is not a number means no width set; a tiny or huge one is clamped", () => {
-    for (const bad of ["100", true, {}, null, undefined, NaN]) {
+    for (const bad of ["100", true, {}, null, undefined, NaN, 0, -5]) {
       expect(readBadgeLayout({ settings: { badge: { barcodeMaxWidthPt: bad } } }).barcodeMaxWidthPt).toBeNull();
     }
-    expect(readBadgeLayout({ settings: { badge: { barcodeMaxWidthPt: 1 } } }).barcodeMaxWidthPt).toBe(57);
+    expect(readBadgeLayout({ settings: { badge: { barcodeMaxWidthPt: 1 } } }).barcodeMaxWidthPt).toBe(56.69);
     expect(readBadgeLayout({ settings: { badge: { barcodeMaxWidthPt: 142 } } }).barcodeMaxWidthPt).toBe(142);
   });
 

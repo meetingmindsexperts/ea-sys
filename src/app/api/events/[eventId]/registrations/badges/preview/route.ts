@@ -43,9 +43,10 @@ interface RouteParams {
 const SAMPLE: BadgeRegistration = {
   id: "preview",
   serialId: 188,
-  // Not a real code. Renders as a valid Code 128 so the bars occupy the same
-  // space a real barcode will.
-  qrCode: "PREVIEW0000000",
+  // Not a real code. Nineteen digits, as a real one is (generateBarcode), so
+  // the bars are the shape a real barcode's are: letters encode wider, and the
+  // old sample previewed the barcode about a tenth wider than it prints.
+  qrCode: "1700000000000000000",
   dtcmBarcode: null,
   badgeType: "DELEGATE",
   attendee: {
