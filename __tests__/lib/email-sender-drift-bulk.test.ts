@@ -297,6 +297,21 @@ describe("bulk pipeline: a saved template naming every token of its audience ren
     },
   );
 
+  // {{subject}} and {{message}} are the typed subject and note: set for a typed
+  // email and a saved template, never for a built-in type, whose template is
+  // refused if it names one (an empty subject line otherwise; review of 67cd33d23).
+  it("a built-in type does not get {{subject}} or {{message}}", async () => {
+    await executeBulkEmail({
+      eventId: "evt-1", recipientType: "registrations", emailType: "reminder", filters: {}, customMessage: "A note",
+      organizerName: "Organizer", organizerEmail: "org@x.test", organizationId: "org-1", triggeredByUserId: "user-1",
+    });
+    expect(renderedVars.length).toBeGreaterThan(0);
+    for (const v of renderedVars) {
+      expect(v).not.toHaveProperty("subject");
+      expect(v).not.toHaveProperty("message");
+    }
+  });
+
   // The other direction: what the map says an audience does NOT get, the send
   // really leaves unset, so refusing it when the send is scheduled
   // (savedTemplateTokenRefusal, switched off here to reach the send) stops

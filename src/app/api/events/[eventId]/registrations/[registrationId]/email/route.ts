@@ -493,6 +493,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       vars.paymentBlock = paymentBlock;
     }
 
+    // The typed subject and note, for a saved template that names them: empty
+    // and the note, as the bulk pipeline sets them for one. Not for a built-in
+    // type, whose template is refused if it names {{subject}} (an empty
+    // subject line otherwise).
+    if (templateSlug) {
+      vars.subject = "";
+      vars.message = customMessage ?? "";
+    }
+
     if (type === "custom") {
       if (!customSubject || !customMessage) {
         apiLogger.warn({

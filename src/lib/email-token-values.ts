@@ -21,14 +21,18 @@ type TokenValues = Partial<Record<EmailTokenKey, string | number>>;
 /**
  * What every audience gets: the event, the person, the sender, the typed note,
  * and the block tokens that stay empty until their own audience's builder (or
- * the sender) fills them.
+ * the sender) fills them. Not {{subject}} and {{message}}: a sender sets those
+ * itself, and only for a typed email or a saved template, so a built-in
+ * template that names one is still refused (an empty subject line otherwise).
  */
 export function everyAudienceTokenValues(p: {
   event: { name: string; startDate: Date | null; venue: string | null; address: string | null; city: string | null; country: string | null };
   person: { id: string; firstName: string; lastName: string; title?: string | null; serialId?: number | null; ticketTypeName?: string | null };
   organizer: { name: string; email: string; signature: string | null | undefined };
-  /** The note typed for this send, as typed: a sender renders it into {{personalMessage}} and {{message}} last. */
+  /** The note typed for this send, as typed: a sender renders it into {{personalMessage}} last. */
   note?: string | null;
+  /** When the send began, so a long send gives everyone the same {{daysUntilEvent}}. */
+  now?: number;
 }) {
   return {
     firstName: p.person.firstName,
@@ -43,14 +47,12 @@ export function everyAudienceTokenValues(p: {
     ...eventLocationVars(p.event),
     eventAddress: p.event.address || "",
     daysUntilEvent: p.event.startDate
-      ? Math.max(1, Math.ceil((new Date(p.event.startDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+      ? Math.max(1, Math.ceil((new Date(p.event.startDate).getTime() - (p.now ?? Date.now())) / (1000 * 60 * 60 * 24)))
       : 1,
     organizerName: p.organizer.name,
     organizerEmail: p.organizer.email,
     organizerSignature: p.organizer.signature ?? "",
     personalMessage: p.note || "",
-    subject: "",
-    message: p.note || "",
     ticketType: p.person.ticketTypeName || "General Admission",
     registrationId: p.person.serialId != null ? String(p.person.serialId).padStart(3, "0") : p.person.id.slice(-8).toUpperCase(),
     presentationDetails: "", presentationDetailsText: "",
@@ -62,8 +64,9 @@ export function everyAudienceTokenValues(p: {
 
 /**
  * A speaker's own tokens, from the context every speaker email is built on
- * (buildSpeakerEmailContext). With no context (the speaker row is gone) the
- * person's plain name and an empty programme, so nothing is left unset.
+ * (buildSpeakerEmailContext). With no context (the speaker or the event could
+ * not be read) the person's plain name, an empty programme and no fee, so
+ * nothing is left unset; the caller logs it.
  */
 export function speakerTokenValues(
   ctx: SpeakerEmailContext | null,

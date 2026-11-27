@@ -2154,6 +2154,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       )
     : new Set<string>();
 
+  // One clock for the send: everyone gets the same {{daysUntilEvent}}.
+  const sendStartedAt = Date.now();
+
   const generateEmailForRecipient = async (recipient: ResolvedRecipient) => {
     const vars: Record<string, string | number> = {
       // The event, the person, the sender, the note and the block tokens that
@@ -2171,6 +2174,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         },
         organizer: { name: organizerName, email: organizerEmail, signature: organizerSignature },
         note: customMessage,
+        now: sendStartedAt,
       }),
     };
 
@@ -2228,7 +2232,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
 
     if (isSpeakerContextNeeded) {
       // Title, programme and fee from the speaker's context, the speaker page's send included.
-      Object.assign(vars, speakerTokenValues(await buildSpeakerEmailContext(eventId, recipient.id), recipient));
+      const ctx = await buildSpeakerEmailContext(eventId, recipient.id);
+      if (!ctx) apiLogger.warn({ msg: "bulk-email:speaker-context-missing", eventId, speakerId: recipient.id, emailType });
+      Object.assign(vars, speakerTokenValues(ctx, recipient));
     }
 
     if (templateWantsAgreement) {

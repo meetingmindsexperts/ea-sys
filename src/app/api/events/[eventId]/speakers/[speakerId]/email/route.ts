@@ -211,6 +211,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       agreementLink,
     };
 
+    // The typed subject and note, for a saved template that names them (as the
+    // bulk pipeline sets them for one; not for a built-in type).
+    if (type === "template") {
+      vars.subject = "";
+      vars.message = customMessage ?? "";
+    }
+
     if (type === "custom") {
       if (!customSubject || !customMessage) {
         return NextResponse.json(

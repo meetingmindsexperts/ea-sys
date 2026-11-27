@@ -30,13 +30,49 @@ const OWN: Record<string, string[]> = {
   ],
 };
 
+/** What the `const vars = { ... }` initializer may hold at its top level: the builders, and a key that is the sender's own. */
+const INITIALIZER: Record<string, string[]> = {
+  "src/lib/bulk-email.ts": ["...everyAudienceTokenValues"],
+  "src/app/api/events/[eventId]/registrations/[registrationId]/email/route.ts": ["...everyAudienceTokenValues"],
+  "src/app/api/events/[eventId]/speakers/[speakerId]/email/route.ts": ["...everyAudienceTokenValues", "...speakerTokenValues", "agreementLink"],
+};
+
+/** What may be merged into `vars` whole: a builder, or a helper that owns its tokens. */
+const MERGED: Record<string, string[]> = {
+  "src/lib/bulk-email.ts": ["abstractOwnVars", "presenter.vars", "registrationFormVars", "speakerTokenValues"],
+  "src/app/api/events/[eventId]/registrations/[registrationId]/email/route.ts": [],
+  "src/app/api/events/[eventId]/speakers/[speakerId]/email/route.ts": ["presenter.vars"],
+};
+
+/** The top-level entries of the object literal that follows `marker`. */
+function topLevelEntries(src: string, marker: string): string[] {
+  const start = src.indexOf(marker);
+  expect(start, `no "${marker}"`).toBeGreaterThan(-1);
+  const entries: string[] = [];
+  let depth = 0;
+  for (const line of src.slice(start + marker.length).split("\n")) {
+    const m = depth === 0 ? /^\s*(\.\.\.\w+|\w+)\s*[,:(]/.exec(line) : null;
+    if (m) entries.push(m[1]);
+    for (const c of line.replace(/\/\/.*$/, "")) {
+      if ("{[(".includes(c)) depth++;
+      else if ("}])".includes(c)) depth--;
+    }
+    if (depth < 0) break;
+  }
+  return entries;
+}
+
 describe("mapped email tokens are assigned by the shared builders", () => {
   it.each(Object.keys(OWN))("%s assigns by hand only what is its own", (file) => {
     const src = readFileSync(join(process.cwd(), file), "utf8");
-    expect(src).toContain("everyAudienceTokenValues(");
-    const assigned = [...new Set([...src.matchAll(/\bvars\.(\w+)\s*=[^=]/g)].map((m) => m[1]))]
+    const assigned = [...new Set([...src.matchAll(/\bvars\.(\w+)\s*(?:\?\?)?=[^=]/g)].map((m) => m[1]))]
       .filter((k) => k in EMAIL_TOKEN_MAP)
       .sort();
     expect(assigned).toEqual(OWN[file]);
+    // The same rule for the other ways to write a token in.
+    expect(topLevelEntries(src, "const vars: Record<string, string | number> = {")).toEqual(INITIALIZER[file]);
+    expect([...new Set([...src.matchAll(/Object\.assign\(\s*vars,\s*([\w.]+)/g)].map((m) => m[1]))].sort()).toEqual(MERGED[file]);
+    // A literal key in brackets; a helper filling its own object by a loop is not one.
+    expect(src).not.toMatch(/\bvars\[["'`]/);
   });
 });

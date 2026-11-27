@@ -136,7 +136,7 @@ describe("BULK_BASE_VARIABLES stays in step with the real sender", () => {
 
   it("the bulk sender spreads the shared builders", () => {
     expect(src).toContain("...everyAudienceTokenValues({");
-    expect(src).toContain("speakerTokenValues(await buildSpeakerEmailContext(eventId, recipient.id), recipient)");
+    expect(src).toContain("Object.assign(vars, speakerTokenValues(ctx, recipient));");
   });
 
   it("every declared base key is still set for every bulk recipient", () => {
