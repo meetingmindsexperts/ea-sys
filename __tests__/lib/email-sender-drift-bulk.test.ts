@@ -49,8 +49,8 @@ vi.mock("@/lib/email-token-map", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/email-token-map")>();
   return {
     ...actual,
-    savedTemplateTokenRefusal: (...args: Parameters<typeof actual.savedTemplateTokenRefusal>) =>
-      tokenRefusal.on ? actual.savedTemplateTokenRefusal(...args) : null,
+    emailTokenRefusal: (...args: Parameters<typeof actual.emailTokenRefusal>) =>
+      tokenRefusal.on ? actual.emailTokenRefusal(...args) : null,
   };
 });
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -314,7 +314,7 @@ describe("bulk pipeline: a saved template naming every token of its audience ren
 
   // The other direction: what the map says an audience does NOT get, the send
   // really leaves unset, so refusing it when the send is scheduled
-  // (savedTemplateTokenRefusal, switched off here to reach the send) stops
+  // (emailTokenRefusal, switched off here to reach the send) stops
   // nothing that would have gone out.
   it.each(AUDIENCES)("%s: every token the map gives only to other audiences is left unset", async (audience) => {
     tokenRefusal.on = false;
@@ -340,5 +340,54 @@ describe("bulk pipeline: a saved template naming every token of its audience ren
     expect(mockSendEmail).toHaveBeenCalled();
     const params = mockSendEmail.mock.calls[0][0] as { htmlContent: string };
     expect(findUnresolvedTokens(params.htmlContent).sort()).toEqual([...others].sort());
+  });
+
+  // ── A typed email (no saved template) ───────────────────────────────────
+  // Its subject and message see what a template sees (applyTypedSubjectAndNote),
+  // less an abstract's own tokens (it goes once per author) and less
+  // {{subject}} and {{message}}, which are the typed text itself. That is the
+  // set the scheduling check holds a typed email to; both directions here.
+  const typedInput = (audience: BulkEmailAudience, text: string) => ({
+    eventId: "evt-1", recipientType: audience, emailType: "custom" as const, filters: {},
+    customSubject: text, customMessage: text,
+    organizerName: "Organizer", organizerEmail: "org@x.test", organizationId: "org-1", triggeredByUserId: "user-1",
+  });
+
+  it.each(AUDIENCES)("%s, typed: every token of its audience works in the subject and the message", async (audience) => {
+    if (audience === "abstracts") mockDb.abstract.findMany.mockResolvedValue([abstractRow("SUBMITTED")]);
+    const res = await executeBulkEmail(typedInput(audience, tokensSetFor(audience, { typed: true }).map((k) => `{{${k}}}`).join(" ")));
+    expect(res.failureCount, `${audience}: ${JSON.stringify(res.errors)}`).toBe(0);
+    const params = mockSendEmail.mock.calls[0][0] as { subject: string; htmlContent: string };
+    expect(findUnresolvedTokens(params.subject), "subject").toEqual([]);
+    expect(findUnresolvedTokens(params.htmlContent), "message").toEqual([]);
+  });
+
+  it.each(AUDIENCES)("%s, typed: every other token is left unset, so refusing it at scheduling stops nothing", async (audience) => {
+    tokenRefusal.on = false;
+    const set = new Set<string>(tokensSetFor(audience, { withRsvp: true, typed: true }));
+    const others = Object.keys(EMAIL_TOKEN_MAP).filter((k) => !set.has(k));
+    if (audience === "abstracts") mockDb.abstract.findMany.mockResolvedValue([abstractRow("SUBMITTED")]);
+    await executeBulkEmail(typedInput(audience, others.map((k) => `{{${k}}}`).join(" ")));
+    const params = mockSendEmail.mock.calls[0][0] as { subject: string; htmlContent: string };
+    expect(findUnresolvedTokens(params.htmlContent).sort()).toEqual([...others].sort());
+    expect(findUnresolvedTokens(params.subject).sort()).toEqual([...others].sort());
+  });
+
+  it.each(AUDIENCES)("%s, typed: the send sets nothing the map does not list", async (audience) => {
+    if (audience === "abstracts") mockDb.abstract.findMany.mockResolvedValue([abstractRow("SUBMITTED")]);
+    await executeBulkEmail(typedInput(audience, "Hello {{firstName}}"));
+    expect(renderedVars.length).toBeGreaterThan(0);
+    const listed = new Set<string>(tokensSetFor(audience, { withRsvp: true }));
+    expect([...new Set(renderedVars.flatMap((v) => Object.keys(v)))].filter((k) => !listed.has(k))).toEqual([]);
+  });
+
+  it("a typed email to registrations carries the balance and Pay Now, in the subject too, and the event's date range", async () => {
+    mockDb.registration.findMany.mockResolvedValue([{ ...REGISTRATION, payments: [] }]);
+    await executeBulkEmail({ ...typedInput("registrations", "x"), customSubject: "You owe {{amount}}", customMessage: "Dear {{firstName}}, {{amount}} for {{eventDateRange}}. {{paymentBlock}}" });
+    const params = mockSendEmail.mock.calls[0][0] as { subject: string; htmlContent: string };
+    expect(params.subject).toBe("You owe USD 105.00");
+    // The range's own separator is an en dash (buildEventDateTokens).
+    expect(params.htmlContent).toContain("USD 105.00 for October 2 \u2013 3, 2026");
+    expect(params.htmlContent).toContain("Pay now");
   });
 });

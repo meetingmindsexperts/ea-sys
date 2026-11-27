@@ -9,7 +9,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
 import { resolveRsvpLinkForPerson, templateUsesRsvpLink } from "@/lib/rsvp/personal-link";
 import { requirePermission } from "@/lib/permissions/require-permission";
@@ -25,7 +25,7 @@ import {
 } from "@/lib/email-change";
 import { buildPaymentReminderVars, savedTemplatePaymentVars } from "@/lib/payment-reminder";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
-import { everyAudienceTokenValues } from "@/lib/email-token-values";
+import { applyTypedSubjectAndNote, everyAudienceTokenValues } from "@/lib/email-token-values";
 import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import { excludedAsNoBalance, NO_BALANCE_PAYMENT_STATUSES } from "@/lib/bulk-email-audience";
 import { computeRegistrationRowMoney } from "@/lib/registration-export";
@@ -470,7 +470,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // A saved template gets the balance due and Pay Now, or both blank, by the
     // bulk sender's rule (Nov 27, 2026).
-    const savedTemplate = !!templateSlug && isCustomTemplateSlug(templateSlug);
+    // A typed email gets them as a saved template does (what works in one works in the other).
+    const savedTemplate = templateSlug ? isCustomTemplateSlug(templateSlug) : type === "custom";
     if (type === "payment-reminder" || savedTemplate) {
       // {{amount}} + {{paymentBlock}} (Pay Now) built by the shared helper so
       // this single-send path and the bulk sender stay in lock-step.
@@ -493,15 +494,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       vars.paymentBlock = paymentBlock;
     }
 
-    // The typed subject and note, for a saved template that names them: empty
-    // and the note, as the bulk pipeline sets them for one. Not for a built-in
-    // type, whose template is refused if it names {{subject}} (an empty
-    // subject line otherwise).
-    if (templateSlug) {
-      vars.subject = "";
-      vars.message = customMessage ?? "";
-    }
-
     if (type === "custom") {
       if (!customSubject || !customMessage) {
         apiLogger.warn({
@@ -516,9 +508,6 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 400 }
         );
       }
-      // A token typed into the subject box resolves like one in the message box.
-      vars.subject = renderTemplatePlain(customSubject, vars);
-      vars.message = customMessage;
     }
 
     // A saved custom template (templateSlug) loads directly and has NO default
@@ -608,14 +597,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     // rsvpLink is a URL we built and rsvpButton our own escaped markup, both
     // rendered raw like the bulk pipeline does.
     const rawHtmlKeys = new Set(["organizerSignature", "message", "personalMessage", "rsvpLink", "rsvpButton"]);
-    if (typeof vars.message === "string" && vars.message) {
-      vars.message = renderMessageValue(vars.message, vars, { rawHtmlKeys });
-    }
-    // {{personalMessage}} renders the typed note as the bulk pipeline and the
-    // speaker page do: raw, with the tokens typed into it resolved.
-    if (customMessage) {
-      vars.personalMessage = renderMessageValue(customMessage, vars, { isHtml: true, rawHtmlKeys });
-    }
+    // The typed subject and note, rendered last with everything a template
+    // gets, as the bulk pipeline does. {{subject}} and {{message}} only for a
+    // typed email or a saved template: a built-in type whose template names
+    // {{subject}} is refused (an empty subject line otherwise).
+    applyTypedSubjectAndNote(vars, {
+      subjectAndMessage: type === "custom" || !!templateSlug,
+      subject: customSubject,
+      note: customMessage,
+      eventVars: branding.eventVars,
+      rawHtmlKeys,
+    });
     const rendered = renderAndWrap(tpl, vars, branding, rawHtmlKeys);
 
     const attendeeName = `${registration.attendee.firstName} ${registration.attendee.lastName}`;

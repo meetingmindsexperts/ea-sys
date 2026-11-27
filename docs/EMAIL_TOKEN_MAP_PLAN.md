@@ -70,13 +70,13 @@ Each step is one or two commits, changes no email on its own unless stated, and 
 
 ### Step 1. Say no when it is scheduled. BUILT Nov 27, 2026
 
-- `savedTemplateTokenRefusal` (the map's file), asked by `precheckBulkEmailViability`: a saved template, or the subject and note typed with it, that names a token its audience's send does not set is refused when the send is made or scheduled (code `TOKENS_NOT_SET`), naming the token and who it is for, or that it is not a token (a spelling). A scheduled send firing goes through the same check. The agent's `send_bulk_email` does not reach it: that tool always sends a typed custom email (below).
+- `emailTokenRefusal` (the map's file; first named `savedTemplateTokenRefusal`), asked by `precheckBulkEmailViability`: a saved template, or the subject and note typed with it, that names a token its audience's send does not set is refused when the send is made or scheduled (code `TOKENS_NOT_SET`), naming the token and who it is for, or that it is not a token (a spelling). A scheduled send firing goes through the same check. The agent's `send_bulk_email` does not reach it: that tool always sends a typed custom email (below).
 - The drift test proves both other directions: every token the map gives only to other audiences is really left unset by the send, and a saved-template send hands the renderer no variable the map does not list for its audience (per author and per abstract). Together: the refusal stops nothing that would have gone out.
 - `{{subject}}` and `{{message}}` (the subject and note typed for the send) joined the map: the bulk pipeline has always set them for a saved template, and the editor flagged them.
 
 Not done in this step, and why:
 
-- **A typed custom email** (no saved template) is not checked yet. Its send sets a slightly different set (no `{{amount}}`, none of an abstract's own tokens), and nothing pins that set by test. It keeps today's behaviour: refused when it fires. Do it with step 2, when the builders make the set one thing.
+- **A typed custom email** was not checked in this step; it is since step 2 (below).
 - **The per-person sends** are not asked: they send at once, so the refusal already arrives in the same click.
 - **The preview's note and the editor's panel drawn from the map** moved to step 3, where the old lists go.
 - **It goes by the template's subject and HTML only**, which is what the send's own guard refuses on. A leftover token in the plain-text part stays a warning, and a note typed for the send is not read (it reaches an email only where the template names `{{message}}` or `{{personalMessage}}`, and no screen offers one with a saved template).
@@ -84,7 +84,7 @@ Not done in this step, and why:
 
 Found by the reviews of steps 0 and 1 and fixed with them: a copy of the Abstract Submission Confirmation carries `{{travelGrantBlock}}`, which the first cut of the map left out (it would have been refused; the token is now set, empty, for every author); a reminder sent from the registration record always said "1" day to go; `{{personalMessage}}` from the registration record was escaped and its tokens left unresolved.
 
-### Step 2. One builder for the values. BUILT Nov 27, 2026 (the typed custom email remains, below)
+### Step 2. One builder for the values. BUILT Nov 27, 2026
 
 - `src/lib/email-token-values.ts`: `everyAudienceTokenValues` (the event, the person, the sender, the typed note, and the block tokens that stay empty until filled) and `speakerTokenValues` (title, programme and fee from the speaker's context). The bulk pipeline, the registration record's send and the speaker page's send spread them; their own copies are deleted.
 - What a sender still assigns itself is its own: links it mints, blocks that come with an attachment, the typed subject and note, one email type's blocks. `email-token-writers.test.ts` lists them per file, in each way a token can be written in (an assignment, a key in the `vars` object, a helper merged whole); a new one fails until it is added there.
@@ -92,9 +92,13 @@ Found by the reviews of steps 0 and 1 and fixed with them: a copy of the Abstrac
 - Narrower than first planned, on purpose: reviewers' and abstract authors' tokens have one sender (the bulk pipeline), and a registration's money tokens were already one helper (`payment-reminder.ts`), so there was nothing to merge. The compiler checks that the keys a builder writes out are mapped tokens (not the ones it spreads in from `eventLocationVars`); that every mapped token is filled is the drift tests' job.
 - `{{subject}}` and `{{message}}` stay each sender's own, set only for a typed email and a saved template. The first cut put them in the shared builder, which would have let a built-in template that names `{{subject}}` go out with an empty subject line where it used to be refused (review of `67cd33d2`); a test holds it.
 
-Still to do in this step, waiting on the owner:
+**A typed email, held to the map too. BUILT Nov 27, 2026** (owner: "yes to typed emails, custom email gets the same priority as built-in ones").
 
-- **A typed custom email checked when it is scheduled.** Its subject and note are rendered at different moments with different sets of tokens (the event date range is not there for the note; the amount and the RSVP name are not there for the subject), and `{{amount}}` is not set at all. To check it honestly those have to become one set first, which changes two things for people: a typed email to registrations could use `{{amount}}` and the Pay Now button, and tokens that fail in a typed subject or note today would work. The assistant's `send_bulk_email` always sends a typed email, so it is uncovered until then.
+- The typed subject and message are rendered last, by one function for all three senders (`applyTypedSubjectAndNote` in `email-token-values.ts`), with everything a template in the same email gets: the sender's values and the event block. A token now works in a typed subject or message wherever it works in a template. Before, the subject was rendered early (no `{{amount}}`, no RSVP name) and the message without the event block (no `{{eventDateRange}}`).
+- A typed email to registrations gets `{{amount}}` (the balance) and `{{paymentBlock}}` (Pay Now), as a saved template does; blank for a group member or anyone with nothing due.
+- `emailTokenRefusal(audience, "typed", subject, message)`, asked by the same precheck: a typed email naming a token its audience does not get is refused when it is sent or scheduled. The assistant's `send_bulk_email` is a typed email, so it is covered from here on.
+- A typed email's set is the saved template's, less three things: an abstract's own tokens (a typed email goes once per author; the refusal says to use a saved template), and `{{subject}}`, `{{message}}`, `{{personalMessage}}`, which are the typed text itself.
+- Proved the same way: 108 recorded bulk emails and 28 per-person ones, every one byte for byte the same after the change; the drift tests hold the typed set in both directions for every audience, and a typed email from a person's record to the same set.
 
 ### Step 3. Delete the old lists (about half a day)
 

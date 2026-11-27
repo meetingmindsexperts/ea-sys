@@ -452,7 +452,7 @@ describe("a saved template that names a token its audience's send does not set (
   it("refuses a token no send sets, as a spelling to check", async () => {
     const err = await send("registrations", "<p>Dear {{frstName}}</p>").catch((e) => e);
     expect(err.code).toBe("TOKENS_NOT_SET");
-    expect(err.message).toContain("{{frstName}} is not a token a saved template can use");
+    expect(err.message).toContain("{{frstName}} is not a token this email can use (check its spelling)");
   });
 
   it("names every audience a token belongs to", async () => {
@@ -469,5 +469,35 @@ describe("a saved template that names a token its audience's send does not set (
 
   it("leaves the block tokens that are empty for another audience alone (they send today)", async () => {
     await expect(send("registrations", "<p>{{presentationDetails}} {{agreementBlock}} {{speakerName}}</p>")).resolves.toBeTruthy();
+  });
+});
+
+describe("a typed email is held to the token map as a saved template is (Nov 27, 2026)", () => {
+  const typed = (recipientType: "registrations" | "speakers" | "abstracts", customSubject: string, customMessage: string) =>
+    precheckBulkEmailViability({ eventId: "evt-1", recipientType, emailType: "custom", customSubject, customMessage });
+
+  it("refuses a token meant for another audience, in the message or the subject", async () => {
+    const inMessage = await typed("registrations", "Hello", "Your fee is {{honorarium}}").catch((e) => e);
+    expect(inMessage.code).toBe("TOKENS_NOT_SET");
+    expect(inMessage.message).toContain("This email cannot go to registrations as it is: {{honorarium}} is filled only when sending to speakers");
+    expect(inMessage.message).toContain("Change the subject or the message");
+    const inSubject = await typed("speakers", "You owe {{amount}}", "Hello").catch((e) => e);
+    expect(inSubject.message).toContain("{{amount}} is filled only when sending to registrations");
+  });
+
+  it("refuses a spelling, and the typed text naming itself", async () => {
+    expect((await typed("registrations", "Hi", "Dear {{frstName}}").catch((e) => e)).message).toContain("{{frstName}} is not a token this email can use");
+    expect((await typed("registrations", "Hi", "See {{message}}").catch((e) => e)).message).toContain("{{message}} cannot be used inside the typed subject or message");
+  });
+
+  it("tells an abstracts send that one abstract's detail needs a saved template", async () => {
+    const err = await typed("abstracts", "Your abstract", "About {{abstractTitle}}").catch((e) => e);
+    expect(err.message).toContain("{{abstractTitle}} is one abstract's own detail, and a typed email goes once per author");
+  });
+
+  it("lets through what its audience gets: the balance for registrations, the fee for speakers, the event block for everyone", async () => {
+    await expect(typed("registrations", "You owe {{amount}}", "Dear {{firstName}}, {{amount}} {{paymentBlock}} {{eventDateRange}}")).resolves.toBeTruthy();
+    await expect(typed("speakers", "Hi {{title}} {{lastName}}", "{{presentationDetails}} {{honorarium}}")).resolves.toBeTruthy();
+    await expect(typed("abstracts", "Hi", "{{authorName}}: {{managementLink}}")).resolves.toBeTruthy();
   });
 });

@@ -11,7 +11,7 @@
  * attachments, the blocks of one email type). `email-token-writers.test.ts`
  * lists the files that may assign a mapped token.
  */
-import { eventLocationVars } from "@/lib/email";
+import { eventLocationVars, renderMessageValue, renderTemplatePlain } from "@/lib/email";
 import type { EmailTokenKey } from "@/lib/email-token-map";
 import type { SpeakerEmailContext } from "@/lib/speaker-agreement";
 import { getTitleLabel } from "@/lib/utils";
@@ -85,4 +85,37 @@ export function speakerTokenValues(
     honorariumAmount: ctx?.honorariumAmount ?? "0.00",
     honorariumCurrency: ctx?.honorariumCurrency ?? "",
   } satisfies TokenValues;
+}
+
+/**
+ * The typed subject and note, rendered LAST, with everything a template in the
+ * same email gets (the sender's values and the event block): a token works in
+ * a typed subject or note wherever it works in a template, which is what lets
+ * a typed email be checked against the token map when it is scheduled. Until
+ * Nov 27, 2026 the subject was rendered early (no {{amount}}, no RSVP name) and
+ * the note without the event block (no {{eventDateRange}}).
+ *
+ * {{subject}} and {{message}} are set only where `subjectAndMessage` says: a
+ * typed email and a saved template. {{personalMessage}} is the note as typed
+ * (raw); {{message}} escapes it unless the caller sends cleaned HTML.
+ */
+export function applyTypedSubjectAndNote(
+  vars: Record<string, string | number>,
+  p: {
+    subjectAndMessage: boolean;
+    subject?: string | null;
+    note?: string | null;
+    noteIsHtml?: boolean;
+    eventVars?: Record<string, string>;
+    rawHtmlKeys: Set<string>;
+  },
+): void {
+  // Not {{personalMessage}}: inside the typed text it would be the typed text itself, unrendered.
+  const all: Record<string, string | number> = { ...(p.eventVars ?? {}), ...vars };
+  delete all.personalMessage;
+  if (p.subjectAndMessage) {
+    vars.subject = renderTemplatePlain(p.subject ?? "", all);
+    vars.message = p.note ? renderMessageValue(p.note, all, { isHtml: p.noteIsHtml, rawHtmlKeys: p.rawHtmlKeys }) : "";
+  }
+  if (p.note) vars.personalMessage = renderMessageValue(p.note, all, { isHtml: true, rawHtmlKeys: p.rawHtmlKeys });
 }

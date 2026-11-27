@@ -233,4 +233,22 @@ describe("a saved template naming every token of its audience, sent from one per
     expect(res.status, JSON.stringify(await res.json())).toBe(200);
     assertClean("speaker/saved template");
   });
+
+  // A typed email from a person's record sees the tokens a typed email from
+  // Communications sees (the same builders, the same renderer).
+  it.each([
+    ["registration", "registrations"],
+    ["speaker", "speakers"],
+  ] as const)("a typed email from the %s record: every token of its audience works in the subject and the message", async (kind, audience) => {
+    const text = tokensSetFor(audience, { typed: true }).map((k) => `{{${k}}}`).join(" ");
+    const body = { type: "custom", customSubject: text, customMessage: text };
+    const res = kind === "registration"
+      ? await registrationPost(req("http://t/api/events/ev1/registrations/reg1/email", body), { params: Promise.resolve({ eventId: "ev1", registrationId: "reg1" }) })
+      : await speakerPost(req("http://t/api/events/ev1/speakers/sp1/email", body), { params: Promise.resolve({ eventId: "ev1", speakerId: "sp1" }) });
+    expect(res.status, JSON.stringify(await res.json())).toBe(200);
+    const p = sendEmailSpy.mock.calls[0][0] as { subject: string; htmlContent: string };
+    expect(findUnresolvedTokens(p.subject), "subject").toEqual([]);
+    expect(findUnresolvedTokens(p.htmlContent), "message").toEqual([]);
+    if (kind === "registration") expect(p.subject).toContain("USD 420.00");
+  });
 });

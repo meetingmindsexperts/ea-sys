@@ -21,12 +21,15 @@ export interface EmailToken {
   audiences: "all" | readonly BulkEmailAudience[];
   /** Set only when an RSVP is picked for the send. */
   needsRsvp?: true;
+  /** One abstract's own: set when the send goes once per abstract, which a saved template naming one does and a typed email never does. */
+  perAbstract?: true;
 }
 
 const ALL = { audiences: "all" } as const;
 const SPEAKERS = { audiences: ["speakers"] } as const;
 const PRESENTERS = { audiences: ["speakers", "abstracts"] } as const;
 const AUTHORS = { audiences: ["abstracts"] } as const;
+const ABSTRACT_OWN = { audiences: ["abstracts"], perAbstract: true } as const;
 const RSVP = { audiences: "all", needsRsvp: true } as const;
 
 export const EMAIL_TOKEN_MAP = {
@@ -50,9 +53,9 @@ export const EMAIL_TOKEN_MAP = {
   honorarium: SPEAKERS, honorariumAmount: SPEAKERS, honorariumCurrency: SPEAKERS,
   presenterAgreementAttachment: PRESENTERS, presenterAgreementLink: PRESENTERS,
   authorName: AUTHORS, managementLink: AUTHORS,
-  abstractNumber: AUTHORS, abstractTitle: AUTHORS, presentationType: AUTHORS, theme: AUTHORS,
-  coAuthorNames: AUTHORS, newStatus: AUTHORS, statusHeading: AUTHORS, statusMessage: AUTHORS,
-  reviewNotes: AUTHORS, reviewScore: AUTHORS,
+  abstractNumber: ABSTRACT_OWN, abstractTitle: ABSTRACT_OWN, presentationType: ABSTRACT_OWN, theme: ABSTRACT_OWN,
+  coAuthorNames: ABSTRACT_OWN, newStatus: ABSTRACT_OWN, statusHeading: ABSTRACT_OWN, statusMessage: ABSTRACT_OWN,
+  reviewNotes: ABSTRACT_OWN, reviewScore: ABSTRACT_OWN,
   // Empty in a saved template (the offer rides only on the built-in
   // confirmation), but set: a copy of that confirmation carries the token.
   travelGrantBlock: AUTHORS, travelGrantBlockText: AUTHORS,
@@ -60,11 +63,18 @@ export const EMAIL_TOKEN_MAP = {
 
 export type EmailTokenKey = keyof typeof EMAIL_TOKEN_MAP;
 
-/** The tokens a send to this audience sets (RSVP tokens only with `withRsvp`). */
-export function tokensSetFor(audience: BulkEmailAudience, opts: { withRsvp?: boolean } = {}): EmailTokenKey[] {
+/**
+ * The tokens a send to this audience sets (RSVP tokens only with `withRsvp`).
+ * `typed`: inside the subject and message typed for an email with no saved
+ * template. The same set, less an abstract's own tokens (a typed email goes
+ * once per author) and less {{subject}}, {{message}} and {{personalMessage}},
+ * which are the typed text itself.
+ */
+export function tokensSetFor(audience: BulkEmailAudience, opts: { withRsvp?: boolean; typed?: boolean } = {}): EmailTokenKey[] {
   return (Object.keys(EMAIL_TOKEN_MAP) as EmailTokenKey[]).filter((key) => {
     const token: EmailToken = EMAIL_TOKEN_MAP[key];
     if (token.needsRsvp && !opts.withRsvp) return false;
+    if (opts.typed && (token.perAbstract || key === "subject" || key === "message" || key === "personalMessage")) return false;
     return token.audiences === "all" || token.audiences.includes(audience);
   });
 }
@@ -76,27 +86,39 @@ const AUDIENCE_NOUN: Record<BulkEmailAudience, string> = {
   abstracts: "abstract authors",
 };
 
+/** Why one token is not set for this send, in words for the sender. */
+function whyNotSet(t: string, audience: BulkEmailAudience, typed: boolean): string {
+  const token: EmailToken | undefined = (EMAIL_TOKEN_MAP as Record<string, EmailToken>)[t];
+  if (!token) return `{{${t}}} is not a token this email can use (check its spelling)`;
+  if (token.audiences === "all") return `{{${t}}} cannot be used inside the typed subject or message`;
+  if (typed && token.perAbstract && audience === "abstracts") {
+    return `{{${t}}} is one abstract's own detail, and a typed email goes once per author (put the text in a saved template to send one email per abstract)`;
+  }
+  return `{{${t}}} is filled only when sending to ${token.audiences.map((a) => AUDIENCE_NOUN[a]).join(" or ")}`;
+}
+
 /**
- * What a saved template sent to `audience` names (pass its subject and HTML,
- * what the send's own guard refuses on) that the send will not set, so every
- * email would be refused: a sentence for the sender, or null. Asked
- * when the send is scheduled (precheckBulkEmailViability), not found out when
- * it fires. The RSVP tokens count as set: the RSVP check beside it owns them.
+ * What an email to `audience` names that the send will not set, so every email
+ * would be refused: a sentence for the sender, or null. Asked when the send is
+ * scheduled (precheckBulkEmailViability), not found out when it fires.
+ * "saved-template": pass the template's subject and HTML (what the send's own
+ * guard refuses on). "typed": pass the typed subject and message. The RSVP
+ * tokens count as set: the RSVP check beside it owns them.
  */
-export function savedTemplateTokenRefusal(
+export function emailTokenRefusal(
   audience: BulkEmailAudience,
+  kind: "saved-template" | "typed",
   ...texts: Array<string | null | undefined>
 ): { message: string; tokens: string[] } | null {
-  const set = new Set<string>(tokensSetFor(audience, { withRsvp: true }));
+  const typed = kind === "typed";
+  const set = new Set<string>(tokensSetFor(audience, { withRsvp: true, typed }));
   const tokens = findUnresolvedTokens(...texts.map((t) => normalizeTemplateTokens(t ?? ""))).filter((t) => !set.has(t));
   if (tokens.length === 0) return null;
-  const parts = tokens.map((t) => {
-    const token: EmailToken | undefined = (EMAIL_TOKEN_MAP as Record<string, EmailToken>)[t];
-    if (!token || token.audiences === "all") return `{{${t}}} is not a token a saved template can use (check its spelling)`;
-    return `{{${t}}} is filled only when sending to ${token.audiences.map((a) => AUDIENCE_NOUN[a]).join(" or ")}`;
-  });
+  const why = tokens.map((t) => whyNotSet(t, audience, typed)).join("; ");
   return {
     tokens,
-    message: `This template cannot go to ${AUDIENCE_NOUN[audience]} as it is: ${parts.join("; ")}. Change it under Communications, Email Templates, then try again.`,
+    message: typed
+      ? `This email cannot go to ${AUDIENCE_NOUN[audience]} as it is: ${why}. Change the subject or the message, then try again.`
+      : `This template cannot go to ${AUDIENCE_NOUN[audience]} as it is: ${why}. Change it under Communications, Email Templates, then try again.`,
   };
 }

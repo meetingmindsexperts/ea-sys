@@ -9,7 +9,7 @@ import { findGatedEvent } from "@/lib/tenant/event-tenant";
 import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import {
@@ -20,7 +20,7 @@ import {
   normalizeEmail,
   repointOrgContactEmail,
 } from "@/lib/email-change";
-import { everyAudienceTokenValues, speakerTokenValues } from "@/lib/email-token-values";
+import { applyTypedSubjectAndNote, everyAudienceTokenValues, speakerTokenValues } from "@/lib/email-token-values";
 import {
   buildAgreementBlock,
   buildSpeakerEmailContext,
@@ -211,13 +211,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       agreementLink,
     };
 
-    // The typed subject and note, for a saved template that names them (as the
-    // bulk pipeline sets them for one; not for a built-in type).
-    if (type === "template") {
-      vars.subject = "";
-      vars.message = customMessage ?? "";
-    }
-
     if (type === "custom") {
       if (!customSubject || !customMessage) {
         return NextResponse.json(
@@ -225,9 +218,6 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 400 }
         );
       }
-      // A token typed into the subject box resolves like one in the message box.
-      vars.subject = renderTemplatePlain(customSubject, vars);
-      vars.message = customMessage;
     }
 
     // "template" type resolves the SAVED template by slug — getEventTemplate
@@ -348,12 +338,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       "rsvpLink",
       "rsvpButton",
     ]);
-    if (customMessage) {
-      vars.personalMessage = renderMessageValue(customMessage, vars, { isHtml: true, rawHtmlKeys });
-      if ("message" in vars) {
-        vars.message = renderMessageValue(customMessage, vars, { rawHtmlKeys });
-      }
-    }
+    // The typed subject and note, rendered last with everything a template
+    // gets, as the bulk pipeline does ({{subject}} and {{message}} only for a
+    // typed email or a saved template).
+    applyTypedSubjectAndNote(vars, {
+      subjectAndMessage: type === "custom" || type === "template",
+      subject: customSubject,
+      note: customMessage,
+      eventVars: branding.eventVars,
+      rawHtmlKeys,
+    });
     const rendered = renderAndWrap(tpl, vars, branding, rawHtmlKeys);
 
     // Seed with the operator-picked files; the agreement branch appends its

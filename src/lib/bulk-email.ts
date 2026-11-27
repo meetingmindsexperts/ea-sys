@@ -4,12 +4,12 @@ import { z } from "zod";
 import { MAX_MANUAL_CC } from "@/lib/email-address-list";
 import { db } from "./db";
 import { apiLogger } from "./logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, observerBcc, type EmailBranding, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc, observerBcc, type EmailBranding, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
 import { readRegistrationBasePrice } from "./registration-financials";
 import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
-import { savedTemplateTokenRefusal } from "@/lib/email-token-map";
-import { everyAudienceTokenValues, speakerTokenValues } from "@/lib/email-token-values";
+import { emailTokenRefusal } from "@/lib/email-token-map";
+import { applyTypedSubjectAndNote, everyAudienceTokenValues, speakerTokenValues } from "@/lib/email-token-values";
 import {
   buildAgreementBlock,
   buildSpeakerEmailContext,
@@ -908,7 +908,7 @@ export function parsePaymentStatusFilter(value: string | undefined): PaymentStat
 /** Error code set on BulkEmailError for an unparsable filter value (review M7). */
 export const INVALID_FILTER_CODE = "INVALID_FILTER";
 
-/** A saved template that names a token its audience's send does not set (email-token-map.ts): refused at enqueue and at fire time alike. */
+/** A saved template or a typed email that names a token its audience's send does not set (email-token-map.ts): refused at enqueue and at fire time alike. */
 export const TOKENS_NOT_SET_CODE = "TOKENS_NOT_SET";
 
 /** A saved (custom) template that is missing or inactive: refused at enqueue and at fire time alike. */
@@ -1184,7 +1184,7 @@ export async function precheckBulkEmailViability(
     // HTML only, which is what the send's own guard refuses on: a leftover in
     // the text part is a warning there, and a typed note reaches an email only
     // where the template names it.
-    const tokenRefusal = savedTemplateTokenRefusal(recipientType, savedTemplate.subject, savedTemplate.htmlContent);
+    const tokenRefusal = emailTokenRefusal(recipientType, "saved-template", savedTemplate.subject, savedTemplate.htmlContent);
     if (tokenRefusal) {
       apiLogger.warn({ msg: "bulk-email:saved-template-tokens-not-set", eventId, recipientType, templateSlug: filters.templateSlug, tokens: tokenRefusal.tokens });
       throw new BulkEmailError(tokenRefusal.message, 400, TOKENS_NOT_SET_CODE);
@@ -1201,6 +1201,16 @@ export async function precheckBulkEmailViability(
   // N copies of the same error in `result.errors`, so hoist it here.
   if (emailType === "custom" && (!customSubject || !customMessage)) {
     throw new BulkEmailError("Custom emails require subject and message", 400);
+  }
+  // A typed email is held to the token map as a saved template is: a token
+  // its audience's send does not set is refused now, not when it fires. The
+  // typed subject and message see what a template sees (applyTypedSubjectAndNote).
+  if (emailType === "custom") {
+    const typedRefusal = emailTokenRefusal(recipientType, "typed", customSubject, customMessage);
+    if (typedRefusal) {
+      apiLogger.warn({ msg: "bulk-email:typed-email-tokens-not-set", eventId, recipientType, tokens: typedRefusal.tokens });
+      throw new BulkEmailError(typedRefusal.message, 400, TOKENS_NOT_SET_CODE);
+    }
   }
 
   // Survey invitations only make sense for `registrations` — speakers /
@@ -2282,26 +2292,6 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       presenterAttachment = presenter.attachment ?? undefined;
     }
 
-    if (emailType === "custom") {
-      // Pre-flight already verified subject + message are present (see
-      // hoisted check above the recipient resolve), so this is just
-      // hydration of the per-recipient vars.
-      // A token typed into the SUBJECT box resolves like one typed into the
-      // message box (renderMessageValue below); before this the literal
-      // {{firstName}} reached the unresolved-token guard and the send was
-      // refused (found by the sender drift test, September 18, 2026).
-      vars.subject = renderTemplatePlain(customSubject!, vars);
-      vars.message = customMessage!;
-    } else if (emailType === "template" || emailType === "abstract-reminder") {
-      // A saved custom template (or the abstract-reminder template) defines
-      // its own subject + body, but may also reference {{subject}} /
-      // {{message}} placeholders for an optional per-send note. Both are
-      // optional here (the template, not the operator, owns the content), so
-      // default to empty.
-      vars.subject = renderTemplatePlain(customSubject ?? "", vars);
-      vars.message = customMessage ?? "";
-    }
-
     // Payment-reminder {{amount}} (amount due) + {{paymentBlock}} (Pay Now
     // link), via the SAME helper the single-send route uses so the two can't
     // drift. Gated on the resolved template slug so it fires whether the send
@@ -2309,7 +2299,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // slug — the bulk path previously left both tokens empty (no link).
     // A saved (custom) template gets them too (Nov 27, 2026: a copy of the
     // reminder was refused on {{amount}}): the balance due, or both blank.
-    const customOnRegistrations = isCustomTemplateSlug(templateSlug) && recipientType === "registrations";
+    // A typed email to registrations gets them as a saved template does, so
+    // what works in one works in the other.
+    const customOnRegistrations = (isCustomTemplateSlug(templateSlug) || emailType === "custom") && recipientType === "registrations";
     if ((templateSlug === "payment-reminder" && recipientType === "registrations") || customOnRegistrations) {
       const build = customOnRegistrations ? savedTemplatePaymentVars : buildPaymentReminderVars;
       const { amount, paymentBlock } = build({
@@ -2517,18 +2509,16 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // escaping contracts exactly: {{personalMessage}} has always rendered
     // the typed message raw (isHtml: true); {{message}} escapes it unless
     // the caller flagged sanitized HTML (the MCP A1 contract).
-    if (customMessage) {
-      vars.personalMessage = renderMessageValue(customMessage, vars, {
-        isHtml: true,
-        rawHtmlKeys,
-      });
-      if ("message" in vars) {
-        vars.message = renderMessageValue(customMessage, vars, {
-          isHtml: customMessageIsHtml,
-          rawHtmlKeys,
-        });
-      }
-    }
+    applyTypedSubjectAndNote(vars, {
+      // A typed email, and a saved template (or the abstract reminder) that
+      // names {{subject}} or {{message}} for an optional note.
+      subjectAndMessage: emailType === "custom" || emailType === "template" || emailType === "abstract-reminder",
+      subject: customSubject,
+      note: customMessage,
+      noteIsHtml: customMessageIsHtml,
+      eventVars: branding.eventVars,
+      rawHtmlKeys,
+    });
 
     // THE SAVED-TEMPLATE TRAP, bulk edition. Events hold their OWN saved copy
     // of abstract-submission-confirmation and most predate the token, so a

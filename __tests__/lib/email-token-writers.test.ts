@@ -3,9 +3,9 @@
  * step 2). The three senders that let a person pair a template with an
  * audience take their token VALUES from the builders in email-token-values.ts,
  * so the same template reads the same from Communications and from one
- * person's record. What each still assigns itself is listed here: links it
- * mints, blocks with an attachment, the typed subject and note, one email
- * type's own blocks. A new `vars.<token> =` for a mapped token fails this
+ * person's record (the typed subject and note through applyTypedSubjectAndNote,
+ * for all three). What each still assigns itself is listed here: links it
+ * mints, blocks with an attachment, one email type's own blocks. A new `vars.<token> =` for a mapped token fails this
  * until it is added, which is the moment to ask whether it belongs in a
  * builder that every sender shares.
  */
@@ -17,16 +17,16 @@ import { EMAIL_TOKEN_MAP } from "@/lib/email-token-map";
 const OWN: Record<string, string[]> = {
   "src/lib/bulk-email.ts": [
     "agreementBlock", "agreementBlockText", "agreementLink", "amount", "authorName", "entryBarcode", "entryBarcodeText",
-    "managementLink", "message", "paymentBlock", "personalMessage", "reviewLink", "rsvpButton", "rsvpLink", "rsvpName",
-    "subject", "travelGrantBlock", "travelGrantBlockText",
+    "managementLink", "paymentBlock", "reviewLink", "rsvpButton", "rsvpLink", "rsvpName",
+    "travelGrantBlock", "travelGrantBlockText",
   ],
   "src/app/api/events/[eventId]/registrations/[registrationId]/email/route.ts": [
-    "amount", "daysUntilEvent", "entryBarcode", "entryBarcodeText", "message", "paymentBlock", "personalMessage",
-    "rsvpButton", "rsvpLink", "rsvpName", "subject",
+    "amount", "daysUntilEvent", "entryBarcode", "entryBarcodeText", "paymentBlock",
+    "rsvpButton", "rsvpLink", "rsvpName",
   ],
   "src/app/api/events/[eventId]/speakers/[speakerId]/email/route.ts": [
-    "agreementAttachment", "agreementBlock", "agreementBlockText", "agreementLink", "message", "personalMessage",
-    "rsvpButton", "rsvpLink", "rsvpName", "subject",
+    "agreementAttachment", "agreementBlock", "agreementBlockText", "agreementLink",
+    "rsvpButton", "rsvpLink", "rsvpName",
   ],
 };
 

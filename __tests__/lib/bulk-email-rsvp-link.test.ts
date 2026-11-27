@@ -67,7 +67,11 @@ vi.mock("@/lib/email-barcode", () => ({
   buildEntryBarcode: vi.fn(),
   templateUsesEntryBarcode: vi.fn().mockReturnValue(false),
 }));
-vi.mock("@/lib/payment-reminder", () => ({ buildPaymentReminderVars: vi.fn() }));
+// A typed email to registrations asks for the balance too (Nov 27, 2026).
+vi.mock("@/lib/payment-reminder", () => ({
+  buildPaymentReminderVars: vi.fn(),
+  savedTemplatePaymentVars: vi.fn().mockReturnValue({ amount: "", paymentBlock: "" }),
+}));
 vi.mock("@/lib/certificates/bundle", () => ({ loadCertTemplate: vi.fn() }));
 vi.mock("@/lib/certificates/bulk-issue", () => ({ executeCertificateBulkSend: vi.fn() }));
 
