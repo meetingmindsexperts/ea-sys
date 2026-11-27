@@ -37,6 +37,16 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Email token map: what the Nov 27 reviews left (recorded Nov 27, 2026): not started
+
+The token map (`src/lib/email-token-map.ts`, docs/EMAIL_TOKEN_MAP_PLAN.md) is built, steps 0 to 3 and typed emails. Left by its reviews, none of them a failure of a send that works:
+
+1. **LOW: the assistant is not told which tokens a typed email may use.** `send_bulk_email`'s description (`register-mcp-tools.ts`) lists none, and the system prompt still says the system does not replace template variables. A refused attempt names the token and the reason, and costs one of the tool's 10 an hour. Fix: say in the description that tokens are replaced, name the common ones per audience from the map, and bump the package version (clients cache the tool list).
+2. **LOW: `{{amount}}` is empty for a group member, a paid or a cancelled registration**, so "Your balance of  is due" reads oddly in a typed email sent to all registrations. The same rule as a saved template. A line in the send dialog when the text names `{{amount}}`, pointing at the owes-money filter, would do.
+3. **LOW: a typed subject may carry a block token** (`{{paymentBlock}}` puts markup in the subject line). The map does not tell a block from a word; a flag on the block tokens and a subject-only check would.
+4. **LOW: the preview of a typed email fills `{{subject}}` inside the message and the tokens of other audiences from samples unless the send dialog passes its audience** (it does; the per-person sheets do not). The per-person sends are immediate, so a refusal there arrives in the same click.
+5. **LOW: an event's own saved copy of Custom Notification that never places `{{subject}}`** still has its typed subject checked, so a stray `{{x}}` typed there is refused where it used to be ignored.
+
 ## Saved templates and {{amount}}: what the Nov 27 review left (recorded Nov 27, 2026): not started
 
 A saved template sent to registrations now fills `{{amount}}` (the balance) and `{{paymentBlock}}` through `savedTemplatePaymentVars` in `src/lib/payment-reminder.ts`, from both the bulk sender and the registration sheet. Left:

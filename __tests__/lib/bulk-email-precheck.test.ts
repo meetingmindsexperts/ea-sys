@@ -490,9 +490,21 @@ describe("a typed email is held to the token map as a saved template is (Nov 27,
     expect((await typed("registrations", "Hi", "See {{message}}").catch((e) => e)).message).toContain("{{message}} cannot be used inside the typed subject or message");
   });
 
-  it("tells an abstracts send that one abstract's detail needs a saved template", async () => {
-    const err = await typed("abstracts", "Your abstract", "About {{abstractTitle}}").catch((e) => e);
-    expect(err.message).toContain("{{abstractTitle}} is one abstract's own detail, and a typed email goes once per author");
+  it("says an abstract's own detail needs a saved template sent to abstract authors, whoever the typed email goes to", async () => {
+    for (const audience of ["abstracts", "registrations"] as const) {
+      const err = await typed(audience, "Your abstract", "About {{abstractTitle}}").catch((e) => e);
+      expect(err.message).toContain("{{abstractTitle}} is one abstract's own detail: it is filled only in a saved template sent to abstract authors");
+    }
+  });
+
+  it("lets the message quote the subject, and refuses the subject naming itself", async () => {
+    await expect(typed("registrations", "Your place", "Re: {{subject}}")).resolves.toBeTruthy();
+    expect((await typed("registrations", "About {{subject}}", "Hello").catch((e) => e)).message).toContain("{{subject}} cannot be used inside the typed subject or message");
+  });
+
+  it("refuses the RSVP's name with no RSVP chosen, like the link and the button", async () => {
+    const err = await typed("registrations", "Join {{rsvpName}}", "Hello").catch((e) => e);
+    expect(err.message).toContain("but no RSVP was chosen");
   });
 
   it("lets through what its audience gets: the balance for registrations, the fee for speakers, the event block for everyone", async () => {

@@ -115,6 +115,8 @@ export function applyTypedSubjectAndNote(
   delete all.personalMessage;
   if (p.subjectAndMessage) {
     vars.subject = renderTemplatePlain(p.subject ?? "", all);
+    // The message may quote the subject ("Re: {{subject}}"), as it always could.
+    all.subject = vars.subject;
     vars.message = p.note ? renderMessageValue(p.note, all, { isHtml: p.noteIsHtml, rawHtmlKeys: p.rawHtmlKeys }) : "";
   }
   if (p.note) vars.personalMessage = renderMessageValue(p.note, all, { isHtml: true, rawHtmlKeys: p.rawHtmlKeys });

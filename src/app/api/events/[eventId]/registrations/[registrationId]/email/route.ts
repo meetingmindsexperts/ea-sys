@@ -569,7 +569,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     let barcodeAttachment:
       | { name: string; content: string; contentType: string; contentId: string }
       | null = null;
-    if (templateUsesEntryBarcode(tpl.htmlContent, tpl.textContent)) {
+    if (templateUsesEntryBarcode(tpl.htmlContent, tpl.textContent, customMessage)) {
       try {
         const bc = await buildEntryBarcode({
           qrCode: registration.qrCode,
@@ -603,7 +603,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // {{subject}} is refused (an empty subject line otherwise).
     applyTypedSubjectAndNote(vars, {
       subjectAndMessage: type === "custom" || !!templateSlug,
-      subject: customSubject,
+      // A saved template never takes the subject box.
+      subject: templateSlug ? "" : customSubject,
       note: customMessage,
       eventVars: branding.eventVars,
       rawHtmlKeys,

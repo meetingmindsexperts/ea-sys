@@ -283,6 +283,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       tpl.subject,
       tpl.htmlContent,
       tpl.textContent,
+      // The typed subject and message too: a token works in a typed email as in a template.
+      customSubject,
+      customMessage,
     );
     if (!agreementLink && !speaker.agreementAcceptedAt && templateWantsAgreement) {
       try {
@@ -343,7 +346,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // typed email or a saved template).
     applyTypedSubjectAndNote(vars, {
       subjectAndMessage: type === "custom" || type === "template",
-      subject: customSubject,
+      // A saved template never takes the subject box (the page sends it for every type).
+      subject: type === "custom" ? customSubject : "",
       note: customMessage,
       eventVars: branding.eventVars,
       rawHtmlKeys,
@@ -376,6 +380,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       tpl.subject,
       tpl.htmlContent,
       tpl.textContent,
+      customSubject,
+      customMessage,
     );
     const wantsAgreementAttachment =
       strictAgreement ||

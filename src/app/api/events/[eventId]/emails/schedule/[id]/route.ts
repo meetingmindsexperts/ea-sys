@@ -1,3 +1,5 @@
+import { emailTokenRefusal } from "@/lib/email-token-map";
+import type { BulkEmailAudience } from "@/lib/email-template-registry";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
@@ -92,8 +94,22 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // read first and bound on the write, so it cannot change in between.
     const typeRow = await db.scheduledEmail.findFirst({
       where: { id, eventId, event: gate.eventWhere },
-      select: { emailType: true },
+      select: { emailType: true, recipientType: true, customSubject: true, customMessage: true },
     });
+    // A typed email's new subject or message is held to the token map here as
+    // when it was scheduled, or the edit saves and the whole send fails when it fires.
+    if (typeRow?.emailType === "custom" && (data.customSubject !== undefined || data.customMessage !== undefined)) {
+      const refusal = emailTokenRefusal(
+        typeRow.recipientType as BulkEmailAudience,
+        "typed",
+        data.customSubject !== undefined ? data.customSubject : typeRow.customSubject,
+        data.customMessage !== undefined ? data.customMessage : typeRow.customMessage,
+      );
+      if (refusal) {
+        apiLogger.warn({ msg: "scheduled-email:edit-tokens-not-set", id, eventId, tokens: refusal.tokens });
+        return NextResponse.json({ error: refusal.message, code: "TOKENS_NOT_SET" }, { status: 400 });
+      }
+    }
     const typeKey = typeRow ? bulkEmailTypePermission(typeRow.emailType) : null;
     const typeGate = typeKey ? requirePermission(session, typeKey, { route: "events/[eventId]/emails/schedule/[id]:PATCH", eventId }) : null;
     if (typeGate && !typeGate.ok) return typeGate.response;

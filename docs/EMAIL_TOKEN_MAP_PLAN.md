@@ -70,7 +70,7 @@ Each step is one or two commits, changes no email on its own unless stated, and 
 
 ### Step 1. Say no when it is scheduled. BUILT Nov 27, 2026
 
-- `emailTokenRefusal` (the map's file; first named `savedTemplateTokenRefusal`), asked by `precheckBulkEmailViability`: a saved template, or the subject and note typed with it, that names a token its audience's send does not set is refused when the send is made or scheduled (code `TOKENS_NOT_SET`), naming the token and who it is for, or that it is not a token (a spelling). A scheduled send firing goes through the same check. The agent's `send_bulk_email` does not reach it: that tool always sends a typed custom email (below).
+- `emailTokenRefusal` (the map's file; first named `savedTemplateTokenRefusal`), asked by `precheckBulkEmailViability`: a saved template, or the subject and note typed with it, that names a token its audience's send does not set is refused when the send is made or scheduled (code `TOKENS_NOT_SET`), naming the token and who it is for, or that it is not a token (a spelling). A scheduled send firing goes through the same check. The agent's `send_bulk_email` always sends a typed email, which is checked since step 2 (below).
 - The drift test proves both other directions: every token the map gives only to other audiences is really left unset by the send, and a saved-template send hands the renderer no variable the map does not list for its audience (per author and per abstract). Together: the refusal stops nothing that would have gone out.
 - `{{subject}}` and `{{message}}` (the subject and note typed for the send) joined the map: the bulk pipeline has always set them for a saved template, and the editor flagged them.
 
@@ -98,6 +98,7 @@ Found by the reviews of steps 0 and 1 and fixed with them: a copy of the Abstrac
 - A typed email to registrations gets `{{amount}}` (the balance) and `{{paymentBlock}}` (Pay Now), as a saved template does; blank for a group member or anyone with nothing due.
 - `emailTokenRefusal(audience, "typed", subject, message)`, asked by the same precheck: a typed email naming a token its audience does not get is refused when it is sent or scheduled. The assistant's `send_bulk_email` is a typed email, so it is covered from here on.
 - A typed email's set is the saved template's, less three things: an abstract's own tokens (a typed email goes once per author; the refusal says to use a saved template), and `{{subject}}`, `{{message}}`, `{{personalMessage}}`, which are the typed text itself.
+- Found by the review of `fa9aede3` and fixed with it: the message may quote `{{subject}}` as it always could (the first cut refused it); the agreement tokens and `{{entryBarcode}}` are filled when the typed text names them, where they rendered as nothing (the checks that mint them read only the template); editing a scheduled typed email is held to the map too (`PATCH emails/schedule/[id]`); `{{rsvpName}}` alone with no RSVP chosen is refused with the link and the button. What it left is in ROADMAP.
 - Proved the same way: 108 recorded bulk emails and 28 per-person ones, every one byte for byte the same after the change; the drift tests hold the typed set in both directions for every audience, and a typed email from a person's record to the same set.
 
 ### Step 3. The old lists are gone. BUILT Nov 27, 2026

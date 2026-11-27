@@ -161,12 +161,12 @@ const AUDIENCE_NOUN: Record<BulkEmailAudience, string> = {
 };
 
 /** Why one token is not set for this send, in words for the sender. */
-function whyNotSet(t: string, audience: BulkEmailAudience, typed: boolean): string {
+function whyNotSet(t: string, typed: boolean): string {
   const token: EmailToken | undefined = (EMAIL_TOKEN_MAP as Record<string, EmailToken>)[t];
   if (!token) return `{{${t}}} is not a token this email can use (check its spelling)`;
   if (token.audiences === "all") return `{{${t}}} cannot be used inside the typed subject or message`;
-  if (typed && token.perAbstract && audience === "abstracts") {
-    return `{{${t}}} is one abstract's own detail, and a typed email goes once per author (put the text in a saved template to send one email per abstract)`;
+  if (typed && token.perAbstract) {
+    return `{{${t}}} is one abstract's own detail: it is filled only in a saved template sent to abstract authors, which goes once per abstract (a typed email goes once per person)`;
   }
   return `{{${t}}} is filled only when sending to ${token.audiences.map((a) => AUDIENCE_NOUN[a]).join(" or ")}`;
 }
@@ -176,8 +176,8 @@ function whyNotSet(t: string, audience: BulkEmailAudience, typed: boolean): stri
  * would be refused: a sentence for the sender, or null. Asked when the send is
  * scheduled (precheckBulkEmailViability), not found out when it fires.
  * "saved-template": pass the template's subject and HTML (what the send's own
- * guard refuses on). "typed": pass the typed subject and message. The RSVP
- * tokens count as set: the RSVP check beside it owns them.
+ * guard refuses on). "typed": pass the typed subject, then the message. The
+ * RSVP tokens count as set: the RSVP check beside it owns them.
  */
 export function emailTokenRefusal(
   audience: BulkEmailAudience,
@@ -186,9 +186,17 @@ export function emailTokenRefusal(
 ): { message: string; tokens: string[] } | null {
   const typed = kind === "typed";
   const set = new Set<string>(tokensSetFor(audience, { withRsvp: true, typed }));
-  const tokens = findUnresolvedTokens(...texts.map((t) => normalizeTemplateTokens(t ?? ""))).filter((t) => !set.has(t));
+  const named = (parts: Array<string | null | undefined>) => findUnresolvedTokens(...parts.map((t) => normalizeTemplateTokens(t ?? "")));
+  // Typed: the subject first, then the message, which alone may quote {{subject}}.
+  const [first, ...rest] = texts;
+  const tokens = [
+    ...new Set([
+      ...named([first]).filter((t) => !set.has(t)),
+      ...named(rest).filter((t) => !set.has(t) && !(typed && t === "subject")),
+    ]),
+  ];
   if (tokens.length === 0) return null;
-  const why = tokens.map((t) => whyNotSet(t, audience, typed)).join("; ");
+  const why = tokens.map((t) => whyNotSet(t, typed)).join("; ");
   return {
     tokens,
     message: typed

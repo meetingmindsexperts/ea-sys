@@ -1409,10 +1409,13 @@ export async function precheckBulkEmailViability(
   if (!rsvpCampaign && emailType !== "certificate") {
     const slug = emailType === "template" ? filters?.templateSlug : bulkTemplateSlugFor(emailType, recipientType);
     const tpl = emailType === "template" ? savedTemplate : await loadTemplateBySlug(eventId, slug);
-    if (templateUsesRsvpToken(tpl?.subject, tpl?.htmlContent, tpl?.textContent, customSubject, customMessage)) {
+    // {{rsvpName}} on its own too: the token map counts the three as set, and
+    // without an RSVP none of them is (review of fa9aede3).
+    const namesRsvpOnly = [tpl?.subject, tpl?.htmlContent, customSubject, customMessage].some((p) => typeof p === "string" && p.includes("{{rsvpName}}"));
+    if (namesRsvpOnly || templateUsesRsvpToken(tpl?.subject, tpl?.htmlContent, tpl?.textContent, customSubject, customMessage)) {
       apiLogger.warn({ msg: "bulk-email:rsvp-token-without-campaign", eventId, emailType, recipientType, templateSlug: slug });
       throw new BulkEmailError(
-        'This email uses {{rsvpButton}} or {{rsvpLink}}, but no RSVP was chosen. Pick one under "RSVP link" in the send dialog so each recipient gets their own link.',
+        'This email uses {{rsvpButton}}, {{rsvpLink}} or {{rsvpName}}, but no RSVP was chosen. Pick one under "RSVP link" in the send dialog so each recipient gets their own link.',
         400,
         INVALID_FILTER_CODE,
       );
@@ -1925,7 +1928,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // stayed the literal token.
   const templateWantsAgreement =
     recipientType === "speakers" &&
-    templateUsesAgreementBlock(tpl.subject, tpl.htmlContent, tpl.textContent);
+    // The typed subject and message too: a token works in a typed email as in a template.
+    templateUsesAgreementBlock(tpl.subject, tpl.htmlContent, tpl.textContent, customSubject, customMessage);
 
   // Whether the resolved template already places {{travelGrantBlock}}. When it
   // does not and the block resolved to something, the token is appended per
@@ -1941,7 +1945,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // any link (owner request July 17 — PDF-only sends for the e-sign flow).
   const templateWantsAttachmentOnly =
     recipientType === "speakers" &&
-    templateUsesAgreementAttachment(tpl.subject, tpl.htmlContent, tpl.textContent);
+    templateUsesAgreementAttachment(tpl.subject, tpl.htmlContent, tpl.textContent, customSubject, customMessage);
 
   // Attach-when-possible (owner decision July 16): a NON-agreement speaker
   // send whose template carries an agreement token (e.g. the invitation's
@@ -1968,7 +1972,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // when the template body carries the token (organizer opt-in). For
   // non-registration audiences the token can't resolve (they have no qrCode),
   // so log once that it did nothing rather than silently dropping it.
-  const templateWantsBarcode = templateUsesEntryBarcode(tpl.htmlContent, tpl.textContent);
+  const templateWantsBarcode = templateUsesEntryBarcode(tpl.htmlContent, tpl.textContent, customMessage);
   if (templateWantsBarcode && recipientType !== "registrations") {
     apiLogger.warn({
       msg: "bulk-email:entry-barcode-unavailable",

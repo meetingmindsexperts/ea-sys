@@ -366,11 +366,22 @@ describe("bulk pipeline: a saved template naming every token of its audience ren
     tokenRefusal.on = false;
     const set = new Set<string>(tokensSetFor(audience, { withRsvp: true, typed: true }));
     const others = Object.keys(EMAIL_TOKEN_MAP).filter((k) => !set.has(k));
+    const text = others.map((k) => `{{${k}}}`).join(" ");
     if (audience === "abstracts") mockDb.abstract.findMany.mockResolvedValue([abstractRow("SUBMITTED")]);
-    await executeBulkEmail(typedInput(audience, others.map((k) => `{{${k}}}`).join(" ")));
-    const params = mockSendEmail.mock.calls[0][0] as { subject: string; htmlContent: string };
-    expect(findUnresolvedTokens(params.htmlContent).sort()).toEqual([...others].sort());
-    expect(findUnresolvedTokens(params.subject).sort()).toEqual([...others].sort());
+    // In the subject, all of them.
+    await executeBulkEmail({ ...typedInput(audience, "x"), customSubject: text });
+    expect(findUnresolvedTokens((mockSendEmail.mock.calls[0][0] as { subject: string }).subject).sort()).toEqual([...others].sort());
+    // In the message, all but {{subject}}, which the message may quote (review of fa9aede3).
+    mockSendEmail.mockClear();
+    await executeBulkEmail({ ...typedInput(audience, "x"), customSubject: "Plain subject", customMessage: text });
+    const html = (mockSendEmail.mock.calls[0][0] as { htmlContent: string }).htmlContent;
+    expect(findUnresolvedTokens(html).sort()).toEqual(others.filter((k) => k !== "subject").sort());
+    expect(html).toContain("Plain subject");
+  });
+
+  it("a typed email to speakers that names the agreement link gets one, as a template does", async () => {
+    await executeBulkEmail(typedInput("speakers", "Please sign: {{agreementLink}}"));
+    expect((mockSendEmail.mock.calls[0][0] as { htmlContent: string }).htmlContent).toContain("Please sign: https://x.test/agree/abc");
   });
 
   it.each(AUDIENCES)("%s, typed: the send sets nothing the map does not list", async (audience) => {
