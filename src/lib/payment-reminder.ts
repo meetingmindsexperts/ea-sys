@@ -71,3 +71,19 @@ export function buildPaymentReminderVars(input: PaymentReminderInput): { amount:
       </div>`,
   };
 }
+
+/**
+ * A saved (custom) template sent to one registration (Nov 27, 2026): the
+ * balance still due as `{{amount}}` and the reminder's Pay Now, or both blank
+ * for a group member (their company pays) or anyone with nothing due
+ * (cancelled, settled, free, already paid in full). `money` is
+ * computeRegistrationRowMoney's answer, the figure the reminder's own
+ * owes-nothing rule uses. Bulk and single send both call it.
+ */
+export function savedTemplatePaymentVars(
+  input: PaymentReminderInput & { money: { amountDue: number; currency: string } | null; inGroup: boolean },
+): { amount: string; paymentBlock: string } {
+  if (input.inGroup || !input.money || !(input.money.amountDue > 0)) return { amount: "", paymentBlock: "" };
+  const { paymentBlock } = buildPaymentReminderVars(input);
+  return { amount: `${input.money.currency} ${input.money.amountDue.toFixed(2)}`, paymentBlock };
+}

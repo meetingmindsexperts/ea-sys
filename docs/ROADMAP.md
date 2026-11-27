@@ -37,6 +37,13 @@
 
 **Stage 7. A second organisation.** Onboarding and offboarding as written steps (PLATFORM_DECISIONS §1), capacity on one server during a live event, and the first real customer.
 
+## Saved templates and {{amount}}: what the Nov 27 review left (recorded Nov 27, 2026): not started
+
+A saved template sent to registrations now fills `{{amount}}` (the balance) and `{{paymentBlock}}` through `savedTemplatePaymentVars` in `src/lib/payment-reminder.ts`, from both the bulk sender and the registration sheet. Left:
+
+- **MED: a saved copy of the Registration Confirmation gets the reminder's bare Pay Now as `{{paymentBlock}}`**, not the confirmation's block (tax lines, "covered by" note) that the built-in confirmation renders (`bulk-email.ts`, the registration-confirmation branch runs for the system slug only). Fix: let a saved template whose body is a confirmation copy use `buildRegistrationPaymentBlock`, or decide by which tokens the template carries.
+- **LOW, older:** a `"template"` send may name the system slug `payment-reminder`, which fills Pay Now but skips the reminder's exclusions (they key on `emailType`); and the built-in reminder's `{{amount}}` is the full fee (`totalPaid: 0`), so a partial payer is asked for all of it.
+
 ## Bulk email after the Nov 24 sending-speed failures: what is left (recorded Nov 25, 2026): not started
 
 On Nov 24, 2026 two webinar reminders due in the same second went over the mail service's 14 emails a second and 102

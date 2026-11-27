@@ -26,7 +26,7 @@ import { getTitleLabel, formatPersonName } from "./utils";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { reviewerSpeakerRecords } from "@/lib/abstract-reviewer-notify";
 import { resolveTimezone, formatTimeInTz, tzLabel } from "./event-time";
-import { buildPaymentReminderVars } from "./payment-reminder";
+import { buildPaymentReminderVars, savedTemplatePaymentVars } from "./payment-reminder";
 import { computeRegistrationRowMoney } from "./registration-export";
 import { googleCalendarUrl, outlookCalendarUrl, buildIcsContent } from "./calendar-links";
 import {
@@ -1040,6 +1040,9 @@ interface ResolvedRecipient {
    */
   paymentStatus?: string | null;
   groupPayerName?: string | null;
+  /** Registrations only: the balance (computeRegistrationRowMoney) and group membership, for a saved template's {{amount}}. */
+  money?: { amountDue: number; currency: string } | null;
+  inGroup?: boolean;
   /** Registrations recipients only: the entry path, for the author hold (author-payment-hold.ts). */
   createdSource?: string | null;
   /**
@@ -1800,6 +1803,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       paymentStatus: r.paymentStatus,
       groupPayerName: r.group?.billingAccount?.name ?? null,
       createdSource: r.createdSource,
+      money: computeRegistrationRowMoney(r, reminderMoneyCtx),
+      inGroup: r.group != null,
     }));
   }
 
@@ -2341,14 +2346,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // is the first-class "payment-reminder" type OR a saved template on that
     // slug — the bulk path previously left both tokens empty (no link).
     // A saved (custom) template gets them too (Nov 27, 2026: a copy of the
-    // reminder was refused on {{amount}}), but only for someone who owes:
-    // a settled registration gets both blank, never a price and Pay Now.
+    // reminder was refused on {{amount}}): the balance due, or both blank.
     const customOnRegistrations = isCustomTemplateSlug(templateSlug) && recipientType === "registrations";
-    if (customOnRegistrations && (!recipient.paymentStatus || NO_PAYMENT_DUE_STATUSES.includes(recipient.paymentStatus as (typeof NO_PAYMENT_DUE_STATUSES)[number]))) {
-      vars.amount = "";
-      vars.paymentBlock = "";
-    } else if ((templateSlug === "payment-reminder" && recipientType === "registrations") || customOnRegistrations) {
-      const { amount, paymentBlock } = buildPaymentReminderVars({
+    if ((templateSlug === "payment-reminder" && recipientType === "registrations") || customOnRegistrations) {
+      const build = customOnRegistrations ? savedTemplatePaymentVars : buildPaymentReminderVars;
+      const { amount, paymentBlock } = build({
+        money: recipient.money ?? null,
+        inGroup: !!recipient.inGroup,
         registrationId: recipient.id,
         firstName: recipient.firstName,
         eventSlug: event.slug || event.id,

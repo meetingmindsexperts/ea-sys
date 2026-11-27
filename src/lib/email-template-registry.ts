@@ -1095,7 +1095,7 @@ export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hin
   },
   {
     label: "Sent to registrations",
-    hint: "Filled when the audience is registrations; empty for anyone who owes nothing.",
+    hint: "Filled when the audience is registrations: the balance due, empty for a group member or anyone who owes nothing. A send to anyone else is refused.",
     variables: [{ key: "amount", description: "Amount due (e.g. USD 100.00)" }],
   },
   {

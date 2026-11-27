@@ -24,7 +24,8 @@ import {
   normalizeEmail,
   repointOrgContactEmail,
 } from "@/lib/email-change";
-import { buildPaymentReminderVars } from "@/lib/payment-reminder";
+import { buildPaymentReminderVars, savedTemplatePaymentVars } from "@/lib/payment-reminder";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { authorPaymentOnHold } from "@/lib/author-payment-hold";
 import { excludedAsNoBalance, NO_BALANCE_PAYMENT_STATUSES } from "@/lib/bulk-email-audience";
 import { computeRegistrationRowMoney } from "@/lib/registration-export";
@@ -303,10 +304,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Nothing owed, never chased (Oct 22, 2026; a zero balance under any
     // status since Nov 12, 2026): same rule, and same figure, as the bulk audience.
-    const amountDue = computeRegistrationRowMoney(registration, {
+    const money = computeRegistrationRowMoney(registration, {
       taxRate: event.taxRate ? Number(event.taxRate) : null,
       taxLabel: event.taxLabel ?? null,
-    })?.amountDue ?? null;
+    });
+    const amountDue = money?.amountDue ?? null;
     if (type === "payment-reminder" && excludedAsNoBalance(type, registration.paymentStatus, !!registration.ticketType, amountDue)) {
       apiLogger.warn({ msg: "registration-email:no-balance-payment-reminder-refused", registrationId, eventId, paymentStatus: registration.paymentStatus, hasType: !!registration.ticketType, amountDue });
       return NextResponse.json(
@@ -476,10 +478,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       vars.daysUntilEvent = daysUntilEvent ?? 1;
     }
 
-    if (type === "payment-reminder") {
+    // A saved template gets the balance due and Pay Now, or both blank, by the
+    // bulk sender's rule (Nov 27, 2026).
+    const savedTemplate = !!templateSlug && isCustomTemplateSlug(templateSlug);
+    if (type === "payment-reminder" || savedTemplate) {
       // {{amount}} + {{paymentBlock}} (Pay Now) built by the shared helper so
       // this single-send path and the bulk sender stay in lock-step.
-      const { amount, paymentBlock } = buildPaymentReminderVars({
+      const build = savedTemplate ? savedTemplatePaymentVars : buildPaymentReminderVars;
+      const { amount, paymentBlock } = build({
+        money,
+        inGroup: registration.groupId != null,
         registrationId: registration.id,
         firstName: registration.attendee.firstName,
         eventSlug: event.slug || event.id,

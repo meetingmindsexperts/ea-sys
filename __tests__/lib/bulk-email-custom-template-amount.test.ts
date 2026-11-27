@@ -2,7 +2,8 @@
  * executeBulkEmail, a saved (custom) template sent to registrations fills
  * {{amount}} and {{paymentBlock}} as the payment reminder does (Nov 27, 2026:
  * a copy of the reminder on GCC Hematology Hub was refused on {{amount}} for
- * every recipient). Someone who owes nothing gets both blank.
+ * every recipient). The balance due; blank for a group member or anyone who
+ * owes nothing (review of f403a3c3d).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -113,6 +114,28 @@ describe("a saved template sent to registrations: {{amount}} and {{paymentBlock}
     expect(html).not.toContain("USD 100.00");
     expect(html).not.toContain("Pay Now");
     expect(html).not.toContain("{{amount}}");
+  });
+
+  it.each([
+    ["a group member (their company pays)", { group: { billingAccount: { name: "Cleveland Clinic" } } }],
+    ["a cancelled registration still marked unpaid", { status: "CANCELLED" }],
+    ["a free registration type", { originalPrice: 0, ticketType: { name: "Free", price: 0, currency: "USD" } }],
+    ["no registration type", { originalPrice: null, ticketType: null }],
+  ])("%s gets neither a price nor Pay Now", async (_label, extra) => {
+    mockDb.registration.findMany.mockResolvedValue([reg(extra)]);
+    await executeBulkEmail(INPUT);
+    const html = sentHtml();
+    expect(html).not.toContain("Pay Now");
+    expect(html).not.toContain("USD 0.00");
+    expect(html).not.toContain("{{amount}}");
+  });
+
+  it("a partial payer is asked for the balance, not the full fee", async () => {
+    mockDb.registration.findMany.mockResolvedValue([reg({ payments: [{ amount: 40, status: "PAID" }] })]);
+    await executeBulkEmail(INPUT);
+    const html = sentHtml();
+    expect(html).toContain("you owe USD 60.00");
+    expect(html).toContain("Pay Now");
   });
 
   it("the template editor does not warn that {{amount}} cannot be filled", () => {
