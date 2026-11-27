@@ -396,7 +396,7 @@ describe("the organiser controls the type sizes", () => {
   it("uses the saved sizes rather than the historical constants", async () => {
     await render({
       ...DEFAULT_BADGE_LAYOUT,
-      fontSizes: { name: 22, detail: 13, badgeType: 16 },
+      fontSizes: { name: 22, organization: 13, country: 13, badgeType: 16 },
     });
     expect(fontSizes).toContain(22);
     expect(fontSizes).toContain(13);
@@ -485,5 +485,46 @@ describe("the organiser's barcode width reaches the print (Nov 27, 2026)", () =>
     expect(opts.valign).toBe("center");
     // Centred across the badge: the default badge is centred on the sheet.
     expect(x + 142 / 2).toBeCloseTo(A4_W / 2, 6);
+  });
+});
+
+describe("organisation and country each have a text size (Nov 27, 2026)", () => {
+  const both = (organization: number, country: number): BadgeLayout => ({
+    ...DEFAULT_BADGE_LAYOUT,
+    fields: { ...DEFAULT_BADGE_LAYOUT.fields, organization: true },
+    fontSizes: { ...DEFAULT_BADGE_LAYOUT.fontSizes, organization, country },
+  });
+  const detailTop = BASE_TOP_MARGIN + 72;
+
+  it("at one size the pair is still one centred string, where it always printed", async () => {
+    await render(both(10, 10));
+    const line = find("Meeting Minds Experts")!;
+    expect(line.str).toBe("Meeting Minds Experts · United Arab Emirates");
+    expect(line.y).toBeCloseTo(detailTop, 10);
+    expect(textCalls.filter((c) => c.str.includes("United Arab Emirates"))).toHaveLength(1);
+  });
+
+  it("at two sizes they are two pieces, centred as a pair, the smaller dropped onto the larger one's baseline", async () => {
+    await render(both(14, 9));
+    const org = find("Meeting Minds Experts")!;
+    const country = textCalls.find((c) => c.str === "United Arab Emirates")!;
+    expect(org.str).toBe("Meeting Minds Experts · ");
+    expect(fontSizes).toEqual(expect.arrayContaining([14, 9]));
+    // The larger sits at the line's top; the smaller is lower by the difference in ascent.
+    expect(org.y).toBeCloseTo(detailTop, 10);
+    expect(country.y).toBeCloseTo(detailTop + (14 - 9) * 0.718, 10);
+    // Side by side, and centred on the badge as one line.
+    expect(country.x).toBeGreaterThan(org.x);
+    const doc = new PDFDocument();
+    const total = doc.font("Helvetica").fontSize(14).widthOfString(org.str) + doc.fontSize(9).widthOfString(country.str);
+    expect(org.x + total / 2).toBeCloseTo(A4_W / 2, 6);
+    expect(country.x).toBeCloseTo(org.x + doc.fontSize(14).widthOfString(org.str), 6);
+  });
+
+  it("only one of the two printing takes its own size, as one string", async () => {
+    await render({ ...both(14, 9), fields: { ...DEFAULT_BADGE_LAYOUT.fields, organization: true, country: false } });
+    expect(find("Meeting Minds Experts")!.str).toBe("Meeting Minds Experts");
+    expect(fontSizes).toContain(14);
+    expect(fontSizes).not.toContain(9);
   });
 });

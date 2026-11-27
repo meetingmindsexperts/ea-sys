@@ -148,6 +148,41 @@ export async function generateBadgePDF(
   });
 }
 
+type DetailPiece = { text: string; size: number };
+
+const DETAIL_SEPARATOR = " \u00B7 ";
+/** Helvetica's ascent as a share of the type size: what puts two sizes on one baseline. */
+const HELVETICA_ASCENT = 0.718;
+
+/**
+ * Organisation and country at two different sizes on one line: measured, so
+ * the pair is centred as a whole, and the smaller one is dropped onto the
+ * larger one's baseline. The dot rides with the organisation. A pair too long
+ * for the badge starts at the left edge and the country is cut with an
+ * ellipsis (or left out, if the organisation alone fills the line).
+ */
+function drawTwoSizeDetail(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  doc: any,
+  first: DetailPiece,
+  second: DetailPiece,
+  left: number,
+  top: number,
+  width: number,
+) {
+  doc.font("Helvetica").fillColor("#000000");
+  const lead = first.text + DETAIL_SEPARATOR;
+  const leadW = doc.fontSize(first.size).widthOfString(lead);
+  const secondW = doc.fontSize(second.size).widthOfString(second.text);
+  const start = left + Math.max(0, (width - leadW - secondW) / 2);
+  const onBaseline = (size: number) => top + (Math.max(first.size, second.size) - size) * HELVETICA_ASCENT;
+
+  doc.fontSize(first.size).text(lead, start, onBaseline(first.size), { width: left + width - start, lineBreak: false, ellipsis: true });
+  const room = left + width - (start + leadW);
+  if (room <= 0) return;
+  doc.fontSize(second.size).text(second.text, start + leadW, onBaseline(second.size), { width: room, lineBreak: false, ellipsis: true });
+}
+
 function drawBadge(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   doc: any,
@@ -216,16 +251,20 @@ function drawBadge(
   //
   // U+00B7 is in WinAnsi, so Helvetica encodes it without the substitution
   // sweep the agreement renderer needs for arbitrary pasted text.
+  //
+  // Each has its own size (owner, Nov 27, 2026). While the two are the same
+  // size, or only one prints, it is still ONE centred string, drawn exactly as
+  // it always was; only two different sizes take the two-piece path.
   const detail = [
-    f.organization ? reg.attendee.organization : null,
-    f.country ? reg.attendee.country : null,
-  ]
-    .filter((v): v is string => !!v && v.trim() !== "")
-    .join(" \u00B7 ");
+    { text: f.organization ? reg.attendee.organization : null, size: fonts.organization * sf },
+    { text: f.country ? reg.attendee.country : null, size: fonts.country * sf },
+  ].filter((p): p is DetailPiece => !!p.text && p.text.trim() !== "");
 
-  if (detail) {
-    doc.font("Helvetica").fontSize(fonts.detail * sf).fillColor("#000000");
-    doc.text(detail, x + margin, y + badgeDetailTop(sy), {
+  if (detail.length === 2 && detail[0].size !== detail[1].size) {
+    drawTwoSizeDetail(doc, detail[0], detail[1], x + margin, y + badgeDetailTop(sy), contentW);
+  } else if (detail.length > 0) {
+    doc.font("Helvetica").fontSize(detail[0].size).fillColor("#000000");
+    doc.text(detail.map((p) => p.text).join(DETAIL_SEPARATOR), x + margin, y + badgeDetailTop(sy), {
       width: contentW,
       align: "center",
       lineBreak: false,

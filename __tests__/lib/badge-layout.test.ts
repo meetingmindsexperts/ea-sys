@@ -441,10 +441,10 @@ describe("the vertical bands cannot overlap", () => {
 
 describe("organiser-controlled type sizes", () => {
   it("defaults to the sizes the badge has always printed", () => {
-    // `detail` is 10, the size COUNTRY has always printed at, because country
-    // is on by default and organisation is not — so every event that never
-    // touched these settings prints exactly what it printed before.
-    expect(readBadgeLayout({}).fontSizes).toEqual({ name: 18, detail: 10, badgeType: 20 });
+    // Organisation and country are 10, the size COUNTRY has always printed
+    // at, so every event that never touched these settings prints exactly
+    // what it printed before.
+    expect(readBadgeLayout({}).fontSizes).toEqual({ name: 18, organization: 10, country: 10, badgeType: 20 });
   });
 
   it("honours a saved size", () => {
@@ -457,7 +457,12 @@ describe("organiser-controlled type sizes", () => {
       settings: { badge: { fontSizes: { name: "big", detail: 14 } } },
     });
     expect(l.fontSizes.name).toBe(DEFAULT_BADGE_FONT_SIZES.name);
-    expect(l.fontSizes.detail).toBe(14);
+    // `detail` is the one size the two shared until Nov 27, 2026: an event
+    // saved then reads it for both, so it prints what it printed.
+    expect(l.fontSizes).toMatchObject({ organization: 14, country: 14 });
+    // Its own size wins over the shared one.
+    const own = readBadgeLayout({ settings: { badge: { fontSizes: { detail: 14, country: 8 } } } }).fontSizes;
+    expect(own).toMatchObject({ organization: 14, country: 8 });
     expect(l.fontSizes.badgeType).toBe(DEFAULT_BADGE_FONT_SIZES.badgeType);
   });
 

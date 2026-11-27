@@ -239,11 +239,11 @@ export function fieldsForBadge(layout: BadgeLayout, badgeType: string | null | u
  * line, truncated" and "two smaller lines, complete" is theirs to make. The
  * band derivation above means either choice stays inside its space.
  *
- * `detail` is ONE size because organisation and country now share one line.
- * It defaults to 10, the size country has always printed at, so every event
- * that never touched these settings prints exactly what it printed before.
- * (Organisation used to draw at 12; one event has it enabled, and it now has
- * a control to put that back.)
+ * Organisation and country share one line and each has its own size (owner,
+ * Nov 27, 2026: "separate org and country font size"). Until then they shared
+ * one, stored as `detail`: an event that saved that reads it for both, so it
+ * prints what it printed. Both default to 10, the size country has always
+ * printed at.
  *
  * The registration number is deliberately NOT here. It is a small corner-style
  * marker in its own band, not a design element, and a control for it would be
@@ -251,14 +251,17 @@ export function fieldsForBadge(layout: BadgeLayout, badgeType: string | null | u
  */
 export interface BadgeFontSizes {
   name: number;
-  /** The organisation / country line under the name. */
-  detail: number;
+  /** On the line under the name, before the country. */
+  organization: number;
+  /** On the same line, after the organisation. */
+  country: number;
   badgeType: number;
 }
 
 export const DEFAULT_BADGE_FONT_SIZES: BadgeFontSizes = {
   name: 18,
-  detail: 10,
+  organization: 10,
+  country: 10,
   badgeType: 20,
 };
 
@@ -337,13 +340,17 @@ function readFontSizes(raw: unknown): BadgeFontSizes {
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
-  const size = (k: keyof BadgeFontSizes): number => {
-    const v = blob[k];
-    return typeof v === "number" && Number.isFinite(v)
-      ? clamp(v, MIN_FONT_PT, MAX_FONT_PT)
-      : DEFAULT_BADGE_FONT_SIZES[k];
+  // `legacy`: the one size organisation and country shared, for an event saved before they had their own.
+  const size = (k: keyof BadgeFontSizes, legacy?: "detail"): number => {
+    const v = num(blob[k]) ?? (legacy ? num(blob[legacy]) : null);
+    return v === null ? DEFAULT_BADGE_FONT_SIZES[k] : clamp(v, MIN_FONT_PT, MAX_FONT_PT);
   };
-  return { name: size("name"), detail: size("detail"), badgeType: size("badgeType") };
+  return {
+    name: size("name"),
+    organization: size("organization", "detail"),
+    country: size("country", "detail"),
+    badgeType: size("badgeType"),
+  };
 }
 
 /**

@@ -93,6 +93,8 @@ import {
   readBadgeLayout,
   readBadgePolicy,
   barcodeTooNarrow,
+  resolveBadgeOrigin,
+  printedBarcodeWidthPt,
   barcodeWidthPt,
   DEFAULT_BADGE_FIELDS,
   EXHIBITOR_BADGE_ROLE,
@@ -103,9 +105,9 @@ import {
 } from "@/lib/badge-layout";
 
 /** What to do about a barcode too narrow to scan, by what made it narrow. */
-function narrowBarcodeAdvice(qrBeside: boolean, ownWidth: boolean): string {
-  if (qrBeside) return "Putting the compliance QR beside it is what costs the width — move it back below, or widen the badge.";
+function narrowBarcodeAdvice(ownWidth: boolean, qrBeside: boolean): string {
   if (ownWidth) return "Raise the barcode width, or print one and test it on your scanner before the event.";
+  if (qrBeside) return "Putting the compliance QR beside it is what costs the width — move it back below, or widen the badge.";
   return "Widen the badge, or print one and test it on your scanner before the event.";
 }
 
@@ -127,6 +129,8 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { BadgeFieldSwitches, enabledBadgeFieldKeys } from "@/components/settings/badge-field-switches";
+import { BadgeBarcodeWidth } from "@/components/settings/badge-barcode-width";
+import { BadgeLivePreview, BadgeSection, UnitField } from "@/components/settings/badge-card-parts";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useEmailTemplates, useCreateEmailTemplate } from "@/hooks/use-api";
@@ -555,7 +559,8 @@ export default function EventSettingsPage() {
           exhibitorFields: resolvedBadge.exhibitorFields,
           fontSizes: {
             name: String(resolvedBadge.fontSizes.name),
-            detail: String(resolvedBadge.fontSizes.detail),
+            organization: String(resolvedBadge.fontSizes.organization),
+            country: String(resolvedBadge.fontSizes.country),
             badgeType: String(resolvedBadge.fontSizes.badgeType),
           },
         });
@@ -847,7 +852,8 @@ export default function EventSettingsPage() {
     // instead of snapping to 0 on every keystroke.
     fontSizes: {
       name: String(DEFAULT_BADGE_FONT_SIZES.name),
-      detail: String(DEFAULT_BADGE_FONT_SIZES.detail),
+      organization: String(DEFAULT_BADGE_FONT_SIZES.organization),
+      country: String(DEFAULT_BADGE_FONT_SIZES.country),
       badgeType: String(DEFAULT_BADGE_FONT_SIZES.badgeType),
     },
   });
@@ -860,7 +866,8 @@ export default function EventSettingsPage() {
    */
   const badgeFontSizesPt = () => ({
     name: Number(badgeLayout.fontSizes.name) || DEFAULT_BADGE_FONT_SIZES.name,
-    detail: Number(badgeLayout.fontSizes.detail) || DEFAULT_BADGE_FONT_SIZES.detail,
+    organization: Number(badgeLayout.fontSizes.organization) || DEFAULT_BADGE_FONT_SIZES.organization,
+    country: Number(badgeLayout.fontSizes.country) || DEFAULT_BADGE_FONT_SIZES.country,
     badgeType:
       Number(badgeLayout.fontSizes.badgeType) || DEFAULT_BADGE_FONT_SIZES.badgeType,
   });
@@ -901,7 +908,8 @@ export default function EventSettingsPage() {
       arr: badgeLayout.barcodeArrangement,
       bw: String(badgeBarcodeMaxWidthPt() ?? "full"),
       fname: String(badgeFontSizesPt().name),
-      fdetail: String(badgeFontSizesPt().detail),
+      forg: String(badgeFontSizesPt().organization),
+      fcountry: String(badgeFontSizesPt().country),
       frole: String(badgeFontSizesPt().badgeType),
       // Enabled keys only. The preview has to show the switches as they sit on
       // screen, not as they were last saved, or it is not a calibration tool.
@@ -978,7 +986,10 @@ export default function EventSettingsPage() {
               kioskBackgroundUrl: badgeLayout.kioskBackgroundUrl || null,
               fields: badgeLayout.fields,
               exhibitorFields: badgeLayout.exhibitorFields,
-              fontSizes: badgeFontSizesPt(),
+              // `detail` is the one size the two shared until Nov 27, 2026:
+              // written still, so an older image (a rollback) keeps the
+              // organisation's size instead of falling back to 10.
+              fontSizes: { ...badgeFontSizesPt(), detail: badgeFontSizesPt().organization },
             },
             presenterRegistration: { payNowEnabled: presenterPayNow },
             ...(!sameSupportContact(supportContact, loadedSupportContact.current) && { [SUPPORT_CONTACT_SETTING]: supportContact }),
@@ -1988,359 +1999,297 @@ export default function EventSettingsPage() {
             description="Size and position the printed badge on the A4 sheet, and choose what prints on it. Using pre-printed stock? Turn the border off and switch off anything already on the card."
           >
 
-              <div className="grid gap-4 sm:grid-cols-2 max-w-2xl">
-                <div className="space-y-2">
-                  <Label htmlFor="badgeWidthMm">Width (mm)</Label>
-                  <Input
-                    id="badgeWidthMm"
-                    type="number"
-                    step="0.1"
-                    value={badgeLayout.widthMm}
-                    onChange={(e) =>
-                      setBadgeLayout({ ...badgeLayout, widthMm: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="badgeHeightMm">Height (mm)</Label>
-                  <Input
-                    id="badgeHeightMm"
-                    type="number"
-                    step="0.1"
-                    value={badgeLayout.heightMm}
-                    onChange={(e) =>
-                      setBadgeLayout({ ...badgeLayout, heightMm: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="mt-2 flex flex-wrap gap-2">
-                {BADGE_SIZE_PRESETS.map((preset) => (
-                  <Button
-                    key={preset.label}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setBadgeLayout({
-                        ...badgeLayout,
-                        widthMm: String(preset.widthMm),
-                        heightMm: String(preset.heightMm),
-                      })
-                    }
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
-              </div>
-
-              <div className="mt-6 space-y-2">
-                <Label>Align on the A4 page</Label>
-                <div className="flex gap-2">
-                  {(["left", "center", "right"] as const).map((a) => (
-                    <Button
-                      key={a}
-                      type="button"
-                      variant={badgeLayout.align === a ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setBadgeLayout({ ...badgeLayout, align: a })}
-                    >
-                      {BADGE_ALIGN_LABELS[a]}
-                    </Button>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Left and right sit flush to the paper edge. Most printers
-                  cannot print within about 5mm of the edge, so use the
-                  nudge below to pull the badge back in.
-                </p>
-              </div>
-
-              <div className="mt-6 grid gap-4 sm:grid-cols-2 max-w-2xl">
-                <div className="space-y-2">
-                  <Label htmlFor="badgeOffsetX">Nudge horizontally (points)</Label>
-                  <Input
-                    id="badgeOffsetX"
-                    type="number"
-                    value={badgeLayout.offsetXPt}
-                    onChange={(e) =>
-                      setBadgeLayout({ ...badgeLayout, offsetXPt: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="badgeOffsetY">Nudge vertically (points)</Label>
-                  <Input
-                    id="badgeOffsetY"
-                    type="number"
-                    value={badgeLayout.offsetYPt}
-                    onChange={(e) =>
-                      setBadgeLayout({ ...badgeLayout, offsetYPt: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                72 points = 1 inch. Positive moves right and down. Use these
-                to pull the badge in from the paper edge, or to line it up
-                with pre-cut stock.
-              </p>
-
-              <div className="mt-6 space-y-3">
-                <Label>What prints on the badge</Label>
-                <BadgeFieldSwitches
-                  value={badgeLayout.fields}
-                  onChange={(fields) => setBadgeLayout({ ...badgeLayout, fields })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Organisation and country print on one line under the name,
-                  separated by a dot. Either one on its own prints on its own.
-                </p>
-              </div>
-
-              {/* Exhibitors (owner, Oct 20, 2026): a second set of switches for
-                  anyone whose badge role is Exhibitor, e.g. organisation on and
-                  no barcode, while delegates print the set above. */}
-              <div className="mt-6 space-y-3">
-                <label className="flex items-start gap-3 text-sm">
-                  <Switch
-                    className="mt-0.5"
-                    checked={!!badgeLayout.exhibitorFields}
-                    onCheckedChange={(on) =>
-                      setBadgeLayout({
-                        ...badgeLayout,
-                        exhibitorFields: on ? { ...badgeLayout.fields } : null,
-                      })
-                    }
-                  />
-                  <span>
-                    Exhibitors print a different badge
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      For anyone whose badge role is {EXHIBITOR_BADGE_ROLE} (set on the
-                      registration). Everyone else prints with the switches above. The
-                      cutting border and type sizes stay the same for both.
-                    </span>
-                  </span>
-                </label>
-                {badgeLayout.exhibitorFields && (
-                  <div className="ml-12 space-y-2">
-                    <Label className="text-xs font-normal text-muted-foreground">
-                      What prints on an exhibitor&apos;s badge
-                    </Label>
-                    <BadgeFieldSwitches
-                      value={badgeLayout.exhibitorFields}
-                      omit={["border"]}
-                      onChange={(exhibitorFields) =>
-                        setBadgeLayout({ ...badgeLayout, exhibitorFields })
-                      }
+            {/* Controls on the left in titled groups, the real sample badge on
+                the right, redrawn as the values change (Nov 27, 2026). */}
+            <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_19rem]">
+              <div className="min-w-0 space-y-5">
+                <BadgeSection title="Size" hint="The printed badge, in millimetres. Pick your stock or type its size.">
+                  <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+                    <UnitField
+                      id="badgeWidthMm"
+                      label="Width"
+                      unit="mm"
+                      step="0.1"
+                      value={badgeLayout.widthMm}
+                      onChange={(e) => setBadgeLayout({ ...badgeLayout, widthMm: e.target.value })}
+                    />
+                    <UnitField
+                      id="badgeHeightMm"
+                      label="Height"
+                      unit="mm"
+                      step="0.1"
+                      value={badgeLayout.heightMm}
+                      onChange={(e) => setBadgeLayout({ ...badgeLayout, heightMm: e.target.value })}
                     />
                   </div>
-                )}
-              </div>
+                  <div className="flex flex-wrap gap-2">
+                    {BADGE_SIZE_PRESETS.map((preset) => (
+                      <Button
+                        key={preset.label}
+                        type="button"
+                        variant={
+                          Number(badgeLayout.widthMm) === preset.widthMm && Number(badgeLayout.heightMm) === preset.heightMm
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        onClick={() =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            widthMm: String(preset.widthMm),
+                            heightMm: String(preset.heightMm),
+                          })
+                        }
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
+                </BadgeSection>
 
-              {/* Type sizes. Organiser-controlled rather than auto-fitted:
-                  a long name can be one big truncated line or two smaller
-                  complete ones, and only the person holding the stock knows
-                  which they want. The name can never overflow into the line
-                  below whichever they pick — see badgeNameBandH. */}
-              <div className="mt-6 space-y-3">
-                <Label>Type sizes (points)</Label>
-                <div className="grid gap-4 sm:grid-cols-3 max-w-2xl">
-                  <div className="space-y-2">
-                    <Label htmlFor="badgeFontName" className="text-xs font-normal text-muted-foreground">
-                      Name
-                    </Label>
-                    <Input
+                <BadgeSection
+                  title="Position on the A4 sheet"
+                  hint="Left and right sit flush to the paper edge, and most printers cannot print within about 5mm of it, so nudge the badge back in or line it up with pre-cut stock. 72 points = 1 inch; a positive nudge moves right and down."
+                >
+                  <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-normal text-muted-foreground">Align</Label>
+                      <div className="flex gap-1">
+                        {(["left", "center", "right"] as const).map((a) => (
+                          <Button
+                            key={a}
+                            type="button"
+                            variant={badgeLayout.align === a ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setBadgeLayout({ ...badgeLayout, align: a })}
+                          >
+                            {BADGE_ALIGN_LABELS[a]}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                    <UnitField
+                      id="badgeOffsetX"
+                      label="Nudge right"
+                      unit="pt"
+                      value={badgeLayout.offsetXPt}
+                      onChange={(e) => setBadgeLayout({ ...badgeLayout, offsetXPt: e.target.value })}
+                    />
+                    <UnitField
+                      id="badgeOffsetY"
+                      label="Nudge down"
+                      unit="pt"
+                      value={badgeLayout.offsetYPt}
+                      onChange={(e) => setBadgeLayout({ ...badgeLayout, offsetYPt: e.target.value })}
+                    />
+                  </div>
+                </BadgeSection>
+
+                <BadgeSection
+                  title="What prints on the badge"
+                  hint="Organisation and country print on one line under the name, separated by a dot. Either one on its own prints on its own."
+                >
+                  <BadgeFieldSwitches
+                    value={badgeLayout.fields}
+                    onChange={(fields) => setBadgeLayout({ ...badgeLayout, fields })}
+                  />
+                  {/* Exhibitors (owner, Oct 20, 2026): a second set of switches for
+                      anyone whose badge role is Exhibitor, e.g. organisation on and
+                      no barcode, while delegates print the set above. */}
+                  <label className="flex items-start gap-3 pt-2 text-sm">
+                    <Switch
+                      className="mt-0.5"
+                      checked={!!badgeLayout.exhibitorFields}
+                      onCheckedChange={(on) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          exhibitorFields: on ? { ...badgeLayout.fields } : null,
+                        })
+                      }
+                    />
+                    <span>
+                      Exhibitors print a different badge
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        For anyone whose badge role is {EXHIBITOR_BADGE_ROLE} (set on the
+                        registration). Everyone else prints with the switches above. The
+                        cutting border and text sizes stay the same for both.
+                      </span>
+                    </span>
+                  </label>
+                  {badgeLayout.exhibitorFields && (
+                    <div className="ml-12 space-y-2">
+                      <Label className="text-xs font-normal text-muted-foreground">
+                        What prints on an exhibitor&apos;s badge
+                      </Label>
+                      <BadgeFieldSwitches
+                        value={badgeLayout.exhibitorFields}
+                        omit={["border"]}
+                        onChange={(exhibitorFields) => setBadgeLayout({ ...badgeLayout, exhibitorFields })}
+                      />
+                    </div>
+                  )}
+                </BadgeSection>
+
+                {/* Organiser-controlled rather than auto-fitted: a long name can
+                    be one big truncated line or two smaller complete ones, and
+                    only the person holding the stock knows which they want. The
+                    name can never overflow into the line below: badgeNameBandH. */}
+                <BadgeSection
+                  title="Text sizes"
+                  hint="A long name wraps to two lines if there is room and is cut with an ellipsis if not; on a standard 4x3in badge turn the name down to about 16pt to keep long names whole. Organisation and country share a line and each has its own size. The registration number prints small above the name and is not resizable."
+                >
+                  <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+                    <UnitField
                       id="badgeFontName"
-                      type="number"
+                      label="Name"
+                      unit="pt"
                       min={6}
                       max={48}
                       value={badgeLayout.fontSizes.name}
                       onChange={(e) =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          fontSizes: { ...badgeLayout.fontSizes, name: e.target.value },
-                        })
+                        setBadgeLayout({ ...badgeLayout, fontSizes: { ...badgeLayout.fontSizes, name: e.target.value } })
                       }
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="badgeFontDetail" className="text-xs font-normal text-muted-foreground">
-                      Organisation / country
-                    </Label>
-                    <Input
-                      id="badgeFontDetail"
-                      type="number"
+                    <UnitField
+                      id="badgeFontOrganization"
+                      label="Organisation"
+                      unit="pt"
                       min={6}
                       max={48}
-                      value={badgeLayout.fontSizes.detail}
+                      value={badgeLayout.fontSizes.organization}
                       onChange={(e) =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          fontSizes: { ...badgeLayout.fontSizes, detail: e.target.value },
-                        })
+                        setBadgeLayout({ ...badgeLayout, fontSizes: { ...badgeLayout.fontSizes, organization: e.target.value } })
                       }
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="badgeFontRole" className="text-xs font-normal text-muted-foreground">
-                      Role / badge type
-                    </Label>
-                    <Input
+                    <UnitField
+                      id="badgeFontCountry"
+                      label="Country"
+                      unit="pt"
+                      min={6}
+                      max={48}
+                      value={badgeLayout.fontSizes.country}
+                      onChange={(e) =>
+                        setBadgeLayout({ ...badgeLayout, fontSizes: { ...badgeLayout.fontSizes, country: e.target.value } })
+                      }
+                    />
+                    <UnitField
                       id="badgeFontRole"
-                      type="number"
+                      label="Role / badge type"
+                      unit="pt"
                       min={6}
                       max={48}
                       value={badgeLayout.fontSizes.badgeType}
                       onChange={(e) =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          fontSizes: { ...badgeLayout.fontSizes, badgeType: e.target.value },
-                        })
+                        setBadgeLayout({ ...badgeLayout, fontSizes: { ...badgeLayout.fontSizes, badgeType: e.target.value } })
                       }
                     />
                   </div>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  A long name wraps to two lines if there is room, and is
-                  shortened with an ellipsis if there is not. On a standard
-                  4x3in badge that is about 16pt or below, so turn the name
-                  size down to keep long names whole. The registration number
-                  prints small above the name and is not resizable.
-                </p>
-              </div>
+                </BadgeSection>
 
-              {/* Barcode vs compliance QR placement. Only bites on a
-                  DTCM-flagged event, because the QR is the only one on the
-                  badge — the copy below says so rather than hiding the
-                  control, so turning DTCM on later does not send the
-                  organiser back here to discover a setting they never saw. */}
-              <div className="mt-6 space-y-3">
-                <Label>Barcode and compliance QR</Label>
-                <div className="flex gap-2">
-                  {([
-                    { value: "stacked" as const, label: "One below the other" },
-                    { value: "side-by-side" as const, label: "Side by side" },
-                  ]).map((opt) => (
-                    <Button
-                      key={opt.value}
-                      type="button"
-                      variant={badgeLayout.barcodeArrangement === opt.value ? "default" : "outline"}
-                      size="sm"
-                      onClick={() =>
-                        setBadgeLayout({ ...badgeLayout, barcodeArrangement: opt.value })
-                      }
-                    >
-                      {opt.label}
-                    </Button>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {generalFormData.requiresDtcmBarcode
-                    ? "Side by side puts both symbols on one row and frees the band underneath. It costs the entry barcode about 17mm of width, so a badge that was comfortably scannable stacked may not be."
-                    : "This event does not collect DTCM compliance barcodes, so only the entry barcode prints and this setting changes nothing. It applies if you turn DTCM barcodes on."}
-                </p>
-                <div className="max-w-xs space-y-2">
-                  <Label htmlFor="badgeBarcodeWidthMm">Barcode width (mm)</Label>
-                  <Input
-                    id="badgeBarcodeWidthMm"
-                    type="number"
-                    min="20"
-                    step="1"
-                    placeholder="Fills the row"
-                    value={badgeLayout.barcodeWidthMm}
-                    onChange={(e) =>
-                      setBadgeLayout({ ...badgeLayout, barcodeWidthMm: e.target.value })
-                    }
+                <BadgeSection title="Barcode">
+                  <BadgeBarcodeWidth
+                    valueMm={badgeLayout.barcodeWidthMm}
+                    fullWidthMm={ptToMm(
+                      printedBarcodeWidthPt({ ...previewBadgeLayout, barcodeMaxWidthPt: null }, generalFormData.requiresDtcmBarcode),
+                    )}
+                    onChange={(barcodeWidthMm) => setBadgeLayout({ ...badgeLayout, barcodeWidthMm })}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Leave it empty and the barcode fills its row. A smaller
-                    number prints a smaller barcode, centred, with its height
-                    reduced to match; a number wider than the row changes
-                    nothing.
-                  </p>
-                </div>
-                {/* Desk staff scan the BADGE for attendance, so the barcode
-                    is the credential and an unreadable one is a queue at the
-                    door. Shrinking the badge shrinks the bars with it, and
-                    nothing used to say so. A warning, never a block — an
-                    organiser who test-prints and finds it scans on their
-                    hardware knows more than our constant does. */}
-                {/* `hasDtcm` is the EVENT's flag, so the warning predicts the
-                    width a real badge gets. Passing it unconditionally would
-                    cry wolf on an event that prints no QR at all, and a
-                    warning that fires when it should not is one an organiser
-                    learns to scroll past. */}
-                {barcodeTooNarrow(previewBadgeLayout, generalFormData.requiresDtcmBarcode) && (
-                  <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-                    <span className="font-medium">
-                      This badge may be too narrow to scan.
-                    </span>{" "}
-                    The barcode gets about{" "}
-                    {Math.round(
-                      ptToMm(
-                        barcodeWidthPt(previewBadgeLayout, generalFormData.requiresDtcmBarcode),
-                      ),
-                    )}
-                    mm here, and desk scanners want roughly 60mm or more.{" "}
-                    {narrowBarcodeAdvice(
-                      generalFormData.requiresDtcmBarcode && badgeLayout.barcodeArrangement === "side-by-side",
-                      badgeBarcodeMaxWidthPt() !== null,
-                    )}
+                  {/* Desk staff scan the BADGE for attendance, so an unreadable
+                      barcode is a queue at the door. A warning, never a block: an
+                      organiser who test-prints and finds it scans knows more than
+                      our constant does. `hasDtcm` is the EVENT's flag, so the
+                      warning predicts the width a real badge gets. */}
+                  {barcodeTooNarrow(previewBadgeLayout, generalFormData.requiresDtcmBarcode) && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                      <span className="font-medium">
+                        This badge may be too narrow to scan.
+                      </span>{" "}
+                      The barcode gets about{" "}
+                      {Math.round(
+                        ptToMm(
+                          barcodeWidthPt(previewBadgeLayout, generalFormData.requiresDtcmBarcode),
+                        ),
+                      )}
+                      mm here, and desk scanners want roughly 60mm or more.{" "}
+                      {narrowBarcodeAdvice(
+                        // The organiser's width counts only when it is what narrows the row.
+                        barcodeWidthPt(previewBadgeLayout, generalFormData.requiresDtcmBarcode) <
+                          barcodeWidthPt({ ...previewBadgeLayout, barcodeMaxWidthPt: null }, generalFormData.requiresDtcmBarcode),
+                        generalFormData.requiresDtcmBarcode && badgeLayout.barcodeArrangement === "side-by-side",
+                      )}
+                    </div>
+                  )}
+                  {/* Barcode vs compliance QR placement. Only bites on a
+                      DTCM-flagged event; the copy says so rather than hiding the
+                      control, so turning DTCM on later does not send the organiser
+                      back here to discover a setting they never saw. */}
+                  <div className="space-y-2 pt-2">
+                    <Label>Barcode and compliance QR</Label>
+                    <div className="flex gap-2">
+                      {([
+                        { value: "stacked" as const, label: "One below the other" },
+                        { value: "side-by-side" as const, label: "Side by side" },
+                      ]).map((opt) => (
+                        <Button
+                          key={opt.value}
+                          type="button"
+                          variant={badgeLayout.barcodeArrangement === opt.value ? "default" : "outline"}
+                          size="sm"
+                          onClick={() =>
+                            setBadgeLayout({ ...badgeLayout, barcodeArrangement: opt.value })
+                          }
+                        >
+                          {opt.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {generalFormData.requiresDtcmBarcode
+                        ? "Side by side puts both symbols on one row and frees the band underneath. It costs the entry barcode about 17mm of width, so a badge that was comfortably scannable stacked may not be."
+                        : "This event does not collect DTCM compliance barcodes, so only the entry barcode prints and this setting changes nothing. It applies if you turn DTCM barcodes on."}
+                    </p>
                   </div>
-                )}
+                </BadgeSection>
+
+                <BadgeSection title="Self-service kiosk">
+                  <label className="flex items-start gap-3 text-sm">
+                    <Switch
+                      checked={badgeLayout.allowKioskReprint}
+                      onCheckedChange={(v) => setBadgeLayout({ ...badgeLayout, allowKioskReprint: v })}
+                    />
+                    <span>
+                      Let attendees reprint their own badge at the kiosk
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        Off by default: an attendee prints once, and a second copy is a
+                        staffed action at the desk. Switch on for a lost-badge
+                        self-service &mdash; scanning an already-checked-in badge reprints
+                        it, capped at 3 per person per hour.
+                      </span>
+                    </span>
+                  </label>
+                  <BrandingImageField
+                    eventId={eventId}
+                    label="Kiosk background"
+                    value={badgeLayout.kioskBackgroundUrl}
+                    onChange={(url) => setBadgeLayout({ ...badgeLayout, kioskBackgroundUrl: url })}
+                    hint="Replaces the kiosk screen with this one image: the banner is not shown, so include the event's name and branding in it, and keep the middle light and plain for the check-in prompt. 1920×1080px, under 2 MB. Leave empty for the white kiosk with the banner."
+                    previewClassName="w-full h-40 object-cover"
+                  />
+                </BadgeSection>
               </div>
 
-              <div className="mt-6 space-y-3">
-                <Label>Self-service kiosk</Label>
-                <label className="flex items-start gap-3 text-sm">
-                  <Switch
-                    checked={badgeLayout.allowKioskReprint}
-                    onCheckedChange={(v) =>
-                      setBadgeLayout({ ...badgeLayout, allowKioskReprint: v })
-                    }
-                  />
-                  <span>
-                    Let attendees reprint their own badge at the kiosk
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      Off by default: an attendee prints once, and a second copy is a
-                      staffed action at the desk. Switch on for a lost-badge
-                      self-service &mdash; scanning an already-checked-in badge reprints
-                      it, capped at 3 per person per hour.
-                    </span>
-                  </span>
-                </label>
-                <BrandingImageField
-                  eventId={eventId}
-                  label="Kiosk background"
-                  value={badgeLayout.kioskBackgroundUrl}
-                  onChange={(url) => setBadgeLayout({ ...badgeLayout, kioskBackgroundUrl: url })}
-                  hint="Replaces the kiosk screen with this one image: the banner is not shown, so include the event's name and branding in it, and keep the middle light and plain for the check-in prompt. 1920×1080px, under 2 MB. Leave empty for the white kiosk with the banner."
-                  previewClassName="w-full h-40 object-cover"
+              <div className="order-first xl:order-none xl:sticky xl:top-20 xl:self-start">
+                <BadgeLivePreview
+                  url={badgePreviewUrl()}
+                  exhibitorUrl={badgeLayout.exhibitorFields ? badgePreviewUrl("exhibitor") : undefined}
+                  badge={{
+                    ...resolveBadgeOrigin(previewBadgeLayout),
+                    w: previewBadgeLayout.widthPt,
+                    h: previewBadgeLayout.heightPt,
+                  }}
                 />
               </div>
-
-              <div className="mt-6">
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" size="sm" asChild>
-                    <a href={badgePreviewUrl()} target="_blank" rel="noopener noreferrer">
-                      Preview one badge
-                    </a>
-                  </Button>
-                  {badgeLayout.exhibitorFields && (
-                    <Button type="button" variant="outline" size="sm" asChild>
-                      <a href={badgePreviewUrl("exhibitor")} target="_blank" rel="noopener noreferrer">
-                        Preview an exhibitor badge
-                      </a>
-                    </Button>
-                  )}
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Opens a sample badge using the values above, before you
-                  save. Print it on your stock to check the alignment.
-                </p>
-              </div>
+            </div>
           </SettingsCard>
           )}
 

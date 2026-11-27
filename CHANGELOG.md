@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Badges: the Badge card is grouped, with a live preview, and organisation and country have their own sizes (November 27, 2026)
+
+Owner, with a picture of the card: "improve the UI" (chosen: tidy plus a live preview), then "separate org and country font size".
+
+- **The card** (Settings, Registration, Badge) is laid out in titled groups: Size, Position on the A4 sheet, What
+  prints on the badge, Text sizes, Barcode, Self-service kiosk. Number fields are short, with their unit beside them;
+  the stock size in use is highlighted. No setting was removed and none changed its meaning.
+- **A live preview** sits beside the groups and stays in view: the real sample badge, the PDF the preview route
+  renders through the print pipeline, drawn with pdf.js and redrawn half a second after a value changes, before
+  saving. "Badge" shows it close up, "Sheet" where it sits on the A4, and "Delegate" or "Exhibitor" whose badge. The
+  two "Preview one badge" buttons still open the PDF to print. The route's limit is 600 an hour per user (was 120),
+  since the card now asks for it as you type (`src/components/settings/badge-card-parts.tsx`).
+- **Barcode width** is a slider with an exact number beside it and a small picture of the barcode in its row. It runs
+  from 20mm to the width the bars print at today, so every step changes the print.
+- **Organisation and country each have a text size** (`fontSizes.organization`, `fontSizes.country`). At one size, or
+  with only one of them printing, the line is drawn exactly as before. At two sizes the pair is measured, centred as
+  one line and set on one baseline (`drawTwoSizeDetail` in `src/lib/badge-pdf.ts`). An event that saved the old
+  shared size (`fontSizes.detail`) reads it for both, and the save still writes `detail`, so an older image keeps
+  the organisation's size.
+- The scan warning's advice now says to raise the barcode width only when that width is what narrows the barcode.
+
 ### Badges: the organiser sets the barcode's width (November 27, 2026)
 
 Owner, with a picture of a badge's barcode: "this barcode size in badge, give control to organizer".

@@ -89,11 +89,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
 
     // Each preview rasterizes a barcode, so it is CPU-bound on the box that
-    // also serves the live scanner. Generous enough to drag a slider, bounded
-    // enough that a stuck client cannot spin.
+    // also serves the live scanner. The settings card draws it live since
+    // Nov 27, 2026 (one request each time the values settle for half a
+    // second), so an hour of calibrating is a few hundred: generous enough
+    // for that, bounded enough that a stuck client cannot spin.
     const limit = checkRateLimit({
       key: `badge-preview:${session.user.id}`,
-      limit: 120,
+      limit: 600,
       windowMs: 60 * 60 * 1000,
     });
     if (!limit.allowed) {
@@ -169,7 +171,8 @@ export async function GET(req: Request, { params }: RouteParams) {
               // not silently resize the role line too.
               fontSizes: {
                 name: numParam(searchParams.get("fname")) ?? saved.fontSizes.name,
-                detail: numParam(searchParams.get("fdetail")) ?? saved.fontSizes.detail,
+                organization: numParam(searchParams.get("forg")) ?? saved.fontSizes.organization,
+                country: numParam(searchParams.get("fcountry")) ?? saved.fontSizes.country,
                 badgeType: numParam(searchParams.get("frole")) ?? saved.fontSizes.badgeType,
               },
             },
