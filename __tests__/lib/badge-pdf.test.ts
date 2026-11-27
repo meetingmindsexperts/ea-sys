@@ -539,7 +539,9 @@ describe("organisation and country each have a text size (Nov 27, 2026)", () => 
     expect(org.str.endsWith("\u2026 \u00B7 ")).toBe(true);
     expect(country.str.startsWith("United")).toBe(true);
     // Neither piece is given a width, so pdfkit cannot wrap it.
-    for (const call of textSpy.mock.calls.filter((c) => c[0] === org.str || c[0] === country.str)) {
+    const drawn = (textSpy.mock.calls as unknown[][]).filter((c) => c[0] === org.str || c[0] === country.str);
+    expect(drawn).toHaveLength(2);
+    for (const call of drawn) {
       expect(call[3]).toEqual({ lineBreak: false });
     }
     // The pair sits inside the badge's content width (288 less a 20pt margin each side).
