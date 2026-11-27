@@ -102,9 +102,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
       // Global event block + this slug's own, so the editor lists every
       // token that will actually resolve.
       variables: templateVariablesFor(template.slug),
-      // The wider set the editor checks typed tokens against: the advertised
-      // ones plus what the bulk pipeline fills for every recipient and the
-      // *Text mirrors. Display list and check list are deliberately different
+      // The wider set the editor checks typed tokens against: for a saved
+      // template exactly the token map; for a built-in one its own tokens, what
+      // the bulk pipeline fills for every recipient, and their *Text mirrors
       // (see templateAllowedTokenKeys).
       allowedTokens: templateAllowedTokenKeys(template.slug),
       // A custom template has no variables of its own, so the flat list above

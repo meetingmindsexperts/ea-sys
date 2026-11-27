@@ -1002,10 +1002,12 @@ export const GLOBAL_EVENT_VARIABLES: ReadonlyArray<TemplateVariable> = [
  * refused for 100 minutes. Preview did not catch it, because preview supplies
  * a sample value for that token on every template and rendered it perfectly.
  *
- * A `*Text` mirror of an allowed block token is allowed too: the plain-text
- * part is filled beside the HTML one and is deliberately not advertised.
+ * For a built-in template a `*Text` mirror of an allowed token is allowed too:
+ * the plain-text part is filled beside the HTML one and is deliberately not
+ * advertised. A saved template gets exactly the token map, which lists the
+ * few mirrors that exist.
  *
- * An unknown slug is a custom template, which is only sendable through bulk.
+ * An unknown slug is a saved (custom) template.
  */
 export function templateAllowedTokenKeys(slug: string): string[] {
   const spec = isSystemTemplateSlug(slug) ? EMAIL_TEMPLATE_REGISTRY[slug] : null;

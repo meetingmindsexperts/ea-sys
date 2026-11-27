@@ -35,19 +35,9 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useEmailTemplates, useCreateEmailTemplate, useDeleteEmailTemplate, useDuplicateEmailTemplate } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { templateDescription } from "@/lib/email-template-registry";
+import { CUSTOM_TEMPLATE_VARIABLE_GROUPS } from "@/lib/email-token-map";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-
-// Grouped variable reference shown in the create-custom-template dialog. Each
-// group merges the variable sets of the listed system slugs (deduped by key),
-// so an organizer sees the attendee/payment/abstract/speaker palettes. Which
-// ones actually resolve depends on who the template is sent to.
-const VARIABLE_GROUPS: { label: string; slugs: string[] }[] = [
-  { label: "Attendee & Event", slugs: ["registration-confirmation"] },
-  { label: "Payment", slugs: ["payment-confirmation", "payment-reminder"] },
-  { label: "Abstract", slugs: ["abstract-status-update", "abstract-submission-confirmation"] },
-  { label: "Speaker", slugs: ["speaker-invitation"] },
-];
 
 type TemplateRow = {
   id: string;
@@ -274,23 +264,10 @@ export default function EmailTemplatesPage() {
 
   const templates = (data?.templates || []) as TemplateRow[];
 
-  // Variables an organizer can drop into a custom template, grouped by context
-  // (attendee/payment/abstract/speaker). Merged + deduped per group from the
-  // system slug variable sets; which ones resolve depends on the recipient.
-  const allVars = (data?.variables ?? {}) as Record<string, { key: string; description: string }[]>;
-  const variableGroups = VARIABLE_GROUPS.map((g) => {
-    const seen = new Set<string>();
-    const vars: { key: string; description: string }[] = [];
-    for (const slug of g.slugs) {
-      for (const v of allVars[slug] ?? []) {
-        if (!seen.has(v.key)) {
-          seen.add(v.key);
-          vars.push(v);
-        }
-      }
-    }
-    return { label: g.label, vars };
-  }).filter((g) => g.vars.length > 0);
+  // What a saved template may use, from the token map: the same groups and
+  // words its editor shows (until Nov 27, 2026 this dialog built its own list
+  // from five built-in templates, six of whose tokens no saved template gets).
+  const variableGroups = CUSTOM_TEMPLATE_VARIABLE_GROUPS.map((g) => ({ label: g.label, hint: g.hint, vars: g.variables }));
 
   // Search (name / subject / slug) + status filter, then classify with the
   // SAME shared helper the send dialogs use, so "Custom Templates" here is
@@ -379,7 +356,7 @@ export default function EmailTemplatesPage() {
                   <div className="max-h-56 space-y-3 overflow-y-auto pr-1">
                     {variableGroups.map((g) => (
                       <div key={g.label} className="space-y-1.5">
-                        <p className="text-[11px] font-semibold text-foreground/70">{g.label}</p>
+                        <p className="text-[11px] font-semibold text-foreground/70" title={g.hint}>{g.label}</p>
                         <div className="flex flex-wrap gap-1.5">
                           {g.vars.map((v) => (
                             <button

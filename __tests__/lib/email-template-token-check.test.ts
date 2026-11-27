@@ -21,7 +21,7 @@ import { join } from "node:path";
 
 import { EMAIL_TEMPLATE_SPECS, templateAllowedTokenKeys } from "@/lib/email-template-registry";
 import { normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
-import { ABSTRACT_OWN_TOKEN_KEYS, CUSTOM_TEMPLATE_VARIABLE_GROUPS, EMAIL_TOKEN_MAP, type EmailToken } from "@/lib/email-token-map";
+import { ABSTRACT_OWN_TOKEN_KEYS, BUILT_IN_BULK_TOKEN_KEYS, CUSTOM_TEMPLATE_VARIABLE_GROUPS, EMAIL_TOKEN_MAP, type EmailToken } from "@/lib/email-token-map";
 import { everyAudienceTokenValues, speakerTokenValues } from "@/lib/email-token-values";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
 
@@ -210,6 +210,27 @@ describe("the token map (Nov 27, 2026): what a saved template may use is what so
   it("the editor accepts exactly the map for a saved template: no guessed text mirrors", () => {
     expect([...allowed].sort()).toEqual([...mapped].sort());
     expect(allowed).not.toContain("firstNameText");
+  });
+
+  // The list is a rule over the map (everyone's tokens and a speaker's), so a
+  // new map entry can widen what every built-in template accepts without
+  // anyone meaning it to. Pinned: adding to it is a decision (review of 5b6fbed9).
+  it("what a built-in template may also use from Communications is these 38 tokens", () => {
+    expect([...BUILT_IN_BULK_TOKEN_KEYS].sort()).toEqual([
+      "agreementAttachment", "agreementBlock", "agreementBlockText", "agreementLink", "daysUntilEvent", "entryBarcode",
+      "entryBarcodeText", "eventAddress", "eventCity", "eventCountry", "eventDate", "eventDateRange", "eventName",
+      "eventVenue", "firstName", "honorarium", "honorariumAmount", "honorariumCurrency", "lastName", "moderatorDetails",
+      "moderatorDetailsText", "organizerEmail", "organizerName", "organizerSignature", "paymentBlock", "personalMessage",
+      "presentationDetails", "presentationDetailsText", "presenterAgreementAttachment", "presenterAgreementLink",
+      "registrationId", "rsvpButton", "rsvpLink", "rsvpName", "sessionDetails", "speakerName", "ticketType",
+      "title",
+    ]);
+  });
+
+  it("the Create Email Template dialog lists the map's tokens, not a list of its own", () => {
+    const page = readFileSync(join(process.cwd(), "src/app/(dashboard)/events/[eventId]/communications/templates/page.tsx"), "utf8");
+    expect(page).toContain("CUSTOM_TEMPLATE_VARIABLE_GROUPS.map(");
+    expect(page).not.toContain("const VARIABLE_GROUPS");
   });
 
   it("a built-in template sent from Communications still gets what every bulk send sets, and the text mirrors of its own blocks", () => {

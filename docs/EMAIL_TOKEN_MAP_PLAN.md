@@ -46,7 +46,7 @@ Everything else is derived from it or checked against it:
 - **The allowed list and the editor's panel** are computed from the map (no hand-written lists).
 - **One builder per audience fills the tokens** (`registrationTokens`, `speakerTokens`, `abstractAuthorTokens`, `reviewerTokens`), and both the bulk pipeline and the per-person send call it. Its return type is the map's keys for that audience, so the compiler refuses a token that is declared and not filled, or filled and not declared.
 - **A send is checked when it is scheduled**: a template that names a token the chosen audience does not get is refused then, with the token's name and who it is for, not at 07:06 the next morning.
-- **The preview** takes its samples from the same map, so it cannot show a value the send will not fill.
+- **The preview** asks the same check, so for a saved template or a typed email it leaves bare, and names, what the send would refuse. (First planned as moving the samples into the map; step 3 says why that was not needed.)
 
 ## 3. Scope
 
@@ -65,7 +65,7 @@ Each step is one or two commits, changes no email on its own unless stated, and 
 ### Step 0. The map as data, and the test that was missing. BUILT Nov 27, 2026
 
 - `src/lib/email-token-map.ts`: each token a saved template may use (56 keys, five of them the plain-text mirrors of block tokens), with the audiences a send sets it for.
-- The drift tests send a saved template naming every token to every audience, through the bulk pipeline and both per-person routes. `email-template-token-check.test.ts` holds the editor's accepted list to the map (apart from the `...Text` mirrors, which the editor accepts for every key; step 3).
+- The drift tests send a saved template naming every token to every audience, through the bulk pipeline and both per-person routes. `email-template-token-check.test.ts` holds the editor's accepted list to the map (apart from the `...Text` mirrors, which the editor accepted for every key until step 3).
 - What they found, fixed in the same change: `{{reviewLink}}` was flagged by the editor; the registration record's send left 12 tokens unset that Communications sets, and the speaker page 7. Both now spread `everyAudienceTokenValues`.
 
 ### Step 1. Say no when it is scheduled. BUILT Nov 27, 2026
@@ -104,9 +104,13 @@ Found by the reviews of steps 0 and 1 and fixed with them: a copy of the Abstrac
 ### Step 3. The old lists are gone. BUILT Nov 27, 2026
 
 - Each map entry carries its editor group and its words. `BULK_BASE_VARIABLES`, `BULK_SPEAKER_VARIABLES`, `BULK_PRESENTER_VARIABLES`, `BULK_ABSTRACT_OWN_VARIABLES`, `BULK_ABSTRACT_AUTHOR_VARIABLES`, `BULK_CONDITIONAL_VARIABLES`, the hand-written `CUSTOM_TEMPLATE_VARIABLE_GROUPS` and `isUnlistedCustomTemplateToken` are deleted from the registry. Derived from the map now: the Variables panel, an abstract's own tokens (`ABSTRACT_OWN_TOKEN_KEYS`), and what a built-in template sent from Communications may also use (`BUILT_IN_BULK_TOKEN_KEYS`).
-- `templateAllowedTokenKeys` for a saved template is exactly the map's keys. Compared before and after for all 37 built-in slugs and a saved one: the built-in ones accept the identical set, and the panel's groups, order, words and hints are identical. A saved template lost 50 guessed `...Text` mirrors (`{{firstNameText}}`) that no send ever filled, which the editor accepted and the send refused.
+- `templateAllowedTokenKeys` for a saved template is exactly the map's keys. Compared before and after for all 37 built-in slugs and a saved one: the built-in ones accept the identical set, and the panel's groups, order, words and hints are identical. A saved template lost 50 guessed `...Text` mirrors (`{{firstNameText}}`) that no send ever filled: the editor accepted them, and the send refused them in the subject or body and sent them as literal text in the plain-text part.
 - The send dialog's preview is given the audience and asks the send's own check: a token that send would refuse is left bare in the preview, never filled from the samples, and named in a note ("The send would be refused. ..."), for a saved template and a typed email, every audience. The samples themselves stay where they were (`email.ts`): what mattered was that the preview could show a value the send will not fill.
 - CLAUDE.md (Key Files) and AGENTS.md (rule 12) carry the rule.
+
+Found by the review of `5b6fbed9` and fixed with it: the Create Email Template dialog still built its own token list from five built-in templates, six of whose tokens no saved template gets; it lists the map's groups now. What a built-in template may also use from Communications is pinned by test, so a new map entry cannot widen it unnoticed.
+
+What the preview's note does not cover: an RSVP token with no RSVP picked (the send's RSVP check refuses it; the preview is not told the choice), a built-in template the event edited, and the previews on a person's own page, which pass no audience. A built-in template still accepts a `...Text` mirror of each of its tokens.
 
 Left as it is, on purpose: `templateAllowedTokenKeys` still treats the two retired slugs as saved templates while the senders do not (hidden rows nobody edits; unifying the two definitions changes nothing a person can reach).
 
